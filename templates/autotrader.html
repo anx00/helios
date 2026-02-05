@@ -45,7 +45,7 @@
         padding: 10px;
         margin-bottom: 14px;
     }
-    .control-row button {
+    .control-btn {
         border: 1px solid rgba(255,255,255,0.16);
         background: rgba(255,255,255,0.05);
         color: var(--text-main);
@@ -54,10 +54,58 @@
         font-size: 12px;
         font-weight: 600;
         cursor: pointer;
+        transition: all 0.15s ease;
     }
-    .control-row button:hover { background: rgba(255,255,255,0.1); }
+    .control-btn:hover { background: rgba(255,255,255,0.1); }
+    .control-btn:disabled {
+        cursor: not-allowed;
+        opacity: 0.45;
+    }
+    .control-btn.active {
+        border-color: rgba(0,120,255,0.55);
+        background: rgba(0,120,255,0.24);
+        color: #b8daff;
+        box-shadow: inset 0 0 0 1px rgba(0,120,255,0.35);
+    }
     .btn-start { border-color: rgba(0,120,255,0.5) !important; background: rgba(0,120,255,0.2) !important; }
     .btn-riskoff { border-color: rgba(239,68,68,0.5) !important; background: rgba(239,68,68,0.16) !important; }
+
+    .market-select-wrap {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-left: 8px;
+    }
+    .market-select-label {
+        color: var(--text-muted);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.35px;
+    }
+    .market-select {
+        background: #1a1f2e;
+        border: 1px solid rgba(255,255,255,0.16);
+        border-radius: 8px;
+        color: var(--text-main);
+        padding: 7px 26px 7px 9px;
+        font-size: 12px;
+        font-family: 'JetBrains Mono', monospace;
+        cursor: pointer;
+        appearance: none;
+        -webkit-appearance: none;
+        background-image: url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E\");
+        background-repeat: no-repeat;
+        background-position: right 8px center;
+    }
+    .market-select:focus {
+        outline: none;
+        border-color: rgba(0,120,255,0.55);
+    }
+    .market-day-meta {
+        color: var(--text-secondary);
+        font-size: 11px;
+        white-space: nowrap;
+    }
     .control-msg {
         margin-left: auto;
         font-size: 12px;
@@ -231,11 +279,20 @@
         .kpi-grid { grid-template-columns: 1fr; }
         .metric-grid { grid-template-columns: 1fr; }
         .control-msg { width: 100%; margin-left: 0; }
+        .market-select-wrap {
+            width: 100%;
+            margin-left: 0;
+            flex-wrap: wrap;
+        }
+        .market-day-meta {
+            white-space: normal;
+        }
     }
 </style>
 {% endblock %}
 
 {% block content %}
+<div class="page-content">
 <div class="autotrader-header">
     <div>
         <div class="autotrader-title">Autotrader Live Signals</div>
@@ -245,12 +302,22 @@
 </div>
 
 <div class="control-row">
-    <button class="btn-start" onclick="sendControl('start')">Start</button>
-    <button onclick="sendControl('pause')">Pause</button>
-    <button onclick="sendControl('resume')">Resume</button>
-    <button class="btn-riskoff" onclick="sendControl('risk_off')">Risk Off</button>
-    <button onclick="sendControl('risk_on')">Risk On</button>
-    <button onclick="manualRefresh()">Refresh</button>
+    <button id="btn-start" class="control-btn btn-start" onclick="sendControl('start')">Start</button>
+    <button id="btn-pause" class="control-btn" onclick="sendControl('pause')">Pause</button>
+    <button id="btn-resume" class="control-btn" onclick="sendControl('resume')">Resume</button>
+    <button id="btn-riskoff" class="control-btn btn-riskoff" onclick="sendControl('risk_off')">Risk Off</button>
+    <button id="btn-riskon" class="control-btn" onclick="sendControl('risk_on')">Risk On</button>
+    <button id="btn-refresh" class="control-btn" onclick="manualRefresh()">Refresh</button>
+
+    <div class="market-select-wrap">
+        <span class="market-select-label">Market</span>
+        <select id="market-day-select" class="market-select" onchange="onMarketDayChange()">
+            <option value="0">Today</option>
+            <option value="1">Tomorrow</option>
+        </select>
+        <span id="market-day-meta" class="market-day-meta">day: --</span>
+    </div>
+
     <span id="control-msg" class="control-msg">Waiting for data...</span>
 </div>
 
@@ -374,11 +441,26 @@
         </div>
     </div>
 </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-const live = { stationId: "KLGA", fastTimer: null, slowTimer: null };
+const STATION_TIMEZONES = {
+{% for sid, stn in all_stations.items() %}
+    "{{ sid }}": "{{ stn.timezone }}",
+{% endfor %}
+};
+
+const live = {
+    stationId: "KLGA",
+    stationTz: "America/New_York",
+    targetDay: 0,
+    fastTimer: null,
+    slowTimer: null,
+    pendingAction: null,
+    lastStatus: null,
+};
 
 function esc(v) {
     if (v === null || v === undefined) return "";
@@ -417,6 +499,82 @@ async function j(url) {
     if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
     return r.json();
 }
+
+function stationTimezone(stationId) {
+    return STATION_TIMEZONES[stationId] || "America/New_York";
+}
+
+function fmtDateInTz(dateObj, tz) {
+    return new Intl.DateTimeFormat("en-CA", {
+        timeZone: tz,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+    }).format(dateObj);
+}
+
+function setControlMessage(text, level = "info") {
+    const msg = document.getElementById("control-msg");
+    msg.textContent = text;
+    if (level === "error") msg.style.color = "#EF4444";
+    else if (level === "warn") msg.style.color = "#F4D03F";
+    else msg.style.color = "var(--text-secondary)";
+}
+
+function setControlsDisabled(disabled) {
+    ["btn-start", "btn-pause", "btn-resume", "btn-riskoff", "btn-riskon", "btn-refresh"].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.disabled = !!disabled;
+    });
+}
+
+function setControlActive(status) {
+    const isRunning = !!status?.running;
+    const isPaused = !!status?.paused;
+    const isRiskOff = !!status?.risk_off;
+
+    const btnStart = document.getElementById("btn-start");
+    const btnPause = document.getElementById("btn-pause");
+    const btnResume = document.getElementById("btn-resume");
+    const btnRiskOff = document.getElementById("btn-riskoff");
+    const btnRiskOn = document.getElementById("btn-riskon");
+
+    [btnStart, btnPause, btnResume, btnRiskOff, btnRiskOn].forEach((btn) => btn?.classList.remove("active"));
+
+    if (btnStart) {
+        btnStart.classList.toggle("active", isRunning && !isPaused);
+        btnStart.disabled = isRunning && !isPaused;
+    }
+    if (btnPause) {
+        btnPause.classList.toggle("active", isPaused);
+        btnPause.disabled = !isRunning || isPaused;
+    }
+    if (btnResume) {
+        btnResume.classList.toggle("active", isRunning && !isPaused);
+        btnResume.disabled = !isRunning || !isPaused;
+    }
+    if (btnRiskOff) {
+        btnRiskOff.classList.toggle("active", isRiskOff);
+        btnRiskOff.disabled = isRiskOff;
+    }
+    if (btnRiskOn) {
+        btnRiskOn.classList.toggle("active", !isRiskOff);
+        btnRiskOn.disabled = !isRiskOff;
+    }
+}
+
+function updateMarketDayMeta() {
+    const meta = document.getElementById("market-day-meta");
+    const now = new Date();
+    const target = new Date(now.getTime() + (live.targetDay * 24 * 60 * 60 * 1000));
+
+    const stationDate = fmtDateInTz(target, live.stationTz);
+    const nycDate = fmtDateInTz(target, "America/New_York");
+    const localDate = fmtDateInTz(target, Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
+
+    meta.textContent = `D+${live.targetDay} | station(${live.stationTz}): ${stationDate} | NYC: ${nycDate} | local: ${localDate}`;
+}
+
 function setStatePill(status) {
     const el = document.getElementById("state-pill");
     if (!status) { el.className = "state-pill warn"; el.textContent = "No status"; return; }
@@ -428,6 +586,12 @@ function setStatePill(status) {
 
 function renderStatus(status, decisions, positions, strategies) {
     setStatePill(status);
+    live.lastStatus = status || null;
+    live.stationId = status?.station_id || live.stationId;
+    live.stationTz = stationTimezone(live.stationId);
+    setControlActive(status);
+    updateMarketDayMeta();
+
     const perf = status?.performance || {};
     const total = Number(perf.total_pnl || 0);
     const pnlEl = document.getElementById("kpi-pnl");
@@ -438,7 +602,7 @@ function renderStatus(status, decisions, positions, strategies) {
     document.getElementById("kpi-dd").className = "value mono neg";
     document.getElementById("kpi-of").textContent = `${perf.total_orders || 0} / ${perf.total_fills || 0}`;
     document.getElementById("kpi-costs").textContent = `fees ${num(perf.total_fees || 0, 4)} | slip ${num(perf.total_slippage || 0, 4)}`;
-    const last = decisions.length ? decisions[decisions.length - 1] : null;
+    const last = decisions && decisions.length ? decisions[decisions.length - 1] : null;
     document.getElementById("kpi-last").textContent = last ? ago(last.ts_utc) : "--";
     document.getElementById("kpi-strategy").textContent = `strategy: ${last?.selected_strategy || "--"}`;
 
@@ -464,8 +628,8 @@ function renderStatus(status, decisions, positions, strategies) {
     document.getElementById("ctx-vol").textContent = num(c.volatility_short, 4);
     document.getElementById("ctx-qc").textContent = c.qc_state || "--";
 
-    renderStrategies(strategies);
-    renderPositions(positions);
+    renderStrategies(strategies || []);
+    renderPositions(positions || {});
 }
 
 function renderSignals(decisions) {
@@ -576,7 +740,7 @@ function renderNowcast(n) {
         box.innerHTML = `<div class="empty">${esc(n?.error || "No nowcast data.")}</div>`;
         return;
     }
-    meta.textContent = `${n.station_id || live.stationId} | conf ${pct(n.confidence,1)} | tmax ${num(n.tmax_mean_f,1)}F`;
+    meta.textContent = `${n.station_id || live.stationId} | conf ${pct(n.confidence,1)} | tmax ${num(n.tmax_mean_f,1)}F | nowcast live`;
     const top = [...(n.p_bucket || [])].sort((a,b) => Number(b.probability||0) - Number(a.probability||0)).slice(0, 6);
     if (!top.length) { box.innerHTML = '<div class="empty">No bucket probabilities.</div>'; return; }
     box.innerHTML = top.map((b) => {
@@ -598,7 +762,7 @@ function renderMarket(m) {
         box.innerHTML = `<div class="empty">${esc(m?.error || "No market data.")}</div>`;
         return;
     }
-    meta.textContent = `${m.station_id || live.stationId} | ${m.target_date || "--"} | ws:${m.ws_connected ? "on" : "off"}`;
+    meta.textContent = `${m.station_id || live.stationId} | ${m.target_date || "--"} | ws:${m.ws_connected ? "on" : "off"} | day D+${live.targetDay}`;
     const rows = (m.brackets || []).slice(0, 8);
     if (!rows.length) { box.innerHTML = '<div class="empty">No brackets in market.</div>'; return; }
     box.innerHTML = `
@@ -619,52 +783,99 @@ function renderMarket(m) {
 }
 
 async function refreshFast() {
-    const [status, decisionsR, positionsR, strategiesR, ordersR, fillsR] = await Promise.all([
+    const [statusR, decisionsR, positionsR, strategiesR, ordersR, fillsR] = await Promise.allSettled([
         j("/api/v6/autotrader/status"),
         j("/api/v6/autotrader/decisions?limit=120"),
         j("/api/v6/autotrader/positions"),
         j("/api/v6/autotrader/strategies"),
         j("/api/v6/autotrader/orders?limit=40"),
-        j("/api/v6/autotrader/fills?limit=40")
+        j("/api/v6/autotrader/fills?limit=40"),
     ]);
-    live.stationId = status.station_id || live.stationId;
-    document.getElementById("control-msg").textContent = `updated ${new Date().toLocaleTimeString()}`;
-    renderStatus(status, decisionsR.decisions || [], positionsR.positions || {}, strategiesR.strategies || []);
-    renderSignals(decisionsR.decisions || []);
-    renderMini(fillsR.fills || [], "fills-box", "fills");
-    renderMini(ordersR.orders || [], "orders-box", "orders");
+
+    if (statusR.status !== "fulfilled") {
+        throw new Error(`status unavailable: ${statusR.reason?.message || "unknown error"}`);
+    }
+
+    const status = statusR.value;
+    const decisions = decisionsR.status === "fulfilled" ? (decisionsR.value.decisions || []) : [];
+    const positions = positionsR.status === "fulfilled" ? (positionsR.value.positions || {}) : {};
+    const strategies = strategiesR.status === "fulfilled" ? (strategiesR.value.strategies || []) : [];
+    const orders = ordersR.status === "fulfilled" ? (ordersR.value.orders || []) : [];
+    const fills = fillsR.status === "fulfilled" ? (fillsR.value.fills || []) : [];
+
+    const degraded = [
+        decisionsR.status === "rejected" ? "decisions" : "",
+        positionsR.status === "rejected" ? "positions" : "",
+        strategiesR.status === "rejected" ? "strategies" : "",
+        ordersR.status === "rejected" ? "orders" : "",
+        fillsR.status === "rejected" ? "fills" : "",
+    ].filter(Boolean);
+
+    renderStatus(status, decisions, positions, strategies);
+    renderSignals(decisions);
+    renderMini(fills, "fills-box", "fills");
+    renderMini(orders, "orders-box", "orders");
+
+    if (degraded.length) {
+        setControlMessage(`updated ${new Date().toLocaleTimeString()} (partial: ${degraded.join(", ")})`, "warn");
+    } else {
+        setControlMessage(`updated ${new Date().toLocaleTimeString()}`);
+    }
 }
 
 async function refreshSlow() {
     const s = live.stationId || "KLGA";
-    const [n, m] = await Promise.allSettled([j(`/api/v3/nowcast/${s}`), j(`/api/polymarket/${s}?target_day=0&depth=3`)]);
+    const [n, m] = await Promise.allSettled([
+        j(`/api/v3/nowcast/${s}`),
+        j(`/api/polymarket/${s}?target_day=${live.targetDay}&depth=3`),
+    ]);
     renderNowcast(n.status === "fulfilled" ? n.value : { error: n.reason?.message || "error" });
     renderMarket(m.status === "fulfilled" ? m.value : { error: m.reason?.message || "error" });
 }
 
 async function manualRefresh() {
-    try {
-        await Promise.all([refreshFast(), refreshSlow()]);
-    } catch (err) {
-        document.getElementById("control-msg").textContent = `refresh error: ${err.message}`;
+    const [fast, slow] = await Promise.allSettled([refreshFast(), refreshSlow()]);
+    if (fast.status === "rejected") {
+        setControlMessage(`refresh error: ${fast.reason?.message || "fast loop failed"}`, "error");
+    } else if (slow.status === "rejected") {
+        setControlMessage(`slow refresh warning: ${slow.reason?.message || "slow loop failed"}`, "warn");
     }
 }
 
 async function sendControl(action) {
-    const msg = document.getElementById("control-msg");
-    msg.textContent = `sending ${action}...`;
+    if (live.pendingAction) return;
+    live.pendingAction = action;
+    setControlsDisabled(true);
+    const actionBtnId = {
+        start: "btn-start",
+        pause: "btn-pause",
+        resume: "btn-resume",
+        risk_off: "btn-riskoff",
+        risk_on: "btn-riskon",
+    }[action];
+    if (actionBtnId) document.getElementById(actionBtnId)?.classList.add("active");
+    setControlMessage(`sending ${action}...`);
     try {
         const r = await fetch("/api/v6/autotrader/control", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action })
+            body: JSON.stringify({ action }),
         });
         const data = await r.json();
-        if (!r.ok || data.ok === false) throw new Error(data.error || "control failed");
-        msg.textContent = `action ${action} ok`;
+        if (!r.ok || data.ok === false) {
+            throw new Error(data.error || "control failed");
+        }
+        if (data.status) {
+            renderStatus(data.status, [], {}, []);
+        }
+        setControlMessage(`action ${action} OK @ ${new Date().toLocaleTimeString()}`);
         await manualRefresh();
     } catch (err) {
-        msg.textContent = `control error: ${err.message}`;
+        setControlMessage(`control error (${action}): ${err.message}`, "error");
+    } finally {
+        if (live.lastStatus) setControlActive(live.lastStatus);
+        else setControlsDisabled(false);
+        live.pendingAction = null;
     }
 }
 
@@ -672,16 +883,30 @@ function startPolling() {
     if (live.fastTimer) clearInterval(live.fastTimer);
     if (live.slowTimer) clearInterval(live.slowTimer);
     live.fastTimer = setInterval(() => refreshFast().catch((e) => {
-        document.getElementById("control-msg").textContent = `fast loop error: ${e.message}`;
+        setControlMessage(`fast loop error: ${e.message}`, "error");
     }), 5000);
     live.slowTimer = setInterval(() => refreshSlow().catch((e) => {
-        document.getElementById("control-msg").textContent = `slow loop error: ${e.message}`;
+        setControlMessage(`slow loop error: ${e.message}`, "warn");
     }), 20000);
 }
 
+function onMarketDayChange() {
+    const select = document.getElementById("market-day-select");
+    live.targetDay = Number(select.value || 0);
+    updateMarketDayMeta();
+    setControlMessage(`market day changed to D+${live.targetDay}; refreshing...`);
+    manualRefresh();
+}
+
 document.addEventListener("visibilitychange", () => { if (!document.hidden) manualRefresh(); });
-document.addEventListener("DOMContentLoaded", async () => { await manualRefresh(); startPolling(); });
+document.addEventListener("DOMContentLoaded", async () => {
+    live.targetDay = Number(document.getElementById("market-day-select").value || 0);
+    updateMarketDayMeta();
+    await manualRefresh();
+    startPolling();
+});
 window.sendControl = sendControl;
 window.manualRefresh = manualRefresh;
+window.onMarketDayChange = onMarketDayChange;
 </script>
 {% endblock %}
