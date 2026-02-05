@@ -1,0 +1,939 @@
+{% extends "base.html" %}
+
+{% block title %}HELIOS - Polymarket Dashboard{% endblock %}
+
+{% block head_extra %}
+<style>
+    /* ============= PAGE LAYOUT ============= */
+    .pm-controls {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+    .pm-select {
+        background: rgba(255,255,255,0.05);
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 8px;
+        color: var(--text-primary);
+        padding: 8px 12px;
+        font-size: 13px;
+        font-family: 'Inter', sans-serif;
+        cursor: pointer;
+    }
+    .pm-select:focus { outline: none; border-color: var(--accent-blue); }
+    .pm-day-toggle {
+        display: flex;
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 8px;
+        overflow: hidden;
+    }
+    .pm-day-btn {
+        padding: 8px 16px;
+        font-size: 12px;
+        font-weight: 600;
+        background: transparent;
+        color: var(--text-secondary);
+        border: none;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    .pm-day-btn.active {
+        background: rgba(0,120,255,0.2);
+        color: var(--accent-blue);
+    }
+    .pm-ws-badge {
+        font-size: 10px;
+        padding: 4px 10px;
+        border-radius: 20px;
+        font-weight: 600;
+        letter-spacing: 0.5px;
+    }
+    .pm-ws-badge.connected {
+        background: rgba(16,185,129,0.15);
+        color: #10B981;
+        border: 1px solid rgba(16,185,129,0.3);
+    }
+    .pm-ws-badge.disconnected {
+        background: rgba(239,68,68,0.15);
+        color: #EF4444;
+        border: 1px solid rgba(239,68,68,0.3);
+    }
+
+    /* ============= OVERVIEW CARD ============= */
+    .pm-overview {
+        background: rgba(255,255,255,0.02);
+        border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 14px;
+        padding: 22px;
+        margin-bottom: 20px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 16px;
+    }
+    .pm-overview-left {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+    .pm-event-title {
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+    .pm-event-meta {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-size: 12px;
+        color: var(--text-secondary);
+    }
+    .pm-volume {
+        font-weight: 700;
+        color: var(--accent-green);
+    }
+    .pm-status-badge {
+        font-size: 10px;
+        padding: 3px 10px;
+        border-radius: 20px;
+        font-weight: 600;
+        letter-spacing: 0.5px;
+    }
+    .pm-status-badge.open {
+        background: rgba(16,185,129,0.15);
+        color: #10B981;
+        border: 1px solid rgba(16,185,129,0.3);
+    }
+    .pm-status-badge.mature {
+        background: rgba(244,208,63,0.15);
+        color: #F4D03F;
+        border: 1px solid rgba(244,208,63,0.3);
+    }
+    .pm-status-badge.closed {
+        background: rgba(239,68,68,0.15);
+        color: #EF4444;
+        border: 1px solid rgba(239,68,68,0.3);
+    }
+    .pm-overview-right {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 4px;
+    }
+    .pm-sentiment {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text-secondary);
+    }
+    .pm-sentiment.shifting { color: #F4D03F; }
+    .pm-sentiment.aggressive { color: #EF4444; }
+
+    /* ============= BRACKET GRID ============= */
+    .pm-brackets-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        gap: 14px;
+        margin-bottom: 20px;
+    }
+    .pm-bracket-card {
+        background: rgba(255,255,255,0.02);
+        border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 14px;
+        padding: 18px;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    .pm-bracket-card:hover {
+        border-color: rgba(255,255,255,0.15);
+    }
+    .pm-bracket-card.leading {
+        border-color: rgba(0,120,255,0.3);
+        background: rgba(0,120,255,0.04);
+    }
+    .pm-bracket-card.selected {
+        border-color: var(--accent-blue);
+        box-shadow: 0 0 0 1px var(--accent-blue);
+    }
+    .bracket-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+    }
+    .bracket-name {
+        font-size: 15px;
+        font-weight: 700;
+        font-family: 'Space Grotesk', sans-serif;
+    }
+    .bracket-prob {
+        font-size: 22px;
+        font-weight: 700;
+        font-family: 'Space Grotesk', sans-serif;
+        color: var(--accent-blue);
+    }
+    .bracket-prices {
+        margin-bottom: 12px;
+    }
+    .yes-no-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 6px;
+    }
+    .yes-tag {
+        font-size: 12px;
+        font-weight: 700;
+        color: #10B981;
+        background: rgba(16,185,129,0.12);
+        padding: 3px 10px;
+        border-radius: 6px;
+    }
+    .no-tag {
+        font-size: 12px;
+        font-weight: 700;
+        color: #EF4444;
+        background: rgba(239,68,68,0.12);
+        padding: 3px 10px;
+        border-radius: 6px;
+    }
+    .ws-mid-row {
+        font-size: 11px;
+        color: var(--text-secondary);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+    .ws-delta.positive { color: #10B981; }
+    .ws-delta.negative { color: #EF4444; }
+
+    /* Mini orderbook depth */
+    .mini-depth {
+        margin-bottom: 10px;
+    }
+    .depth-labels {
+        display: flex;
+        justify-content: space-between;
+        font-size: 11px;
+        color: var(--text-secondary);
+        margin-bottom: 4px;
+    }
+    .depth-bar-container {
+        display: flex;
+        height: 6px;
+        border-radius: 3px;
+        overflow: hidden;
+        background: rgba(255,255,255,0.04);
+    }
+    .depth-bid-bar {
+        background: rgba(16,185,129,0.5);
+        transition: width 0.3s;
+    }
+    .depth-ask-bar {
+        background: rgba(239,68,68,0.5);
+        transition: width 0.3s;
+    }
+    .depth-prices {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 11px;
+        margin-top: 6px;
+    }
+    .depth-bid { color: #10B981; font-weight: 600; }
+    .depth-spread {
+        color: var(--text-secondary);
+        font-size: 10px;
+        background: rgba(255,255,255,0.05);
+        padding: 1px 6px;
+        border-radius: 4px;
+    }
+    .depth-ask { color: #EF4444; font-weight: 600; }
+
+    .bracket-meta {
+        display: flex;
+        justify-content: space-between;
+        font-size: 11px;
+        color: var(--text-secondary);
+    }
+    .bracket-meta .staleness { opacity: 0.6; }
+
+    /* ============= ORDERBOOK DETAIL ============= */
+    .pm-orderbook-detail {
+        background: rgba(255,255,255,0.02);
+        border: 1px solid rgba(0,120,255,0.2);
+        border-radius: 14px;
+        padding: 22px;
+        margin-bottom: 20px;
+        display: none;
+    }
+    .pm-orderbook-detail.visible { display: block; }
+    .ob-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 16px;
+    }
+    .ob-title {
+        font-size: 14px;
+        font-weight: 700;
+        font-family: 'Space Grotesk', sans-serif;
+    }
+    .ob-close {
+        background: none;
+        border: none;
+        color: var(--text-secondary);
+        cursor: pointer;
+        font-size: 18px;
+    }
+    .ob-stats {
+        display: flex;
+        gap: 24px;
+        margin-bottom: 16px;
+    }
+    .ob-stat {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+    .ob-stat-label {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: var(--text-secondary);
+    }
+    .ob-stat-value {
+        font-size: 18px;
+        font-weight: 700;
+        font-family: 'Space Grotesk', sans-serif;
+    }
+    .ob-stat-value.bid-color { color: #10B981; }
+    .ob-stat-value.ask-color { color: #EF4444; }
+    .ob-stat-value.spread-color { color: var(--text-secondary); }
+
+    .ob-book {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+    }
+    .ob-side-title {
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        margin-bottom: 8px;
+    }
+    .ob-side-title.bids { color: #10B981; }
+    .ob-side-title.asks { color: #EF4444; }
+    .ob-row {
+        display: flex;
+        justify-content: space-between;
+        padding: 4px 8px;
+        font-size: 12px;
+        font-family: 'Space Mono', 'JetBrains Mono', monospace;
+        border-radius: 4px;
+        margin-bottom: 2px;
+        position: relative;
+    }
+    .ob-row .ob-bg {
+        position: absolute;
+        top: 0; bottom: 0; right: 0;
+        border-radius: 4px;
+        opacity: 0.08;
+    }
+    .ob-row.bid-row .ob-bg { background: #10B981; left: auto; }
+    .ob-row.ask-row .ob-bg { background: #EF4444; left: 0; right: auto; }
+    .ob-row span { position: relative; z-index: 1; }
+    .ob-price { font-weight: 600; }
+    .ob-size { color: var(--text-secondary); }
+
+    /* ============= SHIFTS TABLE ============= */
+    .pm-shifts {
+        background: rgba(255,255,255,0.02);
+        border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 14px;
+        padding: 22px;
+        margin-bottom: 20px;
+    }
+    .pm-section-title {
+        font-size: 13px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        color: var(--text-secondary);
+        margin-bottom: 14px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .shifts-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+    }
+    .shifts-table th {
+        text-align: left;
+        padding: 8px 12px;
+        color: var(--text-secondary);
+        font-weight: 600;
+        text-transform: uppercase;
+        font-size: 10px;
+        letter-spacing: 1px;
+        border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    .shifts-table td {
+        padding: 8px 12px;
+        border-bottom: 1px solid rgba(255,255,255,0.03);
+    }
+    .shift-positive { color: #10B981; }
+    .shift-negative { color: #EF4444; }
+
+    /* ============= WS DIAGNOSTICS ============= */
+    .pm-diagnostics {
+        background: rgba(255,255,255,0.02);
+        border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 14px;
+        padding: 22px;
+    }
+    .pm-diag-toggle {
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+    .pm-diag-content {
+        display: none;
+        margin-top: 14px;
+    }
+    .pm-diag-content.visible { display: block; }
+    .diag-grid {
+        display: flex;
+        gap: 24px;
+        flex-wrap: wrap;
+    }
+    .diag-item {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+    .diag-label {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: var(--text-secondary);
+    }
+    .diag-value {
+        font-size: 14px;
+        font-weight: 600;
+        font-family: 'Space Grotesk', sans-serif;
+    }
+
+    /* ============= LOADING / ERROR ============= */
+    .pm-loading {
+        text-align: center;
+        padding: 60px 20px;
+        color: var(--text-secondary);
+        font-size: 14px;
+    }
+    .pm-error {
+        text-align: center;
+        padding: 40px 20px;
+        color: #EF4444;
+        font-size: 14px;
+    }
+    .pm-last-update {
+        text-align: right;
+        font-size: 11px;
+        color: var(--text-secondary);
+        margin-top: 16px;
+        opacity: 0.6;
+    }
+
+    /* ============= RESPONSIVE ============= */
+    @media (max-width: 900px) {
+        .pm-brackets-grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+        .ob-book { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 600px) {
+        .pm-brackets-grid { grid-template-columns: 1fr; }
+        .pm-overview { flex-direction: column; align-items: flex-start; }
+        .pm-overview-right { align-items: flex-start; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Page Header -->
+<div class="page-header">
+    <div class="page-title">
+        <i data-lucide="candlestick-chart" style="width:24px;height:24px;color:var(--accent-blue);"></i>
+        Polymarket Dashboard
+    </div>
+    <div class="pm-controls">
+        <select id="pm-station-select" class="pm-select" onchange="selectStation(this.value)">
+            {% for sid in active_stations %}
+            {% set stn = all_stations[sid] %}
+            <option value="{{ sid }}">{{ sid }} - {{ stn.name }}</option>
+            {% endfor %}
+        </select>
+        <div class="pm-day-toggle">
+            <button class="pm-day-btn active" data-day="0" onclick="selectDay(0)">Today</button>
+            <button class="pm-day-btn" data-day="1" onclick="selectDay(1)">Tomorrow</button>
+        </div>
+        <span id="pm-ws-badge" class="pm-ws-badge disconnected">WS OFF</span>
+    </div>
+</div>
+
+<!-- Loading state -->
+<div id="pm-loading" class="pm-loading">Loading market data...</div>
+
+<!-- Content (hidden until data loads) -->
+<div id="pm-content" style="display:none;">
+
+    <!-- Section 1: Market Overview -->
+    <div class="pm-overview">
+        <div class="pm-overview-left">
+            <div class="pm-event-title" id="pm-event-title">--</div>
+            <div class="pm-event-meta">
+                <span id="pm-date">--</span>
+                <span class="pm-volume" id="pm-volume">$--</span>
+                <span class="pm-status-badge open" id="pm-status">OPEN</span>
+            </div>
+        </div>
+        <div class="pm-overview-right">
+            <div class="pm-sentiment" id="pm-sentiment">--</div>
+        </div>
+    </div>
+
+    <!-- Section 2: Bracket Grid -->
+    <div class="pm-brackets-grid" id="pm-brackets-grid">
+        <!-- Filled by JS -->
+    </div>
+
+    <!-- Section 3: Orderbook Detail (hidden until bracket clicked) -->
+    <div class="pm-orderbook-detail" id="pm-orderbook-detail">
+        <div class="ob-header">
+            <div class="ob-title" id="ob-title">--</div>
+            <button class="ob-close" onclick="closeBracketDetail()">&times;</button>
+        </div>
+        <div class="ob-stats" id="ob-stats"></div>
+        <div class="ob-book">
+            <div>
+                <div class="ob-side-title bids">Bids (Buy YES)</div>
+                <div id="ob-bids"></div>
+            </div>
+            <div>
+                <div class="ob-side-title asks">Asks (Sell YES)</div>
+                <div id="ob-asks"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Section 4: Market Shifts -->
+    <div class="pm-shifts" id="pm-shifts-section" style="display:none;">
+        <div class="pm-section-title">
+            <i data-lucide="trending-up"></i> Market Shifts (last 60 min)
+        </div>
+        <table class="shifts-table">
+            <thead>
+                <tr>
+                    <th>Bracket</th>
+                    <th>Before</th>
+                    <th>Now</th>
+                    <th>Change</th>
+                    <th>Velocity</th>
+                </tr>
+            </thead>
+            <tbody id="pm-shifts-body"></tbody>
+        </table>
+    </div>
+
+    <!-- Section 5: WS Diagnostics (collapsible) -->
+    <div class="pm-diagnostics">
+        <div class="pm-diag-toggle" onclick="toggleDiagnostics()">
+            <div class="pm-section-title" style="margin-bottom:0;">
+                <i data-lucide="radio"></i> WebSocket Diagnostics
+            </div>
+            <i data-lucide="chevron-down" id="diag-chevron"></i>
+        </div>
+        <div class="pm-diag-content" id="pm-diag-content">
+            <div class="diag-grid" id="pm-diag-grid"></div>
+        </div>
+    </div>
+
+    <div class="pm-last-update">Last update: <span id="pm-last-update">--:--:--</span></div>
+</div>
+
+<!-- Error state -->
+<div id="pm-error" class="pm-error" style="display:none;"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+    let selectedStation = '{{ active_stations[0] if active_stations else "" }}';
+    let selectedDay = 0;
+    let selectedBracket = null;
+    let lastData = null;
+    const REFRESH_MS = 5000;
+
+    // ========================
+    // DATA FETCHING
+    // ========================
+    async function fetchData() {
+        try {
+            const resp = await fetch(`/api/polymarket/${selectedStation}?target_day=${selectedDay}&depth=5`, { cache: 'no-store' });
+            const data = await resp.json();
+            if (data.error) {
+                showError(data.error);
+                return;
+            }
+            lastData = data;
+            document.getElementById('pm-loading').style.display = 'none';
+            document.getElementById('pm-error').style.display = 'none';
+            document.getElementById('pm-content').style.display = 'block';
+            renderAll(data);
+        } catch (e) {
+            showError('Failed to fetch market data');
+        }
+    }
+
+    function showError(msg) {
+        document.getElementById('pm-loading').style.display = 'none';
+        document.getElementById('pm-content').style.display = 'none';
+        const el = document.getElementById('pm-error');
+        el.style.display = 'block';
+        el.textContent = msg;
+    }
+
+    // ========================
+    // RENDER ALL
+    // ========================
+    function renderAll(data) {
+        renderOverview(data);
+        renderBrackets(data.brackets);
+        renderShifts(data.shifts);
+        renderDiagnostics(data);
+        if (selectedBracket) {
+            const b = data.brackets.find(x => x.name === selectedBracket);
+            if (b) renderOrderbookDetail(b);
+            else closeBracketDetail();
+        }
+        document.getElementById('pm-last-update').textContent = new Date().toLocaleTimeString();
+    }
+
+    // ========================
+    // OVERVIEW
+    // ========================
+    function renderOverview(data) {
+        document.getElementById('pm-event-title').textContent = data.event_title;
+        const d = new Date(data.target_date + 'T00:00:00');
+        document.getElementById('pm-date').textContent = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+        document.getElementById('pm-volume').textContent = `$${(data.total_volume / 1000).toFixed(0)}K Vol.`;
+
+        // Status badge
+        const statusEl = document.getElementById('pm-status');
+        const st = data.market_status;
+        if (st.event_closed || !st.event_active) {
+            statusEl.textContent = 'CLOSED';
+            statusEl.className = 'pm-status-badge closed';
+        } else if (st.is_mature) {
+            statusEl.textContent = 'MATURE';
+            statusEl.className = 'pm-status-badge mature';
+        } else {
+            statusEl.textContent = 'OPEN';
+            statusEl.className = 'pm-status-badge open';
+        }
+
+        // WS badge
+        const wsBadge = document.getElementById('pm-ws-badge');
+        if (data.ws_connected) {
+            wsBadge.textContent = 'WS LIVE';
+            wsBadge.className = 'pm-ws-badge connected';
+        } else {
+            wsBadge.textContent = 'WS OFF';
+            wsBadge.className = 'pm-ws-badge disconnected';
+        }
+
+        // Sentiment
+        const sentEl = document.getElementById('pm-sentiment');
+        sentEl.textContent = data.sentiment;
+        if (data.sentiment.startsWith('AGGRESSIVE')) sentEl.className = 'pm-sentiment aggressive';
+        else if (data.sentiment.startsWith('SHIFTING')) sentEl.className = 'pm-sentiment shifting';
+        else sentEl.className = 'pm-sentiment';
+    }
+
+    // ========================
+    // BRACKETS
+    // ========================
+    function renderBrackets(brackets) {
+        const grid = document.getElementById('pm-brackets-grid');
+        grid.innerHTML = '';
+
+        brackets.forEach((b, idx) => {
+            const card = document.createElement('div');
+            const isLeading = idx === 0;
+            const isSelected = b.name === selectedBracket;
+            card.className = `pm-bracket-card${isLeading ? ' leading' : ''}${isSelected ? ' selected' : ''}`;
+            card.onclick = () => toggleBracketDetail(b.name);
+
+            const yesP = (b.yes_price * 100).toFixed(1);
+            const noP = (b.no_price * 100).toFixed(1);
+
+            // WS mid delta
+            let wsMidHtml = '';
+            if (b.ws_mid !== null) {
+                const wsMid = (b.ws_mid * 100).toFixed(1);
+                const delta = ((b.ws_mid - b.yes_price) * 100).toFixed(1);
+                const cls = delta > 0 ? 'positive' : delta < 0 ? 'negative' : '';
+                wsMidHtml = `<div class="ws-mid-row">WS Mid: ${wsMid}c <span class="ws-delta ${cls}">(${delta > 0 ? '+' : ''}${delta})</span></div>`;
+            }
+
+            // Mini depth bars
+            let depthHtml = '';
+            if (b.ws_best_bid !== null) {
+                const totalDepth = (b.ws_bid_depth || 0) + (b.ws_ask_depth || 0);
+                const bidPct = totalDepth > 0 ? ((b.ws_bid_depth / totalDepth) * 100).toFixed(0) : 50;
+                const askPct = totalDepth > 0 ? ((b.ws_ask_depth / totalDepth) * 100).toFixed(0) : 50;
+                depthHtml = `
+                    <div class="mini-depth">
+                        <div class="depth-labels">
+                            <span>Bid Depth: $${(b.ws_bid_depth || 0).toLocaleString()}</span>
+                            <span>Ask Depth: $${(b.ws_ask_depth || 0).toLocaleString()}</span>
+                        </div>
+                        <div class="depth-bar-container">
+                            <div class="depth-bid-bar" style="width:${bidPct}%"></div>
+                            <div class="depth-ask-bar" style="width:${askPct}%"></div>
+                        </div>
+                        <div class="depth-prices">
+                            <span class="depth-bid">${(b.ws_best_bid * 100).toFixed(1)}c</span>
+                            <span class="depth-spread">spread ${(b.ws_spread * 100).toFixed(1)}c</span>
+                            <span class="depth-ask">${(b.ws_best_ask * 100).toFixed(1)}c</span>
+                        </div>
+                    </div>`;
+            }
+
+            // Staleness
+            let stalenessHtml = '';
+            if (b.ws_staleness_ms !== null) {
+                stalenessHtml = `<span class="staleness">${b.ws_staleness_ms}ms</span>`;
+            }
+
+            card.innerHTML = `
+                <div class="bracket-header">
+                    <span class="bracket-name">${b.name}</span>
+                    <span class="bracket-prob">${yesP}%</span>
+                </div>
+                <div class="bracket-prices">
+                    <div class="yes-no-row">
+                        <span class="yes-tag">YES ${yesP}c</span>
+                        <span class="no-tag">NO ${noP}c</span>
+                    </div>
+                    ${wsMidHtml}
+                </div>
+                ${depthHtml}
+                <div class="bracket-meta">
+                    <span>$${b.volume.toLocaleString()} Vol.</span>
+                    ${stalenessHtml}
+                </div>
+            `;
+            grid.appendChild(card);
+        });
+    }
+
+    // ========================
+    // ORDERBOOK DETAIL
+    // ========================
+    function toggleBracketDetail(name) {
+        if (selectedBracket === name) {
+            closeBracketDetail();
+        } else {
+            selectedBracket = name;
+            if (lastData) {
+                const b = lastData.brackets.find(x => x.name === name);
+                if (b) renderOrderbookDetail(b);
+            }
+            // Re-render brackets to show selection
+            if (lastData) renderBrackets(lastData.brackets);
+        }
+    }
+
+    function closeBracketDetail() {
+        selectedBracket = null;
+        document.getElementById('pm-orderbook-detail').classList.remove('visible');
+        if (lastData) renderBrackets(lastData.brackets);
+    }
+    window.closeBracketDetail = closeBracketDetail;
+
+    function renderOrderbookDetail(b) {
+        const panel = document.getElementById('pm-orderbook-detail');
+        panel.classList.add('visible');
+
+        document.getElementById('ob-title').textContent = `Orderbook: ${b.name}`;
+
+        // Stats
+        const statsEl = document.getElementById('ob-stats');
+        if (b.ws_best_bid !== null) {
+            statsEl.innerHTML = `
+                <div class="ob-stat">
+                    <span class="ob-stat-label">Best Bid</span>
+                    <span class="ob-stat-value bid-color">${(b.ws_best_bid * 100).toFixed(2)}c</span>
+                </div>
+                <div class="ob-stat">
+                    <span class="ob-stat-label">Best Ask</span>
+                    <span class="ob-stat-value ask-color">${(b.ws_best_ask * 100).toFixed(2)}c</span>
+                </div>
+                <div class="ob-stat">
+                    <span class="ob-stat-label">Spread</span>
+                    <span class="ob-stat-value spread-color">${(b.ws_spread * 100).toFixed(2)}c</span>
+                </div>
+                <div class="ob-stat">
+                    <span class="ob-stat-label">Mid</span>
+                    <span class="ob-stat-value">${(b.ws_mid * 100).toFixed(2)}c</span>
+                </div>
+            `;
+        } else {
+            statsEl.innerHTML = '<div style="color:var(--text-secondary);font-size:13px;">No WebSocket data available</div>';
+        }
+
+        // Bids
+        const bidsEl = document.getElementById('ob-bids');
+        bidsEl.innerHTML = '';
+        if (b.ws_bids && b.ws_bids.length > 0) {
+            const maxSize = Math.max(...b.ws_bids.map(x => x.size));
+            b.ws_bids.forEach(level => {
+                const pct = maxSize > 0 ? (level.size / maxSize * 100).toFixed(0) : 0;
+                bidsEl.innerHTML += `
+                    <div class="ob-row bid-row">
+                        <div class="ob-bg" style="width:${pct}%"></div>
+                        <span class="ob-price">${(level.price * 100).toFixed(1)}c</span>
+                        <span class="ob-size">${level.size.toLocaleString()}</span>
+                    </div>`;
+            });
+        } else {
+            bidsEl.innerHTML = '<div style="color:var(--text-secondary);font-size:12px;padding:8px;">No bids</div>';
+        }
+
+        // Asks
+        const asksEl = document.getElementById('ob-asks');
+        asksEl.innerHTML = '';
+        if (b.ws_asks && b.ws_asks.length > 0) {
+            const maxSize = Math.max(...b.ws_asks.map(x => x.size));
+            b.ws_asks.forEach(level => {
+                const pct = maxSize > 0 ? (level.size / maxSize * 100).toFixed(0) : 0;
+                asksEl.innerHTML += `
+                    <div class="ob-row ask-row">
+                        <div class="ob-bg" style="width:${pct}%"></div>
+                        <span class="ob-price">${(level.price * 100).toFixed(1)}c</span>
+                        <span class="ob-size">${level.size.toLocaleString()}</span>
+                    </div>`;
+            });
+        } else {
+            asksEl.innerHTML = '<div style="color:var(--text-secondary);font-size:12px;padding:8px;">No asks</div>';
+        }
+    }
+
+    // ========================
+    // SHIFTS
+    // ========================
+    function renderShifts(shifts) {
+        const section = document.getElementById('pm-shifts-section');
+        const tbody = document.getElementById('pm-shifts-body');
+        if (!shifts || shifts.length === 0) {
+            section.style.display = 'none';
+            return;
+        }
+        section.style.display = 'block';
+        tbody.innerHTML = '';
+        shifts.sort((a, b) => Math.abs(b.change) - Math.abs(a.change));
+        shifts.forEach(s => {
+            const cls = s.change > 0 ? 'shift-positive' : 'shift-negative';
+            const sign = s.change > 0 ? '+' : '';
+            tbody.innerHTML += `
+                <tr>
+                    <td style="font-weight:600;">${s.bracket}</td>
+                    <td>${(s.old_prob * 100).toFixed(1)}%</td>
+                    <td>${(s.new_prob * 100).toFixed(1)}%</td>
+                    <td class="${cls}">${sign}${(s.change * 100).toFixed(1)}%</td>
+                    <td class="${cls}">${sign}${(s.velocity * 100).toFixed(1)}%/hr</td>
+                </tr>`;
+        });
+    }
+
+    // ========================
+    // DIAGNOSTICS
+    // ========================
+    function renderDiagnostics(data) {
+        const grid = document.getElementById('pm-diag-grid');
+        const m = data.ws_metrics || {};
+        grid.innerHTML = `
+            <div class="diag-item">
+                <span class="diag-label">Status</span>
+                <span class="diag-value" style="color:${data.ws_connected ? '#10B981' : '#EF4444'}">${data.ws_connected ? 'Connected' : 'Disconnected'}</span>
+            </div>
+            <div class="diag-item">
+                <span class="diag-label">Reconnects</span>
+                <span class="diag-value">${m.reconnect_count || 0}</span>
+            </div>
+            <div class="diag-item">
+                <span class="diag-label">Resyncs</span>
+                <span class="diag-value">${m.resync_count || 0}</span>
+            </div>
+            <div class="diag-item">
+                <span class="diag-label">Publisher Lag</span>
+                <span class="diag-value">${m.publisher_lag_ms || 0}ms</span>
+            </div>
+            <div class="diag-item">
+                <span class="diag-label">Brackets Tracked</span>
+                <span class="diag-value">${data.brackets.filter(b => b.ws_best_bid !== null).length} / ${data.brackets.length}</span>
+            </div>
+        `;
+    }
+
+    let diagOpen = false;
+    function toggleDiagnostics() {
+        diagOpen = !diagOpen;
+        document.getElementById('pm-diag-content').classList.toggle('visible', diagOpen);
+        const chevron = document.getElementById('diag-chevron');
+        if (chevron) chevron.style.transform = diagOpen ? 'rotate(180deg)' : '';
+    }
+    window.toggleDiagnostics = toggleDiagnostics;
+
+    // ========================
+    // CONTROLS
+    // ========================
+    function selectStation(stationId) {
+        selectedStation = stationId;
+        selectedBracket = null;
+        document.getElementById('pm-orderbook-detail').classList.remove('visible');
+        fetchData();
+    }
+    window.selectStation = selectStation;
+
+    function selectDay(day) {
+        selectedDay = day;
+        document.querySelectorAll('.pm-day-btn').forEach(btn => {
+            btn.classList.toggle('active', parseInt(btn.dataset.day) === day);
+        });
+        selectedBracket = null;
+        document.getElementById('pm-orderbook-detail').classList.remove('visible');
+        fetchData();
+    }
+    window.selectDay = selectDay;
+
+    // ========================
+    // INIT
+    // ========================
+    document.addEventListener('DOMContentLoaded', () => {
+        fetchData();
+        setInterval(fetchData, REFRESH_MS);
+        lucide.createIcons();
+    });
+
+    // Tab visibility handler
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) fetchData();
+    });
+})();
+</script>
+{% endblock %}

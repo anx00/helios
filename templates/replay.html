@@ -1,0 +1,1309 @@
+{% extends "base.html" %}
+
+{% block title %}HELIOS - Replay{% endblock %}
+
+{% block head_extra %}
+<style>
+    .replay-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 20px;
+    }
+
+    .mode-toggle {
+        display: flex;
+        background: rgba(255,255,255,0.05);
+        border-radius: 8px;
+        overflow: hidden;
+    }
+
+    .mode-btn {
+        padding: 10px 24px;
+        background: transparent;
+        border: none;
+        color: var(--text-secondary);
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .mode-btn.active {
+        background: var(--accent-blue);
+        color: white;
+    }
+
+    .mode-btn:hover:not(.active) {
+        background: rgba(255,255,255,0.1);
+    }
+
+    /* Session Selector */
+    .session-selector {
+        display: grid;
+        grid-template-columns: 1fr 1fr auto;
+        gap: 15px;
+        background: var(--bg-secondary);
+        border: 1px solid rgba(255,255,255,0.05);
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 20px;
+    }
+
+    .selector-group {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .selector-label {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: var(--text-muted);
+    }
+
+    .selector-input {
+        background: #1a1f2e;
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 8px;
+        padding: 10px 14px;
+        color: var(--text-main);
+        font-size: 14px;
+        font-family: 'JetBrains Mono', monospace;
+        appearance: none;
+        -webkit-appearance: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 12px center;
+        padding-right: 32px;
+        cursor: pointer;
+    }
+
+    .selector-input option {
+        background: #1a1f2e;
+        color: #e2e8f0;
+        padding: 8px;
+    }
+
+    .selector-input:focus {
+        outline: none;
+        border-color: var(--accent-blue);
+    }
+
+    .load-btn {
+        align-self: flex-end;
+        padding: 10px 24px;
+        background: var(--accent-blue);
+        border: none;
+        border-radius: 8px;
+        color: white;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .load-btn:hover {
+        opacity: 0.9;
+    }
+
+    .load-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    /* Timeline Container */
+    .timeline-container {
+        background: var(--bg-secondary);
+        border: 1px solid rgba(255,255,255,0.05);
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 20px;
+    }
+
+    .timeline-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 15px;
+    }
+
+    .timeline-time {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 24px;
+        font-weight: 700;
+        color: var(--text-main);
+    }
+
+    .timeline-time-label {
+        font-size: 11px;
+        color: var(--text-muted);
+        margin-left: 10px;
+    }
+
+    .timeline-status {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .status-badge {
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+
+    .status-badge.idle { background: rgba(100,100,100,0.3); color: var(--text-muted); }
+    .status-badge.loading { background: rgba(59,130,246,0.2); color: #3B82F6; }
+    .status-badge.ready { background: rgba(16,185,129,0.2); color: #10B981; }
+    .status-badge.playing { background: rgba(16,185,129,0.3); color: #10B981; }
+    .status-badge.paused { background: rgba(244,208,63,0.2); color: #F4D03F; }
+    .status-badge.finished { background: rgba(100,100,100,0.3); color: var(--text-muted); }
+
+    /* Timeline Scrubber */
+    .timeline-scrubber {
+        position: relative;
+        height: 40px;
+        background: rgba(255,255,255,0.03);
+        border-radius: 8px;
+        margin-bottom: 15px;
+        cursor: pointer;
+    }
+
+    .scrubber-progress {
+        position: absolute;
+        top: 0;
+        left: 0;
+        height: 100%;
+        background: linear-gradient(90deg, rgba(0,120,255,0.3), rgba(0,212,255,0.2));
+        border-radius: 8px;
+    }
+
+    .scrubber-progress.animated {
+        transition: width 0.1s;
+    }
+
+    .scrubber-handle {
+        position: absolute;
+        top: 50%;
+        width: 16px;
+        height: 16px;
+        background: var(--accent-blue);
+        border: 2px solid white;
+        border-radius: 50%;
+        transform: translate(-50%, -50%);
+        cursor: grab;
+        z-index: 10;
+        transition: transform 0.1s;
+    }
+
+    .scrubber-handle:hover {
+        transform: translate(-50%, -50%) scale(1.15);
+    }
+
+    .scrubber-handle.dragging {
+        cursor: grabbing;
+        transform: translate(-50%, -50%) scale(1.25);
+    }
+
+    .scrubber-markers {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 100%;
+        pointer-events: none;
+    }
+
+    .scrubber-marker {
+        position: absolute;
+        top: 0;
+        width: 2px;
+        height: 100%;
+        opacity: 0.7;
+    }
+
+    .scrubber-marker.metar { background: #10B981; }
+    .scrubber-marker.window { background: #8B5CF6; }
+
+    /* Playback Controls */
+    .playback-controls {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 15px;
+    }
+
+    .control-btn {
+        width: 44px;
+        height: 44px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(255,255,255,0.05);
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 50%;
+        color: var(--text-secondary);
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .control-btn:hover {
+        background: rgba(255,255,255,0.1);
+        color: var(--text-main);
+    }
+
+    .control-btn.primary {
+        width: 56px;
+        height: 56px;
+        background: var(--accent-blue);
+        border-color: var(--accent-blue);
+        color: white;
+    }
+
+    .control-btn.primary:hover {
+        opacity: 0.9;
+    }
+
+    .control-btn i {
+        width: 20px;
+        height: 20px;
+    }
+
+    /* Speed Selector */
+    .speed-selector {
+        display: flex;
+        gap: 5px;
+        margin-left: 20px;
+    }
+
+    .speed-btn {
+        padding: 6px 12px;
+        background: rgba(255,255,255,0.05);
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 6px;
+        color: var(--text-secondary);
+        font-size: 12px;
+        font-family: 'JetBrains Mono', monospace;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .speed-btn:hover {
+        background: rgba(255,255,255,0.1);
+    }
+
+    .speed-btn.active {
+        background: rgba(0,120,255,0.2);
+        border-color: var(--accent-blue);
+        color: var(--accent-blue);
+    }
+
+    /* Event Feed */
+    .event-feed {
+        background: var(--bg-secondary);
+        border: 1px solid rgba(255,255,255,0.05);
+        border-radius: 12px;
+        overflow: hidden;
+    }
+
+    .feed-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 15px 20px;
+        border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+
+    .feed-title {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--text-main);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .feed-title i {
+        width: 16px;
+        height: 16px;
+        color: var(--accent-blue);
+    }
+
+    .feed-content {
+        max-height: 400px;
+        overflow-y: auto;
+    }
+
+    .event-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        padding: 12px 20px;
+        border-bottom: 1px solid rgba(255,255,255,0.03);
+        transition: background 0.2s;
+    }
+
+    .event-item:hover {
+        background: rgba(255,255,255,0.02);
+    }
+
+    .event-item.current {
+        background: rgba(0,120,255,0.1);
+        border-left: 3px solid var(--accent-blue);
+    }
+
+    .event-time {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 11px;
+        color: var(--text-muted);
+        min-width: 80px;
+    }
+
+    .event-channel {
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 10px;
+        font-weight: 600;
+        text-transform: uppercase;
+        min-width: 60px;
+        text-align: center;
+    }
+
+    .event-channel.world { background: rgba(16,185,129,0.2); color: #10B981; }
+    .event-channel.nowcast { background: rgba(0,120,255,0.2); color: #0078FF; }
+    .event-channel.pws { background: rgba(139,92,246,0.2); color: #8B5CF6; }
+    .event-channel.features { background: rgba(244,208,63,0.2); color: #F4D03F; }
+    .event-channel.health { background: rgba(100,100,100,0.3); color: var(--text-muted); }
+    .event-channel.event_window { background: rgba(239,68,68,0.2); color: #EF4444; }
+
+    .event-content {
+        flex: 1;
+        font-size: 13px;
+        color: var(--text-secondary);
+    }
+
+    .event-content strong {
+        color: var(--text-main);
+    }
+
+    /* Stats Panel */
+    .stats-row {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 15px;
+        margin-bottom: 20px;
+    }
+
+    .stat-box {
+        background: var(--bg-secondary);
+        border: 1px solid rgba(255,255,255,0.05);
+        border-radius: 10px;
+        padding: 15px;
+        text-align: center;
+    }
+
+    .stat-box-label {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: var(--text-muted);
+        margin-bottom: 6px;
+    }
+
+    .stat-box-value {
+        font-size: 24px;
+        font-weight: 700;
+        font-family: 'JetBrains Mono', monospace;
+        color: var(--text-main);
+    }
+
+    /* Empty State */
+    .empty-state {
+        text-align: center;
+        padding: 60px 20px;
+        color: var(--text-muted);
+    }
+
+    .empty-state i {
+        width: 48px;
+        height: 48px;
+        margin-bottom: 15px;
+        opacity: 0.5;
+    }
+
+    /* Category Cards */
+    .category-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 15px;
+        margin-bottom: 20px;
+    }
+
+    .category-card {
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 12px;
+        padding: 16px;
+        transition: border-color 0.3s;
+    }
+
+    .category-card:hover {
+        border-color: rgba(255, 255, 255, 0.12);
+    }
+
+    .category-card.empty {
+        opacity: 0.45;
+    }
+
+    .category-card-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 10px;
+    }
+
+    .category-card-title {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+    }
+
+    .category-card-title i { width: 14px; height: 14px; }
+    .category-card-title.world { color: #10B981; }
+    .category-card-title.nowcast { color: #0078FF; }
+    .category-card-title.pws { color: #8B5CF6; }
+    .category-card-title.features { color: #F4D03F; }
+    .category-card-title.event_window { color: #EF4444; }
+    .category-card-title.health { color: var(--text-muted); }
+    .category-card-title.l2_snap { color: #F97316; }
+
+    /* Market Replay Panel */
+    .market-replay-panel {
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(249, 115, 22, 0.15);
+        border-radius: 12px;
+        padding: 18px;
+        margin-bottom: 20px;
+        display: none;
+    }
+    .market-replay-panel.visible { display: block; }
+    .mr-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 14px;
+    }
+    .mr-title {
+        font-size: 13px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        color: #F97316;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .mr-title i { width: 14px; height: 14px; }
+    .mr-time {
+        font-size: 11px;
+        color: var(--text-secondary);
+    }
+    .mr-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+        gap: 10px;
+    }
+    .mr-bracket {
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 10px;
+        padding: 12px;
+        transition: border-color 0.2s;
+    }
+    .mr-bracket.leading {
+        border-color: rgba(249, 115, 22, 0.35);
+        background: rgba(249, 115, 22, 0.05);
+    }
+    .mr-bracket-name {
+        font-size: 12px;
+        font-weight: 700;
+        font-family: 'Space Grotesk', sans-serif;
+        margin-bottom: 6px;
+    }
+    .mr-bracket-price {
+        font-size: 20px;
+        font-weight: 700;
+        font-family: 'Space Grotesk', sans-serif;
+        color: #F97316;
+        margin-bottom: 6px;
+    }
+    .mr-bracket-book {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 10px;
+        margin-bottom: 4px;
+    }
+    .mr-bid { color: #10B981; font-weight: 600; }
+    .mr-spread { color: var(--text-secondary); }
+    .mr-ask { color: #EF4444; font-weight: 600; }
+    .mr-depth-bar {
+        display: flex;
+        height: 4px;
+        border-radius: 2px;
+        overflow: hidden;
+        background: rgba(255, 255, 255, 0.04);
+    }
+    .mr-depth-bid { background: rgba(16, 185, 129, 0.45); }
+    .mr-depth-ask { background: rgba(239, 68, 68, 0.45); }
+
+    @media (max-width: 1100px) {
+        .mr-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+    }
+
+    .category-count {
+        font-size: 11px;
+        font-family: 'JetBrains Mono', monospace;
+        color: var(--text-muted);
+        background: rgba(255, 255, 255, 0.05);
+        padding: 2px 8px;
+        border-radius: 10px;
+    }
+
+    .category-card-body {
+        font-size: 13px;
+        color: var(--text-secondary);
+        line-height: 1.5;
+        min-height: 20px;
+    }
+
+    .category-card-body strong {
+        color: var(--text-main);
+    }
+
+    .category-last-update {
+        font-size: 10px;
+        color: var(--text-muted);
+        margin-top: 8px;
+        font-family: 'JetBrains Mono', monospace;
+    }
+
+    @media (max-width: 1200px) {
+        .session-selector {
+            grid-template-columns: 1fr;
+        }
+        .stats-row {
+            grid-template-columns: repeat(2, 1fr);
+        }
+        .category-grid {
+            grid-template-columns: repeat(2, 1fr);
+        }
+    }
+
+    @media (max-width: 768px) {
+        .category-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-title">
+        <i data-lucide="history" style="width:24px;height:24px;color:var(--accent-blue);"></i>
+        Replay Center
+    </div>
+    <div class="mode-toggle">
+        <a href="/nowcast" class="mode-btn">LIVE</a>
+        <button class="mode-btn active">REPLAY</button>
+    </div>
+</div>
+
+<div class="page-content">
+    <!-- Session Selector -->
+    <div class="session-selector">
+        <div class="selector-group">
+            <label class="selector-label">Date</label>
+            <select id="date-select" class="selector-input">
+                <option value="">Select a date...</option>
+            </select>
+        </div>
+        <div class="selector-group">
+            <label class="selector-label">Station</label>
+            <select id="station-select" class="selector-input">
+                <option value="">All stations</option>
+                {% for sid in active_stations %}
+                {% set stn = all_stations[sid] %}
+                <option value="{{ sid }}">{{ sid }} - {{ stn.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <button id="load-btn" class="load-btn" disabled>
+            Load Session
+        </button>
+    </div>
+
+    <!-- Timeline Container -->
+    <div class="timeline-container" id="timeline-container" style="display: none;">
+        <div class="timeline-header">
+            <div>
+                <span class="timeline-time" id="current-time">--:--:--</span>
+                <span class="timeline-time-label" id="current-date">NYC</span>
+            </div>
+            <div class="timeline-status">
+                <span class="status-badge idle" id="status-badge">IDLE</span>
+            </div>
+        </div>
+
+        <!-- Scrubber -->
+        <div class="timeline-scrubber" id="scrubber">
+            <div class="scrubber-progress" id="scrubber-progress"></div>
+            <div class="scrubber-markers" id="scrubber-markers"></div>
+            <div class="scrubber-handle" id="scrubber-handle"></div>
+        </div>
+
+        <!-- Playback Controls -->
+        <div class="playback-controls">
+            <button class="control-btn" id="btn-prev-metar" title="Previous METAR">
+                <i data-lucide="skip-back"></i>
+            </button>
+            <button class="control-btn" id="btn-stop" title="Stop">
+                <i data-lucide="square"></i>
+            </button>
+            <button class="control-btn primary" id="btn-play-pause" title="Play/Pause">
+                <i data-lucide="play" id="play-icon"></i>
+            </button>
+            <button class="control-btn" id="btn-next-metar" title="Next METAR">
+                <i data-lucide="skip-forward"></i>
+            </button>
+            <button class="control-btn" id="btn-next-window" title="Next Event Window">
+                <i data-lucide="chevrons-right"></i>
+            </button>
+
+            <div class="speed-selector">
+                <button class="speed-btn active" data-speed="1">1x</button>
+                <button class="speed-btn" data-speed="2">2x</button>
+                <button class="speed-btn" data-speed="5">5x</button>
+                <button class="speed-btn" data-speed="10">10x</button>
+                <button class="speed-btn" data-speed="50">50x</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Stats Row -->
+    <div class="stats-row" id="stats-row" style="display: none;">
+        <div class="stat-box">
+            <div class="stat-box-label">Total Events</div>
+            <div class="stat-box-value" id="stat-total">0</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-box-label">METARs</div>
+            <div class="stat-box-value" id="stat-metars">0</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-box-label">Event Windows</div>
+            <div class="stat-box-value" id="stat-windows">0</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-box-label">Progress</div>
+            <div class="stat-box-value" id="stat-progress">0%</div>
+        </div>
+    </div>
+
+    <!-- Category Cards -->
+    <div class="category-grid" id="category-grid" style="display: none;">
+        <div class="category-card empty" id="cat-world">
+            <div class="category-card-header">
+                <span class="category-card-title world">
+                    <i data-lucide="radio-tower"></i> METAR
+                </span>
+                <span class="category-count" id="cat-world-count">0</span>
+            </div>
+            <div class="category-card-body" id="cat-world-body">No events yet</div>
+            <div class="category-last-update" id="cat-world-time">--</div>
+        </div>
+        <div class="category-card empty" id="cat-nowcast">
+            <div class="category-card-header">
+                <span class="category-card-title nowcast">
+                    <i data-lucide="cpu"></i> Nowcast
+                </span>
+                <span class="category-count" id="cat-nowcast-count">0</span>
+            </div>
+            <div class="category-card-body" id="cat-nowcast-body">No events yet</div>
+            <div class="category-last-update" id="cat-nowcast-time">--</div>
+        </div>
+        <div class="category-card empty" id="cat-pws">
+            <div class="category-card-header">
+                <span class="category-card-title pws">
+                    <i data-lucide="cloud-rain"></i> PWS
+                </span>
+                <span class="category-count" id="cat-pws-count">0</span>
+            </div>
+            <div class="category-card-body" id="cat-pws-body">No events yet</div>
+            <div class="category-last-update" id="cat-pws-time">--</div>
+        </div>
+        <div class="category-card empty" id="cat-features">
+            <div class="category-card-header">
+                <span class="category-card-title features">
+                    <i data-lucide="sliders-horizontal"></i> Features
+                </span>
+                <span class="category-count" id="cat-features-count">0</span>
+            </div>
+            <div class="category-card-body" id="cat-features-body">No events yet</div>
+            <div class="category-last-update" id="cat-features-time">--</div>
+        </div>
+        <div class="category-card empty" id="cat-event_window">
+            <div class="category-card-header">
+                <span class="category-card-title event_window">
+                    <i data-lucide="target"></i> Event Windows
+                </span>
+                <span class="category-count" id="cat-event_window-count">0</span>
+            </div>
+            <div class="category-card-body" id="cat-event_window-body">No events yet</div>
+            <div class="category-last-update" id="cat-event_window-time">--</div>
+        </div>
+        <div class="category-card empty" id="cat-health">
+            <div class="category-card-header">
+                <span class="category-card-title health">
+                    <i data-lucide="heart-pulse"></i> Health
+                </span>
+                <span class="category-count" id="cat-health-count">0</span>
+            </div>
+            <div class="category-card-body" id="cat-health-body">No events yet</div>
+            <div class="category-last-update" id="cat-health-time">--</div>
+        </div>
+        <div class="category-card empty" id="cat-l2_snap">
+            <div class="category-card-header">
+                <span class="category-card-title l2_snap">
+                    <i data-lucide="candlestick-chart"></i> Polymarket
+                </span>
+                <span class="category-count" id="cat-l2_snap-count">0</span>
+            </div>
+            <div class="category-card-body" id="cat-l2_snap-body">No events yet</div>
+            <div class="category-last-update" id="cat-l2_snap-time">--</div>
+        </div>
+    </div>
+
+    <!-- Market State Panel (from l2_snap replay data) -->
+    <div class="market-replay-panel" id="market-replay-panel">
+        <div class="mr-header">
+            <span class="mr-title"><i data-lucide="candlestick-chart"></i> Market State</span>
+            <span class="mr-time" id="mr-time">--</span>
+        </div>
+        <div class="mr-grid" id="mr-grid">
+            <!-- Brackets populated by JS -->
+        </div>
+    </div>
+
+    <!-- Combined Timeline -->
+    <div class="event-feed" id="event-feed" style="display: none;">
+        <div class="feed-header">
+            <div class="feed-title">
+                <i data-lucide="activity"></i>
+                Combined Timeline
+            </div>
+        </div>
+        <div class="feed-content" id="event-list">
+            <!-- Events populated by JS -->
+        </div>
+    </div>
+
+    <!-- Empty State -->
+    <div class="empty-state" id="empty-state">
+        <i data-lucide="database"></i>
+        <h3>No Session Loaded</h3>
+        <p>Select a date and click "Load Session" to begin replay.</p>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+    let sessionId = null;
+    let currentSpeed = 1;
+    let isPlaying = false;
+    let pollInterval = null;
+    let isDragging = false;
+
+    // Initialize
+    async function init() {
+        await loadAvailableDates();
+        setupEventListeners();
+        lucide.createIcons();
+    }
+
+    async function loadAvailableDates() {
+        try {
+            const resp = await fetch('/api/v4/replay/dates');
+            const data = await resp.json();
+
+            const select = document.getElementById('date-select');
+            select.innerHTML = '<option value="">Select a date...</option>';
+
+            for (const date of data.dates || []) {
+                const opt = document.createElement('option');
+                opt.value = date;
+                opt.textContent = date;
+                select.appendChild(opt);
+            }
+
+            updateLoadButton();
+        } catch (e) {
+            console.error('Failed to load dates:', e);
+        }
+    }
+
+    function setupEventListeners() {
+        document.getElementById('date-select').onchange = updateLoadButton;
+        document.getElementById('load-btn').onclick = loadSession;
+        document.getElementById('btn-play-pause').onclick = togglePlayPause;
+        document.getElementById('btn-stop').onclick = stopSession;
+        document.getElementById('btn-prev-metar').onclick = () => jump('prev_metar');
+        document.getElementById('btn-next-metar').onclick = () => jump('next_metar');
+        document.getElementById('btn-next-window').onclick = () => jump('next_window');
+
+        // Speed buttons
+        document.querySelectorAll('.speed-btn').forEach(btn => {
+            btn.onclick = () => setSpeed(parseInt(btn.dataset.speed));
+        });
+
+        // Scrubber drag system
+        const scrubber = document.getElementById('scrubber');
+        const scrubberHandle = document.getElementById('scrubber-handle');
+        const scrubberProgress = document.getElementById('scrubber-progress');
+
+        function getScrubPercent(clientX) {
+            const rect = scrubber.getBoundingClientRect();
+            return Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100));
+        }
+
+        function onDragStart(clientX) {
+            isDragging = true;
+            scrubberHandle.classList.add('dragging');
+            scrubberProgress.classList.remove('animated');
+            document.body.style.userSelect = 'none';
+            const pct = getScrubPercent(clientX);
+            scrubberProgress.style.width = pct + '%';
+            scrubberHandle.style.left = pct + '%';
+        }
+
+        function onDragMove(clientX) {
+            if (!isDragging) return;
+            const pct = getScrubPercent(clientX);
+            scrubberProgress.style.width = pct + '%';
+            scrubberHandle.style.left = pct + '%';
+        }
+
+        function onDragEnd(clientX) {
+            if (!isDragging) return;
+            isDragging = false;
+            scrubberHandle.classList.remove('dragging');
+            scrubberProgress.classList.add('animated');
+            document.body.style.userSelect = '';
+            seek(getScrubPercent(clientX));
+        }
+
+        scrubber.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            onDragStart(e.clientX);
+        });
+        document.addEventListener('mousemove', (e) => onDragMove(e.clientX));
+        document.addEventListener('mouseup', (e) => onDragEnd(e.clientX));
+
+        scrubber.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            onDragStart(e.touches[0].clientX);
+        }, { passive: false });
+        document.addEventListener('touchmove', (e) => {
+            if (isDragging) { e.preventDefault(); onDragMove(e.touches[0].clientX); }
+        }, { passive: false });
+        document.addEventListener('touchend', (e) => {
+            if (isDragging) onDragEnd(e.changedTouches[0].clientX);
+        });
+    }
+
+    function updateLoadButton() {
+        const date = document.getElementById('date-select').value;
+        document.getElementById('load-btn').disabled = !date;
+    }
+
+    async function loadSession() {
+        const date = document.getElementById('date-select').value;
+        const station = document.getElementById('station-select').value;
+
+        if (!date) return;
+
+        document.getElementById('load-btn').disabled = true;
+        document.getElementById('load-btn').textContent = 'Loading...';
+
+        try {
+            const params = new URLSearchParams({ date });
+            if (station) params.append('station_id', station);
+
+            const resp = await fetch(`/api/v4/replay/session?${params}`, {
+                method: 'POST'
+            });
+            const data = await resp.json();
+
+            if (data.error) {
+                alert('Failed to load: ' + data.error);
+                return;
+            }
+
+            sessionId = data.session_id;
+            showSession(data);
+
+            // Start polling for state updates
+            adjustPollInterval();
+
+        } catch (e) {
+            console.error('Failed to load session:', e);
+            alert('Failed to load session');
+        } finally {
+            document.getElementById('load-btn').disabled = false;
+            document.getElementById('load-btn').textContent = 'Load Session';
+        }
+    }
+
+    function showSession(data) {
+        document.getElementById('empty-state').style.display = 'none';
+        document.getElementById('timeline-container').style.display = 'block';
+        document.getElementById('stats-row').style.display = 'grid';
+        document.getElementById('category-grid').style.display = 'grid';
+        document.getElementById('event-feed').style.display = 'block';
+
+        // Update stats
+        document.getElementById('stat-total').textContent = data.total_events || 0;
+        document.getElementById('stat-metars').textContent = data.metar_count || 0;
+        document.getElementById('stat-windows').textContent = data.window_count || 0;
+
+        updateState();
+    }
+
+    async function updateState() {
+        if (!sessionId) return;
+
+        try {
+            const resp = await fetch(`/api/v4/replay/session/${sessionId}/state`);
+            const data = await resp.json();
+
+            // Update status badge
+            const badge = document.getElementById('status-badge');
+            badge.className = `status-badge ${data.state}`;
+            badge.textContent = data.state.toUpperCase();
+
+            isPlaying = data.state === 'playing';
+            updatePlayButton();
+
+            // Update clock
+            if (data.clock) {
+                const currentTime = data.clock.current_time;
+                if (currentTime) {
+                    const dt = new Date(currentTime);
+                    document.getElementById('current-time').textContent =
+                        dt.toISOString().substr(11, 8);
+                    document.getElementById('current-date').textContent =
+                        dt.toISOString().substr(0, 10) + ' NYC';
+                }
+
+                // Update progress (skip visual update during drag)
+                const progress = data.clock.progress_percent || 0;
+                document.getElementById('stat-progress').textContent =
+                    progress.toFixed(1) + '%';
+                if (!isDragging) {
+                    document.getElementById('scrubber-progress').style.width =
+                        progress + '%';
+                    document.getElementById('scrubber-handle').style.left =
+                        progress + '%';
+                }
+            }
+
+            // Get events and categories in parallel
+            const [eventsResp, catResp] = await Promise.all([
+                fetch(`/api/v4/replay/session/${sessionId}/events?n=10`),
+                fetch(`/api/v4/replay/session/${sessionId}/categories`)
+            ]);
+            const eventsData = await eventsResp.json();
+            const catData = await catResp.json();
+            renderEvents(eventsData);
+            renderCategories(catData);
+
+        } catch (e) {
+            console.error('State update error:', e);
+        }
+    }
+
+    function renderEvents(data) {
+        const container = document.getElementById('event-list');
+        const events = [
+            ...(data.before || []),
+            data.current ? { ...data.current, isCurrent: true } : null,
+            ...(data.after || [])
+        ].filter(Boolean);
+
+        container.innerHTML = events.map(e => {
+            const ch = e.ch || 'unknown';
+            const time = e.ts_nyc ? e.ts_nyc.split(' ')[1] : '--:--:--';
+            const content = formatEventContent(e);
+
+            return `
+                <div class="event-item ${e.isCurrent ? 'current' : ''}">
+                    <span class="event-time">${time}</span>
+                    <span class="event-channel ${ch}">${ch}</span>
+                    <span class="event-content">${content}</span>
+                </div>
+            `;
+        }).join('');
+    }
+
+    function formatEventContent(event) {
+        const data = event.data || {};
+        const ch = event.ch;
+
+        if (ch === 'world') {
+            return `<strong>${data.src || 'OBS'}</strong>: ${data.temp_f?.toFixed(1) || '--'}°F (aligned: ${data.temp_aligned || '--'}°F)`;
+        }
+        if (ch === 'nowcast') {
+            return `Tmax: <strong>${data.tmax_mean_f?.toFixed(1) || '--'}°F</strong> ± ${data.tmax_sigma_f?.toFixed(1) || '--'}°F, conf: ${(data.confidence * 100).toFixed(0)}%`;
+        }
+        if (ch === 'pws') {
+            return `PWS consensus: <strong>${data.median_f?.toFixed(1) || '--'}°F</strong>, support: ${data.support || 0}`;
+        }
+        if (ch === 'event_window') {
+            return `<strong>${data.action}</strong>: ${data.reason}`;
+        }
+        if (ch === 'features') {
+            const env = data.features?.env || {};
+            const stale = data.staleness || {};
+            const parts = [];
+            for (const [k, feat] of Object.entries(env)) {
+                if (!feat || typeof feat !== 'object') continue;
+                const val = feat.value;
+                const unit = feat.unit || '';
+                const status = feat.status || '';
+                if (val !== null && val !== undefined) {
+                    const statusCls = status === 'OK' ? '' : ` (${status})`;
+                    parts.push(`${feat.feature_type || k}: <strong>${typeof val === 'number' ? val.toFixed(1) : val}${unit}</strong>${statusCls}`);
+                }
+            }
+            const staleEntries = Object.entries(stale).filter(([,v]) => v !== null);
+            const maxStale = staleEntries.length > 0
+                ? Math.max(...staleEntries.map(([,v]) => v))
+                : null;
+            const staleStr = maxStale !== null ? ` | max age: ${Math.floor(maxStale / 60)}m${Math.floor(maxStale % 60)}s` : '';
+            return (parts.length > 0 ? parts.join(', ') : 'Features updated') + staleStr;
+        }
+        if (ch === 'health') {
+            const src = data.sources || {};
+            const ok = Object.values(src).filter(v => v === 'OK').length;
+            const total = Object.keys(src).length;
+            const reconn = data.reconnects || 0;
+            const gaps = data.gaps || 0;
+            return `Sources: <strong>${ok}/${total} OK</strong> | Reconnects: ${reconn} | Gaps: ${gaps}`;
+        }
+        if (ch === 'l2_snap') {
+            const brackets = Object.entries(data)
+                .filter(([k]) => k !== '__meta__')
+                .map(([name, b]) => ({ name, mid: b.mid || 0 }))
+                .sort((a, b) => b.mid - a.mid)
+                .slice(0, 3);
+            if (brackets.length === 0) return 'No brackets';
+            return brackets.map(b =>
+                `<strong>${b.name}</strong> ${(b.mid * 100).toFixed(1)}c`
+            ).join(' | ');
+        }
+
+        return JSON.stringify(data).substring(0, 100);
+    }
+
+    function renderCategories(categories) {
+        for (const [ch, info] of Object.entries(categories)) {
+            const countEl = document.getElementById(`cat-${ch}-count`);
+            const bodyEl = document.getElementById(`cat-${ch}-body`);
+            const timeEl = document.getElementById(`cat-${ch}-time`);
+            const cardEl = document.getElementById(`cat-${ch}`);
+
+            if (!countEl) continue;
+
+            countEl.textContent = info.count;
+
+            if (info.latest && info.count > 0) {
+                bodyEl.innerHTML = formatEventContent(info.latest);
+                timeEl.textContent = info.latest_time || '--';
+                cardEl.classList.remove('empty');
+            } else {
+                bodyEl.textContent = 'No events yet';
+                timeEl.textContent = '--';
+                cardEl.classList.add('empty');
+            }
+        }
+
+        // Update Market State panel from l2_snap data
+        const l2 = categories.l2_snap;
+        if (l2 && l2.latest && l2.count > 0) {
+            renderMarketPanel(l2.latest.data, l2.latest_time);
+        }
+
+        lucide.createIcons();
+    }
+
+    function renderMarketPanel(data, timestamp) {
+        const panel = document.getElementById('market-replay-panel');
+        const grid = document.getElementById('mr-grid');
+        const timeEl = document.getElementById('mr-time');
+
+        if (!data) { panel.classList.remove('visible'); return; }
+
+        // Parse brackets (exclude __meta__)
+        const brackets = Object.entries(data)
+            .filter(([k]) => k !== '__meta__')
+            .map(([name, b]) => ({
+                name,
+                mid: b.mid || 0,
+                best_bid: b.best_bid || 0,
+                best_ask: b.best_ask || 0,
+                spread: b.spread || 0,
+                bid_depth: b.bid_depth || 0,
+                ask_depth: b.ask_depth || 0,
+            }))
+            .sort((a, b) => b.mid - a.mid);
+
+        if (brackets.length === 0) { panel.classList.remove('visible'); return; }
+
+        panel.classList.add('visible');
+        timeEl.textContent = timestamp || '--';
+
+        grid.innerHTML = brackets.map((b, idx) => {
+            const totalDepth = b.bid_depth + b.ask_depth;
+            const bidPct = totalDepth > 0 ? (b.bid_depth / totalDepth * 100).toFixed(0) : 50;
+            const askPct = totalDepth > 0 ? (b.ask_depth / totalDepth * 100).toFixed(0) : 50;
+            const isLeading = idx === 0;
+
+            return `
+                <div class="mr-bracket${isLeading ? ' leading' : ''}">
+                    <div class="mr-bracket-name">${b.name}</div>
+                    <div class="mr-bracket-price">${(b.mid * 100).toFixed(1)}%</div>
+                    <div class="mr-bracket-book">
+                        <span class="mr-bid">${(b.best_bid * 100).toFixed(1)}c</span>
+                        <span class="mr-spread">${(b.spread * 100).toFixed(1)}c</span>
+                        <span class="mr-ask">${(b.best_ask * 100).toFixed(1)}c</span>
+                    </div>
+                    <div class="mr-depth-bar">
+                        <div class="mr-depth-bid" style="width:${bidPct}%"></div>
+                        <div class="mr-depth-ask" style="width:${askPct}%"></div>
+                    </div>
+                </div>`;
+        }).join('');
+    }
+
+    function updatePlayButton() {
+        const icon = document.getElementById('play-icon');
+        if (isPlaying) {
+            icon.setAttribute('data-lucide', 'pause');
+        } else {
+            icon.setAttribute('data-lucide', 'play');
+        }
+        lucide.createIcons();
+    }
+
+    async function togglePlayPause() {
+        if (!sessionId) return;
+
+        const action = isPlaying ? 'pause' : 'play';
+        try {
+            await fetch(`/api/v4/replay/session/${sessionId}/${action}?speed=${currentSpeed}`, {
+                method: 'POST'
+            });
+            isPlaying = !isPlaying;
+            updatePlayButton();
+        } catch (e) {
+            console.error('Play/pause error:', e);
+        }
+    }
+
+    async function stopSession() {
+        if (!sessionId) return;
+
+        try {
+            await fetch(`/api/v4/replay/session/${sessionId}/stop`, {
+                method: 'POST'
+            });
+            isPlaying = false;
+            updatePlayButton();
+        } catch (e) {
+            console.error('Stop error:', e);
+        }
+    }
+
+    function adjustPollInterval() {
+        if (pollInterval) clearInterval(pollInterval);
+        // Scale: 500ms at 1x, down to 200ms at high speeds
+        const interval = Math.max(200, Math.floor(500 / Math.sqrt(currentSpeed)));
+        pollInterval = setInterval(updateState, interval);
+    }
+
+    async function setSpeed(speed) {
+        currentSpeed = speed;
+
+        // Update UI
+        document.querySelectorAll('.speed-btn').forEach(btn => {
+            btn.classList.toggle('active', parseInt(btn.dataset.speed) === speed);
+        });
+
+        // Adjust poll frequency for new speed
+        if (sessionId) adjustPollInterval();
+
+        // If playing, update speed on server
+        if (isPlaying && sessionId) {
+            try {
+                await fetch(`/api/v4/replay/session/${sessionId}/speed?speed=${speed}`, {
+                    method: 'POST'
+                });
+            } catch (e) {
+                console.error('Speed change error:', e);
+            }
+        }
+    }
+
+    async function seek(percent) {
+        if (!sessionId) return;
+
+        try {
+            await fetch(`/api/v4/replay/session/${sessionId}/seek?percent=${percent}`, {
+                method: 'POST'
+            });
+        } catch (e) {
+            console.error('Seek error:', e);
+        }
+    }
+
+    async function jump(type) {
+        if (!sessionId) return;
+
+        try {
+            await fetch(`/api/v4/replay/session/${sessionId}/jump/${type}`, {
+                method: 'POST'
+            });
+        } catch (e) {
+            console.error('Jump error:', e);
+        }
+    }
+
+    // Cleanup
+    window.addEventListener('beforeunload', () => {
+        if (pollInterval) clearInterval(pollInterval);
+    });
+
+    document.addEventListener('DOMContentLoaded', init);
+})();
+</script>
+{% endblock %}

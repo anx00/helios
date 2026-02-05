@@ -1,0 +1,2005 @@
+{% extends "base.html" %}
+
+{% block title %}HELIOS - {{ station_id }} Analytics{% endblock %}
+
+{% block head_extra %}
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap"
+    rel="stylesheet">
+
+
+<style>
+    /* Specific overrides for analytics page */
+    .dashboard-grid {
+        display: grid;
+        gap: 20px;
+    }
+
+    .kpi-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 20px;
+    }
+
+    .kpi-card {
+        padding: 20px;
+        display: flex;
+        flex-direction: column;
+        border-bottom: 2px solid transparent;
+        transition: all 0.3s;
+    }
+
+    .kpi-card:hover {
+        border-bottom-color: var(--accent-blue);
+        transform: translateY(-2px);
+    }
+
+    .kpi-label {
+        color: var(--text-secondary);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        margin-bottom: 5px;
+        font-weight: 600;
+    }
+
+    .kpi-value {
+        font-size: 32px;
+        font-weight: 700;
+        color: var(--text-main);
+        font-family: 'Space Grotesk', sans-serif;
+    }
+
+    .kpi-sub {
+        font-size: 12px;
+        color: var(--text-muted);
+        margin-top: auto;
+        padding-top: 10px;
+    }
+
+    .chart-panel {
+        padding: 25px;
+        min-width: 0;
+        overflow: hidden;
+    }
+
+    /* Main content column must respect grid boundaries */
+    .dashboard-grid>div:last-child,
+    .main-charts-column {
+        min-width: 0;
+        overflow: hidden;
+    }
+
+    /* Table Styles */
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 14px;
+    }
+
+    th {
+        background: rgba(255, 255, 255, 0.03);
+        text-align: left;
+        padding: 15px 20px;
+        color: var(--text-secondary);
+        font-weight: 500;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    td {
+        padding: 15px 20px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 13px;
+    }
+
+    tr:last-child td {
+        border-bottom: none;
+    }
+
+    tr:hover {
+        background: rgba(255, 255, 255, 0.02);
+    }
+
+    .status-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 10px;
+        border-radius: 20px;
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+
+    .status-badge.success {
+        background: rgba(16, 185, 129, 0.15);
+        color: #34d399;
+        border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+
+    .status-badge.warning {
+        background: rgba(245, 158, 11, 0.15);
+        color: #fbbf24;
+        border: 1px solid rgba(245, 158, 11, 0.3);
+    }
+
+    .status-badge.error {
+        background: rgba(239, 68, 68, 0.15);
+        color: #f87171;
+        border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+
+    .status-badge.pending {
+        background: rgba(148, 163, 184, 0.15);
+        color: #94a3b8;
+        border: 1px solid rgba(148, 163, 184, 0.3);
+    }
+
+    /* Time Filter Buttons */
+    .time-filters {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 20px;
+    }
+
+    /* v7.0: Alert Select Styling */
+    .alert-select {
+        width: 100%;
+        padding: 12px;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 8px;
+        color: #fff;
+        font-size: 14px;
+        cursor: pointer;
+        transition: all 0.2s;
+        outline: none;
+    }
+
+    .alert-select:hover {
+        background: rgba(255, 255, 255, 0.08);
+        border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    .alert-select:focus {
+        border-color: var(--accent-blue);
+        box-shadow: 0 0 0 2px rgba(0, 120, 255, 0.2);
+    }
+
+    .alert-select option {
+        background-color: #121212;
+        color: #fff;
+        padding: 10px;
+    }
+
+    .filter-btn {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        color: var(--text-secondary);
+        padding: 6px 12px;
+        border-radius: 6px;
+        font-size: 11px;
+        cursor: pointer;
+        transition: all 0.2s;
+        font-weight: 500;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .filter-btn:hover {
+        background: rgba(255, 255, 255, 0.1);
+        border-color: rgba(255, 255, 255, 0.2);
+        color: var(--text-main);
+    }
+
+    .filter-btn.active {
+        background: var(--accent-blue);
+        border-color: var(--accent-blue);
+        color: white;
+    }
+
+    /* Time filter container - wrap on smaller screens */
+    .time-filters {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+
+    /* v7.0: Fullscreen button */
+    .fullscreen-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 8px;
+        color: var(--text-secondary);
+        cursor: pointer;
+        transition: all 0.2s ease;
+        text-decoration: none;
+    }
+
+    .fullscreen-btn:hover {
+        background: rgba(255, 255, 255, 0.1);
+        border-color: var(--accent-blue);
+        color: var(--accent-blue);
+        transform: scale(1.05);
+    }
+
+    .fullscreen-btn i {
+        width: 16px;
+        height: 16px;
+        box-shadow: 0 0 15px rgba(0, 120, 255, 0.3);
+    }
+
+    .back-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--text-secondary);
+        text-decoration: none;
+        margin-bottom: 20px;
+        font-size: 14px;
+        transition: color 0.2s;
+    }
+
+    .back-link:hover {
+        color: var(--accent-blue);
+    }
+
+    .back-link i {
+        width: 16px;
+        height: 16px;
+    }
+
+    .station-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        margin-bottom: 25px;
+    }
+
+    .local-clock {
+        background: rgba(255, 255, 255, 0.05);
+        padding: 5px 12px;
+        border-radius: 20px;
+        font-size: 13px;
+        font-family: 'Inter', sans-serif;
+        color: var(--accent-blue);
+        border: 1px solid rgba(0, 120, 255, 0.2);
+        margin-top: 5px;
+        display: inline-block;
+        font-weight: 500;
+    }
+
+    /* Analytics page fills the entire main content */
+    .analytics-wrapper {
+        width: 100%;
+        min-height: 100vh;
+        padding: 20px;
+        background: var(--bg-primary);
+        box-sizing: border-box;
+    }
+
+    .dashboard-grid {
+        display: grid;
+        grid-template-columns: 300px minmax(0, 1fr);
+        gap: 20px;
+        width: 100%;
+        overflow: hidden;
+    }
+
+    /* Rename the internal sidebar to avoid conflict with navigation sidebar */
+    .market-sidebar {
+        position: relative;
+        z-index: 1;
+        min-width: 0;
+    }
+
+    /* Header responsiveness */
+    .analytics-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 25px;
+        flex-wrap: wrap;
+        gap: 20px;
+    }
+
+    .header-actions {
+        display: flex;
+        gap: 15px;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+
+    .header-title-box {
+        flex: 1;
+        min-width: 300px;
+    }
+
+    @media (max-width: 1400px) {
+        .dashboard-grid {
+            grid-template-columns: 250px minmax(0, 1fr);
+        }
+    }
+
+    @media (max-width: 1100px) {
+        .dashboard-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .market-sidebar {
+            display: grid !important;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+
+        .analytics-header {
+            flex-direction: column;
+            align-items: flex-start;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="analytics-wrapper">
+    <!-- Header matches station.html -->
+    <header class="analytics-header">
+        <div class="header-title-box">
+            <h1>HELIOS <span class="subtitle">Performance Analytics</span></h1>
+            <div id="local-clock" class="local-clock">--:--:--</div>
+            <div class="subtitle" style="margin-top:5px; color:var(--text-secondary)">{{ station_id }} - {{
+                station_name }} Daily Performance
+                Report</div>
+        </div>
+        <div class="header-actions">
+            <!-- Date Picker -->
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <label for="date-picker" style="color: var(--text-secondary); font-size: 13px;">Date:</label>
+                <input type="date" id="date-picker" style="background: rgba(255,255,255,0.05); 
+                                  border: 1px solid rgba(255,255,255,0.1); 
+                                  border-radius: 8px; 
+                                  padding: 8px 12px; 
+                                  color: var(--text-main); 
+                                  font-family: 'Inter', sans-serif;
+                                  cursor: pointer;" onchange="loadDataForDate(this.value)">
+            </div>
+
+            <!-- Live indicator -->
+            <div style="display: flex; align-items: center; gap: 6px; color: var(--accent-green); font-size: 12px;">
+                <span
+                    style="width: 8px; height: 8px; background: var(--accent-green); border-radius: 50%; animation: pulse-green 2s infinite;"></span>
+                AUTO-REFRESH
+            </div>
+        </div>
+    </header>
+
+
+
+    <main class="dashboard-grid">
+
+        <!-- SIDEBAR: Market Consensus -->
+        <aside class="market-sidebar" style="display: flex; flex-direction: column; gap: 20px;">
+
+            <!-- v13.0: Market Resolution Banner -->
+            <div id="resolution-banner" class="glass-panel resolution-banner"
+                style="display: none; padding: 16px; border: 2px solid #00C853; background: linear-gradient(135deg, rgba(0, 200, 83, 0.15) 0%, rgba(255, 215, 0, 0.1) 100%);">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <div class="resolution-icon"
+                        style="width: 36px; height: 36px; background: linear-gradient(135deg, #00C853, #FFD700); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 18px;">
+                        ✓
+                    </div>
+                    <div style="flex: 1;">
+                        <div
+                            style="font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #00C853; font-weight: 700; margin-bottom: 4px;">
+                            MARKET RESOLVED
+                        </div>
+                        <div style="font-size: 15px; font-weight: 600; color: var(--text-main);">
+                            <span id="resolution-bracket">--</span>
+                        </div>
+                        <div style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">
+                            Max: <span id="resolution-max">--</span>°F @ <span id="resolution-time">--</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Market Widget -->
+            <div class="glass-panel" style="padding: 20px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <h3 style="margin:0; font-size: 14px; color: var(--text-main);">MARKET CONSENSUS</h3>
+                    <span class="status-badge"
+                        style="background: rgba(255, 165, 0, 0.1); color: orange; border: 1px solid rgba(255, 165, 0, 0.3);">Top
+                        3</span>
+                </div>
+
+                <div id="market-list" style="display: flex; flex-direction: column; gap: 12px;">
+                    <!-- Top 1 -->
+                    <div class="market-item">
+                        <div
+                            style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px;">
+                            <span id="mkt-top1-bracket" style="font-weight: 600;">--</span>
+                            <span id="mkt-top1-prob" style="color: var(--text-secondary);">--%</span>
+                        </div>
+                        <div class="progress-bar"
+                            style="background: rgba(255,255,255,0.1); height: 6px; border-radius: 3px; overflow: hidden;">
+                            <div id="mkt-top1-bar" style="width: 0%; height: 100%; background: orange;"></div>
+                        </div>
+                    </div>
+
+                    <!-- Top 2 -->
+                    <div class="market-item">
+                        <div
+                            style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px;">
+                            <span id="mkt-top2-bracket"
+                                style="font-weight: 600; color: var(--text-secondary);">--</span>
+                            <span id="mkt-top2-prob" style="color: var(--text-secondary);">--%</span>
+                        </div>
+                        <div class="progress-bar"
+                            style="background: rgba(255,255,255,0.1); height: 6px; border-radius: 3px; overflow: hidden;">
+                            <div id="mkt-top2-bar" style="width: 0%; height: 100%; background: rgba(255, 165, 0, 0.6);">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Top 3 -->
+                    <div class="market-item">
+                        <div
+                            style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px;">
+                            <span id="mkt-top3-bracket"
+                                style="font-weight: 600; color: var(--text-secondary);">--</span>
+                            <span id="mkt-top3-prob" style="color: var(--text-secondary);">--%</span>
+                        </div>
+                        <div class="progress-bar"
+                            style="background: rgba(255,255,255,0.1); height: 6px; border-radius: 3px; overflow: hidden;">
+                            <div id="mkt-top3-bar" style="width: 0%; height: 100%; background: rgba(255, 165, 0, 0.3);">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Alpha KPI Card (Moved to Sidebar for impact) -->
+            <div class="kpi-card glass-panel" style="border-top: 4px solid var(--accent-blue);">
+                <div class="kpi-label">Current Alpha (Gap)</div>
+                <div class="kpi-value" id="kpi-alpha">--.-°F</div>
+                <div class="kpi-sub" id="kpi-signal">Signal: WAITING</div>
+            </div>
+
+            <!-- v10.0/v11.0: Ensemble Safety Range + Bet Zones -->
+            <div class="kpi-card glass-panel" id="ensemble-panel" style="border-top: 4px solid #10B981; display: none;">
+                <div class="kpi-label" style="display: flex; justify-content: space-between; align-items: center;">
+                    <span>🛡️ SAFETY RANGE</span>
+                    <span id="ensemble-confidence" class="status-badge"
+                        style="font-size: 9px; padding: 2px 8px;">--</span>
+                </div>
+                <div class="kpi-value" id="ensemble-range" style="font-size: 24px;">--</div>
+                <div
+                    style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; font-size: 12px;">
+                    <div>
+                        <span style="color: var(--text-secondary);">NBM:</span>
+                        <span id="ensemble-nbm" style="color: var(--text-main); font-weight: 600;">--</span>
+                    </div>
+                    <div>
+                        <span style="color: var(--text-secondary);">LAMP:</span>
+                        <span id="ensemble-lamp" style="color: var(--text-main); font-weight: 600;">--</span>
+                    </div>
+                    <div>
+                        <span style="color: var(--text-secondary);">Spread:</span>
+                        <span id="ensemble-spread" style="color: var(--text-main); font-weight: 600;">--</span>
+                    </div>
+                    <div>
+                        <span style="color: var(--text-secondary);">HRRR OK:</span>
+                        <span id="ensemble-hrrr-status" style="font-weight: 600;">--</span>
+                    </div>
+                </div>
+                <div class="kpi-sub" id="ensemble-note" style="margin-top: 8px; font-size: 11px;"></div>
+
+                <!-- v12.0: Protection Status Indicators -->
+                <div id="v12-status-row"
+                    style="display: none; margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.1);">
+                    <div style="font-size: 10px; color: var(--text-secondary); margin-bottom: 6px;">v12.0 PROTECTION
+                        STATUS</div>
+                    <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                        <span id="sunset-lock-badge" class="status-badge"
+                            style="display: none; font-size: 10px; background: rgba(255, 165, 0, 0.2); color: #FFA500; border: 1px solid rgba(255, 165, 0, 0.4);">
+                            🔒 SUNSET LOCK
+                        </span>
+                        <span id="squeeze-badge" class="status-badge"
+                            style="display: none; font-size: 10px; background: rgba(138, 43, 226, 0.2); color: #8B5CF6; border: 1px solid rgba(138, 43, 226, 0.4);">
+                            ⚡ SQUEEZE 1.2°F
+                        </span>
+                        <span id="ghost-warning-badge" class="status-badge"
+                            style="display: none; font-size: 10px; background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); animation: pulse-red 2s infinite;">
+                            ⚠️ GHOST ALERT
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- v11.1: Bet Zones Panel (Sniper Mode) -->
+            <div class="kpi-card glass-panel" id="bet-zones-panel"
+                style="border-top: 4px solid #FFD700; display: none;">
+                <div class="kpi-label" style="display: flex; justify-content: space-between; align-items: center;">
+                    <span>🎯 SNIPER MODE</span>
+                    <span id="physical-ceiling-badge" class="status-badge"
+                        style="font-size: 9px; padding: 2px 8px; background: rgba(255,215,0,0.15); color: #FFD700; border: 1px solid rgba(255,215,0,0.3);">
+                        Techo: --
+                    </span>
+                </div>
+
+                <!-- CORE Zone (90% prob) -->
+                <div style="margin-top: 12px;">
+                    <div style="font-size: 11px; color: #FFD700; font-weight: 600; margin-bottom: 6px;">
+                        🔥 CORE ZONE (90%)
+                    </div>
+                    <div id="core-brackets" style="display: flex; flex-wrap: wrap; gap: 6px;">
+                        <!-- Filled by JS -->
+                    </div>
+                </div>
+
+                <!-- COVERAGE Zone -->
+                <div style="margin-top: 10px;">
+                    <div style="font-size: 11px; color: #60a5fa; font-weight: 600; margin-bottom: 6px;">
+                        📊 COVERAGE (Split)
+                    </div>
+                    <div id="coverage-brackets" style="display: flex; flex-wrap: wrap; gap: 6px;">
+                        <!-- Filled by JS -->
+                    </div>
+                </div>
+
+                <!-- KILL Zone (0% prob) -->
+                <div style="margin-top: 10px;">
+                    <div style="font-size: 11px; color: #f87171; font-weight: 600; margin-bottom: 6px;">
+                        ☠️ KILL ZONE (0%)
+                    </div>
+                    <div id="kill-brackets" style="display: flex; flex-wrap: wrap; gap: 6px;">
+                        <!-- Filled by JS -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- v6.4: Live Market Alerts -->
+            <!-- v6.5: Permanent Market Alerts Card -->
+            <div class="kpi-card glass-panel"
+                style="border-top: 4px solid #64748b; margin-top: 15px; max-height: 500px; display: flex; flex-direction: column;">
+                <div class="kpi-label">MARKET ALERTS REGISTRY</div>
+                <div id="alerts-content"
+                    style="display: flex; flex-direction: column; gap: 8px; margin-top: 10px; overflow-y: auto; padding-right: 5px; flex: 1;">
+                    <div
+                        style="color: var(--text-secondary); font-size: 13px; display: flex; align-items: center; gap: 8px;">
+                        <span style="color: var(--accent-green); font-size: 10px;">●</span> System Normal
+                    </div>
+                </div>
+            </div>
+
+            <style>
+                /* Alerts now reuse .kpi-card and .glass-panel styles */
+                .kpi-card.warning {
+                    border-top: 4px solid #FFC107 !important;
+                    box-shadow: 0 4px 15px rgba(255, 193, 7, 0.1);
+                }
+
+                .kpi-card.critical {
+                    border-top: 4px solid #ff4d4d !important;
+                    box-shadow: 0 4px 15px rgba(220, 53, 69, 0.2);
+                    animation: pulse-red 2s infinite;
+                }
+
+                .kpi-card.info {
+                    border-top: 4px solid #00d4ff !important;
+                    box-shadow: 0 4px 15px rgba(0, 212, 255, 0.1);
+                }
+
+                /* Custom scrollbar for alerts */
+                #alerts-content::-webkit-scrollbar {
+                    width: 4px;
+                }
+
+                #alerts-content::-webkit-scrollbar-track {
+                    background: rgba(255, 255, 255, 0.05);
+                }
+
+                #alerts-content::-webkit-scrollbar-thumb {
+                    background: rgba(255, 255, 255, 0.2);
+                    border-radius: 2px;
+                }
+
+                @keyframes pulse-red {
+                    0% {
+                        box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.4);
+                    }
+
+                    70% {
+                        box-shadow: 0 0 0 10px rgba(220, 53, 69, 0);
+                    }
+
+                    100% {
+                        box-shadow: 0 0 0 0 rgba(220, 53, 69, 0);
+                    }
+                }
+            </style>
+
+        </aside>
+
+        <!-- MAIN CONTENT -->
+        <div class="main-charts-column"
+            style="display: flex; flex-direction: column; gap: 20px; min-width: 0; overflow: hidden;">
+
+            <!-- Time Window Filters -->
+            <div class="time-filters">
+                <button class="filter-btn" data-window="15m" onclick="setTimeWindow(15, this)">15 MIN</button>
+                <button class="filter-btn" data-window="30m" onclick="setTimeWindow(30, this)">30 MIN</button>
+                <button class="filter-btn" data-window="1h" onclick="setTimeWindow(60, this)">1 HOUR</button>
+                <button class="filter-btn" data-window="6h" onclick="setTimeWindow(360, this)">6 HOURS</button>
+                <button class="filter-btn" data-window="12h" onclick="setTimeWindow(720, this)">12 HOURS</button>
+                <button class="filter-btn active" data-window="day" onclick="setTimeWindow(0, this)">TODAY</button>
+
+                <!-- v6.1: Export CSV Button -->
+                <button onclick="exportCSV()" class="filter-btn" style="margin-left: auto;">
+                    ⬇️ EXPORT CSV
+                </button>
+                <!-- v7.0: Custom Alerts Button -->
+                <button onclick="openAlertModal()" class="filter-btn"
+                    style="background: rgba(255, 193, 7, 0.15); border-color: rgba(255, 193, 7, 0.3); color: #FFC107;">
+                    🔔 ALERT
+                </button>
+            </div>
+
+            <!-- v7.0: Alert Configuration Modal -->
+            <div id="alert-modal"
+                style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 2000; justify-content: center; align-items: center;">
+                <div class="glass-panel"
+                    style="padding: 25px; min-width: 400px; max-width: 500px; border-radius: 16px;">
+                    <h3 style="margin: 0 0 20px 0; display: flex; align-items: center; gap: 10px;">
+                        <span style="font-size: 24px;">🔔</span> Configure Price Alert
+                    </h3>
+
+                    <div style="margin-bottom: 15px;">
+                        <label
+                            style="display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 5px;">Variable</label>
+                        <select id="alert-variable" class="alert-select">
+                            <option value="noaa">🌡️ NOAA (RACER) Max</option>
+                            <option value="wu_live">🔥 WU Live Temp</option>
+                            <option value="helios">🎯 HELIOS Prediction</option>
+                            <option value="hrrr">📊 HRRR Raw Max</option>
+                        </select>
+                    </div>
+
+                    <div style="margin-bottom: 15px;">
+                        <label
+                            style="display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 5px;">Condition</label>
+                        <select id="alert-condition" class="alert-select">
+                            <option value="gte">≥ Reaches or exceeds</option>
+                            <option value="lte">≤ Drops to or below</option>
+                            <option value="eq">= Equals exactly</option>
+                        </select>
+                    </div>
+
+                    <div style="margin-bottom: 20px;">
+                        <label
+                            style="display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 5px;">Temperature
+                            (°F)</label>
+                        <input type="number" id="alert-value" step="0.1" placeholder="e.g. 42.0"
+                            style="width: 100%; padding: 10px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #fff; font-size: 14px; box-sizing: border-box;">
+                    </div>
+
+                    <!-- Active Alerts List -->
+                    <div id="active-alerts-list" style="margin-bottom: 15px; max-height: 120px; overflow-y: auto;">
+                    </div>
+
+                    <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                        <button onclick="closeAlertModal()" class="filter-btn"
+                            style="background: rgba(255,255,255,0.05);">Cancel</button>
+                        <button onclick="saveAlert()" class="filter-btn"
+                            style="background: rgba(0, 212, 255, 0.2); border-color: rgba(0, 212, 255, 0.4); color: #00d4ff;">Save
+                            Alert</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- v7.0: Global Alert Notification Popup -->
+            <div id="alert-notification"
+                style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 3000; background: linear-gradient(135deg, rgba(255, 193, 7, 0.95), rgba(255, 152, 0, 0.95)); padding: 30px 40px; border-radius: 20px; box-shadow: 0 10px 50px rgba(255, 193, 7, 0.5); text-align: center; min-width: 350px;">
+                <div style="font-size: 48px; margin-bottom: 15px;">🔔</div>
+                <h2 id="alert-notification-title" style="margin: 0 0 10px 0; color: #000; font-size: 22px;">Alert
+                    Triggered!</h2>
+                <p id="alert-notification-message" style="margin: 0 0 20px 0; color: rgba(0,0,0,0.8); font-size: 16px;">
+                </p>
+                <button onclick="dismissAlertNotification()"
+                    style="padding: 12px 30px; background: #000; color: #fff; border: none; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer;">Dismiss</button>
+            </div>
+
+            <!-- Panel Superior: Target vs Reality -->
+            <section class="chart-panel glass-panel" style="position: relative;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <h3 style="margin: 0; font-size: 14px; display: flex; align-items: center; gap: 8px;">
+                        <span style="font-size: 16px;">📊</span> TARGET vs REALITY
+                        <span id="temp-unit-label"
+                            style="font-size: 11px; color: var(--text-secondary); font-weight: normal;">({% if
+                            station_id == 'EGLC' %}°C{% else %}°F{% endif %})</span>
+                    </h3>
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <span id="helios-bracket-badge" class="status-badge"
+                            style="background: rgba(0, 120, 255, 0.15); color: #0078FF; border: 1px solid rgba(0, 120, 255, 0.3);">
+                            HELIOS: --
+                        </span>
+                        <a href="/station/{{ station_id }}/chart/temperature" class="fullscreen-btn"
+                            title="Open in fullscreen">
+                            <i data-lucide="maximize-2"></i>
+                        </a>
+                    </div>
+                </div>
+                <canvas id="tempChart" height="90"></canvas>
+            </section>
+
+            <!-- Panel Inferior: Market Battle -->
+            <section class="chart-panel glass-panel" style="position: relative;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <h3 style="margin: 0; font-size: 14px; display: flex; align-items: center; gap: 8px;">
+                        <span style="font-size: 16px;">📈</span> MARKET BATTLE
+                        <span style="font-size: 11px; color: var(--text-secondary); font-weight: normal;">(%)</span>
+                    </h3>
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <span style="font-size: 11px; color: var(--text-muted);">Polymarket Top 3</span>
+                        <a href="/station/{{ station_id }}/chart/probability" class="fullscreen-btn"
+                            title="Open in fullscreen">
+                            <i data-lucide="maximize-2"></i>
+                        </a>
+                    </div>
+                </div>
+                <canvas id="probChart" height="90"></canvas>
+            </section>
+
+            <!-- Unified Tooltip (positioned via JS) -->
+            <div id="unified-tooltip" style="display: none; position: fixed; z-index: 1000; pointer-events: none;
+                    background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(255, 255, 255, 0.1);
+                    border-radius: 12px; padding: 15px; min-width: 220px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);">
+            </div>
+
+            <!-- Audit Table -->
+            <section class="table-container glass-panel" style="padding:0;">
+                <table id="audit-table">
+                    <thead>
+                        <tr>
+                            <th>Time (NYC)</th>
+                            <th>HELIOS</th>
+                            <th>Market Favorite</th>
+                            <th>Alpha (Gap)</th>
+                            <th>Arbitrage Status</th>
+                            <th>ROI</th>
+                        </tr>
+                    </thead>
+
+                    <tbody>
+                        <tr>
+                            <td colspan="6" class="loading">Loading data...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </section>
+
+        </div> <!-- Close Main Content Column -->
+    </main>
+</div> <!-- Close analytics-wrapper -->
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // v7.0: Station-aware temperature units
+    const STATION_ID = '{{ station_id }}';
+    const USE_CELSIUS = STATION_ID === 'EGLC';
+    const TEMP_UNIT = USE_CELSIUS ? '°C' : '°F';
+
+    // Convert Fahrenheit to Celsius if needed (for absolute temperatures)
+    function formatTemp(tempF) {
+        if (tempF === null || tempF === undefined) return '--';
+        if (USE_CELSIUS) {
+            const tempC = (tempF - 32) * 5 / 9;
+            return tempC.toFixed(1) + '°C';
+        }
+        return tempF.toFixed(1) + '°F';
+    }
+
+    // Convert Fahrenheit delta to Celsius delta (for differences/gaps)
+    // Note: For deltas, we only apply the scale factor (5/9), NOT the -32 offset
+    function formatTempDelta(deltaF) {
+        if (deltaF === null || deltaF === undefined) return '--';
+        if (USE_CELSIUS) {
+            const deltaC = deltaF * 5 / 9;
+            const sign = deltaC > 0 ? '+' : '';
+            return sign + deltaC.toFixed(1) + '°C';
+        }
+        const sign = deltaF > 0 ? '+' : '';
+        return sign + deltaF.toFixed(1) + '°F';
+    }
+
+    let chartInstance = null;
+
+    function updateArbitrageUI(data) {
+        // 1. Update Market Sidebar
+        const sb = data.sidebar;
+        if (sb && sb.top1) {
+            // Top 1
+            document.getElementById('mkt-top1-bracket').textContent = sb.top1.bracket || '--';
+            const p1 = (sb.top1.prob * 100).toFixed(1);
+            document.getElementById('mkt-top1-prob').textContent = p1 + '%';
+            document.getElementById('mkt-top1-bar').style.width = p1 + '%';
+
+            // Top 2
+            document.getElementById('mkt-top2-bracket').textContent = sb.top2.bracket || '--';
+            const p2 = (sb.top2.prob * 100).toFixed(1);
+            document.getElementById('mkt-top2-prob').textContent = p2 + '%';
+            document.getElementById('mkt-top2-bar').style.width = p2 + '%';
+
+            // Top 3
+            document.getElementById('mkt-top3-bracket').textContent = sb.top3.bracket || '--';
+            const p3 = (sb.top3.prob * 100).toFixed(1);
+            document.getElementById('mkt-top3-prob').textContent = p3 + '%';
+            document.getElementById('mkt-top3-bar').style.width = p3 + '%';
+        }
+
+        // 2. Update Alpha KPI
+        const alpha = data.alpha;
+        const alphaEl = document.getElementById('kpi-alpha');
+        const signalEl = document.getElementById('kpi-signal');
+
+        if (alpha) {
+            alphaEl.textContent = formatTempDelta(alpha.value);
+
+            if (alpha.value >= 1.0) {
+                // Strong Alpha
+                alphaEl.style.color = 'var(--accent-green)';
+                if (alpha.direction === 'long') {
+                    signalEl.innerHTML = '<span style="color:var(--accent-green)">🟢 LONG OPPORTUNITY</span>';
+                } else {
+                    signalEl.innerHTML = '<span style="color:var(--accent-red)">🔴 SHORT OPPORTUNITY</span>';
+                }
+            } else {
+                // Weak Alpha
+                alphaEl.style.color = 'var(--text-muted)';
+                signalEl.innerHTML = '<span style="color:var(--text-muted)">WAITING FOR GAP > 1.0°F</span>';
+            }
+        }
+
+        // 3. v6.5: Live Alerts (Permanent Card)
+        const alertsContent = document.getElementById('alerts-content');
+        if (alertsContent) {
+            alertsContent.innerHTML = ''; // Clear content
+
+            if (data.alerts && data.alerts.length > 0) {
+                // Render Alerts
+                data.alerts.forEach(alert => {
+                    const div = document.createElement('div');
+                    // Use a darker/lighter sub-card style within the main card
+                    div.className = `kpi-card glass-panel ${alert.level}`;
+                    div.style.marginBottom = '0'; // Reset margin for nested cards
+                    div.style.border = '1px solid rgba(255,255,255,0.1)';
+
+                    div.innerHTML = `
+                            <div class="kpi-label" style="display:flex; justify-content:space-between; font-size: 9px; margin-bottom: 2px;">
+                                <span>${alert.title}</span>
+                                <span style="opacity:0.7">${alert.time || ''}</span>
+                            </div>
+                            <div class="kpi-value" style="font-size: 14px; margin: 2px 0; color: #fff;">
+                                ${formatTempDelta(alert.diff)}
+                            </div>
+                            <div class="kpi-sub" style="font-size: 10px; padding-top: 4px;">${alert.desc}</div>
+                        `;
+                    div.style.padding = "10px 15px";
+                    alertsContent.appendChild(div);
+                });
+            } else {
+                // Empty State
+                alertsContent.innerHTML = `
+                        <div style="color: var(--text-secondary); font-size: 13px; display: flex; align-items: center; gap: 8px;">
+                            <span style="color: var(--accent-green); font-size: 10px;">●</span> System Normal
+                        </div>
+                    `;
+            }
+        }
+
+        // 4. v10.0: Update Ensemble Safety Range Panel
+        const ensemblePanel = document.getElementById('ensemble-panel');
+        if (ensemblePanel && data.debug && data.debug.length > 0) {
+            // Get latest debug entry
+            const latest = data.debug[data.debug.length - 1];
+
+            if (latest.ensemble_floor || latest.ensemble_ceiling) {
+                ensemblePanel.style.display = 'block';
+
+                // Update range
+                const floor = latest.ensemble_floor || '--';
+                const ceiling = latest.ensemble_ceiling || '--';
+                document.getElementById('ensemble-range').textContent =
+                    `${formatTemp(floor).replace(TEMP_UNIT, '')} - ${formatTemp(ceiling)}`;
+
+                // Update components
+                document.getElementById('ensemble-nbm').textContent =
+                    latest.nbm ? formatTemp(latest.nbm) : '--';
+                document.getElementById('ensemble-lamp').textContent =
+                    latest.lamp ? formatTemp(latest.lamp) : '--';
+                document.getElementById('ensemble-spread').textContent =
+                    latest.ensemble_spread ? latest.ensemble_spread.toFixed(1) + '°F' : '--';
+
+                // HRRR outlier status
+                const hrrrStatus = document.getElementById('ensemble-hrrr-status');
+                if (latest.hrrr_outlier) {
+                    hrrrStatus.textContent = '⚠️ OUTLIER';
+                    hrrrStatus.style.color = '#FFC107';
+                } else {
+                    hrrrStatus.textContent = '✓';
+                    hrrrStatus.style.color = '#10B981';
+                }
+
+                // Confidence badge
+                const confBadge = document.getElementById('ensemble-confidence');
+                const conf = latest.ensemble_confidence || 'MEDIUM';
+                confBadge.textContent = conf;
+                if (conf === 'HIGH') {
+                    confBadge.style.background = 'rgba(16, 185, 129, 0.15)';
+                    confBadge.style.color = '#10B981';
+                    confBadge.style.border = '1px solid rgba(16, 185, 129, 0.3)';
+                } else if (conf === 'LOW') {
+                    confBadge.style.background = 'rgba(239, 68, 68, 0.15)';
+                    confBadge.style.color = '#f87171';
+                    confBadge.style.border = '1px solid rgba(239, 68, 68, 0.3)';
+                    document.getElementById('ensemble-note').innerHTML =
+                        '🔴 Spread > 4°F - Solo Split Bets recomendado';
+                } else {
+                    confBadge.style.background = 'rgba(245, 158, 11, 0.15)';
+                    confBadge.style.color = '#fbbf24';
+                    confBadge.style.border = '1px solid rgba(245, 158, 11, 0.3)';
+                    document.getElementById('ensemble-note').textContent = '';
+                }
+
+                // v11.1: Calculate and display 3-tier bet zones (Sniper Mode)
+                const betZonesPanel = document.getElementById('bet-zones-panel');
+                const coreContainer = document.getElementById('core-brackets');
+                const coverageContainer = document.getElementById('coverage-brackets');
+                const killContainer = document.getElementById('kill-brackets');
+                const physCeilingBadge = document.getElementById('physical-ceiling-badge');
+
+                if (betZonesPanel && floor && ceiling) {
+                    betZonesPanel.style.display = 'block';
+
+                    // Calculate 3-tier zones based on NBM/LAMP center
+                    const nbmVal = latest.nbm || ceiling;
+                    const lampVal = latest.lamp || ceiling;
+                    const modelCenter = (nbmVal + lampVal) / 2;
+                    const CORE_RADIUS = 1.5;
+
+                    const coreBrackets = [];
+                    const coverageBrackets = [];
+                    const killBrackets = [];
+
+                    for (let low = 30; low < 70; low += 2) {
+                        const high = low + 1;
+                        const midpoint = low + 0.5;
+                        const bracket = `${low}-${high}`;
+
+                        // KILL: below floor or above ceiling
+                        if (midpoint < floor || midpoint > ceiling) {
+                            killBrackets.push(bracket);
+                        }
+                        // CORE: within ±1.5°F of NBM/LAMP center
+                        else if (Math.abs(midpoint - modelCenter) <= CORE_RADIUS) {
+                            coreBrackets.push(bracket);
+                        }
+                        // COVERAGE: within range but far from center
+                        else {
+                            coverageBrackets.push(bracket);
+                        }
+                    }
+
+                    // Render CORE brackets (gold)
+                    coreContainer.innerHTML = '';
+                    if (coreBrackets.length > 0) {
+                        coreBrackets.forEach(b => {
+                            const span = document.createElement('span');
+                            span.className = 'status-badge';
+                            span.style.cssText = 'font-size:11px; background:rgba(255,215,0,0.2); color:#FFD700; border:1px solid rgba(255,215,0,0.4);';
+                            span.textContent = b + '°F';
+                            coreContainer.appendChild(span);
+                        });
+                    } else {
+                        coreContainer.innerHTML = '<span style="color:var(--text-muted); font-size:11px;">--</span>';
+                    }
+
+                    // Render COVERAGE brackets (blue)
+                    coverageContainer.innerHTML = '';
+                    if (coverageBrackets.length > 0) {
+                        coverageBrackets.forEach(b => {
+                            const span = document.createElement('span');
+                            span.className = 'status-badge';
+                            span.style.cssText = 'font-size:11px; background:rgba(96,165,250,0.15); color:#60a5fa; border:1px solid rgba(96,165,250,0.3);';
+                            span.textContent = b + '°F';
+                            coverageContainer.appendChild(span);
+                        });
+                    } else {
+                        coverageContainer.innerHTML = '<span style="color:var(--text-muted); font-size:11px;">--</span>';
+                    }
+
+                    // Render KILL brackets (red, limit to 4)
+                    killContainer.innerHTML = '';
+                    if (killBrackets.length > 0) {
+                        killBrackets.slice(0, 4).forEach(b => {
+                            const span = document.createElement('span');
+                            span.className = 'status-badge error';
+                            span.style.fontSize = '11px';
+                            span.textContent = b + '°F';
+                            killContainer.appendChild(span);
+                        });
+                        if (killBrackets.length > 4) {
+                            const more = document.createElement('span');
+                            more.style.cssText = 'color:var(--text-muted); font-size:10px; padding:0 4px;';
+                            more.textContent = `+${killBrackets.length - 4}`;
+                            killContainer.appendChild(more);
+                        }
+                    } else {
+                        killContainer.innerHTML = '<span style="color:var(--text-muted); font-size:11px;">--</span>';
+                    }
+
+                    // Update physical ceiling badge
+                    physCeilingBadge.textContent = `Techo: ${formatTemp(ceiling)}`;
+
+                    // v12.0: Update protection status badges
+                    const v12Row = document.getElementById('v12-status-row');
+                    const sunsetBadge = document.getElementById('sunset-lock-badge');
+                    const squeezeBadge = document.getElementById('squeeze-badge');
+                    const ghostBadge = document.getElementById('ghost-warning-badge');
+
+                    if (v12Row) {
+                        // Get current NYC hour (approximate from label or use local data)
+                        const now = new Date();
+                        // Offset for NYC (EST = UTC-5, EDT = UTC-4)
+                        const nycOffset = -5; // Winter
+                        const nycHour = (now.getUTCHours() + nycOffset + 24) % 24;
+
+                        let anyBadgeActive = false;
+
+                        // Sunset Lock: Show if confidence includes keywords or hour >= 14 and spread is tight
+                        const confStr = latest.ensemble_confidence || '';
+                        if (confStr.includes('SUNSET') || confStr.includes('Sunset') ||
+                            (nycHour >= 14 && latest.ensemble_spread && latest.ensemble_spread <= 1.5)) {
+                            sunsetBadge.style.display = 'inline-block';
+                            anyBadgeActive = true;
+                        } else {
+                            sunsetBadge.style.display = 'none';
+                        }
+
+                        // Ultimate Squeeze: Show if hour >= 14:30 and spread <= 1.2
+                        if (nycHour >= 15 || (nycHour === 14 && now.getMinutes() >= 30)) {
+                            if (latest.ensemble_spread && latest.ensemble_spread <= 1.2) {
+                                squeezeBadge.style.display = 'inline-block';
+                                anyBadgeActive = true;
+                            } else {
+                                squeezeBadge.style.display = 'none';
+                            }
+                        } else {
+                            squeezeBadge.style.display = 'none';
+                        }
+
+                        // Ghost Warning: Show if confidence mentions HALLUCINATION or prediction diverges heavily
+                        if (confStr.includes('HALLUCINATION') || confStr.includes('Ghost') ||
+                            confStr.includes('DIVERGENT')) {
+                            ghostBadge.style.display = 'inline-block';
+                            anyBadgeActive = true;
+                        } else {
+                            ghostBadge.style.display = 'none';
+                        }
+
+                        v12Row.style.display = anyBadgeActive ? 'block' : 'none';
+                    }
+                }
+            } else {
+                ensemblePanel.style.display = 'none';
+            }
+        }
+
+        // v13.0: Market Resolution Detection - Show/hide resolution banner
+        const resolutionBanner = document.getElementById('resolution-banner');
+        const ensemblePanelForGray = document.getElementById('ensemble-panel');
+
+        if (data.market_resolution && data.market_resolution.is_resolved) {
+            const mr = data.market_resolution;
+
+            // Show resolution banner
+            if (resolutionBanner) {
+                resolutionBanner.style.display = 'block';
+                document.getElementById('resolution-bracket').textContent = mr.winning_bracket || '--';
+                document.getElementById('resolution-max').textContent =
+                    mr.observed_max_f ? mr.observed_max_f.toFixed(1) : '--';
+                document.getElementById('resolution-time').textContent = mr.resolution_time || '--';
+            }
+
+            // Gray out ensemble panel predictions (Option B)
+            if (ensemblePanelForGray && !mr.remaining_upside) {
+                ensemblePanelForGray.style.opacity = '0.6';
+                ensemblePanelForGray.style.filter = 'grayscale(30%)';
+
+                // Add "HISTORICAL" badge if not already present
+                const existingBadge = document.getElementById('historical-badge');
+                if (!existingBadge) {
+                    const badge = document.createElement('span');
+                    badge.id = 'historical-badge';
+                    badge.className = 'status-badge';
+                    badge.style.cssText = 'background: rgba(128, 128, 128, 0.2); color: #999; border: 1px solid rgba(128, 128, 128, 0.3); font-size: 9px; margin-left: 8px;';
+                    badge.textContent = 'HISTORICAL';
+                    const header = ensemblePanelForGray.querySelector('h3');
+                    if (header) header.appendChild(badge);
+                }
+            }
+        } else {
+            // Hide banner if not resolved
+            if (resolutionBanner) {
+                resolutionBanner.style.display = 'none';
+            }
+
+            // Restore ensemble panel styling
+            if (ensemblePanelForGray) {
+                ensemblePanelForGray.style.opacity = '1';
+                ensemblePanelForGray.style.filter = 'none';
+                const existingBadge = document.getElementById('historical-badge');
+                if (existingBadge) existingBadge.remove();
+            }
+        }
+    }
+
+    let tempChartInstance = null;
+    let probChartInstance = null;
+    let crosshairX = null;
+
+    // Data State
+    let apiDataFull = null;
+    let apiData = null; // The active (filtered) data
+    let currentTimeWindow = 0; // 0 = Today (Full Day)
+
+    // Crosshair synchronization plugin
+    const crosshairPlugin = {
+        id: 'crosshairSync',
+        afterDraw: function (chart) {
+            if (crosshairX !== null) {
+                const ctx = chart.ctx;
+                const yAxis = chart.scales.y;
+                const xAxis = chart.scales.x;
+
+                ctx.save();
+                ctx.beginPath();
+                ctx.moveTo(crosshairX, yAxis.top);
+                ctx.lineTo(crosshairX, yAxis.bottom);
+                ctx.lineWidth = 1;
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+                ctx.setLineDash([5, 5]);
+                ctx.stroke();
+                ctx.restore();
+            }
+        }
+    };
+
+    // Register plugin
+    Chart.register(crosshairPlugin);
+
+    function syncCharts(e, chart) {
+        // Get X position
+        const rect = chart.canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        crosshairX = x;
+
+        // Update both charts
+        if (tempChartInstance) tempChartInstance.update('none');
+        if (probChartInstance) probChartInstance.update('none');
+
+        // Show unified tooltip
+        showUnifiedTooltip(e, chart);
+    }
+
+    function clearCrosshair() {
+        crosshairX = null;
+        if (tempChartInstance) tempChartInstance.update('none');
+        if (probChartInstance) probChartInstance.update('none');
+        document.getElementById('unified-tooltip').style.display = 'none';
+    }
+
+    function showUnifiedTooltip(e, chart) {
+        const tooltip = document.getElementById('unified-tooltip');
+        const xScale = chart.scales.x;
+
+        // Find the nearest data index
+        const activeElements = chart.getElementsAtEventForMode(e, 'index', { intersect: false }, false);
+        if (!activeElements.length || !apiData) {
+            tooltip.style.display = 'none';
+            return;
+        }
+
+        const dataIndex = activeElements[0].index;
+        const timeLabel = apiData.chart_temperature.labels[dataIndex];
+
+        // Get data from both charts
+        const helios = apiData.chart_temperature.datasets[0].data[dataIndex];
+        const cumMax = apiData.chart_temperature.datasets[1].data[dataIndex];
+        const wuForecast = apiData.chart_temperature.datasets[2]?.data[dataIndex];
+        let wuLive = apiData.chart_temperature.datasets[3]?.data[dataIndex]; // v6.0
+        const hrrrRaw = apiData.chart_temperature.datasets[4]?.data[dataIndex]; // v6.2
+        // v8.0: Racing METAR Sources
+        const metarJson = apiData.chart_temperature.datasets[5]?.data[dataIndex];
+        const metarXml = apiData.chart_temperature.datasets[6]?.data[dataIndex];
+        const metarTxt = apiData.chart_temperature.datasets[7]?.data[dataIndex];
+
+        // v7.0: Validate WU Live for EGLC - values above 65°F (~18°C) are absurd for London in winter
+        if (USE_CELSIUS && wuLive !== null && wuLive > 65) {
+            wuLive = null; // Mark as invalid
+        }
+
+        // Prepare and sort market probabilities
+        const marketProbs = apiData.chart_probability.datasets.map((ds) => ({
+            label: ds.label,
+            prob: ds.data[dataIndex],
+            color: ds.borderColor
+        })).filter(d => d.prob !== null && d.prob !== undefined);
+
+        // Sort by probability DESC and take only TOP 3
+        marketProbs.sort((a, b) => b.prob - a.prob);
+        const top3 = marketProbs.slice(0, 3);
+
+        let probLines = '';
+        const icons = ['🥇', '🥈', '🥉'];
+        top3.forEach((item, i) => {
+            probLines += `<div style="display: flex; justify-content: space-between; gap: 15px; margin-bottom: 4px;">
+                    <span style="font-size: 14px;">${icons[i]} ${item.label}</span>
+                    <span style="color: ${item.color}; font-weight: 700; font-size: 14px;">${item.prob.toFixed(1)}%</span>
+                </div>`;
+        });
+
+        tooltip.innerHTML = `
+                <div style="font-weight: 600; color: var(--text-main); margin-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px; font-size: 14px;">
+                    🕐 ${timeLabel}
+                </div>
+                
+                <!-- MAX Temp. Prediction Section -->
+                <div style="margin-bottom: 12px;">
+                    <div style="color: var(--text-secondary); font-size: 11px; text-transform: uppercase; font-weight: bold; margin-bottom: 6px; letter-spacing: 0.5px;">📈 Max Temp. Prediction</div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 14px;">
+                        <span>☁️ WU Forecast High:</span>
+                        <span style="color: #F4D03F; font-weight: 600;">${formatTemp(wuForecast)}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 14px;">
+                        <span>🎯 HELIOS:</span>
+                        <span style="color: #0078FF; font-weight: 600;">${formatTemp(helios)}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; font-size: 14px;">
+                        <span>📊 HRRR Raw Max:</span>
+                        <span style="color: #87CEEB; font-weight: 600;">${formatTemp(hrrrRaw)}</span>
+                    </div>
+                </div>
+                
+                <!-- Real Time Data Section -->
+                <div style="margin-bottom: 12px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 10px;">
+                    <div style="color: var(--text-secondary); font-size: 11px; text-transform: uppercase; font-weight: bold; margin-bottom: 6px; letter-spacing: 0.5px;">🔴 Real Time Data</div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 14px;">
+                        <span>🔥 WU Live:</span>
+                        <span style="color: #FF6B35; font-weight: 600;">${formatTemp(wuLive)}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 14px;">
+                        <span>🌡️ NOAA (RACER):</span>
+                        <span style="color: #00FF7F; font-weight: 600;">${formatTemp(cumMax)}</span>
+                    </div>
+                    <!-- v8.0 Racing Extras in Tooltip -->
+                    <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 2px; padding-left: 10px;">
+                        <span style="opacity: 0.7;">JSON API:</span>
+                        <span style="color: #10B981;">${formatTemp(metarJson)}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 2px; padding-left: 10px;">
+                        <span style="opacity: 0.7;">TDS XML:</span>
+                        <span style="color: #8B5CF6;">${formatTemp(metarXml)}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; font-size: 12px; padding-left: 10px;">
+                        <span style="opacity: 0.7;">TG-FTP TXT:</span>
+                        <span style="color: #EC4899;">${formatTemp(metarTxt)}</span>
+                    </div>
+                </div>
+                
+                <!-- Polymarket Odds Section - TOP 3 Only -->
+                <div style="border-top: 1px solid rgba(255,255,255,0.1); padding-top: 10px;">
+                    <div style="color: var(--text-secondary); font-size: 11px; text-transform: uppercase; font-weight: bold; margin-bottom: 6px; letter-spacing: 0.5px;">📊 Polymarket Top 3</div>
+                    <div style="color: var(--text-main);">
+                        ${probLines}
+                    </div>
+                </div>
+            `;
+
+        // Position tooltip - avoid overflow on right edge
+        tooltip.style.display = 'block';
+        const tooltipWidth = 240;  // Approximate tooltip width
+        const viewportWidth = window.innerWidth;
+
+        // If tooltip would overflow right edge, show on left side of cursor
+        if (e.clientX + tooltipWidth + 20 > viewportWidth) {
+            tooltip.style.left = (e.clientX - tooltipWidth - 15) + 'px';
+        } else {
+            tooltip.style.left = (e.clientX + 15) + 'px';
+        }
+
+        // Also handle vertical overflow
+        const tooltipHeight = 180;
+        const viewportHeight = window.innerHeight;
+        if (e.clientY - 100 < 0) {
+            tooltip.style.top = '10px';
+        } else if (e.clientY + tooltipHeight > viewportHeight) {
+            tooltip.style.top = (viewportHeight - tooltipHeight - 10) + 'px';
+        } else {
+            tooltip.style.top = (e.clientY - 100) + 'px';
+        }
+    }
+
+
+    function setTimeWindow(minutes, btn) {
+        currentTimeWindow = minutes;
+        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        if (apiDataFull) renderDualCharts(apiDataFull);
+    }
+
+    function filterDataByWindow(data, minutes) {
+        if (minutes === 0) return data;
+        const timestamps = data.chart_temperature.timestamps;
+        if (!timestamps || timestamps.length === 0) return data;
+
+        // Use the last timestamp in the data as "now" to ensure we see data even if lagging
+        const lastTs = new Date(timestamps[timestamps.length - 1]);
+        const cutoff = new Date(lastTs.getTime() - minutes * 60000);
+
+        const indices = [];
+        for (let i = 0; i < timestamps.length; i++) {
+            if (new Date(timestamps[i]) >= cutoff) {
+                indices.push(i);
+            }
+        }
+
+        if (indices.length === 0) return data;
+
+        const filtered = JSON.parse(JSON.stringify(data));
+        const sliceChart = (chart) => {
+            chart.labels = indices.map(i => chart.labels[i]);
+            chart.timestamps = indices.map(i => chart.timestamps[i]);
+            chart.datasets.forEach(ds => {
+                ds.data = indices.map(i => ds.data[i]);
+            });
+        };
+
+        sliceChart(filtered.chart_temperature);
+        sliceChart(filtered.chart_probability);
+        if (filtered.debug) filtered.debug = indices.map(i => filtered.debug[i]);
+        // v6.2: Downsample large datasets to prevent lag
+        if (filtered.chart_temperature.timestamps.length > 500) {
+            const step = Math.ceil(filtered.chart_temperature.timestamps.length / 500);
+            const downsample = (arr) => arr.filter((_, i) => i % step === 0 || i === arr.length - 1);
+
+            filtered.chart_temperature.labels = downsample(filtered.chart_temperature.labels);
+            filtered.chart_temperature.timestamps = downsample(filtered.chart_temperature.timestamps);
+            filtered.chart_temperature.datasets.forEach(ds => {
+                ds.data = downsample(ds.data);
+            });
+
+            filtered.chart_probability.labels = downsample(filtered.chart_probability.labels);
+            filtered.chart_probability.timestamps = downsample(filtered.chart_probability.timestamps);
+            filtered.chart_probability.datasets.forEach(ds => {
+                ds.data = downsample(ds.data);
+            });
+
+            if (filtered.debug) {
+                filtered.debug = downsample(filtered.debug);
+            }
+        }
+
+        return filtered;
+    }
+
+    function renderDualCharts(raw_data) {
+        apiDataFull = raw_data;
+        apiData = filterDataByWindow(raw_data, currentTimeWindow);
+
+        // Update HELIOS bracket badge
+        if (apiData.helios_bracket) {
+            document.getElementById('helios-bracket-badge').textContent = 'HELIOS: ' + apiData.helios_bracket;
+        }
+
+        // Common chart options
+        const commonOptions = {
+            responsive: true,
+            maintainAspectRatio: true,
+            interaction: {
+                mode: 'index',
+                intersect: false,
+            },
+            elements: {
+                point: { radius: 0, hoverRadius: 3, hitRadius: 5 },  // Reduced hover area
+                line: { tension: 0.5, stepped: false } // v6.6: Super smooth lines
+            },
+            // v6.2: Performance optimization - reduce hover calculations
+            hover: {
+                mode: 'index',
+                intersect: false,
+                animationDuration: 0  // Disable hover animation
+            },
+            animation: {
+                duration: 0  // Disable all animations for performance
+            },
+            plugins: {
+                legend: {
+                    position: 'top',
+                    labels: {
+                        color: '#94a3b8',
+                        boxWidth: 12,
+                        padding: 15,
+                        font: { size: 11 },
+                        usePointStyle: true,
+                        pointStyle: 'circle'
+                    }
+                },
+                tooltip: { enabled: false },  // We use custom unified tooltip
+                decimation: {
+                    enabled: true,
+                    algorithm: 'lttb',  // Largest Triangle Three Buckets - preserves shape
+                    samples: 200  // Max 200 points displayed
+                }
+            }
+        };
+
+        // === TEMPERATURE CHART ===
+        const tempCtx = document.getElementById('tempChart').getContext('2d');
+        if (tempChartInstance) tempChartInstance.destroy();
+
+        // v7.0: Convert temperature data to Celsius for EGLC
+        const tempChartData = JSON.parse(JSON.stringify(apiData.chart_temperature)); // Deep copy
+        if (USE_CELSIUS) {
+            // First, invalidate absurd WU Live values (dataset index 3) - values above 65°F are errors
+            if (tempChartData.datasets[3]) {
+                tempChartData.datasets[3].data = tempChartData.datasets[3].data.map(v =>
+                    (v !== null && v !== undefined && v > 65) ? null : v
+                );
+            }
+            // Then convert all data to Celsius
+            tempChartData.datasets.forEach(ds => {
+                ds.data = ds.data.map(v => v !== null && v !== undefined ? (v - 32) * 5 / 9 : null);
+            });
+        }
+
+        // Calculate dynamic Y-axis range
+        let maxTemp = -Infinity;
+        let minTemp = Infinity;
+
+        tempChartData.datasets.forEach(ds => {
+            const cleanData = ds.data.filter(v => v !== null && v !== undefined);
+            if (cleanData.length > 0) {
+                const dsMax = Math.max(...cleanData);
+                const dsMin = Math.min(...cleanData);
+                if (dsMax > maxTemp) maxTemp = dsMax;
+                if (dsMin < minTemp) minTemp = dsMin;
+            }
+        });
+
+        // If no data, use some defaults
+        const dynamicMax = maxTemp !== -Infinity ? maxTemp + 2 : null;
+        const dynamicMin = minTemp !== Infinity ? minTemp - 1 : null; // A bit of padding at the bottom too
+
+        tempChartInstance = new Chart(tempCtx, {
+            type: 'line',
+            data: tempChartData,
+            options: {
+                ...commonOptions,
+                scales: {
+                    y: {
+                        type: 'linear',
+                        position: 'left',
+                        min: dynamicMin,
+                        max: dynamicMax,
+                        title: { display: true, text: TEMP_UNIT, color: '#94a3b8' },
+                        grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                        ticks: {
+                            color: '#94a3b8',
+                            callback: (v) => Math.round(v * 10) / 10  // Fix floating point precision
+                        }
+                    },
+                    x: {
+                        grid: { display: false },
+                        ticks: { color: '#94a3b8', maxTicksLimit: 12 }
+                    }
+                },
+                onHover: (e, elements, chart) => syncCharts(e.native, chart)
+            }
+        });
+
+        // Add mouse leave handler
+        tempCtx.canvas.addEventListener('mouseleave', clearCrosshair);
+
+        // === PROBABILITY CHART ===
+        const probCtx = document.getElementById('probChart').getContext('2d');
+        if (probChartInstance) probChartInstance.destroy();
+
+        // Calculate dynamic Y-axis max for probability (don't force 100% if all lines are low)
+        let maxProb = 0;
+        apiData.chart_probability.datasets.forEach(ds => {
+            const dsMax = Math.max(...ds.data.filter(v => v !== null));
+            if (dsMax > maxProb) maxProb = dsMax;
+        });
+        const probMax = maxProb > 0 ? Math.min(100, Math.ceil(maxProb / 5) * 5 + 5) : 100;
+
+        probChartInstance = new Chart(probCtx, {
+            type: 'line',
+            data: apiData.chart_probability,
+            options: {
+                ...commonOptions,
+                scales: {
+                    y: {
+                        type: 'linear',
+                        position: 'left', // Aligned with temperature chart
+                        min: 0,
+                        max: probMax,
+                        title: { display: true, text: '%', color: '#94a3b8' },
+                        grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                        ticks: {
+                            color: '#94a3b8',
+                            callback: (v) => v + '%'
+                        }
+                    },
+                    x: {
+                        grid: { display: false },
+                        ticks: { color: '#94a3b8', maxTicksLimit: 12 }
+                    }
+                },
+                onHover: (e, elements, chart) => syncCharts(e.native, chart)
+            }
+        });
+
+        probCtx.canvas.addEventListener('mouseleave', clearCrosshair);
+    }
+
+    function renderTable(logs) {
+        const tbody = document.querySelector('#audit-table tbody');
+        const thead = document.querySelector('#audit-table thead tr');
+
+        // Update Headers for divergence tracking
+        thead.innerHTML = `
+                <th>Time NYC (ES)</th>
+                <th>HELIOS</th>
+                <th>METAR API</th>
+                <th>METAR XML</th>
+                <th>METAR TXT</th>
+                <th>Mkt #1</th>
+                <th>Mkt #2</th>
+                <th>Mkt #3</th>
+                <th>Alpha</th>
+                <th>Status</th>
+                <th>ROI</th>
+            `;
+
+        tbody.innerHTML = '';
+
+        if (logs.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="8" class="loading">No records found</td></tr>';
+            return;
+        }
+
+        logs.forEach(log => {
+            const tr = document.createElement('tr');
+
+            // DB stores UTC as a naive string, append 'Z' so JS treats it as UTC correctly
+            const date = new Date(log.timestamp + 'Z');
+
+            // NYC and Spain formatting
+            const nyc = date.toLocaleTimeString('en-GB', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit' });
+            const es = date.toLocaleTimeString('en-GB', { timeZone: 'Europe/Madrid', hour: '2-digit', minute: '2-digit' });
+            const timeStr = `${nyc} (${es})`;
+
+            const helios = log.helios_pred;
+            const helios_bracket = log.helios_bracket || '--';
+
+            // Racing Data
+            const metar_json = log.metar_json_api_f;
+            const metar_xml = log.metar_tds_xml_f;
+            const metar_txt = log.metar_tgftp_txt_f;
+
+            // Market Data
+            const m1_bracket = log.market_top1_bracket || '--';
+            const m1_prob = log.market_top1_prob;
+            const m2_bracket = log.market_top2_bracket || '--';
+            const m2_prob = log.market_top2_prob;
+            const m3_bracket = log.market_top3_bracket || '--';
+            const m3_prob = log.market_top3_prob;
+
+            const market_avg = log.market_weighted_avg;
+            const divergence_state = log.divergence_state || 'UNKNOWN';
+            const potential_roi = log.potential_roi;
+
+            // Format HELIOS display with bracket
+            let heliosDisplay = helios?.toFixed(1) || '--';
+            if (helios_bracket && helios_bracket !== '--') {
+                heliosDisplay = `${helios?.toFixed(1) || '--'}°F <span style="font-size:10px; opacity:0.7;">(${helios_bracket})</span>`;
+            }
+
+            // Format market columns
+            const formatMkt = (bracket, prob) => {
+                if (bracket === '--' || prob == null) return '--';
+                return `${bracket} <span style="opacity:0.7;">(${(prob * 100).toFixed(1)}%)</span>`;
+            };
+
+            // Calculate alpha = HELIOS - Midpoint of TOP1 bracket
+            let alphaStr = '--';
+            if (helios != null && m1_bracket && m1_bracket !== '--') {
+                try {
+                    // Parse bracket like "48-49°F" or "48°F or higher"
+                    const cleaned = m1_bracket.replace('°F', '').replace(' or higher', '').replace(' or lower', '');
+                    const parts = cleaned.split('-');
+                    let top1_midpoint;
+                    if (parts.length === 2) {
+                        top1_midpoint = (parseFloat(parts[0]) + parseFloat(parts[1])) / 2;
+                    } else {
+                        // Single value like "48" (or higher/lower)
+                        top1_midpoint = parseFloat(parts[0]);
+                    }
+                    const diff = helios - top1_midpoint;
+                    alphaStr = (diff > 0 ? '+' : '') + diff.toFixed(1) + '°F';
+                } catch (e) {
+                    alphaStr = '--';
+                }
+            }
+
+            // Divergence badge
+            let statusHtml;
+            if (divergence_state === 'ALIGNED') {
+                statusHtml = '<span class="status-badge success">✅ ALIGNED</span>';
+            } else if (divergence_state === 'DIVERGENCE') {
+                statusHtml = '<span class="status-badge error">⚠️ DIVERGENCE</span>';
+            } else {
+                statusHtml = '<span class="status-badge pending">--</span>';
+            }
+
+            // ROI display
+            let roiHtml = '--';
+            if (potential_roi != null && divergence_state === 'DIVERGENCE') {
+                roiHtml = `<span style="color: var(--accent-green); font-weight: 600;">+${potential_roi.toFixed(0)}%</span>`;
+            }
+
+            tr.innerHTML = `
+                    <td>${timeStr}</td>
+                    <td style="color: var(--accent-blue); font-weight:600">${heliosDisplay}</td>
+                    <td style="color: #10B981;">${formatTemp(metar_json)}</td>
+                    <td style="color: #8B5CF6;">${formatTemp(metar_xml)}</td>
+                    <td style="color: #EC4899;">${formatTemp(metar_txt)}</td>
+                    <td style="color: #00d4ff; font-family: monospace; font-size: 11px;">${formatMkt(m1_bracket, m1_prob)}</td>
+                    <td style="color: #0078FF; font-family: monospace; font-size: 11px;">${formatMkt(m2_bracket, m2_prob)}</td>
+                    <td style="color: #F4C724; font-family: monospace; font-size: 11px;">${formatMkt(m3_bracket, m3_prob)}</td>
+                    <td style="font-weight:bold;">${alphaStr}</td>
+                    <td>${statusHtml}</td>
+                    <td>${roiHtml}</td>
+                `;
+            tbody.appendChild(tr);
+        });
+    }
+
+    let selectedDate = null;
+    function loadDataForDate(dateStr) {
+        selectedDate = dateStr;
+        loadData();
+    }
+
+    async function loadData() {
+        try {
+            const stationId = '{{ station_id }}';  // v6.0: Use station from template
+            let url = `/api/analytics?station_id=${stationId}`;
+            if (selectedDate) url += `&date=${selectedDate}`;
+
+            const response = await fetch(url);
+            const data = await response.json();
+
+            updateArbitrageUI(data); // Sidebar & KPIs
+            renderDualCharts(data);   // Dual panel charts with sync
+            renderTable(data.table);
+            checkAlerts(data);        // v7.0: Check custom alerts
+        } catch (e) {
+            console.error("Error loading analytics:", e);
+        }
+    }
+
+    // v6.1: Export CSV function
+    function exportCSV() {
+        const stationId = '{{ station_id }}';
+
+        // Get window from the active time filter button
+        const activeBtn = document.querySelector('.time-filters .filter-btn.active');
+        const windowValue = activeBtn ? activeBtn.getAttribute('data-window') : 'day';
+
+        let url = `/api/export_csv?station_id=${stationId}&window=${windowValue}`;
+        if (selectedDate) {
+            url += `&date=${selectedDate}`;
+        }
+
+        // Trigger download
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = ''; // Let server set filename
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+
+
+    // Real-time Clock (matches station.html)
+    function updateClock() {
+        try {
+            const now = new Date();
+            const stationId = '{{ station_id }}';
+
+            // Station-specific label and timezone
+            let stationLabel, stationTimezone;
+            if (stationId === 'EGLC') {
+                stationLabel = 'LON';
+                stationTimezone = 'Europe/London';
+            } else if (stationId === 'KATL') {
+                stationLabel = 'ATL';
+                stationTimezone = 'America/New_York';
+            } else {
+                stationLabel = 'NYC';
+                stationTimezone = 'America/New_York';
+            }
+
+            // Station Time
+            const stationTime = now.toLocaleTimeString('en-GB', {
+                timeZone: stationTimezone,
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+
+            // Madrid/Spain Time (CET)
+            const esTime = now.toLocaleTimeString('en-GB', {
+                timeZone: 'Europe/Madrid',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+
+            const dateStr = now.toLocaleDateString('en-US', {
+                timeZone: stationTimezone,
+                weekday: 'short',
+                month: 'short',
+                day: 'numeric'
+            });
+
+            const clockEl = document.getElementById('local-clock');
+            if (clockEl) {
+                clockEl.innerHTML = `<span style="opacity: 0.7;">${stationLabel}</span> ${stationTime} <span style="margin-left: 10px; opacity: 0.7;">ES</span> ${esTime} <span style="margin-left: 10px; opacity: 0.5; font-size: 0.8em;">${dateStr}</span>`;
+            }
+        } catch (e) {
+            console.error("Clock error", e);
+        }
+    }
+
+    // v7.0: Alert System
+    const ALERT_STORAGE_KEY = 'helios_custom_alerts';
+    let triggeredAlerts = new Set(); // Avoid re-triggering same alert in same session
+
+    function openAlertModal() {
+        document.getElementById('alert-modal').style.display = 'flex';
+        renderActiveAlerts();
+    }
+
+    function closeAlertModal() {
+        document.getElementById('alert-modal').style.display = 'none';
+    }
+
+    function getAlerts() {
+        try {
+            return JSON.parse(localStorage.getItem(ALERT_STORAGE_KEY) || '[]');
+        } catch { return []; }
+    }
+
+    function saveAlerts(alerts) {
+        localStorage.setItem(ALERT_STORAGE_KEY, JSON.stringify(alerts));
+    }
+
+    function saveAlert() {
+        const variable = document.getElementById('alert-variable').value;
+        const condition = document.getElementById('alert-condition').value;
+        const value = parseFloat(document.getElementById('alert-value').value);
+
+        if (isNaN(value)) {
+            alert('Please enter a valid temperature value.');
+            return;
+        }
+
+        const alerts = getAlerts();
+        const newAlert = {
+            id: Date.now(),
+            variable,
+            condition,
+            value,
+            station: '{{ station_id }}',
+            createdAt: new Date().toISOString()
+        };
+        alerts.push(newAlert);
+        saveAlerts(alerts);
+
+        document.getElementById('alert-value').value = '';
+        renderActiveAlerts();
+    }
+
+    function deleteAlert(id) {
+        const alerts = getAlerts().filter(a => a.id !== id);
+        saveAlerts(alerts);
+        triggeredAlerts.delete(id);
+        renderActiveAlerts();
+    }
+
+    function renderActiveAlerts() {
+        const container = document.getElementById('active-alerts-list');
+        const alerts = getAlerts().filter(a => a.station === '{{ station_id }}');
+
+        if (alerts.length === 0) {
+            container.innerHTML = '<p style="color: var(--text-secondary); font-size: 12px; text-align: center;">No active alerts</p>';
+            return;
+        }
+
+        const varLabels = { noaa: 'NOAA', wu_live: 'WU Live', helios: 'HELIOS', hrrr: 'HRRR' };
+        const condLabels = { gte: '≥', lte: '≤', eq: '=' };
+
+        container.innerHTML = alerts.map(a => `
+                <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: rgba(255,255,255,0.05); border-radius: 8px; margin-bottom: 5px; font-size: 13px;">
+                    <span>${varLabels[a.variable]} ${condLabels[a.condition]} ${a.value}°F</span>
+                    <button onclick="deleteAlert(${a.id})" style="background: none; border: none; color: #ff4d4d; cursor: pointer; font-size: 16px;">✕</button>
+                </div>
+            `).join('');
+    }
+
+    function checkAlerts(data) {
+        if (!data || !data.chart_temperature) return;
+
+        const alerts = getAlerts().filter(a => a.station === '{{ station_id }}');
+        if (alerts.length === 0) return;
+
+        // Get latest values from chart data
+        const datasets = data.chart_temperature.datasets;
+        const getLatestValue = (dsIndex) => {
+            const ds = datasets[dsIndex];
+            if (!ds || !ds.data) return null;
+            for (let i = ds.data.length - 1; i >= 0; i--) {
+                if (ds.data[i] !== null) return ds.data[i];
+            }
+            return null;
+        };
+
+        const currentValues = {
+            helios: getLatestValue(0),
+            noaa: getLatestValue(1),
+            wu_forecast: getLatestValue(2),
+            wu_live: getLatestValue(3),
+            hrrr: getLatestValue(4)
+        };
+
+        for (const alert of alerts) {
+            if (triggeredAlerts.has(alert.id)) continue;
+
+            const currentVal = currentValues[alert.variable];
+            if (currentVal === null) continue;
+
+            let triggered = false;
+            if (alert.condition === 'gte' && currentVal >= alert.value) triggered = true;
+            if (alert.condition === 'lte' && currentVal <= alert.value) triggered = true;
+            if (alert.condition === 'eq' && Math.abs(currentVal - alert.value) < 0.1) triggered = true;
+
+            if (triggered) {
+                triggeredAlerts.add(alert.id);
+                showAlertNotification(alert, currentVal);
+            }
+        }
+    }
+
+    function showAlertNotification(alert, currentValue) {
+        const varLabels = { noaa: 'NOAA (RACER)', wu_live: 'WU Live', helios: 'HELIOS', hrrr: 'HRRR' };
+        const condLabels = { gte: 'reached', lte: 'dropped to', eq: 'equals' };
+
+        document.getElementById('alert-notification-title').textContent = `🎯 ${varLabels[alert.variable]} Alert!`;
+        document.getElementById('alert-notification-message').textContent =
+            `${varLabels[alert.variable]} has ${condLabels[alert.condition]} ${alert.value}°F (Current: ${currentValue.toFixed(1)}°F)`;
+        document.getElementById('alert-notification').style.display = 'block';
+
+        // Play sound (browser notification sound)
+        try {
+            const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2teleWYeT5zozIVreBJfn+vOl2hiEVOe4duqnG8cS5Pl5raXghxGf+fqxJSHHj546enBk4cnOn3q68KOhic7furo');
+            audio.volume = 0.3;
+            audio.play().catch(() => { });
+        } catch { }
+    }
+
+    function dismissAlertNotification() {
+        document.getElementById('alert-notification').style.display = 'none';
+    }
+
+    // Init
+    document.addEventListener('DOMContentLoaded', () => {
+        // Load initial data
+        loadData();
+        lucide.createIcons();
+
+        // Start clock
+        updateClock();
+        setInterval(updateClock, 1000);
+
+        // Auto-refresh logic (optional)
+        // setInterval(loadData, 60000); 
+
+        // Set date picker to today (NYC time)
+        const now = new Date();
+        const nycOffset = -5; // EST
+        const nycTime = new Date(now.getTime() + (nycOffset * 60 + now.getTimezoneOffset()) * 60000);
+        const todayStr = nycTime.toISOString().split('T')[0];
+
+        const datePicker = document.getElementById('date-picker');
+        datePicker.value = todayStr;
+        // datePicker.max = todayStr; // REMOVED: Allow future dates for forecasting
+        selectedDate = todayStr;
+
+        loadData();
+
+        // Auto refresh every 5 seconds for live updates (charts, KPIs)
+        setInterval(loadData, 5000);
+
+        // v8.0: FAST ALERT POLLING (2-second cycle for minimum latency)
+        // This runs independently of chart refresh for instant alerts
+        setInterval(checkFastAlerts, 2000);
+    });
+
+    // v8.0: Fast Alert Checker using /api/realtime endpoint
+    async function checkFastAlerts() {
+        const stationId = '{{ station_id }}';
+        const alerts = getAlerts().filter(a => a.station === stationId);
+
+        // No alerts configured = skip polling to save resources
+        if (alerts.length === 0) return;
+
+        try {
+            const response = await fetch(`/api/realtime/${stationId}`);
+            const data = await response.json();
+
+            if (data.error) return;
+
+            // Map realtime data to alert variables
+            const currentValues = {
+                noaa: data.noaa,
+                // For WU and HELIOS, we still use chart data (not in realtime endpoint)
+                // These will be checked by the slower loadData() cycle
+            };
+
+            for (const alert of alerts) {
+                // Only check NOAA alerts in fast loop (others use normal cycle)
+                if (alert.variable !== 'noaa') continue;
+                if (triggeredAlerts.has(alert.id)) continue;
+
+                const currentVal = currentValues[alert.variable];
+                if (currentVal === null || currentVal === undefined) continue;
+
+                let triggered = false;
+                if (alert.condition === 'gte' && currentVal >= alert.value) triggered = true;
+                if (alert.condition === 'lte' && currentVal <= alert.value) triggered = true;
+                if (alert.condition === 'eq' && Math.abs(currentVal - alert.value) < 0.1) triggered = true;
+
+                if (triggered) {
+                    triggeredAlerts.add(alert.id);
+                    showAlertNotification(alert, currentVal);
+                    console.log(`⚡ FAST ALERT TRIGGERED: ${alert.variable} ${alert.condition} ${alert.value} (Current: ${currentVal})`);
+                }
+            }
+        } catch (e) {
+            // Silently fail - don't spam console on network issues
+        }
+    }
+</script>
+{% endblock %}

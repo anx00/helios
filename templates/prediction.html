@@ -1,0 +1,519 @@
+{% extends "base.html" %}
+
+{% block title %}HELIOS - {{ station_id }} Prediction{% endblock %}
+
+{% block head_extra %}
+<style>
+    .prediction-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+    }
+
+    @media (max-width: 1200px) {
+        .prediction-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    .calc-section {
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 20px;
+    }
+
+    .calc-section-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 15px;
+        padding-bottom: 10px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .calc-section-header h3 {
+        font-size: 14px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .calc-section-header .icon {
+        font-size: 18px;
+    }
+
+    .calc-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 10px 0;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    }
+
+    .calc-row:last-child {
+        border-bottom: none;
+    }
+
+    .calc-label {
+        color: var(--text-secondary);
+        font-size: 13px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .calc-value {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 14px;
+        font-weight: 600;
+    }
+
+    .calc-value.positive {
+        color: #10B981;
+    }
+
+    .calc-value.negative {
+        color: #EF4444;
+    }
+
+    .calc-value.neutral {
+        color: var(--text-main);
+    }
+
+    .calc-value.warning {
+        color: #F59E0B;
+    }
+
+    .final-prediction {
+        background: linear-gradient(135deg, rgba(0, 120, 255, 0.15), rgba(0, 212, 255, 0.05));
+        border: 1px solid rgba(0, 120, 255, 0.3);
+        border-radius: 16px;
+        padding: 30px;
+        text-align: center;
+        margin-bottom: 20px;
+    }
+
+    .final-label {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: var(--text-secondary);
+        margin-bottom: 10px;
+    }
+
+    .final-value {
+        font-size: 48px;
+        font-weight: 700;
+        font-family: 'Space Grotesk', sans-serif;
+        color: #0078FF;
+    }
+
+    .final-bracket {
+        font-size: 18px;
+        color: var(--text-main);
+        margin-top: 10px;
+    }
+
+    .protection-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 12px;
+        border-radius: 20px;
+        font-size: 11px;
+        font-weight: 600;
+        margin: 4px;
+    }
+
+    .protection-badge.active {
+        background: rgba(16, 185, 129, 0.15);
+        color: #10B981;
+        border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+
+    .protection-badge.inactive {
+        background: rgba(100, 116, 139, 0.15);
+        color: #64748b;
+        border: 1px solid rgba(100, 116, 139, 0.3);
+    }
+
+    .protection-badge.warning {
+        background: rgba(239, 68, 68, 0.15);
+        color: #f87171;
+        border: 1px solid rgba(239, 68, 68, 0.3);
+        animation: pulse-warning 2s infinite;
+    }
+
+    @keyframes pulse-warning {
+
+        0%,
+        100% {
+            opacity: 1;
+        }
+
+        50% {
+            opacity: 0.7;
+        }
+    }
+
+    .timestamp-bar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 10px 20px;
+        background: rgba(255, 255, 255, 0.02);
+        border-radius: 8px;
+        margin-bottom: 20px;
+        font-size: 12px;
+        color: var(--text-muted);
+    }
+
+    .live-indicator {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .live-dot {
+        width: 8px;
+        height: 8px;
+        background: #10B981;
+        border-radius: 50%;
+        animation: pulse-live 2s infinite;
+    }
+
+    @keyframes pulse-live {
+
+        0%,
+        100% {
+            opacity: 1;
+            transform: scale(1);
+        }
+
+        50% {
+            opacity: 0.5;
+            transform: scale(1.2);
+        }
+    }
+
+    .strategy-note {
+        background: rgba(255, 255, 255, 0.03);
+        border-left: 3px solid var(--accent-blue);
+        padding: 12px 15px;
+        margin-top: 15px;
+        font-size: 12px;
+        color: var(--text-secondary);
+        border-radius: 0 8px 8px 0;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">
+        <span>🧮</span> {{ station_name }} - Prediction Engine
+    </h1>
+    <div class="breadcrumbs">
+        <a href="/">Home</a>
+        <span>/</span>
+        <a href="/station/{{ station_id }}/analytics">{{ station_id }}</a>
+        <span>/</span>
+        <span>Prediction</span>
+    </div>
+</div>
+
+<div class="page-content">
+    <!-- Timestamp Bar -->
+    <div class="timestamp-bar">
+        <div class="live-indicator">
+            <span class="live-dot"></span>
+            <span>LIVE - Auto-refresh every 10s</span>
+        </div>
+        <div id="last-update">Loading...</div>
+    </div>
+
+    <!-- Final Prediction Hero -->
+    <div class="final-prediction">
+        <div class="final-label">HELIOS v12.0 Prediction</div>
+        <div class="final-value" id="final-pred">--°F</div>
+        <div class="final-bracket" id="final-bracket">Bracket: --</div>
+        <div id="protection-badges" style="margin-top: 15px;">
+            <!-- Filled by JS -->
+        </div>
+    </div>
+
+    <div class="prediction-grid">
+        <!-- Left Column -->
+        <div>
+            <!-- Input Sources -->
+            <div class="calc-section">
+                <div class="calc-section-header">
+                    <span class="icon">📡</span>
+                    <h3>Input Sources</h3>
+                </div>
+                <div class="calc-row">
+                    <span class="calc-label">🌡️ METAR Current</span>
+                    <span class="calc-value neutral" id="metar-current">--</span>
+                </div>
+                <div class="calc-row">
+                    <span class="calc-label">📈 Observed Max Today</span>
+                    <span class="calc-value neutral" id="observed-max">--</span>
+                </div>
+                <div class="calc-row">
+                    <span class="calc-label">📊 HRRR Raw Max</span>
+                    <span class="calc-value neutral" id="hrrr-raw">--</span>
+                </div>
+                <div class="calc-row">
+                    <span class="calc-label">🌐 NBM Value</span>
+                    <span class="calc-value neutral" id="nbm-value">--</span>
+                </div>
+                <div class="calc-row">
+                    <span class="calc-label">✈️ LAMP Value</span>
+                    <span class="calc-value neutral" id="lamp-value">--</span>
+                </div>
+            </div>
+
+            <!-- Physics & Advection -->
+            <div class="calc-section">
+                <div class="calc-section-header">
+                    <span class="icon">🌬️</span>
+                    <h3>Physics & Advection</h3>
+                </div>
+                <div class="calc-row">
+                    <span class="calc-label">💨 Wind Condition</span>
+                    <span class="calc-value neutral" id="wind-condition">--</span>
+                </div>
+                <div class="calc-row">
+                    <span class="calc-label">🌊 Advection Rate</span>
+                    <span class="calc-value neutral" id="advection-rate">--</span>
+                </div>
+                <div class="calc-row">
+                    <span class="calc-label">🌡️ Upstream Temp</span>
+                    <span class="calc-value neutral" id="upstream-temp">--</span>
+                </div>
+                <div class="calc-row" style="padding-left: 20px; font-size: 11px; color: var(--text-muted);">
+                    <span id="advection-desc">--</span>
+                </div>
+            </div>
+
+            <!-- Ensemble Calculation -->
+            <div class="calc-section">
+                <div class="calc-section-header">
+                    <span class="icon">⚖️</span>
+                    <h3>Ensemble Calculation</h3>
+                </div>
+                <div class="calc-row">
+                    <span class="calc-label">Base Weighted</span>
+                    <span class="calc-value neutral" id="ensemble-base">--</span>
+                </div>
+                <div class="calc-row">
+                    <span class="calc-label">🛡️ Safety Floor</span>
+                    <span class="calc-value positive" id="ensemble-floor">--</span>
+                </div>
+                <div class="calc-row">
+                    <span class="calc-label">🔒 Safety Ceiling</span>
+                    <span class="calc-value warning" id="ensemble-ceiling">--</span>
+                </div>
+                <div class="calc-row">
+                    <span class="calc-label">📏 Spread</span>
+                    <span class="calc-value neutral" id="ensemble-spread">--</span>
+                </div>
+                <div class="calc-row">
+                    <span class="calc-label">📏 Allowed Spread</span>
+                    <span class="calc-value neutral" id="allowed-spread">--</span>
+                </div>
+                <div class="calc-row">
+                    <span class="calc-label">🎯 Confidence</span>
+                    <span class="calc-value" id="confidence">--</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Column -->
+        <div>
+            <!-- v12.0 Protections -->
+            <div class="calc-section">
+                <div class="calc-section-header">
+                    <span class="icon">🛡️</span>
+                    <h3>v12.0 Protections</h3>
+                </div>
+                <div class="calc-row">
+                    <span class="calc-label">🔒 Sunset Lock</span>
+                    <span class="calc-value" id="sunset-lock">--</span>
+                </div>
+                <div class="calc-row" style="padding-left: 20px; font-size: 11px; color: var(--text-muted);">
+                    <span>Condition: METAR < observed_max - 0.5°F after 14:00</span>
+                            <span id="sunset-condition">--</span>
+                </div>
+                <div class="calc-row">
+                    <span class="calc-label">⚡ Ultimate Squeeze</span>
+                    <span class="calc-value" id="ultimate-squeeze">--</span>
+                </div>
+                <div class="calc-row" style="padding-left: 20px; font-size: 11px; color: var(--text-muted);">
+                    <span>Condition: After 14:30, max spread = 1.2°F</span>
+                </div>
+                <div class="calc-row">
+                    <span class="calc-label">⚠️ Ghost Alert</span>
+                    <span class="calc-value" id="ghost-alert">--</span>
+                </div>
+                <div class="calc-row" style="padding-left: 20px; font-size: 11px; color: var(--text-muted);">
+                    <span>Condition: HELIOS > METAR + 3.0°F after 14:00</span>
+                </div>
+                <div id="ghost-reason" class="strategy-note" style="display: none;"></div>
+            </div>
+
+            <!-- Time Context -->
+            <div class="calc-section">
+                <div class="calc-section-header">
+                    <span class="icon">🕐</span>
+                    <h3>Time Context</h3>
+                </div>
+                <div class="calc-row">
+                    <span class="calc-label">Station Local Time</span>
+                    <span class="calc-value neutral" id="local-time">--</span>
+                </div>
+                <div class="calc-row">
+                    <span class="calc-label">Local Hour</span>
+                    <span class="calc-value neutral" id="local-hour">--</span>
+                </div>
+                <div class="calc-row">
+                    <span class="calc-label">Local Minute</span>
+                    <span class="calc-value neutral" id="local-minute">--</span>
+                </div>
+            </div>
+
+            <!-- Strategy Note -->
+            <div class="calc-section">
+                <div class="calc-section-header">
+                    <span class="icon">📝</span>
+                    <h3>Strategy</h3>
+                </div>
+                <div id="strategy-note" class="strategy-note">
+                    Loading strategy...
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const STATION_ID = '{{ station_id }}';
+
+    async function loadPredictionData() {
+        try {
+            const resp = await fetch(`/api/v12_debug/${STATION_ID}`);
+            const data = await resp.json();
+
+            if (data.error) {
+                console.error('API Error:', data.error);
+                return;
+            }
+
+            // Update timestamp
+            document.getElementById('last-update').textContent = `Last update: ${data.local_time}`;
+
+            // Inputs
+            document.getElementById('metar-current').textContent = data.inputs.metar_current_f ? data.inputs.metar_current_f.toFixed(1) + '°F' : 'N/A';
+            document.getElementById('observed-max').textContent = data.inputs.observed_max_f ? data.inputs.observed_max_f.toFixed(1) + '°F' : 'N/A';
+            document.getElementById('hrrr-raw').textContent = data.inputs.hrrr_max_f ? data.inputs.hrrr_max_f.toFixed(1) + '°F' : 'N/A';
+            document.getElementById('nbm-value').textContent = data.inputs.nbm_max_f ? data.inputs.nbm_max_f.toFixed(1) + '°F' : 'N/A';
+            document.getElementById('lamp-value').textContent = data.inputs.lamp_max_f ? data.inputs.lamp_max_f.toFixed(1) + '°F' : 'N/A';
+
+            // Physics
+            const phys = data.physics_context;
+            if (phys) {
+                document.getElementById('wind-condition').textContent = `${phys.wind_speed_kt}kt @ ${phys.wind_dir_degrees}°`;
+
+                const advEl = document.getElementById('advection-rate');
+                advEl.textContent = phys.advection_rate_c_h.toFixed(2) + '°C/h';
+                advEl.className = 'calc-value ' + (phys.is_heating ? 'positive' : (phys.is_cooling ? 'negative' : 'neutral'));
+
+                document.getElementById('upstream-temp').textContent = phys.upstream_temp_c ? phys.upstream_temp_c.toFixed(1) + '°C' : 'N/A';
+                document.getElementById('advection-desc').textContent = phys.description;
+            }
+
+            // Ensemble
+            const ens = data.ensemble_result;
+            document.getElementById('ensemble-base').textContent = ens.base_weighted_f.toFixed(1) + '°F';
+            document.getElementById('ensemble-floor').textContent = ens.floor_f.toFixed(1) + '°F';
+            document.getElementById('ensemble-ceiling').textContent = ens.ceiling_f.toFixed(1) + '°F';
+            document.getElementById('ensemble-spread').textContent = ens.spread_f.toFixed(1) + '°F';
+            document.getElementById('allowed-spread').textContent = ens.allowed_spread_f.toFixed(1) + '°F';
+            document.getElementById('confidence').textContent = ens.confidence;
+
+            // Final prediction
+            const finalPred = Math.min(ens.base_weighted_f, ens.ceiling_f);
+            document.getElementById('final-pred').textContent = finalPred.toFixed(1) + '°F';
+
+            // Calculate bracket
+            const low = Math.floor(finalPred);
+            const bracketLow = low % 2 === 1 ? low - 1 : low;
+            document.getElementById('final-bracket').textContent = `Bracket: ${bracketLow}-${bracketLow + 1}°F`;
+
+            // Time context
+            document.getElementById('local-time').textContent = data.local_time;
+            document.getElementById('local-hour').textContent = data.local_hour;
+            document.getElementById('local-minute').textContent = data.local_minute;
+
+            // v12.0 Protections
+            const prot = data.v12_protections;
+
+            // Sunset Lock
+            const sunsetEl = document.getElementById('sunset-lock');
+            sunsetEl.textContent = prot.sunset_lock_active ? '🔒 ACTIVE' : 'Inactive';
+            sunsetEl.className = 'calc-value ' + (prot.sunset_lock_active ? 'warning' : 'neutral');
+            document.getElementById('sunset-condition').textContent = prot.sunset_lock_condition_met ? '✓ Met' : '✗ Not Met';
+
+            // Ultimate Squeeze
+            const squeezeEl = document.getElementById('ultimate-squeeze');
+            squeezeEl.textContent = prot.ultimate_squeeze_active ? '⚡ ACTIVE' : 'Inactive';
+            squeezeEl.className = 'calc-value ' + (prot.ultimate_squeeze_active ? 'warning' : 'neutral');
+
+            // Ghost Alert
+            const ghostEl = document.getElementById('ghost-alert');
+            ghostEl.textContent = prot.ghost_prediction_warning ? '⚠️ WARNING' : 'Clear';
+            ghostEl.className = 'calc-value ' + (prot.ghost_prediction_warning ? 'negative' : 'positive');
+
+            if (prot.ghost_reason) {
+                document.getElementById('ghost-reason').style.display = 'block';
+                document.getElementById('ghost-reason').textContent = prot.ghost_reason;
+            } else {
+                document.getElementById('ghost-reason').style.display = 'none';
+            }
+
+            // Strategy
+            document.getElementById('strategy-note').textContent = ens.strategy_note || 'No strategy notes';
+
+            // Protection badges
+            const badges = document.getElementById('protection-badges');
+            badges.innerHTML = '';
+
+            if (prot.sunset_lock_active) {
+                badges.innerHTML += '<span class="protection-badge active">🔒 Sunset Lock</span>';
+            }
+            if (prot.ultimate_squeeze_active) {
+                badges.innerHTML += '<span class="protection-badge active">⚡ Squeeze 1.2°F</span>';
+            }
+            if (prot.ghost_prediction_warning) {
+                badges.innerHTML += '<span class="protection-badge warning">⚠️ Ghost Alert</span>';
+            }
+            if (!prot.sunset_lock_active && !prot.ultimate_squeeze_active && !prot.ghost_prediction_warning) {
+                badges.innerHTML += '<span class="protection-badge inactive">No Active Protections</span>';
+            }
+
+        } catch (e) {
+            console.error('Error loading prediction data:', e);
+        }
+    }
+
+    // Initial load
+    loadPredictionData();
+
+    // Auto-refresh every 10 seconds
+    setInterval(loadPredictionData, 10000);
+</script>
+{% endblock %}

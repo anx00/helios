@@ -1,0 +1,233 @@
+{% extends "base.html" %}
+
+{% block title %}HELIOS - Home{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">
+        <span>☀️</span> HELIOS Weather Lab
+    </h1>
+    <div class="breadcrumbs">
+        <span>Home</span>
+    </div>
+</div>
+
+<div class="page-content">
+    <style>
+        .home-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 25px;
+        }
+
+        .station-card {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 16px;
+            padding: 25px;
+            transition: all 0.3s;
+            cursor: pointer;
+            text-decoration: none;
+            color: inherit;
+        }
+
+        .station-card:hover {
+            border-color: var(--accent-blue);
+            transform: translateY(-4px);
+            box-shadow: 0 10px 40px rgba(0, 120, 255, 0.1);
+        }
+
+        .station-card-header {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .station-flag {
+            font-size: 36px;
+        }
+
+        .station-info h3 {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .station-info span {
+            font-size: 13px;
+            color: var(--text-muted);
+        }
+
+        .station-stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            padding-top: 20px;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .stat-item {
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 22px;
+            font-weight: 700;
+            font-family: 'Space Grotesk', sans-serif;
+        }
+
+        .stat-label {
+            font-size: 11px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            margin-top: 4px;
+        }
+
+        .hero-section {
+            text-align: center;
+            padding: 40px 0;
+            margin-bottom: 30px;
+        }
+
+        .hero-title {
+            font-size: 32px;
+            font-weight: 700;
+            margin-bottom: 10px;
+            background: linear-gradient(90deg, #fff, #94a3b8);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .hero-subtitle {
+            font-size: 16px;
+            color: var(--text-secondary);
+        }
+
+        .v12-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: linear-gradient(135deg, rgba(0, 120, 255, 0.2), rgba(0, 212, 255, 0.1));
+            border: 1px solid rgba(0, 120, 255, 0.3);
+            border-radius: 30px;
+            padding: 8px 20px;
+            margin-top: 20px;
+            font-size: 13px;
+            font-weight: 600;
+        }
+    </style>
+
+    <div class="hero-section">
+        <h1 class="hero-title">Temperature Prediction Engine</h1>
+        <p class="hero-subtitle">Multi-model ensemble with physics-based corrections</p>
+        <div class="v12-badge">
+            <span>⚡</span> v12.0 - Sunset Lock, Cold Memory, Ultimate Squeeze
+        </div>
+    </div>
+
+    <div class="home-grid">
+        <!-- KLGA Card -->
+        <a href="/station/KLGA/analytics" class="station-card">
+            <div class="station-card-header">
+                <span class="station-flag">🇺🇸</span>
+                <div class="station-info">
+                    <h3>KLGA - LaGuardia</h3>
+                    <span>New York, NY</span>
+                </div>
+            </div>
+            <div class="station-stats">
+                <div class="stat-item">
+                    <div class="stat-value" id="klga-pred">--</div>
+                    <div class="stat-label">HELIOS</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value" id="klga-metar">--</div>
+                    <div class="stat-label">METAR</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value" style="color: var(--accent-green);" id="klga-status">●</div>
+                    <div class="stat-label">Status</div>
+                </div>
+            </div>
+        </a>
+
+        <!-- KATL Card -->
+        <a href="/station/KATL/analytics" class="station-card">
+            <div class="station-card-header">
+                <span class="station-flag">🇺🇸</span>
+                <div class="station-info">
+                    <h3>KATL - Hartsfield</h3>
+                    <span>Atlanta, GA</span>
+                </div>
+            </div>
+            <div class="station-stats">
+                <div class="stat-item">
+                    <div class="stat-value" id="katl-pred">--</div>
+                    <div class="stat-label">HELIOS</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value" id="katl-metar">--</div>
+                    <div class="stat-label">METAR</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value" style="color: var(--accent-green);" id="katl-status">●</div>
+                    <div class="stat-label">Status</div>
+                </div>
+            </div>
+        </a>
+
+        <!-- EGLC Card -->
+        <a href="/station/EGLC/analytics" class="station-card">
+            <div class="station-card-header">
+                <span class="station-flag">🇬🇧</span>
+                <div class="station-info">
+                    <h3>EGLC - London City</h3>
+                    <span>London, UK</span>
+                </div>
+            </div>
+            <div class="station-stats">
+                <div class="stat-item">
+                    <div class="stat-value" id="eglc-pred">--</div>
+                    <div class="stat-label">HELIOS</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value" id="eglc-metar">--</div>
+                    <div class="stat-label">METAR</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value" style="color: var(--accent-green);" id="eglc-status">●</div>
+                    <div class="stat-label">Status</div>
+                </div>
+            </div>
+        </a>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Fetch latest data for each station
+    async function loadStationData(stationId) {
+        try {
+            const resp = await fetch(`/api/prediction/${stationId}`);
+            const data = await resp.json();
+
+            const predEl = document.getElementById(`${stationId.toLowerCase()}-pred`);
+            const metarEl = document.getElementById(`${stationId.toLowerCase()}-metar`);
+
+            if (data.prediction_f) {
+                predEl.textContent = data.prediction_f.toFixed(1) + '°F';
+            }
+            if (data.hrrr_f) {
+                metarEl.textContent = data.hrrr_f.toFixed(1) + '°F';
+            }
+        } catch (e) {
+            console.error(`Error loading ${stationId}:`, e);
+        }
+    }
+
+    // Load all stations
+    ['KLGA', 'KATL', 'EGLC'].forEach(loadStationData);
+</script>
+{% endblock %}

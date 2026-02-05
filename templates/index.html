@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HELIOS | Physics Engine Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap"
+        rel="stylesheet">
+    <link href="/static/style.css" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="glass-panel">
+            <div class="logo">
+                <i data-lucide="sun" class="icon-sun"></i>
+                <h1>HELIOS <span class="subtitle">Physics Engine v3.0</span></h1>
+            </div>
+            <div class="system-status">
+                <a href="/analytics"
+                    style="text-decoration:none; margin-right:15px; color:var(--accent-blue); font-size:14px; display:inline-flex; align-items:center; gap:5px; border:1px solid rgba(59,130,246,0.3); padding:4px 10px; border-radius:6px; background:rgba(59,130,246,0.05); transition:all 0.2s;">
+                    <i data-lucide="bar-chart-2" style="width:16px;height:16px"></i> Analytics
+                </a>
+                <span class="status-dot pulse"></span>
+                <span>SYSTEM ONLINE</span>
+            </div>
+        </header>
+
+        <!-- Main Grid -->
+        <main class="dashboard-grid">
+
+            <!-- Station Card: KLGA -->
+            <a href="/station/KLGA" class="station-card-link">
+                <section class="station-card glass-panel" id="card-KLGA">
+                    <div class="card-header">
+                        <h2>
+                            KLGA <span class="station-name">New York / LaGuardia</span>
+                        </h2>
+                        <div class="header-actions">
+                            <span class="badge" id="badge-KLGA">--</span>
+                        </div>
+                    </div>
+
+                    <div class="main-prediction">
+                        <div class="temp-display">
+                            <span class="temp-value" id="pred-KLGA">--.-</span>
+                            <span class="unit">°F</span>
+                        </div>
+                    </div>
+
+                    <!-- Market Summary -->
+                    <div class="market-summary" id="market-summary-KLGA">
+                        <div class="market-legend" id="market-legend-KLGA">
+                            <!-- Filled by JS: top 3 outcomes -->
+                        </div>
+                    </div>
+
+                    <div class="card-hint">
+                        <i data-lucide="external-link"></i>
+                        View Details
+                    </div>
+                </section>
+            </a>
+
+            <!-- Station Card: KATL -->
+            <a href="/station/KATL" class="station-card-link">
+                <section class="station-card glass-panel" id="card-KATL">
+                    <div class="card-header">
+                        <h2>
+                            KATL <span class="station-name">Atlanta / Hartsfield</span>
+                        </h2>
+                        <div class="header-actions">
+                            <span class="badge" id="badge-KATL">--</span>
+                        </div>
+                    </div>
+
+                    <div class="main-prediction">
+                        <div class="temp-display">
+                            <span class="temp-value" id="pred-KATL">--.-</span>
+                            <span class="unit">°F</span>
+                        </div>
+                    </div>
+
+                    <!-- Market Summary -->
+                    <div class="market-summary" id="market-summary-KATL">
+                        <div class="market-legend" id="market-legend-KATL">
+                            <!-- Filled by JS: top 3 outcomes -->
+                        </div>
+                    </div>
+
+                    <div class="card-hint">
+                        <i data-lucide="external-link"></i>
+                        View Details
+                    </div>
+                </section>
+            </a>
+
+            <!-- Station Card: EGLC (London) -->
+            <a href="/station/EGLC" class="station-card-link">
+                <section class="station-card glass-panel" id="card-EGLC">
+                    <div class="card-header">
+                        <h2>
+                            EGLC <span class="station-name">London City</span>
+                        </h2>
+                        <div class="header-actions">
+                            <span class="badge" id="badge-EGLC">--</span>
+                        </div>
+                    </div>
+
+                    <div class="main-prediction">
+                        <div class="temp-display">
+                            <span class="temp-value" id="pred-EGLC">--.-</span>
+                            <span class="unit">°C</span>
+                        </div>
+                    </div>
+
+                    <!-- Market Summary -->
+                    <div class="market-summary" id="market-summary-EGLC">
+                        <div class="market-legend" id="market-legend-EGLC">
+                            <!-- Filled by JS: top 3 outcomes -->
+                        </div>
+                    </div>
+
+                    <div class="card-hint">
+                        <i data-lucide="external-link"></i>
+                        View Details
+                    </div>
+                </section>
+            </a>
+
+            <!-- Accuracy Stats -->
+            <section class="stats-panel glass-panel">
+                <h3>7-Day Performance</h3>
+                <div class="stat-row">
+                    <span>Physics Error</span>
+                    <strong class="highlight-good">+/- 1.2°F</strong>
+                </div>
+                <div class="stat-row">
+                    <span>Raw HRRR Error</span>
+                    <strong>+/- 2.9°F</strong>
+                </div>
+                <div class="stat-row">
+                    <span>Improvement</span>
+                    <strong class="highlight-super">+1.7°F</strong>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <script src="/static/app.js"></script>
+    <script>
+        lucide.createIcons();
+    </script>
+</body>
+
+</html>

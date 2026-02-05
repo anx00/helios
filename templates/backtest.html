@@ -1,0 +1,650 @@
+{% extends "base.html" %}
+
+{% block title %}HELIOS - Backtest{% endblock %}
+
+{% block head_extra %}
+<style>
+    .backtest-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 20px;
+    }
+
+    /* Config Panel */
+    .config-panel {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 15px;
+        background: var(--bg-secondary);
+        border: 1px solid rgba(255,255,255,0.05);
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 20px;
+    }
+
+    .config-group {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .config-label {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: var(--text-muted);
+    }
+
+    .config-input {
+        background: #1a1f2e;
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 8px;
+        padding: 10px 14px;
+        color: var(--text-main);
+        font-size: 14px;
+        font-family: 'JetBrains Mono', monospace;
+    }
+
+    select.config-input {
+        appearance: none;
+        -webkit-appearance: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 12px center;
+        padding-right: 32px;
+        cursor: pointer;
+    }
+
+    .config-input option {
+        background: #1a1f2e;
+        color: #e2e8f0;
+        padding: 8px;
+    }
+
+    .config-input:focus {
+        outline: none;
+        border-color: var(--accent-blue);
+    }
+
+    .run-btn {
+        padding: 12px 24px;
+        background: var(--accent-blue);
+        border: none;
+        border-radius: 8px;
+        color: white;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s;
+        align-self: flex-end;
+    }
+
+    .run-btn:hover {
+        opacity: 0.9;
+    }
+
+    .run-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    /* Results Panel */
+    .results-panel {
+        background: var(--bg-secondary);
+        border: 1px solid rgba(255,255,255,0.05);
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 20px;
+    }
+
+    .results-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 15px;
+        padding-bottom: 15px;
+        border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+
+    .results-title {
+        font-size: 16px;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .results-title i {
+        width: 20px;
+        height: 20px;
+        color: var(--accent-blue);
+    }
+
+    /* Stats Grid */
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 15px;
+        margin-bottom: 20px;
+    }
+
+    .stat-card {
+        background: rgba(255,255,255,0.03);
+        border-radius: 10px;
+        padding: 15px;
+        text-align: center;
+    }
+
+    .stat-card .label {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: var(--text-muted);
+        margin-bottom: 5px;
+    }
+
+    .stat-card .value {
+        font-size: 24px;
+        font-weight: 700;
+        font-family: 'JetBrains Mono', monospace;
+    }
+
+    .stat-card .value.green { color: #10B981; }
+    .stat-card .value.red { color: #EF4444; }
+    .stat-card .value.blue { color: var(--accent-blue); }
+
+    /* Metrics Grid */
+    .metrics-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 20px;
+    }
+
+    .metric-section {
+        background: rgba(255,255,255,0.02);
+        border-radius: 10px;
+        padding: 15px;
+    }
+
+    .metric-section h3 {
+        font-size: 13px;
+        font-weight: 600;
+        margin-bottom: 12px;
+        color: var(--text-secondary);
+    }
+
+    .metric-row {
+        display: flex;
+        justify-content: space-between;
+        padding: 8px 0;
+        border-bottom: 1px solid rgba(255,255,255,0.03);
+    }
+
+    .metric-row:last-child {
+        border-bottom: none;
+    }
+
+    .metric-name {
+        color: var(--text-muted);
+        font-size: 13px;
+    }
+
+    .metric-value {
+        font-family: 'JetBrains Mono', monospace;
+        font-weight: 600;
+    }
+
+    /* Day Results Table */
+    .day-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+        margin-top: 20px;
+    }
+
+    .day-table th,
+    .day-table td {
+        padding: 10px;
+        text-align: left;
+        border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+
+    .day-table th {
+        color: var(--text-muted);
+        font-weight: 500;
+        text-transform: uppercase;
+        font-size: 11px;
+    }
+
+    .day-table tr.correct {
+        background: rgba(16, 185, 129, 0.1);
+    }
+
+    .day-table tr.wrong {
+        background: rgba(239, 68, 68, 0.1);
+    }
+
+    /* Progress */
+    .progress-container {
+        margin: 20px 0;
+    }
+
+    .progress-bar {
+        height: 4px;
+        background: rgba(255,255,255,0.1);
+        border-radius: 2px;
+        overflow: hidden;
+    }
+
+    .progress-bar-fill {
+        height: 100%;
+        background: var(--accent-blue);
+        transition: width 0.3s;
+    }
+
+    .progress-text {
+        text-align: center;
+        margin-top: 8px;
+        font-size: 12px;
+        color: var(--text-muted);
+    }
+
+    /* Empty State */
+    .empty-state {
+        text-align: center;
+        padding: 60px 20px;
+        color: var(--text-muted);
+    }
+
+    .empty-state i {
+        width: 48px;
+        height: 48px;
+        margin-bottom: 15px;
+        opacity: 0.5;
+    }
+
+    @media (max-width: 768px) {
+        .metrics-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-title">
+        <i data-lucide="flask-conical" style="width:24px;height:24px;color:var(--accent-blue);"></i>
+        Backtest Lab
+    </div>
+</div>
+
+<div class="page-content">
+    <!-- Configuration -->
+    <div class="config-panel">
+        <div class="config-group">
+            <label class="config-label">Station</label>
+            <select id="station-select" class="config-input">
+                {% for sid in active_stations %}
+                {% set stn = all_stations[sid] %}
+                <option value="{{ sid }}">{{ sid }} - {{ stn.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="config-group">
+            <label class="config-label">Start Date</label>
+            <input type="date" id="start-date" class="config-input">
+        </div>
+        <div class="config-group">
+            <label class="config-label">End Date</label>
+            <input type="date" id="end-date" class="config-input">
+        </div>
+        <div class="config-group">
+            <label class="config-label">Mode</label>
+            <select id="mode-select" class="config-input">
+                <option value="signal">Signal Only</option>
+                <option value="execution">Execution Aware</option>
+            </select>
+        </div>
+        <div class="config-group">
+            <label class="config-label">Policy</label>
+            <select id="policy-select" class="config-input">
+                <option value="conservative">Conservative</option>
+                <option value="aggressive">Aggressive</option>
+                <option value="fade">Fade Event QC</option>
+                <option value="maker_passive">Maker Passive</option>
+                <option value="multi_bandit">Multi Bandit</option>
+                <option value="toy_debug">Toy Debug</option>
+            </select>
+        </div>
+        <div class="config-group">
+            <label class="config-label">Selection Mode</label>
+            <select id="selection-mode-select" class="config-input">
+                <option value="static">Static</option>
+                <option value="linucb">LinUCB</option>
+            </select>
+        </div>
+        <div class="config-group">
+            <label class="config-label">Risk Profile</label>
+            <select id="risk-profile-select" class="config-input">
+                <option value="risk_first">Risk First</option>
+                <option value="pnl_first">PnL First</option>
+                <option value="calibration_first">Calibration First</option>
+            </select>
+        </div>
+        <div class="config-group">
+            <label class="config-label">Report Level</label>
+            <select id="report-level-select" class="config-input">
+                <option value="summary">Summary</option>
+                <option value="day_detail">Day Detail</option>
+                <option value="full_timeline">Full Timeline</option>
+            </select>
+        </div>
+        <button id="run-btn" class="run-btn">
+            <i data-lucide="play" style="width:16px;height:16px;display:inline;margin-right:6px;"></i>
+            Run Backtest
+        </button>
+    </div>
+
+    <!-- Progress -->
+    <div class="progress-container" id="progress-container" style="display: none;">
+        <div class="progress-bar">
+            <div class="progress-bar-fill" id="progress-fill" style="width: 0%"></div>
+        </div>
+        <div class="progress-text" id="progress-text">Preparing...</div>
+    </div>
+
+    <!-- Results -->
+    <div class="results-panel" id="results-panel" style="display: none;">
+        <div class="results-header">
+            <div class="results-title">
+                <i data-lucide="bar-chart-3"></i>
+                Backtest Results
+            </div>
+            <span id="results-period" class="text-muted"></span>
+        </div>
+
+        <!-- Summary Stats -->
+        <div class="stats-grid" id="summary-stats">
+            <div class="stat-card trading-stat">
+                <div class="label">Total PnL</div>
+                <div class="value green" id="stat-pnl">$0.00</div>
+            </div>
+            <div class="stat-card trading-stat">
+                <div class="label">Win Rate</div>
+                <div class="value blue" id="stat-winrate">0%</div>
+            </div>
+            <div class="stat-card trading-stat">
+                <div class="label">Sharpe</div>
+                <div class="value" id="stat-sharpe">0.00</div>
+            </div>
+            <div class="stat-card trading-stat">
+                <div class="label">Max Drawdown</div>
+                <div class="value red" id="stat-dd">0%</div>
+            </div>
+            <div class="stat-card">
+                <div class="label">Days</div>
+                <div class="value" id="stat-days">0</div>
+            </div>
+            <div class="stat-card trading-stat">
+                <div class="label">Total Fills</div>
+                <div class="value" id="stat-fills">0</div>
+            </div>
+        </div>
+        <!-- Coverage Info (Signal Only) -->
+        <div id="coverage-info" style="display: none; margin-top: 10px;">
+            <span class="text-muted">Coverage: <span id="coverage-labels">0</span>/<span id="coverage-total">0</span> days with labels</span>
+        </div>
+
+        <!-- Metrics -->
+        <div class="metrics-grid">
+            <div class="metric-section">
+                <h3>Calibration Metrics</h3>
+                <div class="metric-row">
+                    <span class="metric-name">Brier Score</span>
+                    <span class="metric-value" id="m-brier">-</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-name">Log Loss</span>
+                    <span class="metric-value" id="m-logloss">-</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-name">ECE</span>
+                    <span class="metric-value" id="m-ece">-</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-name">Sharpness</span>
+                    <span class="metric-value" id="m-sharp">-</span>
+                </div>
+            </div>
+            <div class="metric-section">
+                <h3>Point Prediction</h3>
+                <div class="metric-row">
+                    <span class="metric-name">Tmax MAE</span>
+                    <span class="metric-value" id="m-mae">-</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-name">Tmax RMSE</span>
+                    <span class="metric-value" id="m-rmse">-</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-name">Tmax Bias</span>
+                    <span class="metric-value" id="m-bias">-</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-name">Avg Churn</span>
+                    <span class="metric-value" id="m-churn">-</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Day Results Table -->
+        <table class="day-table" id="day-table">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Predicted</th>
+                    <th>Actual</th>
+                    <th>Pred Tmax</th>
+                    <th>Actual Tmax</th>
+                    <th>PnL</th>
+                </tr>
+            </thead>
+            <tbody id="day-tbody">
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Empty State -->
+    <div class="empty-state" id="empty-state">
+        <i data-lucide="flask-conical"></i>
+        <h3>No Backtest Results</h3>
+        <p>Configure parameters and click "Run Backtest" to start.</p>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+    // Set default dates
+    const today = new Date();
+    const endDate = new Date(today);
+    endDate.setDate(endDate.getDate() - 1);
+
+    const startDate = new Date(endDate);
+    startDate.setDate(startDate.getDate() - 7);
+
+    document.getElementById('start-date').value = startDate.toISOString().split('T')[0];
+    document.getElementById('end-date').value = endDate.toISOString().split('T')[0];
+
+    // Run backtest
+    document.getElementById('run-btn').onclick = async function() {
+        const station = document.getElementById('station-select').value;
+        const start = document.getElementById('start-date').value;
+        const end = document.getElementById('end-date').value;
+        const mode = document.getElementById('mode-select').value;
+        const policy = document.getElementById('policy-select').value;
+        const selectionMode = document.getElementById('selection-mode-select').value;
+        const riskProfile = document.getElementById('risk-profile-select').value;
+        const reportLevel = document.getElementById('report-level-select').value;
+
+        if (!start || !end) {
+            alert('Please select start and end dates');
+            return;
+        }
+
+        // Show progress
+        document.getElementById('empty-state').style.display = 'none';
+        document.getElementById('results-panel').style.display = 'none';
+        document.getElementById('progress-container').style.display = 'block';
+        document.getElementById('progress-fill').style.width = '0%';
+        document.getElementById('progress-text').textContent = 'Starting backtest...';
+        document.getElementById('run-btn').disabled = true;
+
+        try {
+            // Simulate progress
+            let progress = 0;
+            const progressInterval = setInterval(() => {
+                progress = Math.min(progress + 5, 90);
+                document.getElementById('progress-fill').style.width = progress + '%';
+            }, 500);
+
+            const params = new URLSearchParams({
+                station_id: station,
+                start_date: start,
+                end_date: end,
+                mode: mode,
+                policy: policy,
+                selection_mode: selectionMode,
+                risk_profile: riskProfile,
+                report_level: reportLevel
+            });
+
+            const resp = await fetch(`/api/v5/backtest/run?${params}`, {
+                method: 'POST'
+            });
+            const result = await resp.json();
+
+            // Check for error response
+            if (!resp.ok || result.error) {
+                throw new Error(result.error || `Server error: ${resp.status}`);
+            }
+
+            clearInterval(progressInterval);
+            document.getElementById('progress-fill').style.width = '100%';
+            document.getElementById('progress-text').textContent = 'Complete!';
+
+            // Display results
+            setTimeout(() => {
+                document.getElementById('progress-container').style.display = 'none';
+                displayResults(result);
+            }, 500);
+
+        } catch (e) {
+            console.error('Backtest failed:', e);
+            alert('Backtest failed: ' + (e.message || 'Unknown error'));
+            document.getElementById('progress-container').style.display = 'none';
+            document.getElementById('empty-state').style.display = 'block';
+        } finally {
+            document.getElementById('run-btn').disabled = false;
+        }
+    };
+
+    function displayResults(result) {
+        document.getElementById('results-panel').style.display = 'block';
+
+        // Period
+        document.getElementById('results-period').textContent =
+            `${result.config.start_date} to ${result.config.end_date}`;
+
+        // Check if Signal Only mode
+        const isSignalOnly = result.config.mode === 'signal_only';
+
+        // Show/hide trading stats based on mode
+        document.querySelectorAll('.trading-stat').forEach(el => {
+            if (isSignalOnly) {
+                el.querySelector('.value').textContent = 'N/A';
+                el.querySelector('.value').className = 'value text-muted';
+            }
+        });
+
+        // Coverage info
+        const coverage = result.coverage || {};
+        document.getElementById('stat-days').textContent = coverage.days_with_data || 0;
+        document.getElementById('coverage-labels').textContent = coverage.days_with_labels || 0;
+        document.getElementById('coverage-total').textContent = coverage.days_with_data || 0;
+        document.getElementById('coverage-info').style.display = isSignalOnly ? 'block' : 'none';
+
+        // Summary stats (only show in Execution mode)
+        if (!isSignalOnly) {
+            const trading = result.trading_summary || {};
+            document.getElementById('stat-pnl').textContent =
+                '$' + (trading.total_pnl_net || 0).toFixed(2);
+            document.getElementById('stat-pnl').className =
+                'value ' + (trading.total_pnl_net >= 0 ? 'green' : 'red');
+
+            document.getElementById('stat-winrate').textContent =
+                ((trading.win_rate || 0) * 100).toFixed(1) + '%';
+            document.getElementById('stat-sharpe').textContent =
+                (trading.sharpe_ratio || 0).toFixed(2);
+            document.getElementById('stat-dd').textContent =
+                ((trading.max_drawdown || 0) * 100).toFixed(1) + '%';
+            document.getElementById('stat-fills').textContent =
+                trading.total_fills || 0;
+        }
+
+        // Calibration metrics
+        const metrics = result.aggregated_metrics || {};
+        const cal = metrics.calibration || {};
+        const point = metrics.point_metrics || {};
+        const stability = metrics.stability || {};
+
+        document.getElementById('m-brier').textContent =
+            cal.brier_global?.toFixed(4) || '-';
+        document.getElementById('m-logloss').textContent =
+            cal.log_loss_global?.toFixed(4) || '-';
+        document.getElementById('m-ece').textContent =
+            cal.ece?.toFixed(4) || '-';
+        document.getElementById('m-sharp').textContent =
+            cal.sharpness?.toFixed(4) || '-';
+
+        document.getElementById('m-mae').textContent =
+            point.tmax_mae?.toFixed(2) + '°F' || '-';
+        document.getElementById('m-rmse').textContent =
+            point.tmax_rmse?.toFixed(2) + '°F' || '-';
+        document.getElementById('m-bias').textContent =
+            (point.tmax_bias >= 0 ? '+' : '') + point.tmax_bias?.toFixed(2) + '°F' || '-';
+        document.getElementById('m-churn').textContent =
+            stability.avg_churn?.toFixed(4) || '-';
+
+        // Day results table
+        const tbody = document.getElementById('day-tbody');
+        tbody.innerHTML = '';
+
+        for (const day of (result.day_results || [])) {
+            const pred = day.predictions || {};
+            const trading = day.trading || {};
+
+            const correct = pred.predicted_winner === pred.actual_winner;
+            const tr = document.createElement('tr');
+            tr.className = correct ? 'correct' : 'wrong';
+
+            tr.innerHTML = `
+                <td>${day.market_date}</td>
+                <td>${pred.predicted_winner || '-'}</td>
+                <td>${pred.actual_winner || '-'}</td>
+                <td>${pred.predicted_tmax?.toFixed(1) || '-'}°F</td>
+                <td>${pred.actual_tmax?.toFixed(1) || '-'}°F</td>
+                <td>$${trading.pnl_net?.toFixed(2) || '0.00'}</td>
+            `;
+            tbody.appendChild(tr);
+        }
+
+        lucide.createIcons();
+    }
+
+    lucide.createIcons();
+})();
+</script>
+{% endblock %}

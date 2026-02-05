@@ -1,0 +1,64 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# Testing
+.pytest_cache/
+
+# Environment
+.env
+
+# Databases (generated at runtime)
+*.db
+
+# Logs
+logs/
+*.log
+
+# Generated data (conservar local, no subir)
+data/recordings/
+data/labels/
+data/backtest_results/
+data/reports/
+data/test_labels/
+export_full.json
+
+# Debug/test output
+*_output.txt
+*_output_max.txt
+*_result.txt
+debug_out.txt
+api_test.txt
+
+# Backup files
+*.backup
+*.bak
+*.orig
+
+# IDE
+.vscode/
+.idea/
+
+# Claude Code (local settings)
+.claude/settings.local.json
+# Secrets
+.env
+
+# Python
+venv/
+__pycache__/
+*.py[cod]
+
+# Runtime data
+*.db
+*.sqlite*
+logs/
+data/recordings/
+data/parquet/

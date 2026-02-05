@@ -1,0 +1,8 @@
+La grafica deberia ser igual que polymarket:
+- X tiempo
+- Y probabilidades
+
+Con leyenda para cada predicción (helios, market, etc)
+y en caso de helios, ...
+
+Preguntar a gemini xd

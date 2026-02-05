@@ -1,0 +1,355 @@
+{% extends "base.html" %}
+
+{% block title %}HELIOS - {{ station_id }} Data{% endblock %}
+
+{% block head_extra %}
+<style>
+    .data-section {
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 20px;
+    }
+
+    .data-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+    }
+
+    .data-title {
+        font-size: 16px;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .date-picker {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .date-picker input {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 8px;
+        padding: 8px 15px;
+        color: var(--text-main);
+        font-size: 14px;
+    }
+
+    .date-picker button {
+        background: var(--accent-blue);
+        border: none;
+        border-radius: 8px;
+        padding: 8px 20px;
+        color: white;
+        font-weight: 600;
+        cursor: pointer;
+        transition: opacity 0.2s;
+    }
+
+    .date-picker button:hover {
+        opacity: 0.9;
+    }
+
+    .data-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .data-table th {
+        background: rgba(255, 255, 255, 0.03);
+        text-align: left;
+        padding: 12px 15px;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: var(--text-secondary);
+        font-weight: 600;
+        position: sticky;
+        top: 0;
+    }
+
+    .data-table td {
+        padding: 10px 15px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+        font-size: 13px;
+        font-family: 'JetBrains Mono', monospace;
+    }
+
+    .data-table tr:hover {
+        background: rgba(255, 255, 255, 0.02);
+    }
+
+    .data-table-container {
+        max-height: 600px;
+        overflow-y: auto;
+        border-radius: 8px;
+    }
+
+    .stat-cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 15px;
+        margin-bottom: 25px;
+    }
+
+    .stat-card {
+        background: rgba(255, 255, 255, 0.03);
+        border-radius: 10px;
+        padding: 15px 20px;
+        text-align: center;
+    }
+
+    .stat-card .value {
+        font-size: 28px;
+        font-weight: 700;
+        font-family: 'Space Grotesk', sans-serif;
+    }
+
+    .stat-card .label {
+        font-size: 11px;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        margin-top: 5px;
+    }
+
+    .export-btn {
+        background: rgba(16, 185, 129, 0.15);
+        color: #10B981;
+        border: 1px solid rgba(16, 185, 129, 0.3);
+        border-radius: 8px;
+        padding: 8px 20px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .export-btn:hover {
+        background: rgba(16, 185, 129, 0.25);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">
+        <span>📊</span> {{ station_name }} - Historical Data
+    </h1>
+    <div class="breadcrumbs">
+        <a href="/">Home</a>
+        <span>/</span>
+        <a href="/station/{{ station_id }}/analytics">{{ station_id }}</a>
+        <span>/</span>
+        <span>Data</span>
+    </div>
+</div>
+
+<div class="page-content">
+    <!-- Stats Summary -->
+    <div class="stat-cards">
+        <div class="stat-card">
+            <div class="value" id="stat-high">--</div>
+            <div class="label">Today's High</div>
+        </div>
+        <div class="stat-card">
+            <div class="value" id="stat-low">--</div>
+            <div class="label">Today's Low</div>
+        </div>
+        <div class="stat-card">
+            <div class="value" id="stat-records">--</div>
+            <div class="label">Records Today</div>
+        </div>
+        <div class="stat-card">
+            <div class="value" id="stat-source">--</div>
+            <div class="label">Data Source</div>
+        </div>
+    </div>
+
+    <!-- Wunderground History -->
+    <div class="data-section">
+        <div class="data-header">
+            <div class="data-title">
+                <span>🌤️</span> Wunderground Hourly History
+            </div>
+            <div class="date-picker">
+                <input type="date" id="history-date" value="{{ today }}">
+                <button onclick="loadHistory()">Load</button>
+                <button class="export-btn" onclick="exportData()">⬇️ Export CSV</button>
+            </div>
+        </div>
+
+        <div class="data-table-container">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>Temp (°F)</th>
+                        <th>Feels Like</th>
+                        <th>Humidity</th>
+                        <th>Wind</th>
+                        <th>Conditions</th>
+                    </tr>
+                </thead>
+                <tbody id="history-body">
+                    <tr>
+                        <td colspan="6" style="text-align: center; color: var(--text-muted);">
+                            Loading data...
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- METAR History -->
+    <div class="data-section">
+        <div class="data-header">
+            <div class="data-title">
+                <span>🛫</span> METAR Observations
+            </div>
+        </div>
+
+        <div class="data-table-container" style="max-height: 400px;">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Time (NYC)</th>
+                        <th>NOAA JSON</th>
+                        <th>AWC XML</th>
+                        <th>FTP TXT</th>
+                        <th>Final METAR</th>
+                    </tr>
+                </thead>
+                <tbody id="metar-body">
+                    <tr>
+                        <td colspan="5" style="text-align: center; color: var(--text-muted);">
+                            Loading METAR data...
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const STATION_ID = '{{ station_id }}';
+
+    async function loadHistory() {
+        const date = document.getElementById('history-date').value;
+        const tbody = document.getElementById('history-body');
+
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center">Loading...</td></tr>';
+
+        try {
+            // Fetch from Wunderground API (if available) or from our logs
+            const resp = await fetch(`/api/analytics?station_id=${STATION_ID}&date=${date}`);
+            const data = await resp.json();
+
+            if (!data.table || data.table.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--text-muted)">No data for this date</td></tr>';
+                return;
+            }
+
+            // Build table rows from performance logs
+            let html = '';
+            let highTemp = -999;
+            let lowTemp = 999;
+
+            data.table.forEach(row => {
+                const ts = new Date(row.timestamp);
+                const time = ts.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+                const temp = row.helios_pred || row.metar_actual || '--';
+                const metar = row.metar_actual || '--';
+
+                if (temp !== '--' && temp > highTemp) highTemp = temp;
+                if (temp !== '--' && temp < lowTemp) lowTemp = temp;
+
+                html += `
+                    <tr>
+                        <td>${time}</td>
+                        <td>${typeof temp === 'number' ? temp.toFixed(1) + '°F' : temp}</td>
+                        <td>--</td>
+                        <td>--</td>
+                        <td>--</td>
+                        <td>--</td>
+                    </tr>
+                `;
+            });
+
+            tbody.innerHTML = html;
+
+            // Update stats
+            document.getElementById('stat-high').textContent = highTemp > -999 ? highTemp.toFixed(1) + '°F' : '--';
+            document.getElementById('stat-low').textContent = lowTemp < 999 ? lowTemp.toFixed(1) + '°F' : '--';
+            document.getElementById('stat-records').textContent = data.table.length;
+            document.getElementById('stat-source').textContent = 'HELIOS';
+
+        } catch (e) {
+            console.error('Error loading history:', e);
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:#f87171">Error loading data</td></tr>';
+        }
+    }
+
+    async function loadMetarHistory() {
+        const date = document.getElementById('history-date').value;
+        const tbody = document.getElementById('metar-body');
+
+        try {
+            const resp = await fetch(`/api/analytics?station_id=${STATION_ID}&date=${date}`);
+            const data = await resp.json();
+
+            if (!data.debug || data.debug.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted)">No METAR data</td></tr>';
+                return;
+            }
+
+            // Get unique entries with METAR racing data
+            let html = '';
+            const timestamps = data.chart_temperature.labels || [];
+
+            for (let i = 0; i < Math.min(50, timestamps.length); i++) {
+                const time = timestamps[i] || '--';
+                const jsonApi = data.chart_temperature.datasets[5]?.data[i];
+                const xmlApi = data.chart_temperature.datasets[6]?.data[i];
+                const txtApi = data.chart_temperature.datasets[7]?.data[i];
+                const metar = data.chart_temperature.datasets[1]?.data[i];
+
+                if (jsonApi || xmlApi || txtApi || metar) {
+                    html += `
+                        <tr>
+                            <td>${time}</td>
+                            <td>${jsonApi ? jsonApi.toFixed(1) + '°F' : '--'}</td>
+                            <td>${xmlApi ? xmlApi.toFixed(1) + '°F' : '--'}</td>
+                            <td>${txtApi ? txtApi.toFixed(1) + '°F' : '--'}</td>
+                            <td>${metar ? metar.toFixed(1) + '°F' : '--'}</td>
+                        </tr>
+                    `;
+                }
+            }
+
+            tbody.innerHTML = html || '<tr><td colspan="5" style="text-align:center; color:var(--text-muted)">No METAR data</td></tr>';
+
+        } catch (e) {
+            console.error('Error loading METAR:', e);
+        }
+    }
+
+    function exportData() {
+        const date = document.getElementById('history-date').value;
+        window.location.href = `/api/export_csv?station_id=${STATION_ID}&window=day&date=${date}`;
+    }
+
+    // Initial load
+    loadHistory();
+    loadMetarHistory();
+</script>
+{% endblock %}

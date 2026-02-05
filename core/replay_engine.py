@@ -1,0 +1,658 @@
+"""
+Replay Engine - Phase 4 (Section 4.8)
+
+Virtual clock-based replay of recorded sessions.
+Emits events via the same WebSocket channels as live.
+
+Features:
+- Virtual clock with speed control (1x, 5x, 10x)
+- Jump to specific events (METAR, windows, shocks)
+- Timeline scrubbing
+- Same channel/payload format as live
+"""
+
+import asyncio
+import logging
+from datetime import datetime, timedelta
+from enum import Enum
+from typing import Optional, Dict, List, Callable, Any
+from zoneinfo import ZoneInfo
+
+from core.compactor import get_hybrid_reader, HybridReader
+
+logger = logging.getLogger("replay_engine")
+
+UTC = ZoneInfo("UTC")
+NYC = ZoneInfo("America/New_York")
+
+
+class ReplayState(Enum):
+    """Replay session state."""
+    IDLE = "idle"
+    LOADING = "loading"
+    READY = "ready"
+    PLAYING = "playing"
+    PAUSED = "paused"
+    FINISHED = "finished"
+
+
+class ReplaySpeed(Enum):
+    """Playback speed multipliers."""
+    REALTIME = 1.0
+    FAST_2X = 2.0
+    FAST_5X = 5.0
+    FAST_10X = 10.0
+    FAST_50X = 50.0
+    INSTANT = 0.0  # No delay between events
+
+
+class VirtualClock:
+    """
+    Virtual clock for replay.
+
+    Maps real elapsed time to simulated session time.
+    """
+
+    def __init__(self):
+        self._session_start: Optional[datetime] = None
+        self._session_end: Optional[datetime] = None
+        self._current_time: Optional[datetime] = None
+        self._speed: float = 1.0
+        self._real_start: Optional[datetime] = None
+        self._paused_at: Optional[datetime] = None
+        self._is_paused: bool = True
+
+    def initialize(self, start_time: datetime, end_time: datetime):
+        """Initialize clock with session bounds."""
+        self._session_start = start_time
+        self._session_end = end_time
+        self._current_time = start_time
+        self._is_paused = True
+
+    def play(self, speed: float = 1.0):
+        """Start/resume playback."""
+        self._speed = speed
+        self._real_start = datetime.now(UTC)
+        if self._paused_at:
+            # Resume from paused position
+            self._current_time = self._paused_at
+        self._paused_at = None
+        self._is_paused = False
+
+    def set_speed(self, speed: float):
+        """Change speed without pausing/resuming. Snapshots current virtual time first."""
+        if not self._is_paused:
+            self._current_time = self.now()
+            self._real_start = datetime.now(UTC)
+        self._speed = speed
+
+    def pause(self):
+        """Pause playback."""
+        self._paused_at = self.now()
+        self._is_paused = True
+
+    def seek(self, target_time: datetime):
+        """Jump to specific time."""
+        if self._session_start and self._session_end:
+            # Clamp to session bounds
+            target_time = max(self._session_start, min(target_time, self._session_end))
+        self._current_time = target_time
+        self._paused_at = target_time
+        self._real_start = datetime.now(UTC)
+
+    def seek_percent(self, percent: float):
+        """Jump to percentage through session (0-100)."""
+        if not self._session_start or not self._session_end:
+            return
+
+        duration = (self._session_end - self._session_start).total_seconds()
+        offset = duration * (percent / 100.0)
+        target = self._session_start + timedelta(seconds=offset)
+        self.seek(target)
+
+    def now(self) -> Optional[datetime]:
+        """Get current virtual time."""
+        if self._is_paused:
+            return self._paused_at or self._current_time
+
+        if not self._real_start or not self._current_time:
+            return self._current_time
+
+        # Calculate elapsed real time
+        real_elapsed = (datetime.now(UTC) - self._real_start).total_seconds()
+
+        # Apply speed multiplier
+        virtual_elapsed = real_elapsed * self._speed
+
+        # Calculate virtual time
+        virtual_time = self._current_time + timedelta(seconds=virtual_elapsed)
+
+        # Clamp to session end
+        if self._session_end and virtual_time > self._session_end:
+            return self._session_end
+
+        return virtual_time
+
+    def is_finished(self) -> bool:
+        """Check if reached end of session."""
+        current = self.now()
+        if not current or not self._session_end:
+            return False
+        return current >= self._session_end
+
+    def get_progress_percent(self) -> float:
+        """Get progress through session (0-100)."""
+        if not self._session_start or not self._session_end:
+            return 0.0
+
+        current = self.now()
+        if not current:
+            return 0.0
+
+        duration = (self._session_end - self._session_start).total_seconds()
+        if duration <= 0:
+            return 0.0
+
+        elapsed = (current - self._session_start).total_seconds()
+        return max(0.0, min(100.0, (elapsed / duration) * 100.0))
+
+    def get_state(self) -> Dict:
+        """Get clock state for UI."""
+        return {
+            "session_start": self._session_start.isoformat() if self._session_start else None,
+            "session_end": self._session_end.isoformat() if self._session_end else None,
+            "current_time": self.now().isoformat() if self.now() else None,
+            "speed": self._speed,
+            "is_paused": self._is_paused,
+            "progress_percent": self.get_progress_percent(),
+            "is_finished": self.is_finished()
+        }
+
+
+class ReplaySession:
+    """
+    A single replay session.
+
+    Loads recorded data and plays it back through callbacks.
+    """
+
+    def __init__(
+        self,
+        session_id: str,
+        date_str: str,
+        station_id: Optional[str] = None,
+        channels: Optional[List[str]] = None
+    ):
+        self.session_id = session_id
+        self.date_str = date_str
+        self.station_id = station_id
+        self.channels = channels
+
+        self.state = ReplayState.IDLE
+        self.clock = VirtualClock()
+
+        # Data
+        self._events: List[Dict] = []
+        self._event_index: int = 0
+        self._metar_indices: List[int] = []
+        self._window_indices: List[int] = []
+
+        # Playback
+        self._playback_task: Optional[asyncio.Task] = None
+        self._event_callback: Optional[Callable[[Dict], None]] = None
+
+        # Reader
+        self._reader = get_hybrid_reader()
+
+    async def load(self) -> bool:
+        """Load events from Parquet."""
+        self.state = ReplayState.LOADING
+        logger.info(f"Loading replay session: {self.date_str} / {self.station_id}")
+
+        try:
+            # Read all events sorted by timestamp
+            self._events = self._reader.get_events_sorted(
+                self.date_str,
+                self.station_id,
+                self.channels
+            )
+
+            if not self._events:
+                logger.warning(f"No events found for {self.date_str}")
+                self.state = ReplayState.IDLE
+                return False
+
+            # Build index of special events
+            self._build_indices()
+
+            # Initialize clock from event timestamps
+            first_ts = self._parse_timestamp(self._events[0])
+            last_ts = self._parse_timestamp(self._events[-1])
+
+            if first_ts and last_ts:
+                self.clock.initialize(first_ts, last_ts)
+
+            self.state = ReplayState.READY
+            self._event_index = 0
+
+            logger.info(
+                f"Loaded {len(self._events)} events, "
+                f"{len(self._metar_indices)} METARs, "
+                f"{len(self._window_indices)} windows"
+            )
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to load replay: {e}")
+            self.state = ReplayState.IDLE
+            return False
+
+    def _build_indices(self):
+        """Build indices for special events."""
+        self._metar_indices = []
+        self._window_indices = []
+
+        for i, event in enumerate(self._events):
+            ch = event.get("ch", "")
+            data = event.get("data", {})
+
+            # METAR events
+            if ch == "world" and data.get("src") == "METAR":
+                self._metar_indices.append(i)
+
+            # Event windows
+            if ch == "event_window":
+                self._window_indices.append(i)
+
+    def _parse_timestamp(self, event: Dict) -> Optional[datetime]:
+        """Parse timestamp from event."""
+        ts_str = event.get("ts_ingest_utc") or event.get("obs_time_utc")
+        if not ts_str:
+            return None
+
+        try:
+            # Handle both ISO format and simple format
+            if "T" in ts_str:
+                return datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+            else:
+                return datetime.fromisoformat(ts_str)
+        except:
+            return None
+
+    def set_event_callback(self, callback: Callable[[Dict], None]):
+        """Set callback for event emission."""
+        self._event_callback = callback
+
+    async def play(self, speed: float = 1.0):
+        """Start/resume playback."""
+        if self.state not in [ReplayState.READY, ReplayState.PAUSED]:
+            return
+
+        self.clock.play(speed)
+        self.state = ReplayState.PLAYING
+
+        # Start playback task
+        if self._playback_task is None or self._playback_task.done():
+            self._playback_task = asyncio.create_task(self._playback_loop())
+
+    def set_speed(self, speed: float):
+        """Change playback speed without stopping."""
+        self.clock.set_speed(speed)
+
+    async def pause(self):
+        """Pause playback."""
+        self.clock.pause()
+        self.state = ReplayState.PAUSED
+
+    async def stop(self):
+        """Stop playback and reset."""
+        self.state = ReplayState.READY
+        self.clock.pause()
+
+        if self._playback_task:
+            self._playback_task.cancel()
+            try:
+                await self._playback_task
+            except asyncio.CancelledError:
+                pass
+            self._playback_task = None
+
+        self._event_index = 0
+        self.clock.seek(self.clock._session_start)
+
+    def seek_time(self, target_time: datetime):
+        """Seek to specific time."""
+        self.clock.seek(target_time)
+
+        # Find event index at this time
+        target_str = target_time.isoformat()
+        for i, event in enumerate(self._events):
+            ts = event.get("ts_ingest_utc", "")
+            if ts >= target_str:
+                self._event_index = i
+                break
+
+    def seek_percent(self, percent: float):
+        """Seek to percentage position."""
+        self.clock.seek_percent(percent)
+
+        # Calculate event index
+        total = len(self._events)
+        self._event_index = int(total * (percent / 100.0))
+        self._event_index = max(0, min(total - 1, self._event_index))
+
+    def jump_to_next_metar(self) -> bool:
+        """Jump to next METAR event."""
+        for idx in self._metar_indices:
+            if idx > self._event_index:
+                self._event_index = idx
+                event_ts = self._parse_timestamp(self._events[idx])
+                if event_ts:
+                    self.clock.seek(event_ts)
+                return True
+        return False
+
+    def jump_to_prev_metar(self) -> bool:
+        """Jump to previous METAR event."""
+        for idx in reversed(self._metar_indices):
+            if idx < self._event_index:
+                self._event_index = idx
+                event_ts = self._parse_timestamp(self._events[idx])
+                if event_ts:
+                    self.clock.seek(event_ts)
+                return True
+        return False
+
+    def jump_to_next_window(self) -> bool:
+        """Jump to next event window."""
+        for idx in self._window_indices:
+            if idx > self._event_index:
+                self._event_index = idx
+                event_ts = self._parse_timestamp(self._events[idx])
+                if event_ts:
+                    self.clock.seek(event_ts)
+                return True
+        return False
+
+    async def _playback_loop(self):
+        """Main playback loop - emits events at correct virtual times.
+        At high speeds, batch-processes all events up to clock.now()."""
+        logger.info("Playback started")
+
+        try:
+            while self.state == ReplayState.PLAYING:
+                if self._event_index >= len(self._events):
+                    self.state = ReplayState.FINISHED
+                    logger.info("Playback finished")
+                    break
+
+                # Check if next event is in the future
+                event = self._events[self._event_index]
+                event_ts = self._parse_timestamp(event)
+
+                if event_ts:
+                    current = self.clock.now()
+                    if current and event_ts > current:
+                        # Wait (real time) until clock catches up
+                        virtual_gap = (event_ts - current).total_seconds()
+                        speed = self.clock._speed
+                        wait_seconds = virtual_gap / speed if speed > 0 else 0
+                        wait_seconds = min(wait_seconds, 0.5)
+
+                        if wait_seconds > 0.01:
+                            await asyncio.sleep(wait_seconds)
+
+                        if self.state != ReplayState.PLAYING:
+                            break
+
+                # Batch-emit all events whose timestamp <= clock.now()
+                current = self.clock.now()
+                batch_count = 0
+                while self._event_index < len(self._events) and batch_count < 50:
+                    ev = self._events[self._event_index]
+                    ev_ts = self._parse_timestamp(ev)
+
+                    if ev_ts and current and ev_ts > current:
+                        break  # Next event is in the future
+
+                    if self._event_callback:
+                        try:
+                            self._event_callback(ev)
+                        except Exception as e:
+                            logger.warning(f"Event callback error: {e}")
+
+                    self._event_index += 1
+                    batch_count += 1
+
+                await asyncio.sleep(0)  # Yield to event loop
+
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.error(f"Playback error: {e}")
+
+    def get_state(self) -> Dict:
+        """Get session state for UI."""
+        return {
+            "session_id": self.session_id,
+            "date": self.date_str,
+            "station_id": self.station_id,
+            "state": self.state.value,
+            "total_events": len(self._events),
+            "current_index": self._event_index,
+            "metar_count": len(self._metar_indices),
+            "window_count": len(self._window_indices),
+            "clock": self.clock.get_state()
+        }
+
+    def get_category_summary(self) -> Dict:
+        """Get latest event and count per channel for category cards."""
+        channels = ["world", "nowcast", "pws", "features", "event_window", "health", "l2_snap"]
+        categories = {ch: {"count": 0, "latest": None, "latest_time": None} for ch in channels}
+
+        for i in range(min(self._event_index + 1, len(self._events))):
+            ch = self._events[i].get("ch", "")
+            if ch in categories:
+                categories[ch]["count"] += 1
+                categories[ch]["latest"] = self._events[i]
+                categories[ch]["latest_time"] = self._events[i].get("ts_nyc")
+
+        return categories
+
+    def get_current_event(self) -> Optional[Dict]:
+        """Get the current event."""
+        if 0 <= self._event_index < len(self._events):
+            return self._events[self._event_index]
+        return None
+
+    def get_events_around(self, n: int = 5) -> Dict:
+        """Get events around current position."""
+        start = max(0, self._event_index - n)
+        end = min(len(self._events), self._event_index + n + 1)
+
+        return {
+            "before": self._events[start:self._event_index],
+            "current": self.get_current_event(),
+            "after": self._events[self._event_index + 1:end] if self._event_index + 1 < len(self._events) else []
+        }
+
+
+class ReplayEngine:
+    """
+    Main replay engine manager.
+
+    Manages multiple replay sessions and provides
+    the same event protocol as live feeds.
+    """
+
+    _instance = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(ReplayEngine, cls).__new__(cls)
+            cls._instance.initialized = False
+        return cls._instance
+
+    def __init__(self):
+        if self.initialized:
+            return
+
+        self._sessions: Dict[str, ReplaySession] = {}
+        self._active_session_id: Optional[str] = None
+        self._reader = get_hybrid_reader()
+
+        # Global event callback (for broadcasting to WS clients)
+        self._broadcast_callback: Optional[Callable[[Dict], None]] = None
+
+        self.initialized = True
+        logger.info("ReplayEngine initialized")
+
+    def set_broadcast_callback(self, callback: Callable[[Dict], None]):
+        """Set callback for broadcasting events to all clients."""
+        self._broadcast_callback = callback
+
+    def list_available_dates(self, station_id: Optional[str] = None) -> List[str]:
+        """List dates with recorded data."""
+        return self._reader.list_available_dates(station_id)
+
+    def list_channels_for_date(
+        self,
+        date_str: str,
+        station_id: Optional[str] = None
+    ) -> List[str]:
+        """List channels available for a date."""
+        return self._reader.list_channels_for_date(date_str, station_id)
+
+    async def create_session(
+        self,
+        date_str: str,
+        station_id: Optional[str] = None,
+        channels: Optional[List[str]] = None
+    ) -> Optional[ReplaySession]:
+        """Create and load a new replay session."""
+        import uuid
+        session_id = str(uuid.uuid4())[:8]
+
+        session = ReplaySession(
+            session_id=session_id,
+            date_str=date_str,
+            station_id=station_id,
+            channels=channels
+        )
+
+        # Set up event routing
+        session.set_event_callback(self._on_event)
+
+        # Load data
+        if not await session.load():
+            return None
+
+        self._sessions[session_id] = session
+        self._active_session_id = session_id
+
+        return session
+
+    def get_session(self, session_id: str) -> Optional[ReplaySession]:
+        """Get a session by ID."""
+        return self._sessions.get(session_id)
+
+    def get_active_session(self) -> Optional[ReplaySession]:
+        """Get the active session."""
+        if self._active_session_id:
+            return self._sessions.get(self._active_session_id)
+        return None
+
+    async def close_session(self, session_id: str):
+        """Close and remove a session."""
+        session = self._sessions.get(session_id)
+        if session:
+            await session.stop()
+            del self._sessions[session_id]
+
+            if self._active_session_id == session_id:
+                self._active_session_id = None
+
+    def _on_event(self, event: Dict):
+        """Handle event from session playback."""
+        if self._broadcast_callback:
+            # Transform to WS-compatible format
+            ws_event = {
+                "type": event.get("ch", "unknown"),
+                "replay": True,
+                "data": event
+            }
+            self._broadcast_callback(ws_event)
+
+    def get_state(self) -> Dict:
+        """Get engine state."""
+        return {
+            "sessions": {
+                sid: s.get_state() for sid, s in self._sessions.items()
+            },
+            "active_session_id": self._active_session_id,
+            "available_dates": self.list_available_dates()
+        }
+
+    # =========================================================================
+    # Convenience methods for active session
+    # =========================================================================
+
+    async def play(self, speed: float = 1.0):
+        """Play active session."""
+        session = self.get_active_session()
+        if session:
+            await session.play(speed)
+
+    async def pause(self):
+        """Pause active session."""
+        session = self.get_active_session()
+        if session:
+            await session.pause()
+
+    async def stop(self):
+        """Stop active session."""
+        session = self.get_active_session()
+        if session:
+            await session.stop()
+
+    def seek_percent(self, percent: float):
+        """Seek active session to percentage."""
+        session = self.get_active_session()
+        if session:
+            session.seek_percent(percent)
+
+    def jump_next_metar(self) -> bool:
+        """Jump to next METAR in active session."""
+        session = self.get_active_session()
+        if session:
+            return session.jump_to_next_metar()
+        return False
+
+    def jump_prev_metar(self) -> bool:
+        """Jump to previous METAR in active session."""
+        session = self.get_active_session()
+        if session:
+            return session.jump_to_prev_metar()
+        return False
+
+    def jump_next_window(self) -> bool:
+        """Jump to next event window in active session."""
+        session = self.get_active_session()
+        if session:
+            return session.jump_to_next_window()
+        return False
+
+
+# =============================================================================
+# Global accessor
+# =============================================================================
+
+_engine: Optional[ReplayEngine] = None
+
+
+def get_replay_engine() -> ReplayEngine:
+    """Get the global ReplayEngine instance."""
+    global _engine
+    if _engine is None:
+        _engine = ReplayEngine()
+    return _engine

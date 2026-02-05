@@ -1,0 +1,727 @@
+{% extends "base.html" %}
+
+{% block title %}ATENEA - AI Diagnostic Copilot{% endblock %}
+
+{% block head_extra %}
+<style>
+    .atenea-container {
+        display: grid;
+        grid-template-columns: 1fr 320px;
+        gap: 24px;
+        height: calc(100vh - 120px);
+    }
+
+    /* Chat Panel */
+    .chat-panel {
+        background: var(--bg-secondary);
+        border: 1px solid rgba(139, 92, 246, 0.2);
+        border-radius: 16px;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .chat-header {
+        padding: 20px 24px;
+        background: linear-gradient(135deg, rgba(139, 92, 246, 0.15), rgba(59, 130, 246, 0.15));
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .chat-header h2 {
+        font-size: 18px;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .chat-header h2 span {
+        font-size: 24px;
+    }
+
+    .chat-actions {
+        display: flex;
+        gap: 8px;
+    }
+
+    .chat-actions button {
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 8px;
+        padding: 8px 12px;
+        color: var(--text-secondary);
+        cursor: pointer;
+        font-size: 12px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .chat-actions button:hover {
+        background: rgba(255, 255, 255, 0.15);
+        color: var(--text-main);
+    }
+
+    .chat-messages {
+        flex: 1;
+        padding: 24px;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+    }
+
+    .message {
+        max-width: 85%;
+        padding: 14px 18px;
+        border-radius: 16px;
+        font-size: 14px;
+        line-height: 1.6;
+    }
+
+    .message.user {
+        align-self: flex-end;
+        background: linear-gradient(135deg, rgba(59, 130, 246, 0.3), rgba(139, 92, 246, 0.3));
+        border: 1px solid rgba(139, 92, 246, 0.3);
+    }
+
+    .message.assistant {
+        align-self: flex-start;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .message.assistant.error {
+        background: rgba(239, 68, 68, 0.1);
+        border-color: rgba(239, 68, 68, 0.3);
+        color: #FCA5A5;
+    }
+
+    .message-meta {
+        font-size: 11px;
+        color: var(--text-muted);
+        margin-top: 8px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .message-meta .intent-badge {
+        background: rgba(139, 92, 246, 0.2);
+        padding: 2px 8px;
+        border-radius: 10px;
+        font-family: 'JetBrains Mono', monospace;
+    }
+
+    .message-meta .evidence-count {
+        color: var(--accent-green);
+    }
+
+    .message-content strong {
+        color: var(--accent-blue);
+    }
+
+    .message-content code {
+        background: rgba(0, 0, 0, 0.3);
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 12px;
+    }
+
+    /* Evidence section in messages */
+    .evidence-section {
+        margin-top: 12px;
+        padding-top: 12px;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+        font-size: 12px;
+    }
+
+    .evidence-section h4 {
+        color: var(--accent-green);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        margin-bottom: 8px;
+    }
+
+    .evidence-item {
+        padding: 6px 0;
+        color: var(--text-secondary);
+        font-family: 'JetBrains Mono', monospace;
+    }
+
+    .evidence-item .eid {
+        color: var(--accent-yellow);
+        font-weight: 600;
+    }
+
+    /* Chat Input */
+    .chat-input-area {
+        padding: 20px 24px;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(0, 0, 0, 0.2);
+    }
+
+    .context-indicator {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 12px;
+        font-size: 12px;
+        color: var(--text-muted);
+    }
+
+    .context-indicator .badge {
+        background: rgba(139, 92, 246, 0.2);
+        padding: 4px 10px;
+        border-radius: 12px;
+        font-size: 11px;
+    }
+
+    .input-row {
+        display: flex;
+        gap: 12px;
+    }
+
+    .input-row input {
+        flex: 1;
+        background: var(--bg-tertiary);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 12px;
+        padding: 14px 18px;
+        color: var(--text-main);
+        font-size: 14px;
+    }
+
+    .input-row input:focus {
+        outline: none;
+        border-color: rgba(139, 92, 246, 0.5);
+        box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
+    }
+
+    .input-row button {
+        background: linear-gradient(135deg, #8B5CF6, #3B82F6);
+        border: none;
+        border-radius: 12px;
+        padding: 14px 24px;
+        color: white;
+        font-weight: 600;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        transition: all 0.2s;
+    }
+
+    .input-row button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4);
+    }
+
+    .input-row button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+        transform: none;
+    }
+
+    /* Context Panel */
+    .context-panel {
+        background: var(--bg-secondary);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 16px;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .context-header {
+        padding: 16px 20px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .context-header h3 {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--text-secondary);
+    }
+
+    .context-body {
+        flex: 1;
+        padding: 16px 20px;
+        overflow-y: auto;
+    }
+
+    .context-section {
+        margin-bottom: 20px;
+    }
+
+    .context-section h4 {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: var(--text-muted);
+        margin-bottom: 10px;
+    }
+
+    .context-item {
+        display: flex;
+        justify-content: space-between;
+        padding: 8px 0;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        font-size: 13px;
+    }
+
+    .context-item .label {
+        color: var(--text-secondary);
+    }
+
+    .context-item .value {
+        color: var(--text-main);
+        font-family: 'JetBrains Mono', monospace;
+    }
+
+    .suggested-questions {
+        margin-top: 16px;
+    }
+
+    .suggested-questions h4 {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: var(--text-muted);
+        margin-bottom: 10px;
+    }
+
+    .suggestion-btn {
+        display: block;
+        width: 100%;
+        text-align: left;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 8px;
+        padding: 10px 12px;
+        color: var(--text-secondary);
+        font-size: 12px;
+        cursor: pointer;
+        margin-bottom: 8px;
+        transition: all 0.2s;
+    }
+
+    .suggestion-btn:hover {
+        background: rgba(139, 92, 246, 0.1);
+        border-color: rgba(139, 92, 246, 0.3);
+        color: var(--text-main);
+    }
+
+    /* Loading animation */
+    .typing-indicator {
+        display: flex;
+        gap: 4px;
+        padding: 8px 0;
+    }
+
+    .typing-indicator span {
+        width: 8px;
+        height: 8px;
+        background: var(--accent-blue);
+        border-radius: 50%;
+        animation: typing 1.4s infinite;
+    }
+
+    .typing-indicator span:nth-child(2) {
+        animation-delay: 0.2s;
+    }
+
+    .typing-indicator span:nth-child(3) {
+        animation-delay: 0.4s;
+    }
+
+    @keyframes typing {
+        0%, 60%, 100% {
+            transform: translateY(0);
+            opacity: 0.4;
+        }
+        30% {
+            transform: translateY(-6px);
+            opacity: 1;
+        }
+    }
+
+    /* Responsive */
+    @media (max-width: 1200px) {
+        .atenea-container {
+            grid-template-columns: 1fr;
+        }
+
+        .context-panel {
+            display: none;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-title">
+        <span style="font-size: 24px;">🜂</span>
+        ATENEA - AI Diagnostic Copilot
+    </div>
+    <div class="breadcrumbs">
+        <a href="/">HELIOS</a>
+        <span>/</span>
+        <span>Atenea</span>
+    </div>
+</div>
+
+<div class="page-content">
+    <div class="atenea-container">
+        <!-- Main Chat Panel -->
+        <div class="chat-panel">
+            <div class="chat-header">
+                <h2>
+                    <span>🜂</span>
+                    Chat with Atenea
+                </h2>
+                <div class="chat-actions">
+                    <button onclick="clearHistory()" title="Clear conversation">
+                        <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i>
+                        Clear
+                    </button>
+                    <button onclick="exportChat()" title="Export conversation">
+                        <i data-lucide="download" style="width: 14px; height: 14px;"></i>
+                        Export
+                    </button>
+                </div>
+            </div>
+
+            <div class="chat-messages" id="chatMessages">
+                <div class="message assistant">
+                    <div class="message-content">
+                        <strong>Hola!</strong> Soy Atenea, tu copiloto de diagnóstico para HELIOS.
+                        <br><br>
+                        Puedo ayudarte a entender:
+                        <ul style="margin: 8px 0 0 20px;">
+                            <li>Estado del mercado (orderbook, spreads, shocks)</li>
+                            <li>Datos meteorológicos (METAR, PWS, QC)</li>
+                            <li>Predicciones (nowcast, drivers, confianza)</li>
+                            <li>Resultados de backtests (métricas, cobertura)</li>
+                            <li>Salud del sistema (latencia, reconexiones)</li>
+                        </ul>
+                        <br>
+                        <em>Todas mis respuestas incluyen evidencias trazables (E1, E2, etc.)</em>
+                    </div>
+                </div>
+            </div>
+
+            <div class="chat-input-area">
+                <div class="context-indicator">
+                    <i data-lucide="info" style="width: 14px; height: 14px;"></i>
+                    <span>Contexto actual:</span>
+                    <span class="badge" id="currentContext">home</span>
+                </div>
+                <div class="input-row">
+                    <input
+                        type="text"
+                        id="chatInput"
+                        placeholder="Escribe tu pregunta..."
+                        onkeypress="if(event.key==='Enter' && !event.shiftKey) sendMessage()"
+                    >
+                    <button onclick="sendMessage()" id="sendBtn">
+                        <i data-lucide="send" style="width: 16px; height: 16px;"></i>
+                        Enviar
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Context Panel -->
+        <div class="context-panel">
+            <div class="context-header">
+                <h3>Live Context</h3>
+            </div>
+            <div class="context-body">
+                <div class="context-section">
+                    <h4>System Status</h4>
+                    <div class="context-item">
+                        <span class="label">Mode</span>
+                        <span class="value" id="ctxMode">LIVE</span>
+                    </div>
+                    <div class="context-item">
+                        <span class="label">Station</span>
+                        <span class="value" id="ctxStation">-</span>
+                    </div>
+                    <div class="context-item">
+                        <span class="label">API Status</span>
+                        <span class="value" id="ctxApiStatus" style="color: var(--accent-green);">Connected</span>
+                    </div>
+                </div>
+
+                <div class="context-section">
+                    <h4>Last Response</h4>
+                    <div class="context-item">
+                        <span class="label">Intent</span>
+                        <span class="value" id="ctxIntent">-</span>
+                    </div>
+                    <div class="context-item">
+                        <span class="label">Confidence</span>
+                        <span class="value" id="ctxConfidence">-</span>
+                    </div>
+                    <div class="context-item">
+                        <span class="label">Evidences</span>
+                        <span class="value" id="ctxEvidences">-</span>
+                    </div>
+                    <div class="context-item">
+                        <span class="label">Time</span>
+                        <span class="value" id="ctxTime">-</span>
+                    </div>
+                </div>
+
+                <div class="suggested-questions">
+                    <h4>Pregunta al experto</h4>
+                    <button class="suggestion-btn" onclick="askSuggestion(this)">
+                        ¿Crees que la predicción de HELIOS es correcta?
+                    </button>
+                    <button class="suggestion-btn" onclick="askSuggestion(this)">
+                        ¿Qué probabilidad real le das al bracket líder?
+                    </button>
+                    <button class="suggestion-btn" onclick="askSuggestion(this)">
+                        Analiza la discrepancia entre HELIOS y Polymarket
+                    </button>
+                    <button class="suggestion-btn" onclick="askSuggestion(this)">
+                        ¿Hay señales de que el mercado sabe algo que HELIOS no?
+                    </button>
+                    <button class="suggestion-btn" onclick="askSuggestion(this)">
+                        ¿Qué riesgos ves en la predicción actual?
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Initialize Lucide icons
+    lucide.createIcons();
+
+    // State
+    let isProcessing = false;
+
+    // Screen context (would be dynamic in full implementation)
+    const screenContext = {
+        screen: 'atenea',
+        station_id: null,
+        mode: 'LIVE'
+    };
+
+    // Send message
+    async function sendMessage() {
+        const input = document.getElementById('chatInput');
+        const query = input.value.trim();
+
+        if (!query || isProcessing) return;
+
+        isProcessing = true;
+        const sendBtn = document.getElementById('sendBtn');
+        sendBtn.disabled = true;
+        input.disabled = true;
+
+        // Add user message
+        addMessage('user', query);
+        input.value = '';
+
+        // Add typing indicator
+        const typingId = addTypingIndicator();
+
+        try {
+            const response = await fetch('/api/atenea/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    query: query,
+                    ...screenContext
+                })
+            });
+
+            const data = await response.json();
+
+            // Remove typing indicator
+            removeTypingIndicator(typingId);
+
+            if (data.success && data.response) {
+                const msg = data.response.message;
+                const intent = data.response.intent;
+                const contextPack = data.response.context_pack;
+
+                // Add assistant message
+                addMessage('assistant', msg.content, {
+                    intent: intent.category,
+                    confidence: intent.confidence,
+                    evidences: msg.evidences,
+                    processingTime: data.response.processing_time_ms
+                });
+
+                // Update context panel
+                updateContextPanel(intent, contextPack, data.response.processing_time_ms);
+            } else {
+                addMessage('assistant', data.error || 'Error processing request', { error: true });
+            }
+
+        } catch (error) {
+            removeTypingIndicator(typingId);
+            addMessage('assistant', 'Connection error: ' + error.message, { error: true });
+        }
+
+        isProcessing = false;
+        sendBtn.disabled = false;
+        input.disabled = false;
+        input.focus();
+    }
+
+    // Add message to chat
+    function addMessage(role, content, meta = {}) {
+        const messagesDiv = document.getElementById('chatMessages');
+
+        const msgDiv = document.createElement('div');
+        msgDiv.className = `message ${role}` + (meta.error ? ' error' : '');
+
+        // Format content
+        let formattedContent = content;
+        formattedContent = formattedContent.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+        formattedContent = formattedContent.replace(/`([^`]+)`/g, '<code>$1</code>');
+        formattedContent = formattedContent.replace(/\n/g, '<br>');
+
+        let html = `<div class="message-content">${formattedContent}</div>`;
+
+        // Add meta info for assistant messages
+        if (role === 'assistant' && !meta.error && meta.intent) {
+            html += `
+                <div class="message-meta">
+                    <span class="intent-badge">${meta.intent}</span>
+                    <span>Confidence: ${(meta.confidence * 100).toFixed(0)}%</span>
+                    ${meta.evidences && meta.evidences.length > 0 ?
+                        `<span class="evidence-count">${meta.evidences.length} evidences</span>` : ''}
+                    <span>${meta.processingTime ? meta.processingTime.toFixed(0) + 'ms' : ''}</span>
+                </div>
+            `;
+        }
+
+        msgDiv.innerHTML = html;
+        messagesDiv.appendChild(msgDiv);
+
+        // Scroll to bottom
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+
+    // Add typing indicator
+    function addTypingIndicator() {
+        const messagesDiv = document.getElementById('chatMessages');
+        const id = 'typing-' + Date.now();
+
+        const div = document.createElement('div');
+        div.id = id;
+        div.className = 'message assistant';
+        div.innerHTML = `
+            <div class="typing-indicator">
+                <span></span>
+                <span></span>
+                <span></span>
+            </div>
+        `;
+        messagesDiv.appendChild(div);
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+
+        return id;
+    }
+
+    // Remove typing indicator
+    function removeTypingIndicator(id) {
+        const el = document.getElementById(id);
+        if (el) el.remove();
+    }
+
+    // Update context panel
+    function updateContextPanel(intent, contextPack, processingTime) {
+        document.getElementById('ctxIntent').textContent = intent.category;
+        document.getElementById('ctxConfidence').textContent = (intent.confidence * 100).toFixed(0) + '%';
+        document.getElementById('ctxEvidences').textContent = contextPack.evidence_count || 0;
+        document.getElementById('ctxTime').textContent = processingTime ? processingTime.toFixed(0) + 'ms' : '-';
+    }
+
+    // Ask suggested question
+    function askSuggestion(btn) {
+        const question = btn.textContent.trim();
+        document.getElementById('chatInput').value = question;
+        sendMessage();
+    }
+
+    // Clear history
+    async function clearHistory() {
+        if (!confirm('¿Borrar el historial de conversación?')) return;
+
+        try {
+            await fetch('/api/atenea/history', { method: 'DELETE' });
+
+            // Clear UI
+            const messagesDiv = document.getElementById('chatMessages');
+            messagesDiv.innerHTML = `
+                <div class="message assistant">
+                    <div class="message-content">
+                        Historial borrado. ¿En qué puedo ayudarte?
+                    </div>
+                </div>
+            `;
+        } catch (error) {
+            console.error('Error clearing history:', error);
+        }
+    }
+
+    // Export chat
+    function exportChat() {
+        const messages = document.querySelectorAll('.message');
+        let text = 'ATENEA Chat Export\n' + '='.repeat(50) + '\n\n';
+
+        messages.forEach(msg => {
+            const role = msg.classList.contains('user') ? 'USER' : 'ATENEA';
+            const content = msg.querySelector('.message-content').textContent;
+            text += `[${role}]\n${content}\n\n`;
+        });
+
+        const blob = new Blob([text], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `atenea-chat-${new Date().toISOString().slice(0,10)}.txt`;
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+
+    // Check API status on load
+    async function checkApiStatus() {
+        try {
+            const response = await fetch('/api/atenea/intent?query=test&screen=atenea');
+            const data = await response.json();
+
+            if (data.success) {
+                document.getElementById('ctxApiStatus').textContent = 'Connected';
+                document.getElementById('ctxApiStatus').style.color = 'var(--accent-green)';
+            } else {
+                document.getElementById('ctxApiStatus').textContent = 'Error';
+                document.getElementById('ctxApiStatus').style.color = 'var(--accent-red)';
+            }
+        } catch (error) {
+            document.getElementById('ctxApiStatus').textContent = 'Disconnected';
+            document.getElementById('ctxApiStatus').style.color = 'var(--accent-red)';
+        }
+    }
+
+    // Initialize
+    checkApiStatus();
+    document.getElementById('chatInput').focus();
+</script>
+{% endblock %}

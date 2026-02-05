@@ -1,0 +1,872 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}HELIOS Weather Lab{% endblock %}</title>
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;700&family=Space+Grotesk:wght@300;400;500;600;700&display=swap"
+        rel="stylesheet">
+    <!-- Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Styles -->
+    <link href="/static/style.css" rel="stylesheet">
+
+    <style>
+        :root {
+            --sidebar-width: 260px;
+            --sidebar-collapsed: 70px;
+            --bg-primary: #0a0e17;
+            --bg-secondary: #0f1629;
+            --bg-tertiary: #1a2035;
+            --accent-blue: #0078FF;
+            --accent-green: #10B981;
+            --accent-yellow: #F4D03F;
+            --accent-red: #EF4444;
+            --text-main: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+        }
+
+        /* ============================================
+           SIDEBAR
+        ============================================ */
+        .sidebar {
+            width: var(--sidebar-width);
+            background: var(--bg-secondary);
+            border-right: 1px solid rgba(255, 255, 255, 0.05);
+            display: flex;
+            flex-direction: column;
+            position: fixed;
+            height: 100vh;
+            z-index: 1000;
+            transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            will-change: width;
+        }
+
+        /* Collapsed state */
+        .sidebar.collapsed {
+            width: var(--sidebar-collapsed);
+        }
+
+        /* Smooth transitions for all sidebar content */
+        .sidebar .sidebar-title,
+        .sidebar .sidebar-version,
+        .sidebar .nav-section-title,
+        .sidebar .station-name,
+        .sidebar .nav-item span,
+        .sidebar .chevron {
+            transition: opacity 0.2s ease, transform 0.2s ease;
+        }
+
+        .sidebar.collapsed .sidebar-title,
+        .sidebar.collapsed .sidebar-version,
+        .sidebar.collapsed .nav-section-title,
+        .sidebar.collapsed .station-name,
+        .sidebar.collapsed .nav-item span,
+        .sidebar.collapsed .chevron {
+            opacity: 0;
+            transform: translateX(-10px);
+            pointer-events: none;
+        }
+
+        /* Station code fade in */
+        .station-code {
+            transition: opacity 0.2s ease 0.1s;
+        }
+
+        .sidebar.collapsed .station-code {
+            opacity: 1;
+        }
+
+        .sidebar.collapsed .sidebar-title,
+        .sidebar.collapsed .sidebar-version,
+        .sidebar.collapsed .nav-section-title,
+        .sidebar.collapsed .nav-item span,
+        .sidebar.collapsed .sidebar-footer span,
+        .sidebar.collapsed .chevron,
+        .sidebar.collapsed .station-name {
+            display: none;
+        }
+
+        /* Show station code when collapsed */
+        .sidebar.collapsed .station-code {
+            display: block !important;
+        }
+
+        /* Hide flag, show code when collapsed */
+        .sidebar.collapsed .station-flag {
+            display: none;
+        }
+
+        .sidebar.collapsed .sidebar-header {
+            justify-content: center;
+            padding: 15px;
+        }
+
+        .sidebar.collapsed .nav-item {
+            justify-content: center;
+            padding: 10px 8px;
+        }
+
+        .sidebar.collapsed .station-header {
+            justify-content: center;
+            padding: 8px;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .sidebar.collapsed .nav-station {
+            margin-left: 0;
+            padding-left: 0;
+            border-left: none;
+        }
+
+        /* Subsection icons smaller and indented when collapsed */
+        .sidebar.collapsed .nav-station .nav-item {
+            justify-content: flex-end;
+            padding: 6px 12px;
+            margin: 0;
+            background: transparent;
+            border-radius: 0;
+            margin-bottom: 0;
+            opacity: 0.6;
+        }
+
+        .sidebar.collapsed .nav-station .nav-item:hover {
+            opacity: 1;
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .sidebar.collapsed .nav-station .nav-item.active {
+            opacity: 1;
+            background: rgba(0, 120, 255, 0.1);
+        }
+
+        .sidebar.collapsed .nav-station .nav-item i {
+            width: 14px;
+            height: 14px;
+        }
+
+        /* Station code styling when collapsed */
+        .sidebar.collapsed .station-code {
+            font-size: 10px;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--accent-blue);
+            letter-spacing: 0.5px;
+        }
+
+        .sidebar-header {
+            padding: 20px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            position: relative;
+        }
+
+        .sidebar-logo {
+            width: 40px;
+            height: 40px;
+            min-width: 40px;
+            background: linear-gradient(135deg, #0078FF, #00d4ff);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+        }
+
+        .sidebar-title {
+            font-size: 18px;
+            font-weight: 700;
+            font-family: 'Space Grotesk', sans-serif;
+            white-space: nowrap;
+        }
+
+        .sidebar-version {
+            font-size: 10px;
+            color: var(--text-muted);
+            background: rgba(255, 255, 255, 0.05);
+            padding: 2px 8px;
+            border-radius: 10px;
+            white-space: nowrap;
+        }
+
+        /* Toggle Button */
+        .sidebar-toggle {
+            position: absolute;
+            right: -12px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 24px;
+            height: 24px;
+            background: var(--bg-tertiary);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            color: var(--text-secondary);
+            transition: all 0.2s;
+            z-index: 10;
+        }
+
+        .sidebar-toggle:hover {
+            background: var(--accent-blue);
+            color: white;
+            border-color: var(--accent-blue);
+        }
+
+        .sidebar-toggle i {
+            width: 14px;
+            height: 14px;
+            transition: transform 0.3s;
+        }
+
+        .sidebar.collapsed .sidebar-toggle i {
+            transform: rotate(180deg);
+        }
+
+        /* Navigation */
+        .sidebar-nav {
+            flex: 1;
+            padding: 15px 10px;
+            overflow-y: auto;
+        }
+
+        .nav-section {
+            margin-bottom: 20px;
+        }
+
+        .nav-section-title {
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: var(--text-muted);
+            padding: 10px 15px 5px;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 15px;
+            border-radius: 8px;
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+            margin-bottom: 4px;
+            white-space: nowrap;
+        }
+
+        .nav-item:hover {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-main);
+        }
+
+        .nav-item.active {
+            background: rgba(0, 120, 255, 0.15);
+            color: var(--accent-blue);
+        }
+
+        .nav-item i {
+            width: 20px;
+            height: 20px;
+            min-width: 20px;
+            opacity: 0.8;
+        }
+
+        /* Station Submenu */
+        .nav-station {
+            margin-left: 10px;
+            border-left: 2px solid rgba(255, 255, 255, 0.1);
+            padding-left: 15px;
+            transition: all 0.3s;
+        }
+
+        .nav-station .nav-item {
+            padding: 8px 12px;
+            font-size: 13px;
+        }
+
+        .station-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 15px;
+            color: var(--text-main);
+            font-weight: 600;
+            font-size: 13px;
+            cursor: pointer;
+            border-radius: 8px;
+            transition: background 0.2s;
+            white-space: nowrap;
+        }
+
+        .station-header:hover {
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .station-header .station-flag {
+            font-size: 16px;
+            min-width: 20px;
+        }
+
+        .station-header .chevron {
+            margin-left: auto;
+            transition: transform 0.2s;
+        }
+
+        .station-header.expanded .chevron {
+            transform: rotate(90deg);
+        }
+
+        /* Sidebar Footer */
+        .sidebar-footer {
+            padding: 15px;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+            font-size: 11px;
+            color: var(--text-muted);
+            text-align: center;
+            white-space: nowrap;
+            overflow: hidden;
+        }
+
+        /* ============================================
+           MAIN CONTENT
+        ============================================ */
+        .main-content {
+            margin-left: var(--sidebar-width);
+            width: calc(100% - var(--sidebar-width));
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            transition: margin-left 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+                width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            overflow-x: hidden;
+            position: relative;
+            will-change: margin-left, width;
+        }
+
+        body.sidebar-collapsed .main-content {
+            margin-left: var(--sidebar-collapsed);
+            width: calc(100% - var(--sidebar-collapsed));
+        }
+
+        .page-header {
+            padding: 20px 30px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .page-title {
+            font-size: 20px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .breadcrumbs {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            color: var(--text-muted);
+        }
+
+        .breadcrumbs a {
+            color: var(--text-secondary);
+            text-decoration: none;
+        }
+
+        .breadcrumbs a:hover {
+            color: var(--accent-blue);
+        }
+
+        .page-content {
+            flex: 1;
+            padding: 25px 30px;
+        }
+
+        /* ============================================
+           UTILITIES
+        ============================================ */
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            backdrop-filter: blur(10px);
+        }
+
+        /* ============================================
+           ATENEA FLOATING BUTTON & PANEL
+        ============================================ */
+        .atenea-fab {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #8B5CF6, #3B82F6);
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 20px rgba(139, 92, 246, 0.4);
+            z-index: 9999;
+            transition: all 0.3s;
+        }
+
+        .atenea-fab:hover {
+            transform: scale(1.1);
+            box-shadow: 0 6px 30px rgba(139, 92, 246, 0.6);
+        }
+
+        .atenea-fab span {
+            font-size: 24px;
+        }
+
+        /* Quick chat panel (slide-up from FAB) */
+        .atenea-quick-panel {
+            position: fixed;
+            bottom: 90px;
+            right: 24px;
+            width: 380px;
+            max-height: 500px;
+            background: var(--bg-secondary);
+            border: 1px solid rgba(139, 92, 246, 0.3);
+            border-radius: 16px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+            z-index: 9998;
+            display: none;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .atenea-quick-panel.open {
+            display: flex;
+            animation: slideUp 0.3s ease;
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .atenea-panel-header {
+            padding: 16px;
+            background: linear-gradient(135deg, rgba(139, 92, 246, 0.2), rgba(59, 130, 246, 0.2));
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .atenea-panel-header h3 {
+            font-size: 14px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .atenea-panel-header .expand-btn {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            padding: 4px;
+        }
+
+        .atenea-panel-header .expand-btn:hover {
+            color: var(--text-main);
+        }
+
+        .atenea-messages {
+            flex: 1;
+            padding: 16px;
+            overflow-y: auto;
+            max-height: 300px;
+        }
+
+        .atenea-message {
+            margin-bottom: 12px;
+            padding: 10px 14px;
+            border-radius: 12px;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        .atenea-message.user {
+            background: rgba(59, 130, 246, 0.2);
+            margin-left: 40px;
+        }
+
+        .atenea-message.assistant {
+            background: rgba(255, 255, 255, 0.05);
+            margin-right: 40px;
+        }
+
+        .atenea-input-area {
+            padding: 12px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            gap: 8px;
+        }
+
+        .atenea-input-area input {
+            flex: 1;
+            background: var(--bg-tertiary);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 10px 14px;
+            color: var(--text-main);
+            font-size: 13px;
+        }
+
+        .atenea-input-area input:focus {
+            outline: none;
+            border-color: rgba(139, 92, 246, 0.5);
+        }
+
+        .atenea-input-area button {
+            background: linear-gradient(135deg, #8B5CF6, #3B82F6);
+            border: none;
+            border-radius: 8px;
+            padding: 10px 16px;
+            color: white;
+            cursor: pointer;
+            font-weight: 500;
+        }
+
+        .atenea-input-area button:hover {
+            opacity: 0.9;
+        }
+
+        .atenea-input-area button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .atenea-context-badge {
+            font-size: 10px;
+            background: rgba(139, 92, 246, 0.3);
+            padding: 2px 8px;
+            border-radius: 10px;
+            color: var(--text-secondary);
+        }
+    </style>
+    {% block head_extra %}{% endblock %}
+</head>
+
+<body>
+    <!-- SIDEBAR -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="sidebar-logo">☀️</div>
+            <span class="sidebar-title">HELIOS</span>
+            <span class="sidebar-version">v12.0</span>
+            <!-- Toggle Button -->
+            <button class="sidebar-toggle" onclick="toggleSidebar()" title="Toggle Sidebar">
+                <i data-lucide="chevron-left"></i>
+            </button>
+        </div>
+
+        <nav class="sidebar-nav">
+            <!-- Home -->
+            <div class="nav-section">
+                <a href="/" class="nav-item {% if active_page == 'home' %}active{% endif %}">
+                    <i data-lucide="home"></i>
+                    <span>Home</span>
+                </a>
+                <a href="/world" class="nav-item {% if active_page == 'world' %}active{% endif %}">
+                    <i data-lucide="globe"></i>
+                    <span>World State</span>
+                </a>
+                <a href="/nowcast" class="nav-item {% if active_page == 'nowcast' %}active{% endif %}">
+                    <i data-lucide="activity"></i>
+                    <span>Nowcast</span>
+                </a>
+                <a href="/replay" class="nav-item {% if active_page == 'replay' %}active{% endif %}">
+                    <i data-lucide="history"></i>
+                    <span>Replay</span>
+                </a>
+                <a href="/backtest" class="nav-item {% if active_page == 'backtest' %}active{% endif %}">
+                    <i data-lucide="flask-conical"></i>
+                    <span>Backtest</span>
+                </a>
+                <a href="/polymarket" class="nav-item {% if active_page == 'polymarket' %}active{% endif %}">
+                    <i data-lucide="candlestick-chart"></i>
+                    <span>Polymarket</span>
+                </a>
+                <a href="/atenea" class="nav-item {% if active_page == 'atenea' %}active{% endif %}" style="background: linear-gradient(135deg, rgba(139, 92, 246, 0.15), rgba(59, 130, 246, 0.15)); border: 1px solid rgba(139, 92, 246, 0.3);">
+                    <i data-lucide="bot"></i>
+                    <span>🜂 Atenea</span>
+                </a>
+            </div>
+
+            <!-- Stations (only active ones) -->
+            <div class="nav-section">
+                <div class="nav-section-title">Stations</div>
+
+                {% for sid in active_stations %}
+                {% set stn = all_stations[sid] %}
+                {% set flag = '🇺🇸' if stn.timezone == 'America/New_York' else '🇬🇧' %}
+                <div class="station-group">
+                    <div class="station-header {% if station_id == sid %}expanded{% endif %}"
+                        onclick="toggleStation('{{ sid|lower }}')">
+                        <span class="station-flag">{{ flag }}</span>
+                        <span class="station-code" style="display:none;">{{ sid }}</span>
+                        <span class="station-name">{{ sid }} - {{ stn.name.split(' ')[-1] if ' ' in stn.name else stn.name }}</span>
+                        <i data-lucide="chevron-right" class="chevron"></i>
+                    </div>
+                    <div class="nav-station" id="station-{{ sid|lower }}"
+                        style="{% if station_id != sid %}display:none{% endif %}">
+                        <a href="/station/{{ sid }}/analytics"
+                            class="nav-item {% if station_id == sid and active_page == 'analytics' %}active{% endif %}">
+                            <i data-lucide="bar-chart-2"></i> <span>Analytics</span>
+                        </a>
+                        <a href="/station/{{ sid }}/prediction"
+                            class="nav-item {% if station_id == sid and active_page == 'prediction' %}active{% endif %}">
+                            <i data-lucide="cpu"></i> <span>Prediction</span>
+                        </a>
+                        <a href="/station/{{ sid }}/data"
+                            class="nav-item {% if station_id == sid and active_page == 'data' %}active{% endif %}">
+                            <i data-lucide="database"></i> <span>Data</span>
+                        </a>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </nav>
+
+        <div class="sidebar-footer">
+            <span>HELIOS Weather Lab © 2026</span>
+        </div>
+    </aside>
+
+    <!-- MAIN CONTENT -->
+    <div class="main-content">
+        {% block content %}{% endblock %}
+    </div>
+
+    <!-- ATENEA Floating Button & Quick Panel -->
+    {% if active_page != 'atenea' %}
+    <button class="atenea-fab" onclick="toggleAteneaPanel()" title="Ask Atenea">
+        <span>🜂</span>
+    </button>
+
+    <div class="atenea-quick-panel" id="ateneaQuickPanel">
+        <div class="atenea-panel-header">
+            <h3>
+                <span>🜂</span> Atenea
+                <span class="atenea-context-badge" id="ateneaContextBadge">{{ active_page or 'home' }}</span>
+            </h3>
+            <a href="/atenea" class="expand-btn" title="Open full view">
+                <i data-lucide="maximize-2" style="width: 16px; height: 16px;"></i>
+            </a>
+        </div>
+        <div class="atenea-messages" id="ateneaMessages">
+            <div class="atenea-message assistant">
+                Hola! Soy Atenea, tu copiloto de diagnóstico. Puedo ayudarte a entender el estado del mercado, las predicciones, la calidad de datos y más. ¿Qué necesitas saber?
+            </div>
+        </div>
+        <div class="atenea-input-area">
+            <input type="text" id="ateneaInput" placeholder="Pregunta algo..." onkeypress="if(event.key==='Enter')sendAteneaMessage()">
+            <button onclick="sendAteneaMessage()" id="ateneaSendBtn">Enviar</button>
+        </div>
+    </div>
+    {% endif %}
+
+    <script>
+        // Initialize Lucide icons
+        lucide.createIcons();
+
+        // Load sidebar state from localStorage
+        const sidebarState = localStorage.getItem('sidebarCollapsed');
+        if (sidebarState === 'true') {
+            document.getElementById('sidebar').classList.add('collapsed');
+            document.body.classList.add('sidebar-collapsed');
+        }
+
+        // Toggle sidebar collapse
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const isCollapsed = sidebar.classList.toggle('collapsed');
+            document.body.classList.toggle('sidebar-collapsed', isCollapsed);
+
+            // Save state to localStorage
+            localStorage.setItem('sidebarCollapsed', isCollapsed);
+
+            // Re-render icons after toggle
+            setTimeout(() => lucide.createIcons(), 300);
+        }
+
+        // Toggle station submenu
+        function toggleStation(stationId) {
+            const submenu = document.getElementById('station-' + stationId);
+            const header = submenu.previousElementSibling;
+
+            if (submenu.style.display === 'none') {
+                submenu.style.display = 'block';
+                header.classList.add('expanded');
+            } else {
+                submenu.style.display = 'none';
+                header.classList.remove('expanded');
+            }
+        }
+
+        // ============================================
+        // ATENEA Quick Panel Functions
+        // ============================================
+        function toggleAteneaPanel() {
+            const panel = document.getElementById('ateneaQuickPanel');
+            if (panel) {
+                panel.classList.toggle('open');
+                if (panel.classList.contains('open')) {
+                    document.getElementById('ateneaInput').focus();
+                }
+            }
+        }
+
+        async function sendAteneaMessage() {
+            const input = document.getElementById('ateneaInput');
+            const messagesDiv = document.getElementById('ateneaMessages');
+            const sendBtn = document.getElementById('ateneaSendBtn');
+            const query = input.value.trim();
+
+            if (!query) return;
+
+            // Disable input while processing
+            input.disabled = true;
+            sendBtn.disabled = true;
+
+            // Add user message
+            const userMsg = document.createElement('div');
+            userMsg.className = 'atenea-message user';
+            userMsg.textContent = query;
+            messagesDiv.appendChild(userMsg);
+
+            // Clear input
+            input.value = '';
+
+            // Add loading message
+            const loadingMsg = document.createElement('div');
+            loadingMsg.className = 'atenea-message assistant';
+            loadingMsg.innerHTML = '<em>Analizando...</em>';
+            messagesDiv.appendChild(loadingMsg);
+
+            // Scroll to bottom
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+
+            try {
+                // Get current screen context
+                const screenContext = {
+                    screen: '{{ active_page or "home" }}',
+                    station_id: '{{ station_id or "" }}' || null,
+                    mode: 'LIVE'
+                };
+
+                const response = await fetch('/api/atenea/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        query: query,
+                        ...screenContext
+                    })
+                });
+
+                const data = await response.json();
+
+                // Remove loading message
+                loadingMsg.remove();
+
+                // Add response
+                const assistantMsg = document.createElement('div');
+                assistantMsg.className = 'atenea-message assistant';
+
+                if (data.success && data.response && data.response.message) {
+                    // Format the response with basic markdown
+                    let content = data.response.message.content;
+                    content = content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+                    content = content.replace(/\n/g, '<br>');
+                    assistantMsg.innerHTML = content;
+                } else {
+                    assistantMsg.textContent = data.error || 'Error al procesar la consulta';
+                    assistantMsg.style.color = '#EF4444';
+                }
+
+                messagesDiv.appendChild(assistantMsg);
+
+            } catch (error) {
+                loadingMsg.remove();
+                const errorMsg = document.createElement('div');
+                errorMsg.className = 'atenea-message assistant';
+                errorMsg.textContent = 'Error de conexión: ' + error.message;
+                errorMsg.style.color = '#EF4444';
+                messagesDiv.appendChild(errorMsg);
+            }
+
+            // Re-enable input
+            input.disabled = false;
+            sendBtn.disabled = false;
+            input.focus();
+
+            // Scroll to bottom
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        // Close panel when clicking outside
+        document.addEventListener('click', function(e) {
+            const panel = document.getElementById('ateneaQuickPanel');
+            const fab = document.querySelector('.atenea-fab');
+            if (panel && panel.classList.contains('open')) {
+                if (!panel.contains(e.target) && !fab.contains(e.target)) {
+                    panel.classList.remove('open');
+                }
+            }
+        });
+    </script>
+    {% block scripts %}{% endblock %}
+</body>
+
+</html>

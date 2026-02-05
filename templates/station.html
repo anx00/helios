@@ -1,0 +1,1204 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HELIOS | {{ station_id }} Detail</title>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap"
+        rel="stylesheet">
+    <link href="/static/style.css" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        /* Station Detail Page Overrides */
+        .detail-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 14px;
+            margin-bottom: 20px;
+            transition: color 0.2s;
+        }
+
+        .back-link:hover {
+            color: var(--accent-gold);
+        }
+
+        .station-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+        }
+
+        .station-header h1 {
+            font-size: 28px;
+            margin: 0;
+        }
+
+        .station-header .subtitle {
+            color: var(--text-secondary);
+            font-weight: 400;
+        }
+
+        .live-badge {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(0, 255, 127, 0.1);
+            border: 1px solid rgba(0, 255, 127, 0.3);
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            color: var(--accent-green);
+        }
+
+        .live-dot {
+            width: 8px;
+            height: 8px;
+            background: var(--accent-green);
+            border-radius: 50%;
+            animation: pulse-green 2s infinite;
+        }
+
+        .detail-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 25px;
+        }
+
+        @media (max-width: 900px) {
+            .detail-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .detail-card {
+            padding: 30px;
+            border-radius: 24px;
+        }
+
+        .detail-card h2 {
+            font-size: 16px;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: var(--text-secondary);
+            margin: 0 0 20px 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .detail-card h2 i {
+            width: 20px;
+            height: 20px;
+        }
+
+        /* Prediction Card */
+        .triple-temp-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+
+        .temp-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px 10px;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            transition: all 0.3s ease;
+        }
+
+        .temp-item.primary {
+            background: rgba(0, 120, 255, 0.08);
+            border-color: rgba(0, 120, 255, 0.3);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        .temp-item .label {
+            font-size: 10px;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+            margin-bottom: 10px;
+            letter-spacing: 0.8px;
+            font-weight: 600;
+            text-align: center;
+        }
+
+        .temp-item .value {
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--text-main);
+            line-height: 1;
+        }
+
+        .temp-item .unit {
+            font-size: 14px;
+            font-weight: 400;
+            opacity: 0.6;
+            margin-left: 2px;
+        }
+
+        .prediction-components {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .component-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 12px 15px;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 10px;
+        }
+
+        .component-row .label {
+            color: var(--text-secondary);
+        }
+
+        .component-row .value {
+            font-weight: 600;
+        }
+
+        .component-row .value.positive {
+            color: var(--accent-orange);
+        }
+
+        .component-row .value.negative {
+            color: var(--accent-blue);
+        }
+
+        /* Market Card */
+        .market-hero {
+            margin-bottom: 25px;
+        }
+
+        .market-hero-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .market-hero-meta {
+            display: flex;
+            gap: 20px;
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .market-hero-meta .volume {
+            color: var(--accent-green);
+            font-weight: 600;
+        }
+
+        .market-legend-detail {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+
+        .market-outcomes-detail {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        /* Reality Check Panel */
+        .reality-check-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            padding: 15px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 12px;
+        }
+
+        .comparison-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 12px;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 8px;
+        }
+
+        .comparison-row .label {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .comparison-row .value {
+            font-weight: 600;
+            font-size: 16px;
+        }
+
+        .comparison-row .meta {
+            color: var(--text-secondary);
+            font-size: 12px;
+            margin-left: 8px;
+        }
+
+        .comparison-row.highlight {
+            background: rgba(255, 215, 0, 0.1);
+            border: 1px solid rgba(255, 215, 0, 0.2);
+        }
+
+        .comparison-row.highlight .value.positive {
+            color: var(--accent-green);
+        }
+
+        .comparison-row.highlight .value.negative {
+            color: #ff6b6b;
+        }
+
+        .comparison-status {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            padding: 15px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            font-size: 14px;
+        }
+
+        .comparison-status .status-icon {
+            font-size: 20px;
+        }
+
+        .comparison-status.accurate {
+            background: rgba(0, 255, 127, 0.1);
+            border: 1px solid rgba(0, 255, 127, 0.3);
+        }
+
+        .comparison-status.above {
+            background: rgba(255, 215, 0, 0.1);
+            border: 1px solid rgba(255, 215, 0, 0.3);
+        }
+
+        .comparison-status.below {
+            background: rgba(255, 107, 107, 0.1);
+            border: 1px solid rgba(255, 107, 107, 0.3);
+        }
+
+        /* Verification Details Breakdown */
+        .verification-details {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-top: 10px;
+            padding-top: 15px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .verification-title {
+            font-size: 11px;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+            letter-spacing: 1px;
+            margin-bottom: 5px;
+        }
+
+        .verify-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .verify-row .value {
+            color: var(--text-main);
+            font-weight: 500;
+        }
+
+        .verify-note {
+            font-size: 12px;
+            color: var(--accent-blue);
+            font-style: italic;
+            margin-top: 5px;
+            padding: 8px;
+            background: rgba(0, 120, 255, 0.05);
+            border-radius: 6px;
+        }
+
+        /* Collapsible Sections */
+        .toggle-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            padding: 10px 0;
+            user-select: none;
+            transition: all 0.3s ease;
+            margin-top: 25px !important;
+        }
+
+        .toggle-header:hover {
+            opacity: 0.8;
+            color: var(--accent-blue);
+        }
+
+        .toggle-header h2 {
+            margin: 0 !important;
+        }
+
+        .toggle-icon {
+            transition: transform 0.3s ease;
+            color: var(--text-secondary);
+        }
+
+        .toggle-header.active .toggle-icon {
+            transform: rotate(180deg);
+        }
+
+        .toggle-content {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.4s ease-out, opacity 0.3s ease-in-out;
+            opacity: 0;
+            visibility: hidden;
+        }
+
+        .toggle-content.show {
+            max-height: 2500px;
+            /* High enough for most tables */
+            opacity: 1;
+            visibility: visible;
+            padding-bottom: 20px;
+            transition: max-height 0.6s ease-in, opacity 0.4s ease-in-out;
+        }
+
+        /* Hourly History Table */
+        .history-table-container {
+            margin-top: 15px;
+            max-height: 400px;
+            overflow-y: auto;
+            border-radius: 12px;
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .history-mini-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        .history-mini-table th {
+            text-align: left;
+            padding: 10px 15px;
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-secondary);
+            font-weight: 500;
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+
+        .history-mini-table td {
+            padding: 8px 15px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+        }
+
+        .history-mini-table tr:hover {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .history-mini-table .temp-col {
+            font-weight: 600;
+            color: var(--text-main);
+        }
+
+        .history-mini-table .cond-col {
+            color: var(--text-secondary);
+            font-size: 11px;
+        }
+
+        .comparison-source {
+            text-align: center;
+            font-size: 11px;
+            color: var(--text-secondary);
+            opacity: 0.7;
+        }
+
+        .local-clock {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-family: 'Inter', sans-serif;
+            color: var(--accent-blue);
+            border: 1px solid rgba(0, 120, 255, 0.2);
+            margin-top: 5px;
+            display: inline-block;
+            font-weight: 500;
+        }
+
+        .last-update {
+            text-align: center;
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-top: 15px;
+            opacity: 0.7;
+        }
+
+        /* Day Toggle (Today/Tomorrow) */
+        .day-toggle {
+            display: flex;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            padding: 3px;
+            gap: 3px;
+        }
+
+        .day-btn {
+            padding: 6px 14px;
+            border: none;
+            background: transparent;
+            color: var(--text-secondary);
+            font-size: 12px;
+            font-weight: 500;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .day-btn:hover {
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--text-main);
+        }
+
+        .day-btn.active {
+            background: var(--accent-blue);
+            color: white;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="detail-container">
+        <!-- Back Link -->
+        <a href="/" class="back-link">
+            <i data-lucide="arrow-left"></i>
+            Back to Dashboard
+        </a>
+
+        <!-- Station Header -->
+        <header class="station-header">
+            <div>
+                <h1>{{ station_id }} <span class="subtitle">{{ station_name }}</span></h1>
+                <div id="local-clock" class="local-clock">--:--:--</div>
+            </div>
+            <div class="header-actions" style="display: flex; gap: 15px; align-items: center;">
+                <a href="/station/{{ station_id }}/analytics" class="refresh-btn" title="Performance Analytics"
+                    style="text-decoration: none;">
+                    <i data-lucide="bar-chart-2"></i>
+                </a>
+                <button class="refresh-btn" id="export-btn" onclick="exportJSON()" title="Export JSON">
+                    <i data-lucide="download"></i>
+                </button>
+                <button class="refresh-btn" id="refresh-btn" onclick="refreshStation()" title="Refresh Prediction">
+                    <i data-lucide="refresh-cw"></i>
+                </button>
+                <div class="live-badge">
+                    <span class="live-dot"></span>
+                    LIVE DATA
+                </div>
+            </div>
+        </header>
+
+        <!-- Detail Grid -->
+        <div class="detail-grid">
+            <!-- Prediction Card -->
+            <section class="detail-card glass-panel">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h2 style="margin: 0;"><i data-lucide="thermometer"></i> HELIOS Prediction</h2>
+                    <div class="day-toggle" id="day-toggle">
+                        <button class="day-btn active" data-day="0" onclick="selectDay(0)">Today</button>
+                        <button class="day-btn" data-day="1" onclick="selectDay(1)">Tomorrow</button>
+                    </div>
+                </div>
+                <div class="target-date-display" id="target-date-display"
+                    style="text-align: center; margin-bottom: 15px; font-size: 12px; color: var(--text-secondary);">
+                    Target: <span id="target-date-label">--</span>
+                </div>
+
+                <div class="triple-temp-grid">
+                    <!-- Helios Prediction -->
+                    <div class="temp-item primary" title="HELIOS Master Prediction">
+                        <div class="label">HELIOS PRD</div>
+                        <div class="value">
+                            <span id="pred-value">--.-</span><span class="unit unit-dynamic">{% if station_id == 'EGLC'
+                                %}°C{% else %}°F{% endif %}</span>
+                        </div>
+                    </div>
+
+                    <!-- METAR Max -->
+                    <div class="temp-item" title="NOAA METAR Ground Truth Max">
+                        <div class="label">NOAA METAR</div>
+                        <div class="value">
+                            <span id="metar-value">--.-</span><span class="unit unit-dynamic">{% if station_id == 'EGLC'
+                                %}°C{% else %}°F{% endif %}</span>
+                        </div>
+                    </div>
+
+                    <!-- WU History Max -->
+                    <div class="temp-item" title="Wunderground Maximum from History">
+                        <div class="label">WU MAX</div>
+                        <div class="value">
+                            <span id="wu-last-value">--.-</span><span class="unit unit-dynamic">{% if station_id ==
+                                'EGLC' %}°C{% else %}°F{% endif %}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="prediction-components" id="prediction-components">
+                    <div class="component-row">
+                        <span class="label">HRRR Base Model</span>
+                        <span class="value" id="comp-hrrr">--.-{% if station_id == 'EGLC' %}°C{% else %}°F{% endif
+                            %}</span>
+                    </div>
+                    <div class="component-row">
+                        <span class="label">Surface Delta</span>
+                        <span class="value" id="comp-delta">--.-{% if station_id == 'EGLC' %}°C{% else %}°F{% endif
+                            %}</span>
+                    </div>
+                    <div class="component-row">
+                        <span class="label">Delta Confidence</span>
+                        <span class="value" id="comp-weight">--%</span>
+                    </div>
+                    <div class="component-row">
+                        <span class="label">Physics Adjustment</span>
+                        <span class="value" id="comp-physics">--.-{% if station_id == 'EGLC' %}°C{% else %}°F{% endif
+                            %}</span>
+                    </div>
+                </div>
+
+                <!-- Physics Breakdown Toggle -->
+                <div class="toggle-header active" onclick="toggleSection('physics-content', this)">
+                    <h2><i data-lucide="layers"></i> Physics Breakdown</h2>
+                    <i data-lucide="chevron-down" class="toggle-icon"></i>
+                </div>
+                <div id="physics-content" class="toggle-content show">
+                    <div id="physics-breakdown" class="market-table">
+                        <!-- Filled by JS -->
+                    </div>
+                </div>
+
+                <!-- Observed vs Predicted Comparison Toggle -->
+                <div class="toggle-header active" onclick="toggleSection('reality-content', this)">
+                    <h2><i data-lucide="target"></i> Reality Check</h2>
+                    <i data-lucide="chevron-down" class="toggle-icon"></i>
+                </div>
+                <div id="reality-content" class="toggle-content show">
+                    <div id="reality-check" class="reality-check-panel">
+                        <div class="comparison-row">
+                            <span class="label">Predicción HELIOS</span>
+                            <span class="value" id="compare-pred">--.-°F</span>
+                        </div>
+                        <div class="comparison-row">
+                            <span class="label">Máxima Observada <span class="meta" id="compare-obs-time"></span></span>
+                            <span class="value" id="compare-obs">--.-°F</span>
+                        </div>
+                        <div class="comparison-row highlight">
+                            <span class="label">Diferencia</span>
+                            <span class="value" id="compare-diff">--.-°F</span>
+                        </div>
+                        <div class="comparison-status" id="compare-status">
+                            <span class="status-icon">⏳</span>
+                            <span class="status-text">Cargando...</span>
+                        </div>
+                        <div class="verification-details" id="verification-details" style="display:none;">
+                            <div class="verification-title">Desglose de datos observados</div>
+                            <div id="verify-breakdown-list"></div>
+                            <div id="verify-note" class="verify-note"></div>
+                        </div>
+                        <div class="comparison-source" id="compare-source">
+                            Fuente: --
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Hourly History Toggle -->
+                <div class="toggle-header active" onclick="toggleSection('history-content', this)">
+                    <h2><i data-lucide="history"></i> Hourly Max History (WU)</h2>
+                    <i data-lucide="chevron-down" class="toggle-icon"></i>
+                </div>
+                <div id="history-content" class="toggle-content show">
+                    <div class="history-table-container">
+                        <table class="history-mini-table">
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>Temp</th>
+                                    <th>Conditions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="hourly-history-list">
+                                <!-- Filled by JS -->
+                                <tr>
+                                    <td colspan="3"
+                                        style="text-align:center; padding: 20px; color: var(--text-secondary);">
+                                        Cargando historial...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Polymarket Card -->
+            <section class="detail-card glass-panel">
+                <h2><i data-lucide="bar-chart-2"></i> Polymarket Live</h2>
+
+                <div class="market-hero">
+                    <div class="market-hero-title" id="market-title">Loading...</div>
+                    <div class="market-hero-meta">
+                        <span class="volume" id="market-volume">$--- Vol.</span>
+                        <span id="market-date">---</span>
+                    </div>
+                </div>
+
+                <div class="market-legend-detail" id="market-legend">
+                    <!-- Filled by JS -->
+                </div>
+
+                <div class="market-outcomes-detail" id="market-outcomes">
+                    <!-- Filled by JS -->
+                </div>
+
+                <div class="last-update">
+                    Last update: <span id="last-update-time">--:--:--</span>
+                </div>
+            </section>
+
+            <!-- Analytics Tile -->
+            <a href="/analytics?station_id={{ station_id }}" style="text-decoration: none;">
+                <section class="detail-card glass-panel"
+                    style="position: relative; overflow: hidden; transition: all 0.3s; cursor: pointer;">
+                    <div style="position: absolute; top: 0; right: 0; padding: 15px; opacity: 0.1;">
+                        <i data-lucide="bar-chart-2" style="width: 100px; height: 100px;"></i>
+                    </div>
+
+                    <h2 style="margin-bottom: 5px;"><i data-lucide="bar-chart-2"></i> Performance Analytics</h2>
+                    <div style="color: var(--text-secondary); font-size: 13px; margin-bottom: 15px;">
+                        Click to view verification dashboard
+                    </div>
+
+                    <div style="display: flex; gap: 20px; align-items: flex-end;">
+                        <div>
+                            <div
+                                style="font-size: 11px; text-transform: uppercase; color: var(--text-secondary); letter-spacing: 1px;">
+                                Win Rate</div>
+                            <div
+                                style="font-size: 24px; font-weight: 700; font-family: 'Space Grotesk', sans-serif; color: var(--accent-green);">
+                                <span id="mini-winrate">--</span>%
+                            </div>
+                        </div>
+                        <div style="height: 30px; width: 1px; background: rgba(255,255,255,0.1);"></div>
+                        <div>
+                            <div
+                                style="font-size: 11px; text-transform: uppercase; color: var(--text-secondary); letter-spacing: 1px;">
+                                MAE</div>
+                            <div style="font-size: 24px; font-weight: 700; font-family: 'Space Grotesk', sans-serif;">
+                                <span id="mini-mae">--</span>°F
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </a>
+        </div>
+    </div>
+
+    <script>
+        // Toggle Collapsible Sections
+        function toggleSection(contentId, headerElement) {
+            const content = document.getElementById(contentId);
+            const isShowing = content.classList.contains('show');
+
+            if (isShowing) {
+                content.classList.remove('show');
+                headerElement.classList.remove('active');
+            } else {
+                content.classList.add('show');
+                headerElement.classList.add('active');
+            }
+        }
+
+        const STATION_ID = "{{ station_id }}";
+        const STATION_TIMEZONE = "{{ timezone }}";
+        const MARKET_REFRESH_INTERVAL = 10000; // 10 seconds
+
+        // State: selected target day (0 = today, 1 = tomorrow)
+        let selectedTargetDay = 0;
+
+        // EGLC uses Celsius (Polymarket London is in Celsius)
+        const usesCelsius = STATION_ID === 'EGLC';
+
+        // Helper function to format temperature based on station
+        function formatTemp(tempF, decimals = 1) {
+            if (tempF === null || tempF === undefined || isNaN(tempF)) return '--.-';
+            if (usesCelsius) {
+                const tempC = (tempF - 32) * 5 / 9;
+                return tempC.toFixed(decimals);
+            }
+            return tempF.toFixed(decimals);
+        }
+
+        // Get temperature unit string
+        const tempUnit = usesCelsius ? '°C' : '°F';
+
+        // Real-time Clock
+        function updateClock() {
+            try {
+                const now = new Date();
+                const timeStr = now.toLocaleTimeString('en-US', {
+                    timeZone: STATION_TIMEZONE || 'UTC',
+                    hour12: true,
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit'
+                });
+                document.getElementById('local-clock').textContent = timeStr;
+            } catch (e) {
+                console.error("Clock update error:", e);
+            }
+        }
+
+        // ============================================
+        // PREDICTION
+        // ============================================
+        async function fetchMiniAnalytics() {
+            try {
+                const response = await fetch(`/api/analytics?station_id=${STATION_ID}`);
+                const data = await response.json();
+
+                document.getElementById('mini-winrate').textContent = data.stats.win_rate.toFixed(0);
+                document.getElementById('mini-mae').textContent = data.stats.mae.toFixed(1);
+            } catch (e) {
+                console.error("Error fetching mini analytics", e);
+            }
+        }
+
+        async function fetchPrediction() {
+            try {
+                const response = await fetch(`/api/prediction/${STATION_ID}?target_day=${selectedTargetDay}`);
+                const data = await response.json();
+
+                if (data.error) {
+                    console.warn('No prediction:', data.error);
+                    document.getElementById('pred-value').textContent = '--.-';
+                    document.getElementById('target-date-label').textContent = data.target_date || '--';
+                    return;
+                }
+
+                // Update target date display
+                if (data.target_date) {
+                    const dateObj = new Date(data.target_date + 'T12:00:00');
+                    const options = { weekday: 'short', month: 'short', day: 'numeric' };
+                    document.getElementById('target-date-label').textContent = dateObj.toLocaleDateString('en-US', options);
+                }
+
+                // Update hero
+                document.getElementById('pred-value').textContent = formatTemp(data.prediction_f);
+
+                // Update components
+                document.getElementById('comp-hrrr').textContent = `${formatTemp(data.hrrr_f)}${tempUnit}`;
+
+                const rawDelta = data.raw_deviation_f;
+                const weight = data.delta_weight;
+                const weightedDelta = usesCelsius ? (rawDelta * weight) * 5 / 9 : rawDelta * weight;
+                const deltaEl = document.getElementById('comp-delta');
+                deltaEl.textContent = `${weightedDelta >= 0 ? '+' : ''}${weightedDelta.toFixed(1)}${tempUnit}`;
+                deltaEl.className = `value ${weightedDelta >= 0 ? 'positive' : 'negative'}`;
+
+                document.getElementById('comp-weight').textContent = `${Math.round(weight * 100)}%`;
+
+                const physicsEl = document.getElementById('comp-physics');
+                const physicsDelta = usesCelsius ? data.physics_delta * 5 / 9 : data.physics_delta;
+                physicsEl.textContent = `${physicsDelta >= 0 ? '+' : ''}${physicsDelta.toFixed(1)}${tempUnit}`;
+                physicsEl.className = `value ${data.physics_delta >= 0 ? 'positive' : 'negative'}`;
+
+                // Physics breakdown
+                const breakdownEl = document.getElementById('physics-breakdown');
+                breakdownEl.innerHTML = '';
+                if (data.component_breakdown) {
+                    data.component_breakdown.forEach(item => {
+                        const raw = item.raw;
+                        const match = raw.match(/([+-]?\d+\.?\d*)F(?:\((.*)\))?$/);
+                        let value = raw;
+                        let extra = '';
+                        if (match) {
+                            value = match[1] + '°F';
+                            extra = match[2] || '';
+                        }
+
+                        const row = document.createElement('div');
+                        row.className = 'market-row';
+                        row.innerHTML = `
+                            <div class="outcome-info">
+                                <span class="outcome-title">${item.label}</span>
+                                ${extra ? `<span class="outcome-volume">${extra}</span>` : ''}
+                            </div>
+                            <span class="outcome-prob ${value.startsWith('+') && value !== '+0.0°F' ? 'medium' : value.startsWith('-') && value !== '-0.0°F' ? 'high' : 'low'}">${value}</span>
+                        `;
+                        breakdownEl.appendChild(row);
+                    });
+                }
+
+            } catch (e) {
+                console.error('Error fetching prediction:', e);
+            }
+        }
+
+        // Day selector function
+        function selectDay(day) {
+            selectedTargetDay = day;
+
+            // Update button states
+            document.querySelectorAll('.day-btn').forEach(btn => {
+                btn.classList.remove('active');
+                if (parseInt(btn.dataset.day) === day) {
+                    btn.classList.add('active');
+                }
+            });
+
+            // Refetch prediction for new day
+            fetchPrediction();
+
+            // Update market data for the new day
+            fetchMarket();
+        }
+
+        // ============================================
+        // POLYMARKET (Real-time)
+        // ============================================
+        async function fetchMarket() {
+            try {
+                const response = await fetch(`/api/market/${STATION_ID}?target_day=${selectedTargetDay}`);
+                const data = await response.json();
+
+                if (data.error) {
+                    document.getElementById('market-title').textContent = 'Market not available';
+                    return;
+                }
+
+                // Update title and meta
+                document.getElementById('market-title').textContent = data.event_title;
+                document.getElementById('market-volume').textContent = `$${(data.total_volume / 1000).toFixed(0)}K Vol.`;
+
+                const d = new Date(data.target_date);
+                document.getElementById('market-date').textContent = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+                // Update legend
+                const legendEl = document.getElementById('market-legend');
+                legendEl.innerHTML = '';
+                const topOutcomes = data.outcomes.slice(0, 4);
+                topOutcomes.forEach((outcome, idx) => {
+                    const item = document.createElement('div');
+                    item.className = `legend-item color-${idx + 1}`;
+                    item.innerHTML = `
+                        <span class="legend-dot"></span>
+                        <span>${outcome.title} ${(outcome.probability * 100).toFixed(0)}%</span>
+                    `;
+                    legendEl.appendChild(item);
+                });
+
+                // Update outcomes table
+                const outcomesEl = document.getElementById('market-outcomes');
+                outcomesEl.innerHTML = '';
+                data.outcomes.forEach((outcome, idx) => {
+                    const prob = outcome.probability * 100;
+                    let probClass = 'low';
+                    if (prob >= 30) probClass = 'high';
+                    else if (prob >= 10) probClass = 'medium';
+
+                    const row = document.createElement('div');
+                    row.className = `market-row ${idx === 0 ? 'leading' : ''}`;
+                    row.innerHTML = `
+                        <div class="outcome-info">
+                            <span class="outcome-title">${outcome.title}</span>
+                            <span class="outcome-volume">$${outcome.volume.toLocaleString()} Vol.</span>
+                        </div>
+                        <div class="prob-bar-container">
+                            <div class="prob-bar" style="width: ${prob}%"></div>
+                        </div>
+                        <span class="outcome-prob ${probClass}">${prob.toFixed(0)}%</span>
+                    `;
+                    outcomesEl.appendChild(row);
+                });
+
+                // Update timestamp
+                document.getElementById('last-update-time').textContent = new Date().toLocaleTimeString();
+
+            } catch (e) {
+                console.error('Error fetching market:', e);
+            }
+        }
+
+        // ============================================
+        // OBSERVED DATA (Reality Check)
+        // ============================================
+        async function fetchObserved() {
+            try {
+                const response = await fetch(`/api/observed/${STATION_ID}`);
+                const data = await response.json();
+
+                if (data.error) {
+                    document.getElementById('compare-status').innerHTML = `
+                        <span class="status-icon">⚠️</span>
+                        <span class="status-text">${data.error}</span>
+                    `;
+                    return;
+                }
+
+                // Update values
+                document.getElementById('compare-pred').textContent = `${formatTemp(data.prediction_f)}${tempUnit}`;
+                document.getElementById('compare-obs').textContent = `${formatTemp(data.observed_max_f)}${tempUnit}`;
+                document.getElementById('compare-obs-time').textContent = data.observed_max_time ? `@ ${data.observed_max_time}` : '';
+
+                // Update Triple Display
+                if (data.verification) {
+                    document.getElementById('metar-value').textContent = formatTemp(data.verification.metar_max_f);
+                }
+
+                // Get WU History MAX (maximum temp from history, ignoring current "Ahora")
+                if (data.hourly_history && data.hourly_history.length > 0) {
+                    const strictHistory = data.hourly_history.filter(h => h.time !== "Ahora" && h.conditions !== "Current");
+                    if (strictHistory.length > 0) {
+                        // Find the maximum temperature entry
+                        const maxEntry = strictHistory.reduce((max, entry) =>
+                            entry.temp_f > max.temp_f ? entry : max, strictHistory[0]);
+                        document.getElementById('wu-last-value').textContent = formatTemp(maxEntry.temp_f);
+                    }
+                }
+
+                // Difference with color
+                const diffEl = document.getElementById('compare-diff');
+                if (data.difference_f !== null) {
+                    const diff = usesCelsius ? data.difference_f * 5 / 9 : data.difference_f;
+                    const diffSign = diff > 0 ? '+' : '';
+                    diffEl.textContent = `${diffSign}${diff.toFixed(1)}${tempUnit}`;
+                    diffEl.className = `value ${data.difference_f >= 0 ? 'positive' : 'negative'}`;
+                }
+
+                // Status
+                const statusEl = document.getElementById('compare-status');
+                let statusIcon = '⏳';
+                let statusText = 'Calculando...';
+                let statusClass = '';
+
+                if (data.status === 'accurate') {
+                    statusIcon = '🎯';
+                    statusText = 'Predicción acertada (±1°F)';
+                    statusClass = 'accurate';
+                } else if (data.status === 'above_observed') {
+                    if (data.peak_passed) {
+                        statusIcon = '📈';
+                        statusText = `Predicción ${Math.abs(data.difference_f).toFixed(1)}°F por encima del máximo real`;
+                        statusClass = 'above';
+                    } else {
+                        statusIcon = '⏳';
+                        statusText = 'Temperatura aún puede subir';
+                        statusClass = 'above';
+                    }
+                } else if (data.status === 'below_observed') {
+                    statusIcon = '⚠️';
+                    statusText = `Máximo ya alcanzado: ${data.observed_max_f.toFixed(1)}°F (predicción fue ${Math.abs(data.difference_f).toFixed(1)}°F por debajo)`;
+                    statusClass = 'below';
+                }
+
+                statusEl.className = `comparison-status ${statusClass}`;
+                statusEl.innerHTML = `
+                    <span class="status-icon">${statusIcon}</span>
+                    <span class="status-text">${statusText}</span>
+                `;
+
+                // Source and verification info
+                let sourceText = data.source === 'metar' ? 'NOAA METAR' : 'Weather Underground';
+                let verifyIcon = '❓';
+                let verifyText = '';
+
+                const verifyPanel = document.getElementById('verification-details');
+                const verifyList = document.getElementById('verify-breakdown-list');
+                const verifyNote = document.getElementById('verify-note');
+
+                if (data.verification) {
+                    const v = data.verification;
+
+                    // Show details panel if we have metar or wu data
+                    if (v.metar_max_f || v.wunderground_max_f) {
+                        verifyPanel.style.display = 'flex';
+                        let html = '';
+                        if (v.metar_max_f) {
+                            html += `<div class="verify-row"><span>NOAA METAR (Official)</span><span class="value">${formatTemp(v.metar_max_f)}${tempUnit}</span></div>`;
+                        }
+                        if (v.wunderground_max_f) {
+                            html += `<div class="verify-row"><span>Wunderground History</span><span class="value">${formatTemp(v.wunderground_max_f)}${tempUnit}</span></div>`;
+                        }
+                        if (v.wunderground_current_f) {
+                            html += `<div class="verify-row"><span>Wunderground Real-time</span><span class="value">${formatTemp(v.wunderground_current_f)}${tempUnit}</span></div>`;
+                        }
+
+                        // v8.0: Racing METAR Sources
+                        if (v.metar_racing) {
+                            const r = v.metar_racing;
+                            if (r.NOAA_JSON_API) {
+                                html += `<div class="verify-row" style="border-left: 2px solid #10B981; padding-left: 8px; font-size: 11px; margin-top: 4px;">
+                                    <span>🏁 NOAA JSON API</span>
+                                    <span class="value">${formatTemp(r.NOAA_JSON_API)}${tempUnit}</span>
+                                </div>`;
+                            }
+                            if (r.AWC_TDS_XML) {
+                                html += `<div class="verify-row" style="border-left: 2px solid #8B5CF6; padding-left: 8px; font-size: 11px;">
+                                    <span>🏁 AWC TDS (XML)</span>
+                                    <span class="value">${formatTemp(r.AWC_TDS_XML)}${tempUnit}</span>
+                                </div>`;
+                            }
+                            if (r.NOAA_TG_FTP_TXT) {
+                                html += `<div class="verify-row" style="border-left: 2px solid #EC4899; padding-left: 8px; font-size: 11px;">
+                                    <span>🏁 NOAA FTP (TXT)</span>
+                                    <span class="value">${formatTemp(r.NOAA_TG_FTP_TXT)}${tempUnit}</span>
+                                </div>`;
+                            }
+                        }
+                        verifyList.innerHTML = html;
+                        verifyNote.textContent = v.notes || '';
+                    } else {
+                        verifyPanel.style.display = 'none';
+                    }
+
+                    if (v.status === 'verified' && v.confidence === 'high') {
+                        verifyIcon = '✅';
+                        verifyText = ' (Verificado)';
+                    } else if (v.status === 'verified') {
+                        verifyIcon = '⛅';
+                        verifyText = ' (Verificado)';
+                    } else if (v.status === 'suspicious') {
+                        verifyIcon = '🚫';
+                        verifyText = ' (Pico Sospechoso)';
+                    } else if (v.status === 'pending') {
+                        verifyIcon = '⏳';
+                        verifyText = ' (Pendiente confirmación)';
+                    } else if (v.status === 'discrepancy') {
+                        verifyIcon = '⚠️';
+                        verifyText = ' (Discrepancia)';
+                    }
+                }
+
+                document.getElementById('compare-source').innerHTML =
+                    `${verifyIcon} Fuente Principal: ${sourceText}${verifyText}`;
+
+                // Populate Hourly History
+                const historyList = document.getElementById('hourly-history-list');
+                if (data.hourly_history && data.hourly_history.length > 0) {
+                    let historyHtml = '';
+                    // Show in reverse chronological order (newest first)
+                    const reversedHistory = [...data.hourly_history].reverse();
+                    reversedHistory.forEach(row => {
+                        historyHtml += `
+                            <tr>
+                                <td>${row.time}</td>
+                                <td class="temp-col">${row.temp_f.toFixed(1)}°F</td>
+                                <td class="cond-col">${row.conditions || '--'}</td>
+                            </tr>
+                        `;
+                    });
+                    historyList.innerHTML = historyHtml;
+                } else {
+                    historyList.innerHTML = '<tr><td colspan="3" style="text-align:center; padding: 20px; color: var(--text-secondary);">No hay datos históricos disponibles</td></tr>';
+                }
+
+            } catch (e) {
+                console.error('Error fetching observed:', e);
+            }
+        }
+
+        // ============================================
+        // REFRESH
+        // ============================================
+        async function refreshStation() {
+            const btn = document.getElementById('refresh-btn');
+            if (btn) btn.classList.add('spinning');
+
+            try {
+                const response = await fetch(`/api/refresh/${STATION_ID}`, { method: 'POST' });
+                const result = await response.json();
+
+                if (result.success) {
+                    await fetchPrediction();
+                    await fetchMarket();
+                    await fetchObserved();
+                } else {
+                    alert('Refresh failed: ' + (result.error || 'Unknown error'));
+                }
+            } catch (e) {
+                alert('Error connecting to backend');
+            } finally {
+                if (btn) btn.classList.remove('spinning');
+            }
+        }
+
+        async function exportJSON() {
+            try {
+                const response = await fetch(`/api/export/${STATION_ID}`);
+                const data = await response.json();
+
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `helios_${STATION_ID}_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            } catch (e) {
+                console.error('Export failed:', e);
+                alert('Failed to export data');
+            }
+        }
+
+        // ============================================
+        // INIT
+        // ============================================
+        function init() {
+            fetchPrediction();
+            fetchMarket();
+            fetchObserved();
+            fetchMiniAnalytics();
+            updateClock();
+
+            // Real-time clock update
+            setInterval(updateClock, 1000);
+
+            // Real-time market updates
+            setInterval(fetchMarket, MARKET_REFRESH_INTERVAL);
+
+            // Periodic observed updates (every 5 min)
+            setInterval(fetchObserved, 5 * 60 * 1000);
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            init();
+            lucide.createIcons();
+        });
+    </script>
+</body>
+
+</html>

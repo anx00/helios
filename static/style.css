@@ -1,0 +1,696 @@
+:root {
+    --bg-color: #050510;
+    --card-bg: rgba(20, 20, 35, 0.6);
+    --glass-border: rgba(255, 255, 255, 0.1);
+    --text-primary: #ffffff;
+    --text-secondary: #a0a0b0;
+    --accent-gold: #FFD700;
+    --accent-orange: #FF8C00;
+    --accent-blue: #00BFFF;
+    --accent-green: #00FF7F;
+    --solar-gradient: linear-gradient(135deg, #FFD700 0%, #FF8C00 100%);
+    --font-main: 'Space Grotesk', sans-serif;
+}
+
+body {
+    margin: 0;
+    padding: 0;
+    background-color: var(--bg-color);
+    background-image:
+        radial-gradient(circle at 10% 20%, rgba(255, 140, 0, 0.15) 0%, transparent 20%),
+        radial-gradient(circle at 90% 80%, rgba(0, 191, 255, 0.1) 0%, transparent 20%);
+    color: var(--text-primary);
+    font-family: var(--font-main);
+    min-height: 100vh;
+}
+
+.app-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+/* Header */
+header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 30px;
+    margin-bottom: 40px;
+    border-radius: 16px;
+}
+
+.logo {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.icon-sun {
+    color: var(--accent-gold);
+    width: 32px;
+    height: 32px;
+}
+
+h1 {
+    font-size: 24px;
+    font-weight: 700;
+    margin: 0;
+    letter-spacing: 2px;
+}
+
+.subtitle {
+    font-weight: 300;
+    color: var(--text-secondary);
+    font-size: 16px;
+    margin-left: 10px;
+}
+
+.system-status {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 14px;
+    color: var(--accent-green);
+    font-weight: 500;
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    background-color: var(--accent-green);
+    border-radius: 50%;
+}
+
+.pulse {
+    box-shadow: 0 0 0 0 rgba(0, 255, 127, 0.7);
+    animation: pulse-green 2s infinite;
+}
+
+@keyframes pulse-green {
+    0% {
+        box-shadow: 0 0 0 0 rgba(0, 255, 127, 0.7);
+    }
+
+    70% {
+        box-shadow: 0 0 0 10px rgba(0, 255, 127, 0);
+    }
+
+    100% {
+        box-shadow: 0 0 0 0 rgba(0, 255, 127, 0);
+    }
+}
+
+/* Glassmorphism */
+.glass-panel {
+    background: var(--card-bg);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--glass-border);
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+}
+
+/* Grid */
+.dashboard-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    gap: 25px;
+    align-items: stretch;
+}
+
+/* Station Card */
+.station-card {
+    padding: 30px;
+    border-radius: 24px;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.3s ease;
+    cursor: pointer;
+    min-height: 280px;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+}
+
+.station-card:hover {
+    transform: translateY(-5px);
+    border-color: rgba(255, 215, 0, 0.4);
+    box-shadow: 0 12px 40px 0 rgba(0, 0, 0, 0.5);
+}
+
+.card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.refresh-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 5px;
+    border-radius: 50%;
+    transition: all 0.2s;
+}
+
+.refresh-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-primary);
+}
+
+.refresh-btn.spinning {
+    animation: spin 1s linear infinite;
+    color: var(--accent-gold);
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.card-header h2 {
+    font-size: 20px;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.station-name {
+    font-size: 14px;
+    color: var(--text-secondary);
+    font-weight: 400;
+    margin-top: 4px;
+}
+
+.badge {
+    background: rgba(255, 255, 255, 0.1);
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+}
+
+/* Dynamic Bagdes */
+.badge.today {
+    background: rgba(0, 255, 127, 0.15);
+    color: var(--accent-green);
+    border: 1px solid rgba(0, 255, 127, 0.3);
+}
+
+.badge.tomorrow {
+    background: rgba(0, 191, 255, 0.15);
+    color: var(--accent-blue);
+    border: 1px solid rgba(0, 191, 255, 0.3);
+}
+
+.main-prediction {
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+.temp-display {
+    font-size: 72px;
+    font-weight: 700;
+    background: var(--solar-gradient);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    display: inline-block;
+}
+
+.unit {
+    font-size: 36px;
+    vertical-align: super;
+    margin-left: 5px;
+}
+
+/* Physics Stack Container (Foldable) */
+.physics-stack-container {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.4s cubic-bezier(0, 1, 0, 1);
+    opacity: 0;
+}
+
+.station-card.expanded .physics-stack-container {
+    max-height: 500px;
+    /* Arbitrary large height */
+    opacity: 1;
+    transition: max-height 0.5s ease-in-out, opacity 0.3s ease-in 0.1s;
+}
+
+.expand-hint {
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 12px;
+    margin-top: 15px;
+    display: flex;
+    justify-content: center;
+    gap: 5px;
+    align-items: center;
+    opacity: 0.7;
+    transition: all 0.3s;
+}
+
+.station-card:hover .expand-hint {
+    opacity: 1;
+    color: var(--accent-gold);
+}
+
+.station-card.expanded .expand-hint {
+    display: none;
+}
+
+/* Opportunity Box */
+.opportunity-box {
+    background: rgba(0, 255, 127, 0.1);
+    border: 1px solid rgba(0, 255, 127, 0.3);
+    border-radius: 16px;
+    padding: 15px;
+    margin-bottom: 30px;
+}
+
+.opportunity-box.hidden {
+    display: none;
+}
+
+.opp-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--accent-green);
+    font-weight: 700;
+    font-size: 14px;
+    margin-bottom: 12px;
+}
+
+.opp-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 14px;
+}
+
+.opp-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.opp-row span {
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.opp-action {
+    background: var(--accent-green);
+    color: #000;
+    font-weight: 700;
+    padding: 6px 12px;
+    border-radius: 8px;
+}
+
+/* Physics Stack */
+.physics-stack {
+    border-top: 1px solid var(--glass-border);
+    padding-top: 20px;
+    margin-top: 10px;
+}
+
+.physics-stack h3 {
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--text-secondary);
+    margin: 0 0 15px 0;
+}
+
+.stack-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    font-size: 15px;
+}
+
+.stack-item.adjustment {
+    position: relative;
+    padding-left: 15px;
+}
+
+.stack-item.adjustment::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+}
+
+.stack-item.adjustment.positive::before {
+    background-color: var(--accent-orange);
+}
+
+.stack-item.adjustment.negative::before {
+    background-color: var(--accent-blue);
+}
+
+.mini-breakdown {
+    margin-top: 10px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    padding-left: 15px;
+    border-left: 2px solid var(--glass-border);
+}
+
+.mini-breakdown div {
+    margin-bottom: 4px;
+}
+
+.breakdown-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+}
+
+.bd-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.bd-value {
+    color: var(--text-primary);
+    font-weight: 600;
+    margin-left: auto;
+}
+
+.bd-extra {
+    font-size: 10px;
+    opacity: 0.6;
+    margin-left: 8px;
+    text-transform: uppercase;
+}
+
+/* Stats Panel */
+.stats-panel {
+    grid-column: 1 / -1;
+    border-radius: 20px;
+    padding: 25px;
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 20px;
+    align-self: start;
+    height: auto;
+}
+
+.stats-panel h3 {
+    width: 100%;
+    margin: 0 0 15px 0;
+    font-size: 16px;
+    color: var(--text-secondary);
+    text-align: center;
+}
+
+.stat-row {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+}
+
+.stat-row span {
+    font-size: 14px;
+    color: var(--text-secondary);
+}
+
+.stat-row strong {
+    font-size: 24px;
+    font-weight: 600;
+}
+
+.highlight-good {
+    color: var(--accent-green);
+}
+
+.highlight-super {
+    color: transparent;
+    background: linear-gradient(to right, #00FF7F, #00BFFF);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+@media (max-width: 768px) {
+    .temp-display {
+        font-size: 56px;
+    }
+
+    .stats-panel {
+        flex-direction: column;
+        text-align: center;
+    }
+}
+
+/* ============================================
+   POLYMARKET WIDGET
+   ============================================ */
+
+.market-widget {
+    margin-top: 20px;
+    padding: 20px;
+    border-top: 1px solid var(--glass-border);
+}
+
+.market-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 15px;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.market-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.market-title i {
+    color: var(--accent-blue);
+    width: 18px;
+    height: 18px;
+}
+
+.market-meta {
+    display: flex;
+    gap: 15px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.market-volume {
+    color: var(--accent-green);
+    font-weight: 600;
+}
+
+.market-legend {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 15px;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.legend-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+.legend-item.color-1 .legend-dot {
+    background: #3B82F6;
+}
+
+.legend-item.color-2 .legend-dot {
+    background: #F59E0B;
+}
+
+.legend-item.color-3 .legend-dot {
+    background: #10B981;
+}
+
+.legend-item.color-4 .legend-dot {
+    background: #8B5CF6;
+}
+
+.market-table {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.market-row {
+    display: flex;
+    align-items: center;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    transition: all 0.2s;
+}
+
+.market-row:hover {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.1);
+}
+
+.market-row.leading {
+    background: rgba(59, 130, 246, 0.1);
+    border-color: rgba(59, 130, 246, 0.3);
+}
+
+.outcome-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.outcome-title {
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.outcome-volume {
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+
+.outcome-prob {
+    font-size: 18px;
+    font-weight: 700;
+    min-width: 60px;
+    text-align: right;
+}
+
+.outcome-prob.high {
+    color: var(--accent-green);
+}
+
+.outcome-prob.medium {
+    color: var(--accent-orange);
+}
+
+.outcome-prob.low {
+    color: var(--text-secondary);
+}
+
+.prob-bar-container {
+    flex: 1;
+    max-width: 120px;
+    height: 6px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+    margin: 0 15px;
+    overflow: hidden;
+}
+
+.prob-bar {
+    height: 100%;
+    border-radius: 3px;
+    background: linear-gradient(90deg, var(--accent-blue), var(--accent-green));
+    transition: width 0.5s ease;
+}
+
+/* ============================================
+   SIMPLIFIED STATION CARDS (Index Page)
+   ============================================ */
+
+.station-card-link {
+    text-decoration: none;
+    color: inherit;
+    display: flex;
+}
+
+.station-card-link:hover .station-card {
+    transform: translateY(-4px);
+    border-color: rgba(255, 255, 255, 0.2);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+}
+
+.market-summary {
+    padding: 15px 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    margin-top: 15px;
+    flex-grow: 1;
+}
+
+.card-hint {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px;
+    margin-top: auto;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    color: var(--text-secondary);
+    font-size: 13px;
+    transition: color 0.2s;
+}
+
+.station-card-link:hover .card-hint {
+    color: var(--accent-gold);
+}
+
+.card-hint i {
+    width: 16px;
+    height: 16px;
+}
+
+@keyframes pulse-green {
+
+    0%,
+    100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+
+    50% {
+        opacity: 0.5;
+        transform: scale(0.9);
+    }
+}

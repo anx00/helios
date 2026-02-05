@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HELIOS - {{ chart_title }}</title>
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap"
+        rel="stylesheet">
+    <!-- Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <link href="/static/style.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap"
+        rel="stylesheet">
+
+    <style>
+        :root {
+            --chart-accent: {
+                % if chart_type=='temperature' %
+            }
+
+            #0078FF {
+                % else %
+            }
+
+            #FFA500 {
+                % endif %
+            }
+
+            ;
+
+            --chart-glow: {
+                % if chart_type=='temperature' %
+            }
+
+            rgba(0, 120, 255, 0.3) {
+                % else %
+            }
+
+            rgba(255, 165, 0, 0.3) {
+                % endif %
+            }
+
+            ;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: linear-gradient(135deg, #0a0a1a 0%, #0f172a 50%, #1a0a2e 100%);
+            min-height: 100vh;
+            font-family: 'Inter', sans-serif;
+            color: #e2e8f0;
+            overflow: hidden;
+        }
+
+        .fullscreen-container {
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            padding: 20px;
+        }
+
+        .header-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 25px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 16px;
+            margin-bottom: 20px;
+            backdrop-filter: blur(20px);
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .header-title {
+            font-size: 20px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .header-title .icon {
+            font-size: 24px;
+        }
+
+        .header-subtitle {
+            font-size: 13px;
+            color: #94a3b8;
+            margin-top: 3px;
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .back-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 18px;
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 10px;
+            color: #e2e8f0;
+            text-decoration: none;
+            font-size: 13px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+
+        .back-btn:hover {
+            background: rgba(255, 255, 255, 0.12);
+            border-color: rgba(255, 255, 255, 0.25);
+            transform: translateY(-1px);
+        }
+
+        .live-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 14px;
+            background: rgba(0, 255, 127, 0.1);
+            border: 1px solid rgba(0, 255, 127, 0.3);
+            border-radius: 20px;
+            font-size: 11px;
+            color: #00ff7f;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .live-dot {
+            width: 8px;
+            height: 8px;
+            background: #00ff7f;
+            border-radius: 50%;
+            animation: pulse-green 2s infinite;
+        }
+
+        @keyframes pulse-green {
+
+            0%,
+            100% {
+                opacity: 1;
+                transform: scale(1);
+            }
+
+            50% {
+                opacity: 0.5;
+                transform: scale(1.2);
+            }
+        }
+
+        .chart-container {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 20px;
+            padding: 25px;
+            position: relative;
+            overflow: hidden;
+            backdrop-filter: blur(10px);
+        }
+
+        .chart-container::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, transparent, var(--chart-accent), transparent);
+        }
+
+        .chart-wrapper {
+            width: 100%;
+            height: 100%;
+            position: relative;
+        }
+
+        #fullscreenChart {
+            width: 100% !important;
+            height: 100% !important;
+        }
+
+        /* Custom Tooltip */
+        .custom-tooltip {
+            position: fixed;
+            z-index: 1000;
+            pointer-events: none;
+            background: rgba(15, 23, 42, 0.95);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 12px;
+            padding: 15px;
+            min-width: 220px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            display: none;
+            backdrop-filter: blur(10px);
+        }
+
+        .local-clock {
+            font-size: 13px;
+            color: #00d4ff;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* Time filter buttons */
+        .time-filters {
+            display: flex;
+            gap: 8px;
+        }
+
+        .filter-btn {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: #94a3b8;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 11px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .filter-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.2);
+            color: #e2e8f0;
+        }
+
+        .filter-btn.active {
+            background: var(--chart-accent);
+            border-color: var(--chart-accent);
+            color: white;
+            box-shadow: 0 0 15px var(--chart-glow);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="fullscreen-container">
+        <!-- Header Bar -->
+        <div class="header-bar">
+            <div class="header-left">
+                <div>
+                    <div class="header-title">
+                        <span class="icon">{% if chart_type == 'temperature' %}📊{% else %}📈{% endif %}</span>
+                        {{ chart_title }}
+                    </div>
+                    <div class="header-subtitle">{{ station_id }} - {{ station_name }} | <span class="local-clock"
+                            id="local-clock">--:--:--</span></div>
+                </div>
+            </div>
+            <div class="header-right">
+                <!-- Time Filters -->
+                <div class="time-filters">
+                    <button class="filter-btn" data-window="15m" onclick="setTimeWindow(15, this)">15M</button>
+                    <button class="filter-btn" data-window="30m" onclick="setTimeWindow(30, this)">30M</button>
+                    <button class="filter-btn" data-window="1h" onclick="setTimeWindow(60, this)">1H</button>
+                    <button class="filter-btn" data-window="6h" onclick="setTimeWindow(360, this)">6H</button>
+                    <button class="filter-btn active" data-window="day" onclick="setTimeWindow(0, this)">TODAY</button>
+                </div>
+
+                <div class="live-indicator">
+                    <span class="live-dot"></span>
+                    LIVE
+                </div>
+
+                <a href="/station/{{ station_id }}/analytics" class="back-btn">
+                    <i data-lucide="minimize-2" style="width: 16px; height: 16px;"></i>
+                    Exit Fullscreen
+                </a>
+            </div>
+        </div>
+
+        <!-- Chart Container -->
+        <div class="chart-container">
+            <div class="chart-wrapper">
+                <canvas id="fullscreenChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Custom Tooltip -->
+        <div id="custom-tooltip" class="custom-tooltip"></div>
+    </div>
+
+    <script>
+        const STATION_ID = "{{ station_id }}";
+        const CHART_TYPE = "{{ chart_type }}";
+        let chartInstance = null;
+        let apiDataFull = null;
+        let apiData = null;
+        let currentTimeWindow = 0;
+        const USE_CELSIUS = (STATION_ID === 'EGLC');
+        const TEMP_UNIT = USE_CELSIUS ? '°C' : '°F';
+
+        function formatTemp(val) {
+            if (val === null || val === undefined) return '--';
+            return val.toFixed(1);
+        }
+
+        // Clock
+        function updateClock() {
+            try {
+                const now = new Date();
+                let stationTimezone = 'America/New_York';
+                if (STATION_ID === 'EGLC') stationTimezone = 'Europe/London';
+
+                const timeStr = now.toLocaleTimeString('en-GB', {
+                    timeZone: stationTimezone,
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit'
+                });
+
+                const dateStr = now.toLocaleDateString('en-US', {
+                    timeZone: stationTimezone,
+                    weekday: 'short',
+                    month: 'short',
+                    day: 'numeric'
+                });
+
+                document.getElementById('local-clock').textContent = `${timeStr} • ${dateStr}`;
+            } catch (e) {
+                console.error("Clock error", e);
+            }
+        }
+
+        function setTimeWindow(minutes, btn) {
+            currentTimeWindow = minutes;
+            document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            if (apiDataFull) renderChart(apiDataFull);
+        }
+
+        function filterDataByWindow(data, minutes) {
+            if (minutes === 0) return data;
+
+            const chartKey = CHART_TYPE === 'temperature' ? 'chart_temperature' : 'chart_probability';
+            const timestamps = data[chartKey].timestamps;
+            if (!timestamps || timestamps.length === 0) return data;
+
+            const lastTs = new Date(timestamps[timestamps.length - 1]);
+            const cutoff = new Date(lastTs.getTime() - minutes * 60000);
+
+            const indices = [];
+            for (let i = 0; i < timestamps.length; i++) {
+                if (new Date(timestamps[i]) >= cutoff) {
+                    indices.push(i);
+                }
+            }
+
+            if (indices.length === 0) return data;
+
+            const filtered = JSON.parse(JSON.stringify(data));
+            const sliceChart = (chart) => {
+                chart.labels = indices.map(i => chart.labels[i]);
+                chart.timestamps = indices.map(i => chart.timestamps[i]);
+                chart.datasets.forEach(ds => {
+                    ds.data = indices.map(i => ds.data[i]);
+                });
+            };
+
+            sliceChart(filtered[chartKey]);
+            return filtered;
+        }
+
+        function showTooltip(e, chart) {
+            const tooltip = document.getElementById('custom-tooltip');
+            const activeElements = chart.getElementsAtEventForMode(e, 'index', { intersect: false }, false);
+
+            if (!activeElements.length || !apiData) {
+                tooltip.style.display = 'none';
+                return;
+            }
+
+            const dataIndex = activeElements[0].index;
+            const chartKey = CHART_TYPE === 'temperature' ? 'chart_temperature' : 'chart_probability';
+            const timeLabel = apiData[chartKey].labels[dataIndex];
+
+            let content = `<div style="font-weight: 600; margin-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px;">🕐 ${timeLabel}</div>`;
+
+            if (CHART_TYPE === 'temperature') {
+                const datasets = apiData.chart_temperature.datasets;
+                // [HELIOS, NOAA METAR, WU Forecast, WU Live, HRRR Raw, JSON API, TDS XML, FTP TXT]
+                const helios = datasets[0]?.data[dataIndex];
+                const noaaMetar = datasets[1]?.data[dataIndex];
+                const wuForecast = datasets[2]?.data[dataIndex];
+                const wuLive = datasets[3]?.data[dataIndex];
+                const hrrrRaw = datasets[4]?.data[dataIndex];
+                const metarJson = datasets[5]?.data[dataIndex];
+                const metarXml = datasets[6]?.data[dataIndex];
+                const metarTxt = datasets[7]?.data[dataIndex];
+
+                content += `
+                    <!-- MAX Temp. Prediction Section -->
+                    <div style="margin-bottom: 12px;">
+                        <div style="color: #94a3b8; font-size: 10px; text-transform: uppercase; font-weight: bold; margin-bottom: 6px; letter-spacing: 0.5px;">📈 Max Temp. Prediction</div>
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                            <span>☁️ WU Forecast High:</span>
+                            <span style="color: #F4D03F; font-weight: 600;">${wuForecast?.toFixed(1) || '--'}°F</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                            <span>🎯 HELIOS:</span>
+                            <span style="color: #0078FF; font-weight: 600;">${helios?.toFixed(1) || '--'}°F</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between;">
+                            <span>📊 HRRR Raw Max:</span>
+                            <span style="color: #87CEEB; font-weight: 600;">${hrrrRaw?.toFixed(1) || '--'}°F</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Real Time Data Section -->
+                    <div style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 10px;">
+                        <div style="color: #94a3b8; font-size: 10px; text-transform: uppercase; font-weight: bold; margin-bottom: 6px; letter-spacing: 0.5px;">🔴 Real Time Data</div>
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                            <span>🔥 WU Live:</span>
+                            <span style="color: #FF6B35; font-weight: 600;">${formatTemp(wuLive)}</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                            <span>🌡️ NOAA (RACER):</span>
+                            <span style="color: #00FF7F; font-weight: 600;">${formatTemp(noaaMetar)}</span>
+                        </div>
+                        <!-- v8.0 Racing Extras -->
+                        <div style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 2px; padding-left: 10px;">
+                             <span style="opacity: 0.7;">JSON API:</span>
+                             <span style="color: #10B981;">${formatTemp(metarJson)}</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 2px; padding-left: 10px;">
+                             <span style="opacity: 0.7;">TDS XML:</span>
+                             <span style="color: #8B5CF6;">${formatTemp(metarXml)}</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; font-size: 11px; padding-left: 10px;">
+                             <span style="opacity: 0.7;">TG-FTP TXT:</span>
+                             <span style="color: #EC4899;">${formatTemp(metarTxt)}</span>
+                        </div>
+                    </div>
+                `;
+            } else {
+                const datasets = apiData.chart_probability.datasets;
+                const icons = ['🥇', '🥈', '🥉'];
+
+                // Sort by value at this index
+                const sorted = datasets.map((ds, i) => ({
+                    label: ds.label,
+                    value: ds.data[dataIndex],
+                    color: ds.borderColor
+                })).filter(d => d.value !== null).sort((a, b) => b.value - a.value);
+
+                sorted.forEach((item, i) => {
+                    content += `<div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                        <span>${icons[i] || '•'} ${item.label}</span>
+                        <span style="color: ${item.color}; font-weight: 700;">${item.value.toFixed(1)}%</span>
+                    </div>`;
+                });
+            }
+
+            tooltip.innerHTML = content;
+            tooltip.style.display = 'block';
+
+            // Position
+            const tooltipWidth = 240;
+            const viewportWidth = window.innerWidth;
+            tooltip.style.left = (e.clientX + tooltipWidth + 20 > viewportWidth)
+                ? (e.clientX - tooltipWidth - 15) + 'px'
+                : (e.clientX + 15) + 'px';
+            tooltip.style.top = (e.clientY - 100) + 'px';
+        }
+
+        function hideTooltip() {
+            document.getElementById('custom-tooltip').style.display = 'none';
+        }
+
+        function renderChart(rawData) {
+            apiDataFull = rawData;
+            apiData = filterDataByWindow(rawData, currentTimeWindow);
+
+            const ctx = document.getElementById('fullscreenChart').getContext('2d');
+            if (chartInstance) chartInstance.destroy();
+
+            const chartKey = CHART_TYPE === 'temperature' ? 'chart_temperature' : 'chart_probability';
+            const chartData = JSON.parse(JSON.stringify(apiData[chartKey])); // Deep copy
+
+            // v8.0: Celsius Conversion
+            if (CHART_TYPE === 'temperature' && USE_CELSIUS) {
+                chartData.datasets.forEach(ds => {
+                    ds.data = ds.data.map(v => v !== null && v !== undefined ? (v - 32) * 5 / 9 : null);
+                });
+            }
+
+            // Calculate dynamic Y axis
+            let maxVal = -Infinity, minVal = Infinity;
+            chartData.datasets.forEach(ds => {
+                const clean = ds.data.filter(v => v !== null && v !== undefined);
+                if (clean.length > 0) {
+                    maxVal = Math.max(maxVal, ...clean);
+                    minVal = Math.min(minVal, ...clean);
+                }
+            });
+
+            const yConfig = CHART_TYPE === 'temperature'
+                ? {
+                    min: minVal !== Infinity ? minVal - 1 : null,
+                    max: maxVal !== -Infinity ? maxVal + 2 : null,
+                    title: { display: true, text: TEMP_UNIT, color: '#94a3b8', font: { size: 14 } }
+                }
+                : {
+                    min: 0,
+                    max: Math.min(100, Math.ceil(maxVal / 5) * 5 + 5),
+                    title: { display: true, text: '%', color: '#94a3b8', font: { size: 14 } },
+                    ticks: { callback: v => v + '%' }
+                };
+
+            chartInstance = new Chart(ctx, {
+                type: 'line',
+                data: chartData,
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false
+                    },
+                    elements: {
+                        point: { radius: 0, hoverRadius: 5, hitRadius: 8 },
+                        line: { tension: 0.5, borderWidth: 3 }
+                    },
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                            labels: {
+                                color: '#94a3b8',
+                                boxWidth: 14,
+                                padding: 20,
+                                font: { size: 13 },
+                                usePointStyle: true,
+                                pointStyle: 'circle'
+                            }
+                        },
+                        tooltip: { enabled: false }
+                    },
+                    scales: {
+                        y: {
+                            ...yConfig,
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: {
+                                color: '#94a3b8',
+                                font: { size: 12 },
+                                ...yConfig.ticks
+                            }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: {
+                                color: '#94a3b8',
+                                maxTicksLimit: 15,
+                                font: { size: 11 }
+                            }
+                        }
+                    },
+                    onHover: (e, elements, chart) => showTooltip(e.native, chart)
+                }
+            });
+
+            ctx.canvas.addEventListener('mouseleave', hideTooltip);
+        }
+
+        async function loadData() {
+            try {
+                const response = await fetch(`/api/analytics?station_id=${STATION_ID}`);
+                const data = await response.json();
+                renderChart(data);
+            } catch (e) {
+                console.error("Error loading data:", e);
+            }
+        }
+
+        // Init
+        document.addEventListener('DOMContentLoaded', () => {
+            lucide.createIcons();
+            updateClock();
+            setInterval(updateClock, 1000);
+            loadData();
+            setInterval(loadData, 5000); // Auto refresh
+        });
+    </script>
+</body>
+
+</html>

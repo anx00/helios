@@ -1,0 +1,1340 @@
+{% extends "base.html" %}
+
+{% block title %}HELIOS - World State{% endblock %}
+
+{% block head_extra %}
+<style>
+    .world-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+    }
+
+    .world-panel {
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 14px;
+        padding: 22px;
+        transition: border-color 0.3s;
+    }
+
+    .world-panel:hover {
+        border-color: rgba(255, 255, 255, 0.12);
+    }
+
+    .world-panel.full-width {
+        grid-column: 1 / -1;
+    }
+
+    .panel-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 18px;
+    }
+
+    .panel-title {
+        font-size: 13px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        color: var(--text-secondary);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .panel-badge {
+        font-size: 10px;
+        padding: 3px 10px;
+        border-radius: 20px;
+        font-weight: 600;
+        letter-spacing: 0.5px;
+    }
+
+    .badge-live {
+        background: rgba(16, 185, 129, 0.15);
+        color: #10B981;
+        border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+
+    .badge-ok {
+        background: rgba(0, 120, 255, 0.15);
+        color: #0078FF;
+        border: 1px solid rgba(0, 120, 255, 0.3);
+    }
+
+    .badge-stale {
+        background: rgba(244, 208, 63, 0.15);
+        color: #F4D03F;
+        border: 1px solid rgba(244, 208, 63, 0.3);
+    }
+
+    .badge-dead {
+        background: rgba(239, 68, 68, 0.15);
+        color: #EF4444;
+        border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+
+    .badge-no-data {
+        background: rgba(100, 116, 139, 0.15);
+        color: #64748b;
+        border: 1px solid rgba(100, 116, 139, 0.3);
+    }
+
+    /* METAR Panel */
+    .metar-main {
+        display: flex;
+        align-items: baseline;
+        gap: 12px;
+        margin-bottom: 16px;
+    }
+
+    .metar-temp {
+        font-size: 48px;
+        font-weight: 700;
+        font-family: 'Space Grotesk', sans-serif;
+        background: linear-gradient(135deg, #10B981, #0078FF);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+
+    .metar-unit {
+        font-size: 20px;
+        color: var(--text-secondary);
+    }
+
+    .metar-age-live {
+        font-size: 14px;
+        font-weight: 600;
+        font-family: 'JetBrains Mono', monospace;
+        margin-left: 8px;
+        padding: 3px 10px;
+        border-radius: 8px;
+        transition: color 0.3s, background 0.3s;
+    }
+
+    .metar-age-live.fresh {
+        color: #EF4444;
+        background: rgba(239, 68, 68, 0.12);
+        border: 1px solid rgba(239, 68, 68, 0.25);
+        animation: pulse-red 2s infinite;
+    }
+
+    .metar-age-live.recent {
+        color: #10B981;
+        background: rgba(16, 185, 129, 0.10);
+        border: 1px solid rgba(16, 185, 129, 0.20);
+    }
+
+    .metar-age-live.aging {
+        color: #F4D03F;
+        background: rgba(244, 208, 63, 0.10);
+        border: 1px solid rgba(244, 208, 63, 0.20);
+    }
+
+    .metar-age-live.stale {
+        color: #F97316;
+        background: rgba(249, 115, 22, 0.10);
+        border: 1px solid rgba(249, 115, 22, 0.20);
+    }
+
+    .metar-age-live.normal {
+        color: var(--text-muted);
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .metar-details {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 14px;
+    }
+
+    .detail-item {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .detail-label {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: var(--text-muted);
+        font-weight: 600;
+    }
+
+    .detail-value {
+        font-size: 15px;
+        font-weight: 600;
+        font-family: 'JetBrains Mono', monospace;
+        color: var(--text-main);
+    }
+
+    .detail-value.muted {
+        color: var(--text-muted);
+    }
+
+    /* Timestamps */
+    .timestamps-row {
+        display: flex;
+        gap: 20px;
+        flex-wrap: wrap;
+        padding-top: 14px;
+        margin-top: 14px;
+        border-top: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .ts-item {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        color: var(--text-muted);
+    }
+
+    .ts-flag {
+        font-size: 14px;
+    }
+
+    .ts-value {
+        font-family: 'JetBrains Mono', monospace;
+        color: var(--text-secondary);
+    }
+
+    /* Env Feature Cards */
+    .env-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+    }
+
+    .env-card {
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        border-radius: 10px;
+        padding: 16px;
+    }
+
+    .env-value {
+        font-size: 28px;
+        font-weight: 700;
+        font-family: 'Space Grotesk', sans-serif;
+        margin: 8px 0;
+    }
+
+    .env-meta {
+        font-size: 11px;
+        color: var(--text-muted);
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+    }
+
+    /* QC Panel */
+    .qc-grid {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .qc-station {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 16px;
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        border-radius: 10px;
+    }
+
+    .qc-station-id {
+        font-weight: 700;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 14px;
+    }
+
+    .qc-status {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .qc-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+    }
+
+    .qc-dot.ok { background: #10B981; }
+    .qc-dot.uncertain { background: #F4D03F; }
+    .qc-dot.outlier { background: #EF4444; }
+    .qc-dot.severe { background: #DC143C; animation: pulse-red 2s infinite; }
+
+    @keyframes pulse-red {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(220, 20, 60, 0.7); }
+        50% { box-shadow: 0 0 0 6px rgba(220, 20, 60, 0); }
+    }
+
+    .qc-flags {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+    }
+
+    .qc-flag {
+        font-size: 10px;
+        padding: 2px 8px;
+        border-radius: 6px;
+        background: rgba(239, 68, 68, 0.1);
+        color: #EF4444;
+        font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* Health Table */
+    .health-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .health-table th {
+        text-align: left;
+        padding: 10px 14px;
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: var(--text-muted);
+        font-weight: 600;
+        background: rgba(255, 255, 255, 0.02);
+    }
+
+    .health-table td {
+        padding: 10px 14px;
+        font-size: 13px;
+        font-family: 'JetBrains Mono', monospace;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    }
+
+    .health-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        display: inline-block;
+        margin-right: 8px;
+        vertical-align: middle;
+    }
+
+    .health-dot.live { background: #10B981; }
+    .health-dot.ok { background: #0078FF; }
+    .health-dot.stale { background: #F4D03F; }
+    .health-dot.dead { background: #EF4444; }
+    .health-dot.no-data { background: #64748b; }
+
+    /* System Status Bar */
+    .system-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 20px;
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        border-radius: 10px;
+        margin-bottom: 20px;
+        font-size: 12px;
+    }
+
+    .system-bar-left {
+        display: flex;
+        align-items: center;
+        gap: 20px;
+    }
+
+    .system-bar-item {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--text-secondary);
+    }
+
+    .system-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #10B981;
+        animation: pulse-green 2s infinite;
+    }
+
+    @keyframes pulse-green {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+        50% { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+    }
+
+    .sse-status {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        color: var(--text-muted);
+    }
+
+    .sse-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: #64748b;
+    }
+
+    .sse-dot.connected {
+        background: #10B981;
+        animation: pulse-green 2s infinite;
+    }
+
+    /* Upstream AuxObs */
+    .aux-card {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 14px 16px;
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        border-radius: 10px;
+        margin-bottom: 10px;
+    }
+
+    .aux-id {
+        font-weight: 600;
+        font-size: 13px;
+    }
+
+    .aux-temp {
+        font-size: 20px;
+        font-weight: 700;
+        font-family: 'Space Grotesk', sans-serif;
+    }
+
+    .aux-drift {
+        font-size: 12px;
+        font-family: 'JetBrains Mono', monospace;
+    }
+
+    .aux-drift.positive { color: #EF4444; }
+    .aux-drift.negative { color: #0078FF; }
+    .aux-drift.neutral { color: var(--text-muted); }
+
+    /* PWS Sortable Table */
+    .pws-sort-active {
+        color: #8B5CF6 !important;
+        font-weight: 700;
+    }
+
+    .pws-table th[onclick] {
+        cursor: pointer;
+        user-select: none;
+        transition: color 0.2s, background 0.2s;
+    }
+
+    .pws-table th[onclick]:hover {
+        color: #8B5CF6;
+        background: rgba(139, 92, 246, 0.1);
+    }
+
+    /* Responsive */
+    @media (max-width: 900px) {
+        .world-grid {
+            grid-template-columns: 1fr;
+        }
+        .metar-details {
+            grid-template-columns: repeat(2, 1fr);
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-title">
+        <i data-lucide="globe" style="width:24px;height:24px;color:var(--accent-blue);"></i>
+        World State
+    </div>
+    <div class="breadcrumbs">
+        <a href="/">Home</a> / <span>World State (Phase 2)</span>
+    </div>
+</div>
+
+<div class="page-content">
+    <!-- System Status Bar -->
+    <div class="system-bar" id="system-bar">
+        <div class="system-bar-left">
+            <div class="system-bar-item">
+                <div class="system-dot" id="system-dot"></div>
+                <span id="system-status-text">Connecting...</span>
+            </div>
+            <div class="system-bar-item">
+                <span>NYC</span>
+                <span class="ts-value" id="ts-nyc">--</span>
+            </div>
+            <div class="system-bar-item">
+                <span>Madrid</span>
+                <span class="ts-value" id="ts-madrid">--</span>
+            </div>
+            <div class="system-bar-item">
+                <span>UTC</span>
+                <span class="ts-value" id="ts-utc">--</span>
+            </div>
+        </div>
+        <div class="sse-status">
+            <div class="sse-dot" id="sse-dot"></div>
+            <span id="sse-label">SSE Off</span>
+        </div>
+    </div>
+
+    <div class="world-grid">
+        <!-- ============================== -->
+        <!-- METAR Panel (per station)      -->
+        <!-- ============================== -->
+        <div class="world-panel" id="panel-metar">
+            <div class="panel-header">
+                <span class="panel-title">
+                    <i data-lucide="radio-tower" style="width:16px;height:16px;"></i>
+                    METAR Official
+                </span>
+                <span class="panel-badge badge-no-data" id="metar-badge">NO DATA</span>
+            </div>
+            <div id="metar-content">
+                <div class="metar-main">
+                    <span class="metar-temp" id="metar-temp">--</span>
+                    <span class="metar-unit">F</span>
+                    <span class="metar-age-live normal" id="metar-age-live"></span>
+                </div>
+                <div class="metar-details">
+                    <div class="detail-item">
+                        <span class="detail-label">Station</span>
+                        <span class="detail-value" id="metar-station">--</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Source</span>
+                        <span class="detail-value" id="metar-source">--</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Source Age</span>
+                        <span class="detail-value" id="metar-age">--</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Temp C</span>
+                        <span class="detail-value" id="metar-temp-c">--</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Settlement</span>
+                        <span class="detail-value" id="metar-settlement" style="color:#10B981;">--</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Dewpoint</span>
+                        <span class="detail-value" id="metar-dewpoint">--</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Wind</span>
+                        <span class="detail-value" id="metar-wind">--</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Sky</span>
+                        <span class="detail-value" id="metar-sky">--</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">QC</span>
+                        <span class="detail-value" id="metar-qc">--</span>
+                    </div>
+                </div>
+                <div class="timestamps-row">
+                    <div class="ts-item">
+                        <span class="ts-flag">Obs UTC</span>
+                        <span class="ts-value" id="metar-obs-utc">--</span>
+                    </div>
+                    <div class="ts-item">
+                        <span class="ts-flag">NYC</span>
+                        <span class="ts-value" id="metar-obs-nyc">--</span>
+                    </div>
+                    <div class="ts-item">
+                        <span class="ts-flag">Madrid</span>
+                        <span class="ts-value" id="metar-obs-mad">--</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============================== -->
+        <!-- Upstream / Aux Obs Panel       -->
+        <!-- ============================== -->
+        <div class="world-panel" id="panel-aux">
+            <div class="panel-header">
+                <span class="panel-title">
+                    <i data-lucide="wind" style="width:16px;height:16px;"></i>
+                    Upstream / Auxiliary
+                </span>
+                <span class="panel-badge badge-no-data" id="aux-badge">NO DATA</span>
+            </div>
+            <div id="aux-content">
+                <p style="color: var(--text-muted); font-size: 13px;">No auxiliary observations yet.</p>
+            </div>
+        </div>
+
+        <!-- ============================== -->
+        <!-- PWS Consensus Panel            -->
+        <!-- ============================== -->
+        <div class="world-panel" id="panel-pws">
+            <div class="panel-header">
+                <span class="panel-title">
+                    <i data-lucide="users" style="width:16px;height:16px;"></i>
+                    PWS Consensus
+                </span>
+                <span class="panel-badge badge-no-data" id="pws-badge">NO DATA</span>
+            </div>
+            <div id="pws-content">
+                <p style="color: var(--text-muted); font-size: 13px;">No PWS cluster data yet. Appears after first prediction cycle.</p>
+            </div>
+        </div>
+
+        <!-- ============================== -->
+        <!-- Environment Features Panel     -->
+        <!-- ============================== -->
+        <div class="world-panel" id="panel-env">
+            <div class="panel-header">
+                <span class="panel-title">
+                    <i data-lucide="thermometer" style="width:16px;height:16px;"></i>
+                    Environment Features
+                </span>
+            </div>
+            <div class="env-grid" id="env-content">
+                <!-- SST -->
+                <div class="env-card" id="env-sst">
+                    <div class="detail-label">SST (Sea Surface Temp)</div>
+                    <div class="env-value" id="env-sst-value" style="color: #0078FF;">--</div>
+                    <div class="env-meta">
+                        <span id="env-sst-source">Source: --</span>
+                        <span id="env-sst-age">Age: --</span>
+                        <span id="env-sst-location">Location: --</span>
+                    </div>
+                </div>
+                <!-- AOD -->
+                <div class="env-card" id="env-aod">
+                    <div class="detail-label">AOD (Aerosol Optical Depth)</div>
+                    <div class="env-value" id="env-aod-value" style="color: #F4D03F;">--</div>
+                    <div class="env-meta">
+                        <span id="env-aod-source">Source: --</span>
+                        <span id="env-aod-age">Age: --</span>
+                        <span id="env-aod-location">Location: --</span>
+                    </div>
+                </div>
+            </div>
+            <div class="timestamps-row" id="env-timestamps">
+                <div class="ts-item">
+                    <span class="ts-flag">NYC</span>
+                    <span class="ts-value" id="env-ts-nyc">--</span>
+                </div>
+                <div class="ts-item">
+                    <span class="ts-flag">Madrid</span>
+                    <span class="ts-value" id="env-ts-mad">--</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============================== -->
+        <!-- QC Panel                       -->
+        <!-- ============================== -->
+        <div class="world-panel" id="panel-qc">
+            <div class="panel-header">
+                <span class="panel-title">
+                    <i data-lucide="shield-check" style="width:16px;height:16px;"></i>
+                    Quality Control
+                </span>
+            </div>
+            <div class="qc-grid" id="qc-content">
+                <p style="color: var(--text-muted); font-size: 13px;">No QC data yet.</p>
+            </div>
+        </div>
+
+        <!-- ============================== -->
+        <!-- Health Panel (full width)      -->
+        <!-- ============================== -->
+        <div class="world-panel full-width" id="panel-health">
+            <div class="panel-header">
+                <span class="panel-title">
+                    <i data-lucide="activity" style="width:16px;height:16px;"></i>
+                    Source Health &amp; Latency
+                </span>
+                <span style="font-size: 11px; color: var(--text-muted);" id="health-tape-count">Tape: 0 events</span>
+            </div>
+            <table class="health-table" id="health-table">
+                <thead>
+                    <tr>
+                        <th>Source</th>
+                        <th>Status</th>
+                        <th>Staleness</th>
+                        <th>Source Age</th>
+                        <th>Updates</th>
+                        <th>Errors</th>
+                        <th>Last Seen (UTC)</th>
+                    </tr>
+                </thead>
+                <tbody id="health-tbody">
+                    <tr>
+                        <td colspan="7" style="color: var(--text-muted); text-align: center;">No sources registered yet.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+    // State
+    let evtSource = null;
+    let lastSnapshot = null;
+    let metarObsTimeUtc = null;  // Store obs time for live age calculation
+
+    // === SSE Connection ===
+    function connectSSE() {
+        const sseDot = document.getElementById('sse-dot');
+        const sseLabel = document.getElementById('sse-label');
+
+        evtSource = new EventSource('/api/v2/world/stream');
+
+        evtSource.addEventListener('snapshot', (e) => {
+            try {
+                lastSnapshot = JSON.parse(e.data);
+                renderAll(lastSnapshot);
+            } catch(err) { console.error('SSE snapshot parse error:', err); }
+        });
+
+        evtSource.addEventListener('update', (e) => {
+            // Apply incremental update directly (no extra HTTP round-trip)
+            try {
+                const event = JSON.parse(e.data);
+                if (lastSnapshot) {
+                    applySSEUpdate(event);
+                } else {
+                    fetchSnapshot();
+                }
+            } catch(err) {
+                console.error('SSE update parse error:', err);
+                fetchSnapshot();
+            }
+        });
+
+        evtSource.onopen = () => {
+            sseDot.classList.add('connected');
+            sseLabel.textContent = 'SSE Live';
+            document.getElementById('system-status-text').textContent = 'Connected';
+        };
+
+        evtSource.onerror = () => {
+            sseDot.classList.remove('connected');
+            sseLabel.textContent = 'SSE Reconnecting...';
+            document.getElementById('system-status-text').textContent = 'Reconnecting...';
+        };
+    }
+
+    function applySSEUpdate(event) {
+        if (event.type === 'official' && event.data) {
+            const sid = event.data.station_id;
+            if (!lastSnapshot.official) lastSnapshot.official = {};
+            lastSnapshot.official[sid] = event.data;
+            renderMetar(lastSnapshot.official);
+        } else if (event.type === 'aux' && event.data) {
+            const sid = event.data.station_id;
+            if (!lastSnapshot.aux) lastSnapshot.aux = {};
+            lastSnapshot.aux[sid] = event.data;
+            renderAux(lastSnapshot.aux);
+            renderPWS(lastSnapshot.aux, lastSnapshot.pws_details);
+        } else if (event.type === 'env' && event.data) {
+            const feat = event.data.feature_type;
+            if (!lastSnapshot.env) lastSnapshot.env = {};
+            lastSnapshot.env[feat] = event.data;
+            renderEnv(lastSnapshot.env);
+        } else {
+            // Unknown type, fallback to full snapshot
+            fetchSnapshot();
+        }
+    }
+
+    // === Fallback polling ===
+    async function fetchSnapshot() {
+        try {
+            const resp = await fetch('/api/v2/world/snapshot', { cache: 'no-store' });
+            const data = await resp.json();
+            lastSnapshot = data;
+            renderAll(data);
+        } catch(err) {
+            console.error('Snapshot fetch error:', err);
+        }
+    }
+
+    // === Render Functions ===
+    function renderAll(snap) {
+        renderSystemBar(snap);
+        renderMetar(snap.official);
+        renderAux(snap.aux);
+        renderPWS(snap.aux, snap.pws_details);
+        renderEnv(snap.env);
+        renderQC(snap.qc);
+        renderHealth(snap.health, snap.tape_size);
+    }
+
+    function renderSystemBar(snap) {
+        const el = (id) => document.getElementById(id);
+        if (snap.ts_nyc) el('ts-nyc').textContent = snap.ts_nyc;
+        if (snap.ts_madrid) el('ts-madrid').textContent = snap.ts_madrid;
+        if (snap.ts_utc) {
+            const d = new Date(snap.ts_utc);
+            el('ts-utc').textContent = d.toISOString().substring(11, 19) + ' UTC';
+        }
+    }
+
+    function renderMetar(official) {
+        if (!official || Object.keys(official).length === 0) return;
+
+        // Show first station found (priority: KLGA > KATL > EGLC)
+        const priority = ['KLGA', 'KATL', 'EGLC'];
+        let obs = null;
+        for (const sid of priority) {
+            if (official[sid]) { obs = official[sid]; break; }
+        }
+        if (!obs) obs = Object.values(official)[0];
+
+        const el = (id) => document.getElementById(id);
+
+        // Use temp_f_raw (with decimals) for display, fall back to temp_f if not available
+        const displayTemp = obs.temp_f_raw != null ? obs.temp_f_raw : obs.temp_f;
+        el('metar-temp').textContent = displayTemp != null ? displayTemp.toFixed(1) : '--';
+        el('metar-station').textContent = obs.station_id || '--';
+        el('metar-source').textContent = obs.source || '--';
+        el('metar-age').textContent = obs.source_age_s != null ? formatAge(obs.source_age_s) : '--';
+
+        // Store obs time for live age ticker
+        if (obs.obs_time_utc) {
+            metarObsTimeUtc = new Date(obs.obs_time_utc);
+            updateMetarLiveAge();  // Immediate update
+        }
+        el('metar-temp-c').textContent = obs.temp_c != null ? obs.temp_c.toFixed(1) + ' C' : '--';
+        el('metar-settlement').textContent = obs.temp_f != null ? obs.temp_f.toFixed(0) + '°F' : '--';
+        el('metar-dewpoint').textContent = obs.dewpoint_c != null ? obs.dewpoint_c.toFixed(1) + ' C' : '--';
+        el('metar-wind').textContent = (obs.wind_dir != null && obs.wind_speed != null)
+            ? obs.wind_dir + '@ ' + obs.wind_speed + 'kt'
+            : '--';
+        el('metar-sky').textContent = obs.sky_condition || '--';
+
+        // QC
+        if (obs.qc_passed === true) {
+            el('metar-qc').textContent = 'PASS';
+            el('metar-qc').style.color = '#10B981';
+        } else if (obs.qc_passed === false) {
+            el('metar-qc').textContent = 'FAIL';
+            el('metar-qc').style.color = '#EF4444';
+        } else {
+            el('metar-qc').textContent = '--';
+        }
+
+        // QC Flags shown on panel
+        if (obs.qc_flags && obs.qc_flags.length > 0) {
+            el('metar-qc').textContent += ' (' + obs.qc_flags.join(', ') + ')';
+        }
+
+        // Timestamps
+        el('metar-obs-utc').textContent = obs.obs_time_utc ? obs.obs_time_utc.substring(0, 19) : '--';
+        el('metar-obs-nyc').textContent = obs.obs_time_nyc || '--';
+        el('metar-obs-mad').textContent = obs.obs_time_madrid || '--';
+
+        // Badge
+        const badge = el('metar-badge');
+        badge.textContent = 'LIVE';
+        badge.className = 'panel-badge badge-live';
+
+        // If multiple stations, render all
+        if (Object.keys(official).length > 1) {
+            let multiHtml = '';
+            for (const [sid, o] of Object.entries(official)) {
+                if (sid === obs.station_id) continue;
+                multiHtml += `
+                    <div class="aux-card" style="margin-top:12px;">
+                        <div>
+                            <div class="aux-id">${sid}</div>
+                            <div style="font-size:11px; color: var(--text-muted);">${o.source} | Age: ${formatAge(o.source_age_s)}</div>
+                        </div>
+                        <div class="aux-temp">${o.temp_f != null ? o.temp_f.toFixed(0) + 'F' : '--'}</div>
+                    </div>`;
+            }
+            // Append after metar-content
+            let extraDiv = document.getElementById('metar-extra-stations');
+            if (!extraDiv) {
+                extraDiv = document.createElement('div');
+                extraDiv.id = 'metar-extra-stations';
+                document.getElementById('metar-content').appendChild(extraDiv);
+            }
+            extraDiv.innerHTML = multiHtml;
+        }
+    }
+
+    function renderAux(aux) {
+        const container = document.getElementById('aux-content');
+        const badge = document.getElementById('aux-badge');
+
+        if (!aux || Object.keys(aux).length === 0) {
+            container.innerHTML = '<p style="color: var(--text-muted); font-size: 13px;">No auxiliary observations yet. Upstream data appears after METAR fetch with valid wind data.</p>';
+            badge.textContent = 'NO DATA';
+            badge.className = 'panel-badge badge-no-data';
+            return;
+        }
+
+        badge.textContent = 'ACTIVE';
+        badge.className = 'panel-badge badge-ok';
+
+        let html = '';
+        for (const [sid, a] of Object.entries(aux)) {
+            const driftClass = a.drift > 0.5 ? 'positive' : (a.drift < -0.5 ? 'negative' : 'neutral');
+            const driftSign = a.drift > 0 ? '+' : '';
+            html += `
+                <div class="aux-card">
+                    <div>
+                        <div class="aux-id">${sid}</div>
+                        <div style="font-size:11px; color: var(--text-muted);">
+                            ${a.source} | Age: ${formatAge(a.source_age_s)}
+                            ${a.support > 1 ? ' | Support: ' + a.support : ''}
+                        </div>
+                    </div>
+                    <div style="text-align:right;">
+                        <div class="aux-temp">${a.temp_f != null ? a.temp_f.toFixed(1) + 'F' : '--'}</div>
+                        <div class="aux-drift ${driftClass}">Drift: ${driftSign}${a.drift.toFixed(2)} C</div>
+                    </div>
+                </div>`;
+        }
+        container.innerHTML = html;
+    }
+
+    // PWS table state for sorting and expand/collapse
+    let pwsTableData = {};
+    let pwsSortState = { column: 'distance_km', direction: 'asc' };
+    let pwsExpandedState = {}; // Track expanded state per station
+
+    function sortPWSData(data, column, direction) {
+        return [...data].sort((a, b) => {
+            let valA = a[column];
+            let valB = b[column];
+            // Handle null/undefined
+            if (valA == null) valA = direction === 'asc' ? Infinity : -Infinity;
+            if (valB == null) valB = direction === 'asc' ? Infinity : -Infinity;
+            // For strings (timestamps), compare as strings
+            if (typeof valA === 'string') {
+                return direction === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+            }
+            // For numbers
+            return direction === 'asc' ? valA - valB : valB - valA;
+        });
+    }
+
+    // Toggle expand/collapse for PWS table
+    window.togglePWSExpand = function(stationName) {
+        pwsExpandedState[stationName] = !pwsExpandedState[stationName];
+        const tableContainer = document.getElementById('pws-table-' + stationName);
+        if (tableContainer && pwsTableData[stationName]) {
+            tableContainer.innerHTML = renderPWSTable(stationName, pwsTableData[stationName]);
+        }
+    };
+
+    function renderPWSTable(stationName, details) {
+        const sorted = sortPWSData(details, pwsSortState.column, pwsSortState.direction);
+        const arrow = pwsSortState.direction === 'asc' ? ' ▲' : ' ▼';
+        const isExpanded = pwsExpandedState[stationName] || false;
+
+        const getSortClass = (col) => pwsSortState.column === col ? 'pws-sort-active' : '';
+        const getSortArrow = (col) => pwsSortState.column === col ? arrow : '';
+
+        // Count sources
+        const synopticCount = details.filter(d => d.source === 'SYNOPTIC').length;
+        const openMeteoCount = details.filter(d => d.source === 'OPEN_METEO').length;
+        const sourceInfo = synopticCount > 0 && openMeteoCount > 0
+            ? `${synopticCount} SYN + ${openMeteoCount} OM`
+            : synopticCount > 0 ? `${synopticCount} Synoptic` : `${openMeteoCount} Open-Meteo`;
+
+        const expandIcon = isExpanded ? '▼' : '▶';
+        const expandText = isExpanded ? 'Collapse' : 'Expand';
+
+        let html = `
+            <div style="margin-top:12px;">
+                <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+                    <div style="font-size:12px; color:var(--text-muted); font-weight:600;">
+                        Individual Stations (${details.length}: ${sourceInfo})
+                    </div>
+                    <button onclick="togglePWSExpand('${stationName}')"
+                        style="background:rgba(139,92,246,0.15); border:1px solid rgba(139,92,246,0.3); color:#8B5CF6; padding:4px 12px; border-radius:6px; font-size:11px; cursor:pointer; font-weight:600; display:flex; align-items:center; gap:6px;">
+                        <span>${expandIcon}</span> ${expandText} (${details.length})
+                    </button>
+                </div>`;
+
+        if (!isExpanded) {
+            // Show summary only when collapsed
+            const validCount = details.filter(d => d.valid).length;
+            const temps = details.filter(d => d.valid).map(d => d.temp_f);
+            const minTemp = temps.length > 0 ? Math.min(...temps).toFixed(1) : '--';
+            const maxTemp = temps.length > 0 ? Math.max(...temps).toFixed(1) : '--';
+            html += `
+                <div style="font-size:11px; color:var(--text-muted); padding:8px 12px; background:rgba(255,255,255,0.02); border-radius:6px;">
+                    ${validCount} valid stations | Temp range: <span style="color:#8B5CF6; font-weight:600;">${minTemp}°F - ${maxTemp}°F</span>
+                    | Click expand to see all stations
+                </div>
+            </div>`;
+            return html;
+        }
+
+        // Show full table when expanded
+        html += `
+                <div style="font-size:10px; color:var(--text-muted); margin-bottom:6px;">Click column headers to sort</div>
+                <div style="overflow-x:auto; max-height:400px; overflow-y:auto;">
+                <table style="width:100%; font-size:10px; border-collapse:collapse; min-width:900px;">
+                    <thead style="position:sticky; top:0; background:var(--bg-primary); z-index:1;">
+                        <tr style="color:var(--text-muted); text-align:left; border-bottom:1px solid rgba(255,255,255,0.1);">
+                            <th style="padding:6px 4px;">Station</th>
+                            <th style="padding:6px 4px; cursor:pointer; user-select:none;" onclick="sortPWSColumn('${stationName}', 'source')" class="${getSortClass('source')}">
+                                Source${getSortArrow('source')}
+                            </th>
+                            <th style="padding:6px 4px; cursor:pointer; user-select:none;" onclick="sortPWSColumn('${stationName}', 'distance_km')" class="${getSortClass('distance_km')}">
+                                Dist${getSortArrow('distance_km')}
+                            </th>
+                            <th style="padding:6px 4px; cursor:pointer; user-select:none;" onclick="sortPWSColumn('${stationName}', 'temp_f')" class="${getSortClass('temp_f')}">
+                                Temp°F${getSortArrow('temp_f')}
+                            </th>
+                            <th style="padding:6px 4px; cursor:pointer; user-select:none;" onclick="sortPWSColumn('${stationName}', 'obs_time_nyc')" class="${getSortClass('obs_time_nyc')}">
+                                NYC Time${getSortArrow('obs_time_nyc')}
+                            </th>
+                            <th style="padding:6px 4px; cursor:pointer; user-select:none;" onclick="sortPWSColumn('${stationName}', 'obs_time_madrid')" class="${getSortClass('obs_time_madrid')}">
+                                Madrid Time${getSortArrow('obs_time_madrid')}
+                            </th>
+                            <th style="padding:6px 4px;">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>`;
+
+        for (const r of sorted) {
+            const rowStyle = r.valid ? '' : 'opacity:0.5; text-decoration:line-through;';
+            const statusColor = r.valid ? '#10B981' : '#EF4444';
+            const statusText = r.valid ? 'OK' : (r.qc_flag || 'EXCLUDED');
+            const nycTime = r.obs_time_nyc ? r.obs_time_nyc.substring(11, 19) : '--';
+            const madTime = r.obs_time_madrid ? r.obs_time_madrid.substring(11, 19) : '--';
+            const nycDate = r.obs_time_nyc ? r.obs_time_nyc.substring(5, 10) : '';
+            const madDate = r.obs_time_madrid ? r.obs_time_madrid.substring(5, 10) : '';
+
+            // Source badge color
+            const isSynoptic = r.source === 'SYNOPTIC';
+            const sourceColor = isSynoptic ? '#10B981' : '#F59E0B';
+            const sourceLabel = isSynoptic ? 'SYN' : 'OM';
+            const sourceTitle = isSynoptic ? 'Synoptic Data (Real PWS)' : 'Open-Meteo (Grid Point)';
+
+            html += `
+                <tr style="${rowStyle}">
+                    <td style="padding:5px 4px;">
+                        <div style="font-family:'JetBrains Mono',monospace; font-weight:600; font-size:10px;">${r.station_id}</div>
+                        <div style="font-size:9px; color:var(--text-muted); max-width:100px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${r.station_name}">${r.station_name || ''}</div>
+                    </td>
+                    <td style="padding:5px 4px;">
+                        <span style="font-size:9px; padding:2px 6px; border-radius:4px; background:${sourceColor}20; color:${sourceColor}; font-weight:600;" title="${sourceTitle}">${sourceLabel}</span>
+                    </td>
+                    <td style="padding:5px 4px; font-weight:500;">${r.distance_km.toFixed(1)}km</td>
+                    <td style="padding:5px 4px; font-weight:600; color:#8B5CF6;">${r.temp_f.toFixed(1)}°F <span style="color:var(--text-muted); font-size:9px;">(${r.temp_c.toFixed(1)}C)</span></td>
+                    <td style="padding:5px 4px; font-family:'JetBrains Mono',monospace;">
+                        <div style="color:#3B82F6;">${nycTime}</div>
+                        <div style="font-size:8px; color:var(--text-muted);">${nycDate}</div>
+                    </td>
+                    <td style="padding:5px 4px; font-family:'JetBrains Mono',monospace;">
+                        <div style="color:#F59E0B;">${madTime}</div>
+                        <div style="font-size:8px; color:var(--text-muted);">${madDate}</div>
+                    </td>
+                    <td style="padding:5px 4px; color:${statusColor}; font-size:9px;">${statusText}</td>
+                </tr>`;
+        }
+
+        html += `</tbody></table></div></div>`;
+        return html;
+    }
+
+    // Global function for sorting (called from onclick)
+    window.sortPWSColumn = function(stationName, column) {
+        if (pwsSortState.column === column) {
+            pwsSortState.direction = pwsSortState.direction === 'asc' ? 'desc' : 'asc';
+        } else {
+            pwsSortState.column = column;
+            pwsSortState.direction = 'asc';
+        }
+        // Re-render just the table
+        const tableContainer = document.getElementById('pws-table-' + stationName);
+        if (tableContainer && pwsTableData[stationName]) {
+            tableContainer.innerHTML = renderPWSTable(stationName, pwsTableData[stationName]);
+        }
+    };
+
+    function renderPWS(aux, pwsDetails) {
+        const container = document.getElementById('pws-content');
+        const badge = document.getElementById('pws-badge');
+
+        if (!aux) {
+            return;
+        }
+
+        // Find PWS entries (station_id starts with "PWS_")
+        const pwsEntries = Object.entries(aux).filter(([sid]) => sid.startsWith('PWS_'));
+
+        if (pwsEntries.length === 0) {
+            container.innerHTML = '<p style="color: var(--text-muted); font-size: 13px;">No PWS cluster data yet. Appears after first prediction cycle.</p>';
+            badge.textContent = 'NO DATA';
+            badge.className = 'panel-badge badge-no-data';
+            return;
+        }
+
+        badge.textContent = 'ACTIVE';
+        badge.className = 'panel-badge badge-ok';
+
+        let html = '';
+        for (const [sid, p] of pwsEntries) {
+            const stationName = sid.replace('PWS_', '');
+            const driftClass = p.drift > 0.5 ? 'positive' : (p.drift < -0.5 ? 'negative' : 'neutral');
+            const driftSign = p.drift > 0 ? '+' : '';
+
+            // Header with consensus
+            html += `
+                <div style="margin-bottom: 16px;">
+                    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
+                        <div>
+                            <span style="font-weight:700; font-size:15px; font-family:'JetBrains Mono',monospace;">${stationName}</span>
+                            <span style="font-size:11px; color:var(--text-muted); margin-left:8px;">Cluster Consensus (${p.source || 'SYNOPTIC'})</span>
+                        </div>
+                        <div style="text-align:right;">
+                            <span style="font-size:28px; font-weight:700; font-family:'Space Grotesk',sans-serif; color: #8B5CF6;">
+                                ${p.temp_f != null ? p.temp_f.toFixed(1) : '--'}
+                            </span>
+                            <span style="font-size:14px; color:var(--text-secondary);">F</span>
+                        </div>
+                    </div>
+                    <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:12px; margin-bottom:16px;">
+                        <div class="detail-item">
+                            <span class="detail-label">Median C</span>
+                            <span class="detail-value">${p.temp_c != null ? p.temp_c.toFixed(2) : '--'}</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Support</span>
+                            <span class="detail-value">${p.support || '--'} stations</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Drift vs METAR</span>
+                            <span class="detail-value aux-drift ${driftClass}">${driftSign}${p.drift.toFixed(2)} C</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Source Age</span>
+                            <span class="detail-value">${formatAge(p.source_age_s)}</span>
+                        </div>
+                    </div>`;
+
+            // Individual station breakdown table
+            const details = pwsDetails && pwsDetails[stationName] ? pwsDetails[stationName] : [];
+            if (details.length > 0) {
+                // Store data for sorting
+                pwsTableData[stationName] = details;
+                html += `<div id="pws-table-${stationName}">${renderPWSTable(stationName, details)}</div>`;
+            }
+
+            html += `</div>`;
+        }
+        container.innerHTML = html;
+    }
+
+    function renderEnv(env) {
+        if (!env) return;
+
+        // SST
+        if (env.SST) {
+            const sst = env.SST;
+            document.getElementById('env-sst-value').textContent = sst.value != null ? sst.value.toFixed(1) + ' ' + sst.unit : '--';
+            document.getElementById('env-sst-source').textContent = 'Source: ' + (sst.source || '--');
+            document.getElementById('env-sst-age').textContent = 'Age: ' + formatAge(sst.source_age_s);
+            document.getElementById('env-sst-location').textContent = 'Ref: ' + (sst.location_ref || '--');
+            if (sst.obs_time_nyc) document.getElementById('env-ts-nyc').textContent = sst.obs_time_nyc;
+            if (sst.obs_time_madrid) document.getElementById('env-ts-mad').textContent = sst.obs_time_madrid;
+        }
+
+        // AOD
+        if (env.AOD) {
+            const aod = env.AOD;
+            const val = aod.value != null ? aod.value.toFixed(3) : '--';
+            document.getElementById('env-aod-value').textContent = val;
+            document.getElementById('env-aod-source').textContent = 'Source: ' + (aod.source || '--');
+            document.getElementById('env-aod-age').textContent = 'Age: ' + formatAge(aod.source_age_s);
+            document.getElementById('env-aod-location').textContent = 'Ref: ' + (aod.location_ref || '--');
+
+            // Color code AOD
+            const aodEl = document.getElementById('env-aod-value');
+            if (aod.value > 0.5) {
+                aodEl.style.color = '#EF4444'; // Heavy
+            } else if (aod.value > 0.3) {
+                aodEl.style.color = '#F4D03F'; // Moderate
+            } else {
+                aodEl.style.color = '#10B981'; // Clear
+            }
+        }
+    }
+
+    function renderQC(qc) {
+        const container = document.getElementById('qc-content');
+        if (!qc || Object.keys(qc).length === 0) {
+            container.innerHTML = '<p style="color: var(--text-muted); font-size: 13px;">No QC data yet. Data appears after first METAR observation.</p>';
+            return;
+        }
+
+        let html = '';
+        for (const [sid, q] of Object.entries(qc)) {
+            const dotClass = q.status.toLowerCase();
+            const flagsHtml = (q.flags || []).map(f => `<span class="qc-flag">${f}</span>`).join('');
+            html += `
+                <div class="qc-station">
+                    <div>
+                        <span class="qc-station-id">${sid}</span>
+                        ${flagsHtml ? '<div class="qc-flags" style="margin-top:4px;">' + flagsHtml + '</div>' : ''}
+                    </div>
+                    <div class="qc-status">
+                        <span style="font-size:12px; color: var(--text-secondary);">${q.status}</span>
+                        <span class="qc-dot ${dotClass}"></span>
+                    </div>
+                </div>`;
+        }
+        container.innerHTML = html;
+    }
+
+    function renderHealth(health, tapeSize) {
+        const tbody = document.getElementById('health-tbody');
+        const tapeEl = document.getElementById('health-tape-count');
+
+        if (tapeSize != null) {
+            tapeEl.textContent = `Tape: ${tapeSize} events`;
+        }
+
+        if (!health || Object.keys(health).length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" style="color: var(--text-muted); text-align:center;">No sources registered yet.</td></tr>';
+            return;
+        }
+
+        let html = '';
+        // Sort by status priority (DEAD first, then STALE, then OK, then LIVE)
+        const statusOrder = { 'DEAD': 0, 'STALE': 1, 'NO_DATA': 2, 'OK': 3, 'LIVE': 4 };
+        const sorted = Object.entries(health).sort((a, b) =>
+            (statusOrder[a[1].status] || 5) - (statusOrder[b[1].status] || 5)
+        );
+
+        for (const [key, h] of sorted) {
+            const dotClass = h.status.toLowerCase().replace('_', '-');
+            html += `
+                <tr>
+                    <td>${h.source}</td>
+                    <td><span class="health-dot ${dotClass}"></span>${h.status}</td>
+                    <td>${h.staleness_s != null ? formatAge(h.staleness_s) : 'N/A'}</td>
+                    <td>${h.source_age_s != null ? formatAge(h.source_age_s) : 'N/A'}</td>
+                    <td>${h.update_count}</td>
+                    <td style="color: ${h.error_count > 0 ? '#EF4444' : 'inherit'};">${h.error_count}${h.last_error ? ' (' + truncate(h.last_error, 30) + ')' : ''}</td>
+                    <td>${h.last_seen_utc ? h.last_seen_utc.substring(11, 19) : '--'}</td>
+                </tr>`;
+        }
+        tbody.innerHTML = html;
+    }
+
+    // === Utilities ===
+    function formatAge(seconds) {
+        if (seconds == null || seconds === Infinity) return 'N/A';
+        if (seconds < 60) return Math.round(seconds) + 's';
+        if (seconds < 3600) return Math.round(seconds / 60) + 'm';
+        return (seconds / 3600).toFixed(1) + 'h';
+    }
+
+    function formatAgeFriendly(seconds) {
+        if (seconds == null || seconds === Infinity) return '';
+        if (seconds < 60) return Math.round(seconds) + 's ago';
+        const m = Math.floor(seconds / 60);
+        const s = Math.round(seconds % 60);
+        return m + 'min ' + (s > 0 ? s + 's' : '') + ' ago';
+    }
+
+    function updateMetarLiveAge() {
+        const el = document.getElementById('metar-age-live');
+        if (!el || !metarObsTimeUtc) {
+            if (el) el.textContent = '';
+            return;
+        }
+        const nowUtc = new Date();
+        const ageSec = (nowUtc.getTime() - metarObsTimeUtc.getTime()) / 1000;
+
+        // Age classes with METAR cycle context:
+        // fresh (< 2 min)  = new data just arrived (pulsing red)
+        // recent (< 15 min) = recent observation (green)
+        // aging (15-40 min) = mid-cycle, normal (yellow)
+        // stale (40-70 min) = next METAR expected soon (orange)
+        // normal (> 70 min) = overdue, possible NOAA delay (muted)
+        if (ageSec < 120) {
+            el.textContent = formatAgeFriendly(ageSec);
+            el.className = 'metar-age-live fresh';
+        } else if (ageSec < 900) {
+            el.textContent = formatAgeFriendly(ageSec);
+            el.className = 'metar-age-live recent';
+        } else if (ageSec < 2400) {
+            el.textContent = formatAgeFriendly(ageSec);
+            el.className = 'metar-age-live aging';
+        } else if (ageSec < 4200) {
+            el.textContent = formatAgeFriendly(ageSec) + ' (next METAR soon)';
+            el.className = 'metar-age-live stale';
+        } else {
+            el.textContent = formatAgeFriendly(ageSec) + ' (awaiting NOAA)';
+            el.className = 'metar-age-live normal';
+        }
+    }
+
+    function truncate(str, len) {
+        if (!str) return '';
+        return str.length > len ? str.substring(0, len) + '...' : str;
+    }
+
+    // === Init ===
+    function init() {
+        // Try SSE first
+        connectSSE();
+
+        // Also do an immediate fetch
+        fetchSnapshot();
+
+        // Polling fallback every 3s (complements SSE)
+        setInterval(fetchSnapshot, 3000);
+
+        // Live age ticker - update every second
+        setInterval(updateMetarLiveAge, 1000);
+
+        // Force immediate refresh when tab becomes visible again
+        // (browser throttles timers and SSE may disconnect in background tabs)
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) {
+                fetchSnapshot();
+                updateMetarLiveAge();
+                // Reconnect SSE if it was closed during background
+                if (!evtSource || evtSource.readyState === EventSource.CLOSED) {
+                    connectSSE();
+                }
+            }
+        });
+    }
+
+    // Re-init icons after DOM update
+    function refreshIcons() {
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        init();
+        refreshIcons();
+    });
+})();
+</script>
+{% endblock %}
