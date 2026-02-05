@@ -2938,6 +2938,15 @@ async def backtest_dashboard(request: Request):
     })
 
 
+@app.get("/autotrader", response_class=HTMLResponse)
+async def autotrader_dashboard(request: Request):
+    """Phase 6 Autotrader Dashboard - realtime signals, risk, and execution."""
+    return templates.TemplateResponse("autotrader.html", {
+        "request": request,
+        "active_page": "autotrader"
+    })
+
+
 @app.get("/nowcast", response_class=HTMLResponse)
 async def nowcast_dashboard(request: Request):
     """Phase 3 Nowcast Dashboard - P(bucket), t_peak, confidence."""

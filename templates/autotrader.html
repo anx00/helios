@@ -1,0 +1,687 @@
+{% extends "base.html" %}
+
+{% block title %}HELIOS - Autotrader Live{% endblock %}
+
+{% block head_extra %}
+<style>
+    .autotrader-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+        margin-bottom: 14px;
+    }
+    .autotrader-title {
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: 30px;
+        font-weight: 700;
+        margin-bottom: 4px;
+    }
+    .autotrader-subtitle {
+        color: var(--text-secondary);
+        font-size: 13px;
+    }
+    .state-pill {
+        border: 1px solid rgba(255,255,255,0.14);
+        border-radius: 999px;
+        padding: 8px 12px;
+        font-size: 12px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.4px;
+    }
+    .state-pill.ok { color: #10B981; border-color: rgba(16,185,129,0.45); background: rgba(16,185,129,0.16); }
+    .state-pill.warn { color: #F4D03F; border-color: rgba(244,208,63,0.45); background: rgba(244,208,63,0.15); }
+    .state-pill.error { color: #EF4444; border-color: rgba(239,68,68,0.45); background: rgba(239,68,68,0.16); }
+
+    .control-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        background: var(--bg-secondary);
+        border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 12px;
+        padding: 10px;
+        margin-bottom: 14px;
+    }
+    .control-row button {
+        border: 1px solid rgba(255,255,255,0.16);
+        background: rgba(255,255,255,0.05);
+        color: var(--text-main);
+        border-radius: 8px;
+        padding: 7px 11px;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+    }
+    .control-row button:hover { background: rgba(255,255,255,0.1); }
+    .btn-start { border-color: rgba(0,120,255,0.5) !important; background: rgba(0,120,255,0.2) !important; }
+    .btn-riskoff { border-color: rgba(239,68,68,0.5) !important; background: rgba(239,68,68,0.16) !important; }
+    .control-msg {
+        margin-left: auto;
+        font-size: 12px;
+        color: var(--text-secondary);
+    }
+
+    .kpi-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+        margin-bottom: 14px;
+    }
+    .kpi {
+        background: var(--bg-secondary);
+        border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 12px;
+        padding: 12px;
+    }
+    .kpi .label {
+        font-size: 11px;
+        text-transform: uppercase;
+        color: var(--text-muted);
+        margin-bottom: 8px;
+        letter-spacing: 0.4px;
+    }
+    .kpi .value {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 24px;
+        font-weight: 700;
+    }
+    .kpi .sub {
+        margin-top: 5px;
+        color: var(--text-secondary);
+        font-size: 11px;
+    }
+    .pos { color: #10B981; }
+    .neg { color: #EF4444; }
+
+    .layout {
+        display: grid;
+        grid-template-columns: 1.45fr 1fr;
+        gap: 12px;
+    }
+    .panel {
+        background: var(--bg-secondary);
+        border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 12px;
+        padding: 12px;
+        margin-bottom: 12px;
+    }
+    .panel-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 9px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    .panel-title {
+        font-size: 12px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.4px;
+    }
+    .panel-meta {
+        font-size: 11px;
+        color: var(--text-secondary);
+    }
+    .table-wrap {
+        max-height: 460px;
+        overflow: auto;
+    }
+    .table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    .table th {
+        text-align: left;
+        font-size: 11px;
+        color: var(--text-muted);
+        padding: 7px 4px;
+        border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+    .table td {
+        padding: 8px 4px;
+        border-bottom: 1px solid rgba(255,255,255,0.05);
+        font-size: 12px;
+        vertical-align: top;
+    }
+    .mono { font-family: 'JetBrains Mono', monospace; }
+    .actions { display: flex; flex-direction: column; gap: 3px; }
+    .action {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        font-size: 11px;
+    }
+    .side {
+        min-width: 44px;
+        text-align: center;
+        border-radius: 999px;
+        padding: 2px 7px;
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+    }
+    .side.buy { color: #10B981; border: 1px solid rgba(16,185,129,0.45); background: rgba(16,185,129,0.16); }
+    .side.sell { color: #EF4444; border: 1px solid rgba(239,68,68,0.45); background: rgba(239,68,68,0.16); }
+    .badge {
+        display: inline-flex;
+        border-radius: 999px;
+        padding: 2px 8px;
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+    }
+    .badge.ok { color: #10B981; background: rgba(16,185,129,0.16); border: 1px solid rgba(16,185,129,0.45); }
+    .badge.warn { color: #F4D03F; background: rgba(244,208,63,0.15); border: 1px solid rgba(244,208,63,0.45); }
+    .badge.error { color: #EF4444; background: rgba(239,68,68,0.16); border: 1px solid rgba(239,68,68,0.45); }
+    .muted { color: var(--text-secondary); font-size: 11px; }
+    .empty { color: var(--text-muted); font-style: italic; font-size: 12px; padding: 7px 0; }
+
+    .metric-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+    }
+    .metric {
+        border: 1px solid rgba(255,255,255,0.07);
+        border-radius: 8px;
+        padding: 8px;
+        background: rgba(255,255,255,0.03);
+    }
+    .metric .label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 4px; letter-spacing: 0.3px; }
+    .metric .value { font-family: 'JetBrains Mono', monospace; font-size: 14px; }
+
+    .mini-list { max-height: 220px; overflow: auto; display: flex; flex-direction: column; gap: 7px; }
+    .mini-item { border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 7px 8px; background: rgba(255,255,255,0.03); }
+    .mini-item .head { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-secondary); margin-bottom: 4px; }
+    .mini-item .line { font-size: 12px; }
+
+    .bar-wrap {
+        height: 8px;
+        background: rgba(255,255,255,0.08);
+        border-radius: 999px;
+        overflow: hidden;
+        margin-top: 5px;
+    }
+    .bar {
+        height: 100%;
+        background: linear-gradient(90deg, #0078FF, #00D4FF);
+    }
+
+    .market-row {
+        display: grid;
+        grid-template-columns: 1.6fr 0.55fr 0.55fr 0.6fr 0.8fr;
+        gap: 7px;
+        padding: 7px 0;
+        border-bottom: 1px solid rgba(255,255,255,0.05);
+        font-size: 12px;
+    }
+    .market-head { color: var(--text-muted); text-transform: uppercase; font-size: 10px; letter-spacing: 0.3px; }
+    .market-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .yes { color: #10B981; font-family: 'JetBrains Mono', monospace; }
+    .no { color: #EF4444; font-family: 'JetBrains Mono', monospace; }
+    .spread { color: #F4D03F; font-family: 'JetBrains Mono', monospace; }
+
+    @media (max-width: 1300px) { .kpi-grid { grid-template-columns: repeat(2, minmax(0,1fr)); } }
+    @media (max-width: 1100px) { .layout { grid-template-columns: 1fr; } }
+    @media (max-width: 760px) {
+        .kpi-grid { grid-template-columns: 1fr; }
+        .metric-grid { grid-template-columns: 1fr; }
+        .control-msg { width: 100%; margin-left: 0; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="autotrader-header">
+    <div>
+        <div class="autotrader-title">Autotrader Live Signals</div>
+        <div class="autotrader-subtitle">Realtime signals with Helios nowcast, Polymarket prices/orderbook and risk management.</div>
+    </div>
+    <div id="state-pill" class="state-pill warn">Initializing</div>
+</div>
+
+<div class="control-row">
+    <button class="btn-start" onclick="sendControl('start')">Start</button>
+    <button onclick="sendControl('pause')">Pause</button>
+    <button onclick="sendControl('resume')">Resume</button>
+    <button class="btn-riskoff" onclick="sendControl('risk_off')">Risk Off</button>
+    <button onclick="sendControl('risk_on')">Risk On</button>
+    <button onclick="manualRefresh()">Refresh</button>
+    <span id="control-msg" class="control-msg">Waiting for data...</span>
+</div>
+
+<div class="kpi-grid">
+    <div class="kpi">
+        <div class="label">Total PnL</div>
+        <div id="kpi-pnl" class="value mono">--</div>
+        <div id="kpi-pnl-sub" class="sub">realized + mtm</div>
+    </div>
+    <div class="kpi">
+        <div class="label">Max Drawdown</div>
+        <div id="kpi-dd" class="value mono">--</div>
+        <div class="sub">risk-first limit tracking</div>
+    </div>
+    <div class="kpi">
+        <div class="label">Orders / Fills</div>
+        <div id="kpi-of" class="value mono">--</div>
+        <div id="kpi-costs" class="sub">fees/slippage: --</div>
+    </div>
+    <div class="kpi">
+        <div class="label">Last Decision</div>
+        <div id="kpi-last" class="value mono">--</div>
+        <div id="kpi-strategy" class="sub">strategy: --</div>
+    </div>
+</div>
+
+<div class="layout">
+    <div>
+        <div class="panel">
+            <div class="panel-header">
+                <div class="panel-title">Signal Timeline</div>
+                <div id="signals-meta" class="panel-meta">latest decisions</div>
+            </div>
+            <div class="table-wrap">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Strategy</th>
+                            <th>Signal</th>
+                            <th>Risk</th>
+                            <th>Reward</th>
+                            <th>Fills</th>
+                        </tr>
+                    </thead>
+                    <tbody id="signals-body">
+                        <tr><td colspan="6" class="empty">No decisions yet.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header">
+                <div class="panel-title">Execution Tape</div>
+                <div class="panel-meta">latest paper fills/orders</div>
+            </div>
+            <div class="metric-grid">
+                <div>
+                    <div class="panel-meta" style="margin-bottom:6px;">Fills</div>
+                    <div id="fills-box" class="mini-list"><div class="empty">No fills yet.</div></div>
+                </div>
+                <div>
+                    <div class="panel-meta" style="margin-bottom:6px;">Orders</div>
+                    <div id="orders-box" class="mini-list"><div class="empty">No orders yet.</div></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div>
+        <div class="panel">
+            <div class="panel-header">
+                <div class="panel-title">Runtime Status</div>
+                <div id="status-meta" class="panel-meta">station: --</div>
+            </div>
+            <div id="status-badges" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:9px;"></div>
+            <div class="metric-grid">
+                <div class="metric"><div class="label">Mode</div><div id="st-mode" class="value">--</div></div>
+                <div class="metric"><div class="label">Selection</div><div id="st-selection" class="value">--</div></div>
+                <div class="metric"><div class="label">Interval</div><div id="st-interval" class="value">--</div></div>
+                <div class="metric"><div class="label">Market Buckets</div><div id="st-buckets" class="value">--</div></div>
+            </div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header">
+                <div class="panel-title">Decision Context</div>
+                <div id="ctx-meta" class="panel-meta">--</div>
+            </div>
+            <div class="metric-grid">
+                <div class="metric"><div class="label">Confidence</div><div id="ctx-confidence" class="value">--</div></div>
+                <div class="metric"><div class="label">Sigma F</div><div id="ctx-sigma" class="value">--</div></div>
+                <div class="metric"><div class="label">Nowcast Age</div><div id="ctx-n-age" class="value">--</div></div>
+                <div class="metric"><div class="label">Market Age</div><div id="ctx-m-age" class="value">--</div></div>
+                <div class="metric"><div class="label">Spread Top</div><div id="ctx-spread" class="value">--</div></div>
+                <div class="metric"><div class="label">Depth Imbalance</div><div id="ctx-imbalance" class="value">--</div></div>
+                <div class="metric"><div class="label">Volatility</div><div id="ctx-vol" class="value">--</div></div>
+                <div class="metric"><div class="label">QC</div><div id="ctx-qc" class="value">--</div></div>
+            </div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header"><div class="panel-title">Strategies</div><div class="panel-meta">selection share + reward</div></div>
+            <div id="strategies-box"><div class="empty">No strategy stats.</div></div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header"><div class="panel-title">Open Positions</div><div class="panel-meta">paper inventory</div></div>
+            <div id="positions-box"><div class="empty">No open positions.</div></div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header"><div class="panel-title">Helios Top Buckets</div><div id="nowcast-meta" class="panel-meta">loading...</div></div>
+            <div id="nowcast-box"><div class="empty">No nowcast data.</div></div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header"><div class="panel-title">Polymarket Live Prices</div><div id="market-meta" class="panel-meta">loading...</div></div>
+            <div id="market-box"><div class="empty">No market data.</div></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const live = { stationId: "KLGA", fastTimer: null, slowTimer: null };
+
+function esc(v) {
+    if (v === null || v === undefined) return "";
+    return String(v).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll("\"","&quot;").replaceAll("'","&#39;");
+}
+function num(v, d = 4) {
+    if (v === null || v === undefined || Number.isNaN(Number(v))) return "--";
+    return Number(v).toFixed(d);
+}
+function pct(v, d = 1) {
+    if (v === null || v === undefined || Number.isNaN(Number(v))) return "--";
+    return `${(Number(v) * 100).toFixed(d)}%`;
+}
+function signed(v, d = 4) {
+    if (v === null || v === undefined || Number.isNaN(Number(v))) return "--";
+    const n = Number(v);
+    return `${n > 0 ? "+" : ""}${n.toFixed(d)}`;
+}
+function ts(v) {
+    if (!v) return "--";
+    const d = new Date(v);
+    return Number.isNaN(d.getTime()) ? "--" : d.toLocaleString();
+}
+function ago(v) {
+    if (!v) return "--";
+    const d = new Date(v);
+    if (Number.isNaN(d.getTime())) return "--";
+    const s = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000));
+    if (s < 60) return `${s}s ago`;
+    const m = Math.floor(s / 60);
+    if (m < 60) return `${m}m ago`;
+    return `${Math.floor(m / 60)}h ago`;
+}
+async function j(url) {
+    const r = await fetch(url, { cache: "no-store" });
+    if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+    return r.json();
+}
+function setStatePill(status) {
+    const el = document.getElementById("state-pill");
+    if (!status) { el.className = "state-pill warn"; el.textContent = "No status"; return; }
+    if (status.risk_off) { el.className = "state-pill error"; el.textContent = "Risk OFF"; return; }
+    if (status.paused) { el.className = "state-pill warn"; el.textContent = "Paused"; return; }
+    if (status.running) { el.className = "state-pill ok"; el.textContent = "Running"; return; }
+    el.className = "state-pill warn"; el.textContent = "Stopped";
+}
+
+function renderStatus(status, decisions, positions, strategies) {
+    setStatePill(status);
+    const perf = status?.performance || {};
+    const total = Number(perf.total_pnl || 0);
+    const pnlEl = document.getElementById("kpi-pnl");
+    pnlEl.textContent = signed(total, 4);
+    pnlEl.className = `value mono ${total > 0 ? "pos" : (total < 0 ? "neg" : "")}`;
+    document.getElementById("kpi-pnl-sub").textContent = `realized ${signed(perf.realized_pnl || 0, 4)} | mtm ${signed(perf.mark_to_market_pnl || 0, 4)}`;
+    document.getElementById("kpi-dd").textContent = num(status?.max_drawdown_abs || 0, 4);
+    document.getElementById("kpi-dd").className = "value mono neg";
+    document.getElementById("kpi-of").textContent = `${perf.total_orders || 0} / ${perf.total_fills || 0}`;
+    document.getElementById("kpi-costs").textContent = `fees ${num(perf.total_fees || 0, 4)} | slip ${num(perf.total_slippage || 0, 4)}`;
+    const last = decisions.length ? decisions[decisions.length - 1] : null;
+    document.getElementById("kpi-last").textContent = last ? ago(last.ts_utc) : "--";
+    document.getElementById("kpi-strategy").textContent = `strategy: ${last?.selected_strategy || "--"}`;
+
+    document.getElementById("status-meta").textContent = `station: ${status?.station_id || "--"}`;
+    document.getElementById("st-mode").textContent = status?.mode || "--";
+    document.getElementById("st-selection").textContent = status?.selection_mode || "--";
+    document.getElementById("st-interval").textContent = status?.decision_interval_seconds ? `${status.decision_interval_seconds}s` : "--";
+    document.getElementById("st-buckets").textContent = String(status?.last_context?.market_bucket_count ?? "--");
+    document.getElementById("status-badges").innerHTML = [
+        `<span class="badge ${status?.running ? "ok" : "warn"}">engine ${status?.running ? "on" : "off"}</span>`,
+        `<span class="badge ${status?.paused ? "warn" : "ok"}">paused ${status?.paused ? "yes" : "no"}</span>`,
+        `<span class="badge ${status?.risk_off ? "error" : "ok"}">risk_off ${status?.risk_off ? "yes" : "no"}</span>`
+    ].join("");
+
+    const c = status?.last_context || {};
+    document.getElementById("ctx-meta").textContent = c.ts_utc ? ts(c.ts_utc) : "--";
+    document.getElementById("ctx-confidence").textContent = pct(c.confidence, 1);
+    document.getElementById("ctx-sigma").textContent = num(c.tmax_sigma_f, 2);
+    document.getElementById("ctx-n-age").textContent = num(c.nowcast_age_seconds, 0);
+    document.getElementById("ctx-m-age").textContent = num(c.market_age_seconds, 0);
+    document.getElementById("ctx-spread").textContent = num(c.spread_top, 4);
+    document.getElementById("ctx-imbalance").textContent = num(c.depth_imbalance, 3);
+    document.getElementById("ctx-vol").textContent = num(c.volatility_short, 4);
+    document.getElementById("ctx-qc").textContent = c.qc_state || "--";
+
+    renderStrategies(strategies);
+    renderPositions(positions);
+}
+
+function renderSignals(decisions) {
+    const body = document.getElementById("signals-body");
+    const meta = document.getElementById("signals-meta");
+    if (!decisions.length) {
+        body.innerHTML = '<tr><td colspan="6" class="empty">No decisions yet.</td></tr>';
+        meta.textContent = "latest decisions";
+        return;
+    }
+    const sorted = [...decisions].reverse();
+    meta.textContent = `${sorted.length} decisions loaded`;
+    body.innerHTML = sorted.map((d) => {
+        const acts = Array.isArray(d.actions) ? d.actions : [];
+        const signalHtml = acts.length
+            ? `<div class="actions">${acts.map((a) => `
+                <div class="action">
+                    <span class="side ${String(a.side).toLowerCase() === "sell" ? "sell" : "buy"}">${esc(a.side || "buy")}</span>
+                    <span class="mono">${esc(a.bucket || "-")}</span>
+                    <span class="mono">x${num(a.target_size ?? a.size, 3)}</span>
+                    <span class="mono">${esc(a.order_type || "-")}</span>
+                    ${a.reason ? `<span class="muted">${esc(a.reason)}</span>` : ""}
+                </div>`).join("")}</div>`
+            : `<span class="muted">NO TRADE</span>`;
+        const blocked = !!d.risk_blocked;
+        const reasons = (d.risk_reasons || []).map(esc).join(", ");
+        const riskHtml = blocked
+            ? `<span class="badge error">blocked</span><div class="muted">${reasons || "risk_gate"}</div>`
+            : `<span class="badge ok">pass</span>`;
+        const reward = d.reward === null || d.reward === undefined ? "--" : signed(d.reward, 4);
+        const rewardCls = Number(d.reward || 0) > 0 ? "pos" : (Number(d.reward || 0) < 0 ? "neg" : "");
+        return `
+            <tr>
+                <td class="mono">${ts(d.ts_utc)}</td>
+                <td>${esc(d.selected_strategy || "--")}</td>
+                <td>${signalHtml}</td>
+                <td>${riskHtml}</td>
+                <td class="mono ${rewardCls}">${reward}</td>
+                <td class="mono">${Number(d.fills_count || 0)}</td>
+            </tr>`;
+    }).join("");
+}
+
+function renderMini(items, id, type) {
+    const box = document.getElementById(id);
+    if (!items.length) { box.innerHTML = `<div class="empty">No ${type} yet.</div>`; return; }
+    box.innerHTML = items.map((x) => {
+        const px = type === "fills" ? num(x.price, 3) : num(x.limit_price, 3);
+        const extra = type === "fills"
+            ? `fees ${num(x.fees, 4)} | slip ${num(x.slippage, 4)} | ${esc(x.fill_type || "--")}`
+            : `${esc(x.order_type || "--")} | ${esc(x.status || "--")}`;
+        return `
+            <div class="mini-item">
+                <div class="head"><span class="mono">${ts(x.ts_utc)}</span><span>${esc(x.strategy_name || "-")}</span></div>
+                <div class="line">
+                    <span class="side ${String(x.side).toLowerCase() === "sell" ? "sell" : "buy"}">${esc(x.side || "--")}</span>
+                    <span class="mono">${esc(x.bucket || "--")}</span>
+                    <span class="mono">x${num(x.size, 3)} @ ${px}</span>
+                </div>
+                <div class="muted mono">${extra}</div>
+            </div>`;
+    }).join("");
+}
+
+function renderStrategies(rows) {
+    const box = document.getElementById("strategies-box");
+    if (!rows.length) { box.innerHTML = '<div class="empty">No strategy stats.</div>'; return; }
+    box.innerHTML = rows.map((r) => {
+        const w = Math.max(0, Math.min(Number(r.selected_weight || 0) * 100, 100));
+        const rew = Number(r.reward_sum || 0);
+        return `
+            <div style="margin-bottom:9px;">
+                <div style="display:flex;justify-content:space-between;font-size:12px;">
+                    <span>${esc(r.name || "--")} (${r.selected_count || 0})</span>
+                    <span class="mono ${rew > 0 ? "pos" : (rew < 0 ? "neg" : "")}">${signed(rew, 4)}</span>
+                </div>
+                <div class="bar-wrap"><div class="bar" style="width:${w.toFixed(1)}%"></div></div>
+            </div>`;
+    }).join("");
+}
+
+function renderPositions(positions) {
+    const box = document.getElementById("positions-box");
+    const rows = Object.entries(positions || {});
+    if (!rows.length) { box.innerHTML = '<div class="empty">No open positions.</div>'; return; }
+    box.innerHTML = `
+        <table class="table">
+            <thead><tr><th>Bucket</th><th>Size</th><th>Avg</th><th>Unrealized</th></tr></thead>
+            <tbody>
+                ${rows.map(([b, p]) => {
+                    const u = Number(p.unrealized_pnl || 0);
+                    return `<tr>
+                        <td class="mono">${esc(b)}</td>
+                        <td class="mono">${num(p.size, 3)}</td>
+                        <td class="mono">${num(p.avg_price, 3)}</td>
+                        <td class="mono ${u > 0 ? "pos" : (u < 0 ? "neg" : "")}">${signed(p.unrealized_pnl, 4)}</td>
+                    </tr>`;
+                }).join("")}
+            </tbody>
+        </table>`;
+}
+
+function renderNowcast(n) {
+    const meta = document.getElementById("nowcast-meta");
+    const box = document.getElementById("nowcast-box");
+    if (!n || n.error) {
+        meta.textContent = "no nowcast";
+        box.innerHTML = `<div class="empty">${esc(n?.error || "No nowcast data.")}</div>`;
+        return;
+    }
+    meta.textContent = `${n.station_id || live.stationId} | conf ${pct(n.confidence,1)} | tmax ${num(n.tmax_mean_f,1)}F`;
+    const top = [...(n.p_bucket || [])].sort((a,b) => Number(b.probability||0) - Number(a.probability||0)).slice(0, 6);
+    if (!top.length) { box.innerHTML = '<div class="empty">No bucket probabilities.</div>'; return; }
+    box.innerHTML = top.map((b) => {
+        const p = Number(b.probability || 0);
+        return `<div style="margin-bottom:8px;">
+            <div style="display:flex;justify-content:space-between;font-size:12px;">
+                <span class="mono">${esc(b.label || "--")}</span><span class="mono">${pct(p,1)}</span>
+            </div>
+            <div class="bar-wrap"><div class="bar" style="width:${Math.max(0, Math.min(p*100, 100)).toFixed(1)}%"></div></div>
+        </div>`;
+    }).join("");
+}
+
+function renderMarket(m) {
+    const meta = document.getElementById("market-meta");
+    const box = document.getElementById("market-box");
+    if (!m || m.error) {
+        meta.textContent = "no market";
+        box.innerHTML = `<div class="empty">${esc(m?.error || "No market data.")}</div>`;
+        return;
+    }
+    meta.textContent = `${m.station_id || live.stationId} | ${m.target_date || "--"} | ws:${m.ws_connected ? "on" : "off"}`;
+    const rows = (m.brackets || []).slice(0, 8);
+    if (!rows.length) { box.innerHTML = '<div class="empty">No brackets in market.</div>'; return; }
+    box.innerHTML = `
+        <div class="market-row market-head"><div>Bracket</div><div>YES</div><div>NO</div><div>Spread</div><div>Bid/Ask</div></div>
+        ${rows.map((b) => {
+            const spread = b.ws_spread !== null && b.ws_spread !== undefined ? `${(Number(b.ws_spread) * 100).toFixed(2)}c` : "--";
+            const ba = (b.ws_best_bid !== null && b.ws_best_ask !== null)
+                ? `${(Number(b.ws_best_bid) * 100).toFixed(1)}c / ${(Number(b.ws_best_ask) * 100).toFixed(1)}c`
+                : "--";
+            return `<div class="market-row">
+                <div class="market-name" title="${esc(b.name || "")}">${esc(b.name || "--")}</div>
+                <div class="yes">${(Number(b.yes_price || 0) * 100).toFixed(1)}c</div>
+                <div class="no">${(Number(b.no_price || 0) * 100).toFixed(1)}c</div>
+                <div class="spread">${spread}</div>
+                <div class="mono">${ba}</div>
+            </div>`;
+        }).join("")}`;
+}
+
+async function refreshFast() {
+    const [status, decisionsR, positionsR, strategiesR, ordersR, fillsR] = await Promise.all([
+        j("/api/v6/autotrader/status"),
+        j("/api/v6/autotrader/decisions?limit=120"),
+        j("/api/v6/autotrader/positions"),
+        j("/api/v6/autotrader/strategies"),
+        j("/api/v6/autotrader/orders?limit=40"),
+        j("/api/v6/autotrader/fills?limit=40")
+    ]);
+    live.stationId = status.station_id || live.stationId;
+    document.getElementById("control-msg").textContent = `updated ${new Date().toLocaleTimeString()}`;
+    renderStatus(status, decisionsR.decisions || [], positionsR.positions || {}, strategiesR.strategies || []);
+    renderSignals(decisionsR.decisions || []);
+    renderMini(fillsR.fills || [], "fills-box", "fills");
+    renderMini(ordersR.orders || [], "orders-box", "orders");
+}
+
+async function refreshSlow() {
+    const s = live.stationId || "KLGA";
+    const [n, m] = await Promise.allSettled([j(`/api/v3/nowcast/${s}`), j(`/api/polymarket/${s}?target_day=0&depth=3`)]);
+    renderNowcast(n.status === "fulfilled" ? n.value : { error: n.reason?.message || "error" });
+    renderMarket(m.status === "fulfilled" ? m.value : { error: m.reason?.message || "error" });
+}
+
+async function manualRefresh() {
+    try {
+        await Promise.all([refreshFast(), refreshSlow()]);
+    } catch (err) {
+        document.getElementById("control-msg").textContent = `refresh error: ${err.message}`;
+    }
+}
+
+async function sendControl(action) {
+    const msg = document.getElementById("control-msg");
+    msg.textContent = `sending ${action}...`;
+    try {
+        const r = await fetch("/api/v6/autotrader/control", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action })
+        });
+        const data = await r.json();
+        if (!r.ok || data.ok === false) throw new Error(data.error || "control failed");
+        msg.textContent = `action ${action} ok`;
+        await manualRefresh();
+    } catch (err) {
+        msg.textContent = `control error: ${err.message}`;
+    }
+}
+
+function startPolling() {
+    if (live.fastTimer) clearInterval(live.fastTimer);
+    if (live.slowTimer) clearInterval(live.slowTimer);
+    live.fastTimer = setInterval(() => refreshFast().catch((e) => {
+        document.getElementById("control-msg").textContent = `fast loop error: ${e.message}`;
+    }), 5000);
+    live.slowTimer = setInterval(() => refreshSlow().catch((e) => {
+        document.getElementById("control-msg").textContent = `slow loop error: ${e.message}`;
+    }), 20000);
+}
+
+document.addEventListener("visibilitychange", () => { if (!document.hidden) manualRefresh(); });
+document.addEventListener("DOMContentLoaded", async () => { await manualRefresh(); startPolling(); });
+window.sendControl = sendControl;
+window.manualRefresh = manualRefresh;
+</script>
+{% endblock %}
