@@ -28,8 +28,16 @@ class _Position:
 
 
 class PaperBroker:
-    def __init__(self, simulator: Optional[ExecutionSimulator] = None):
+    def __init__(
+        self,
+        simulator: Optional[ExecutionSimulator] = None,
+        *,
+        allow_naked_short: bool = False,
+        min_buy_notional_usd: float = 1.0,
+    ):
         self.simulator = simulator or ExecutionSimulator()
+        self.allow_naked_short = bool(allow_naked_short)
+        self.min_buy_notional_usd = float(min_buy_notional_usd)
         self.positions: Dict[str, _Position] = {}
         self.realized_pnl: float = 0.0
         self.total_fees: float = 0.0
@@ -69,13 +77,41 @@ class PaperBroker:
             order_type_val = (action.get("order_type") or "taker").lower()
             order_type = OrderType.MAKER if order_type_val == "maker" else OrderType.TAKER
             bucket = normalize_label(str(action.get("bucket", "")))
+            target_size = float(action.get("target_size", 0.0) or 0.0)
+            if target_size <= 0.0:
+                continue
+
+            # Do not allow naked shorting in paper mode unless explicitly enabled.
+            # This aligns with "sell requires inventory" expectation from the UI.
+            if side == Side.SELL and not self.allow_naked_short:
+                current_yes = self._get_position(bucket).size
+                if current_yes <= 1e-9:
+                    continue
+                target_size = min(target_size, float(current_yes))
+                if target_size <= 0.0:
+                    continue
+
+            est_price = self._estimate_action_price(
+                bucket=bucket,
+                side=side,
+                market_state=market_state,
+                max_price=float(action.get("max_price", 0.99)),
+                min_price=float(action.get("min_price", 0.01)),
+            )
+            if (
+                side == Side.BUY
+                and self.min_buy_notional_usd > 0.0
+                and est_price > 0.0
+                and (target_size * est_price) < self.min_buy_notional_usd
+            ):
+                target_size = self.min_buy_notional_usd / est_price
 
             signal = PolicySignal(
                 timestamp_utc=timestamp_utc,
                 bucket=bucket,
                 side=side,
                 order_type=order_type,
-                target_size=float(action.get("target_size", 0.0)),
+                target_size=target_size,
                 max_price=float(action.get("max_price", 0.99)),
                 min_price=float(action.get("min_price", 0.01)),
                 confidence=float(action.get("confidence", 0.5)),
@@ -97,6 +133,35 @@ class PaperBroker:
         created_orders.extend(new_orders)
         self._orders.extend(new_orders)
         return created_orders, created_fills
+
+    def _estimate_action_price(
+        self,
+        bucket: str,
+        side: Side,
+        market_state: Optional[Dict[str, Any]],
+        max_price: float,
+        min_price: float,
+    ) -> float:
+        """
+        Estimate executable price for minimum notional checks.
+        Uses orderbook first, then policy limits as fallback.
+        """
+        snap = (market_state or {}).get(bucket, {})
+        bid = float(snap.get("best_bid", 0.0) or 0.0)
+        ask = float(snap.get("best_ask", 0.0) or 0.0)
+        mid = float(snap.get("mid", 0.0) or 0.0)
+
+        if side == Side.BUY:
+            if ask > 0.0:
+                return ask
+            if mid > 0.0:
+                return mid
+            return max(max_price, 0.0)
+        if bid > 0.0:
+            return bid
+        if mid > 0.0:
+            return mid
+        return max(min_price, 0.0)
 
     def update(
         self,

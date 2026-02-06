@@ -163,8 +163,17 @@ class AutoTraderService:
                 info = client.market_info.get(token_id, "")
                 if "|" not in info:
                     continue
-                sid, bracket = info.split("|", 1)
+                parts = info.split("|")
+                if len(parts) >= 3:
+                    sid, bracket, outcome = parts[0], parts[1], (parts[2] or "unknown").lower()
+                elif len(parts) == 2:
+                    sid, bracket, outcome = parts[0], parts[1], "yes"
+                else:
+                    continue
                 if sid != station:
+                    continue
+                # Strategy pricing is based on YES probability for each bracket.
+                if outcome != "yes":
                     continue
                 snap = book.get_l2_snapshot(top_n=10)
                 if not snap:

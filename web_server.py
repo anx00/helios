@@ -51,7 +51,7 @@ def get_template_context():
 templates.env.globals.update(get_template_context())
 
 # Cache last-known token lists to survive intermittent Gamma API hiccups
-_WS_TOKEN_CACHE: Dict[str, List[Tuple[str, str]]] = {}
+_WS_TOKEN_CACHE: Dict[str, List[Tuple[str, str, str]]] = {}
 
 # Models source of truth
 class StationConfig(BaseModel):
@@ -245,7 +245,7 @@ async def _resolve_station_tokens(
     target_date,
     now_local: datetime,
     logger: logging.Logger,
-) -> List[Tuple[str, str]]:
+) -> List[Tuple[str, str, str]]:
     """Resolve token IDs for a station/date with robust fallbacks and caching."""
     tokens = await fetch_market_token_ids_for_station_date(station_id, target_date)
     if not tokens:
@@ -274,6 +274,24 @@ async def _resolve_station_tokens(
         _WS_TOKEN_CACHE[station_id] = tokens
 
     return tokens
+
+
+def _parse_market_info(raw_info: str) -> Tuple[str, str, str]:
+    """
+    Parse market metadata string.
+    Format:
+    - new: "STATION|BRACKET|OUTCOME"
+    - legacy: "STATION|BRACKET" (assume YES)
+    """
+    if not raw_info:
+        return "Unknown", "Unknown", "unknown"
+
+    parts = raw_info.split("|")
+    if len(parts) >= 3:
+        return parts[0], parts[1], (parts[2] or "unknown").lower()
+    if len(parts) == 2:
+        return parts[0], parts[1], "yes"
+    return "Unknown", raw_info, "unknown"
 
 
 async def pws_loop():
@@ -348,10 +366,10 @@ async def websocket_loop():
                     logger.warning(f"WS token resolution failed for {station_id} ({target_date}); skipping")
                     continue
 
-                for tid, bracket in tokens:
+                for tid, bracket, outcome in tokens:
                     all_token_ids.append(tid)
                     # Register metadata
-                    client.set_market_info(tid, f"{station_id}|{bracket}")
+                    client.set_market_info(tid, f"{station_id}|{bracket}|{outcome}")
             
             if all_token_ids:
                 await client.subscribe_to_markets(all_token_ids)
@@ -488,10 +506,11 @@ async def recorder_loop():
 
                     for token_id, book in client.state.orderbooks.items():
                         raw_info = client.market_info.get(token_id, "")
-                        if "|" not in raw_info:
-                            continue
-                        m_station, bracket = raw_info.split("|", 1)
+                        m_station, bracket, outcome = _parse_market_info(raw_info)
                         if m_station not in active:
+                            continue
+                        # Keep recorder parity with nowcast labels: YES book is source of truth.
+                        if outcome != "yes":
                             continue
 
                         snap = book.get_l2_snapshot(top_n=10)
@@ -1116,12 +1135,8 @@ async def get_realtime_market(station_id: str, depth: int = 10):
         current_ts = datetime.now().timestamp()
 
         for token_id, book in client.state.orderbooks.items():
-            # Market Info format: "STATION_ID|Bracket Name"
             raw_info = client.market_info.get(token_id, "Unknown|Unknown")
-            if "|" in raw_info:
-                m_station, m_bracket = raw_info.split("|", 1)
-            else:
-                m_station, m_bracket = "Unknown", raw_info
+            m_station, m_bracket, m_outcome = _parse_market_info(raw_info)
 
             # Filter by station
             if m_station != station_id:
@@ -1132,6 +1147,7 @@ async def get_realtime_market(station_id: str, depth: int = 10):
             else:
                 snap = book.get_snapshot()  # O(1) cached snapshot
             snap["bracket"] = m_bracket
+            snap["outcome"] = m_outcome
             data.append(snap)
 
         # If empty, try a quick on-demand subscription refresh for this station
@@ -1145,15 +1161,12 @@ async def get_realtime_market(station_id: str, depth: int = 10):
                 tokens = await _resolve_station_tokens(station_id, target_date, now, logger)
                 if tokens:
                     await client.subscribe_to_markets([t[0] for t in tokens])
-                    for tid, bracket in tokens:
-                        client.set_market_info(tid, f"{station_id}|{bracket}")
+                    for tid, bracket, outcome in tokens:
+                        client.set_market_info(tid, f"{station_id}|{bracket}|{outcome}")
                     # Rebuild view after warm-up subscription
                     for token_id, book in client.state.orderbooks.items():
                         raw_info = client.market_info.get(token_id, "Unknown|Unknown")
-                        if "|" in raw_info:
-                            m_station, m_bracket = raw_info.split("|", 1)
-                        else:
-                            m_station, m_bracket = "Unknown", raw_info
+                        m_station, m_bracket, m_outcome = _parse_market_info(raw_info)
                         if m_station != station_id:
                             continue
                         if depth and depth > 0:
@@ -1161,6 +1174,7 @@ async def get_realtime_market(station_id: str, depth: int = 10):
                         else:
                             snap = book.get_snapshot()
                         snap["bracket"] = m_bracket
+                        snap["outcome"] = m_outcome
                         data.append(snap)
             except Exception:
                 pass
@@ -1271,7 +1285,8 @@ async def get_polymarket_dashboard_data(station_id: str, target_day: int = 0, de
                     token_id = b.get(token_key)
                     if token_id and token_id not in client.state.orderbooks:
                         missing_tokens.append(token_id)
-                        client.set_market_info(token_id, f"{station_id}|{b.get('name', 'Unknown')}")
+                        outcome = "yes" if token_key == "yes_token_id" else "no"
+                        client.set_market_info(token_id, f"{station_id}|{b.get('name', 'Unknown')}|{outcome}")
             if missing_tokens:
                 unique_missing = list(dict.fromkeys(missing_tokens))
                 await client.subscribe_to_markets(unique_missing)

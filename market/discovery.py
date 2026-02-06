@@ -73,10 +73,13 @@ async def fetch_event_for_station_date(station_id: str, target_date: date) -> Op
     )
     return matches[0]
 
-async def fetch_market_token_ids_for_station_date(station_id: str, target_date: date) -> List[Tuple[str, str]]:
+async def fetch_market_token_ids_for_station_date(
+    station_id: str,
+    target_date: date,
+) -> List[Tuple[str, str, str]]:
     """
     Fetch token IDs for the station/date event (robust slug resolution).
-    Returns list of (token_id, bracket_name) tuples.
+    Returns list of (token_id, bracket_name, outcome) tuples.
     """
     event = await fetch_event_for_station_date(station_id, target_date)
     if not event:
@@ -85,11 +88,11 @@ async def fetch_market_token_ids_for_station_date(station_id: str, target_date: 
     markets = event.get("markets", [])
     return _extract_market_token_ids(markets)
 
-async def fetch_market_token_ids(event_slug: str) -> List[Tuple[str, str]]:
+async def fetch_market_token_ids(event_slug: str) -> List[Tuple[str, str, str]]:
     """
     Fetch token IDs for all markets in an event.
     
-    Returns list of (token_id, bracket_name) tuples.
+    Returns list of (token_id, bracket_name, outcome) tuples.
     """
     url = POLYMARKET_EVENTS_URL
     
@@ -115,12 +118,12 @@ async def fetch_market_token_ids(event_slug: str) -> List[Tuple[str, str]]:
         return []
 
 
-def _extract_market_token_ids(markets: Iterable[dict]) -> List[Tuple[str, str]]:
+def _extract_market_token_ids(markets: Iterable[dict]) -> List[Tuple[str, str, str]]:
     """
     Parse market payloads and return all token IDs for each bracket.
     Includes both YES and NO tokens when present.
     """
-    result: List[Tuple[str, str]] = []
+    result: List[Tuple[str, str, str]] = []
     seen: set[str] = set()
 
     for market in markets or []:
@@ -138,9 +141,10 @@ def _extract_market_token_ids(markets: Iterable[dict]) -> List[Tuple[str, str]]:
             continue
 
         # Polymarket binary markets expose [YES, NO]. Keep both.
-        for token in clob_tokens[:2]:
+        for idx, token in enumerate(clob_tokens[:2]):
             if token and token not in seen:
                 seen.add(token)
-                result.append((token, bracket))
+                outcome = "yes" if idx == 0 else "no"
+                result.append((token, bracket, outcome))
 
     return result

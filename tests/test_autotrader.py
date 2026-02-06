@@ -121,6 +121,64 @@ def test_paper_broker_executes_taker_and_updates_position():
     assert isinstance(upd_fills, list)
 
 
+def test_paper_broker_blocks_naked_short_sell():
+    broker = PaperBroker()
+    ctx = _sample_context()
+    sell_only = [
+        {
+            "bucket": "30-31Â°F",
+            "side": "sell",
+            "order_type": "taker",
+            "target_size": 0.4,
+            "max_price": 1.0,
+            "min_price": 0.0,
+            "confidence": 0.8,
+            "urgency": 0.9,
+            "reason": "naked-short check",
+        }
+    ]
+
+    orders, fills = broker.execute_actions(
+        timestamp_utc=ctx.ts_utc,
+        station_id=ctx.station_id,
+        strategy_name="conservative_edge",
+        actions=sell_only,
+        market_state=ctx.market_state,
+    )
+    assert orders == []
+    assert fills == []
+    assert broker.get_positions() == {}
+
+
+def test_paper_broker_enforces_min_buy_notional():
+    broker = PaperBroker()
+    ctx = _sample_context()
+    tiny_buy = [
+        {
+            "bucket": "30-31Â°F",
+            "side": "buy",
+            "order_type": "taker",
+            "target_size": 0.2,  # Below $1 notional at ~0.56 ask
+            "max_price": 0.8,
+            "min_price": 0.0,
+            "confidence": 0.8,
+            "urgency": 0.9,
+            "reason": "min-notional check",
+        }
+    ]
+
+    _, fills = broker.execute_actions(
+        timestamp_utc=ctx.ts_utc,
+        station_id=ctx.station_id,
+        strategy_name="conservative_edge",
+        actions=tiny_buy,
+        market_state=ctx.market_state,
+    )
+    assert len(fills) == 1
+    assert fills[0].size >= 1.7
+    assert fills[0].size * fills[0].price >= 1.0
+
+
 def test_bandit_state_roundtrip_and_update():
     bandit = LinUCBBandit(["a", "b"], feature_dim=4, alpha=0.8)
     x = [0.5, 0.1, 0.2, 1.0]

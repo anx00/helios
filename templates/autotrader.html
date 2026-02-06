@@ -406,6 +406,7 @@
     <div>
         <div class="autotrader-title">Autotrader Live Signals</div>
         <div class="autotrader-subtitle">Realtime signals with Helios nowcast, Polymarket prices/orderbook and risk management.</div>
+        <div class="autotrader-subtitle">Legend: <strong>qty</strong> = shares/contracts. <strong>edge</strong> = strategy advantage vs market mid.</div>
     </div>
     <div id="state-pill" class="state-pill warn">Initializing</div>
 </div>
@@ -589,6 +590,15 @@ function signed(v, d = 4) {
     const n = Number(v);
     return `${n > 0 ? "+" : ""}${n.toFixed(d)}`;
 }
+function formatActionReason(reason) {
+    const txt = String(reason || "");
+    const m = txt.match(/Edge=([+-]?[0-9]*\\.?[0-9]+),\\s*Model=([+-]?[0-9]*\\.?[0-9]+),\\s*Market=([+-]?[0-9]*\\.?[0-9]+)/i);
+    if (!m) return txt;
+    const edge = Number(m[1]);
+    const model = Number(m[2]);
+    const market = Number(m[3]);
+    return `edge ${signed(edge, 3)} | model ${(model * 100).toFixed(1)}c | market ${(market * 100).toFixed(1)}c`;
+}
 function ago(v) {
     if (!v) return "--";
     const d = new Date(v);
@@ -654,11 +664,11 @@ function sideIntent(side, outcome = "yes") {
     const s = String(side || "buy").toLowerCase();
     const o = String(outcome || "yes").toLowerCase();
     if (o === "no") {
-        if (s === "buy") return { css: "buy", primary: "BUY NO", equiv: "= SELL YES" };
-        return { css: "sell", primary: "SELL NO", equiv: "= BUY YES" };
+        if (s === "buy") return { css: "buy", primary: "BUY NO", equiv: "" };
+        return { css: "sell", primary: "SELL NO", equiv: "" };
     }
-    if (s === "buy") return { css: "buy", primary: "BUY YES", equiv: "= SELL NO" };
-    return { css: "sell", primary: "SELL YES", equiv: "= BUY NO" };
+    if (s === "buy") return { css: "buy", primary: "BUY YES", equiv: "" };
+    return { css: "sell", primary: "SELL YES", equiv: "" };
 }
 
 function firstNum(...values) {
@@ -820,11 +830,15 @@ function renderSignals(decisions) {
         const signalHtml = acts.length
             ? `<div class="actions">${acts.map((a) => `
                 <div class="action">
-                    ${(() => { const intent = sideIntent(a.side, a.outcome || "yes"); return `<span class="side ${intent.css}">${intent.primary}</span><span class="muted side-note">${intent.equiv}</span>`; })()}
+                    ${(() => {
+                        const intent = sideIntent(a.side, a.outcome || "yes");
+                        const note = intent.equiv ? `<span class="muted side-note">${intent.equiv}</span>` : "";
+                        return `<span class="side ${intent.css}">${intent.primary}</span>${note}`;
+                    })()}
                     <span class="mono">${esc(a.bucket || "-")}</span>
-                    <span class="mono">x${num(a.target_size ?? a.size, 3)}</span>
+                    <span class="mono">qty ${num(a.target_size ?? a.size, 3)}</span>
                     <span class="mono">${esc(a.order_type || "-")}</span>
-                    ${a.reason ? `<span class="muted">${esc(a.reason)}</span>` : ""}
+                    ${a.reason ? `<span class="muted">${esc(formatActionReason(a.reason))}</span>` : ""}
                 </div>`).join("")}</div>`
             : `<span class="muted">NO TRADE</span>`;
         const blocked = !!d.risk_blocked;
@@ -862,9 +876,13 @@ function renderMini(items, id, type) {
             <div class="mini-item">
                 <div class="head"><span>${dualTsHtml(x.ts_utc)}</span><span>${esc(x.strategy_name || "-")}</span></div>
                 <div class="line">
-                    ${(() => { const intent = sideIntent(x.side, x.outcome || "yes"); return `<span class="side ${intent.css}">${intent.primary}</span><span class="muted side-note">${intent.equiv}</span>`; })()}
+                    ${(() => {
+                        const intent = sideIntent(x.side, x.outcome || "yes");
+                        const note = intent.equiv ? `<span class="muted side-note">${intent.equiv}</span>` : "";
+                        return `<span class="side ${intent.css}">${intent.primary}</span>${note}`;
+                    })()}
                     <span class="mono">${esc(x.bucket || "--")}</span>
-                    <span class="mono">x${num(x.size, 3)} @ ${px}</span>
+                    <span class="mono">qty ${num(x.size, 3)} @ ${px}</span>
                 </div>
                 <div class="muted mono">${extra}</div>
             </div>`;
