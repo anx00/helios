@@ -2947,6 +2947,15 @@ async def autotrader_dashboard(request: Request):
     })
 
 
+@app.get("/autotrader/tutorial", response_class=HTMLResponse)
+async def autotrader_tutorial(request: Request):
+    """Autotrader tutorial page with architecture, concepts, and operating guide."""
+    return templates.TemplateResponse("autotrader_tutorial.html", {
+        "request": request,
+        "active_page": "autotrader"
+    })
+
+
 @app.get("/nowcast", response_class=HTMLResponse)
 async def nowcast_dashboard(request: Request):
     """Phase 3 Nowcast Dashboard - P(bucket), t_peak, confidence."""

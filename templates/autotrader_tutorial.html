@@ -1,0 +1,335 @@
+{% extends "base.html" %}
+
+{% block title %}HELIOS - Autotrader Tutorial{% endblock %}
+
+{% block head_extra %}
+<style>
+    .tutorial-grid {
+        display: grid;
+        grid-template-columns: 280px 1fr;
+        gap: 16px;
+    }
+    .toc {
+        position: sticky;
+        top: 18px;
+        align-self: start;
+        background: var(--bg-secondary);
+        border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 12px;
+        padding: 14px;
+    }
+    .toc h3 {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.35px;
+        margin-bottom: 10px;
+        color: var(--text-muted);
+    }
+    .toc a {
+        display: block;
+        color: var(--text-secondary);
+        text-decoration: none;
+        font-size: 13px;
+        padding: 6px 0;
+    }
+    .toc a:hover { color: var(--accent-blue); }
+
+    .doc {
+        background: var(--bg-secondary);
+        border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 12px;
+        padding: 20px;
+    }
+    .doc section {
+        padding-bottom: 16px;
+        margin-bottom: 16px;
+        border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    .doc section:last-child {
+        border-bottom: none;
+        margin-bottom: 0;
+        padding-bottom: 0;
+    }
+    .doc h2 {
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: 21px;
+        margin-bottom: 10px;
+    }
+    .doc h3 {
+        font-size: 14px;
+        margin: 10px 0 7px;
+        color: var(--text-main);
+    }
+    .doc p {
+        color: var(--text-secondary);
+        font-size: 14px;
+        line-height: 1.6;
+        margin-bottom: 8px;
+    }
+    .doc ul {
+        margin: 8px 0 10px 18px;
+        color: var(--text-secondary);
+        font-size: 14px;
+        line-height: 1.6;
+    }
+    .doc li { margin-bottom: 4px; }
+    .doc code {
+        font-family: 'JetBrains Mono', monospace;
+        background: rgba(255,255,255,0.06);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 6px;
+        padding: 1px 5px;
+        color: #dbeafe;
+    }
+    .formula {
+        font-family: 'JetBrains Mono', monospace;
+        color: #dbeafe;
+        background: rgba(0,120,255,0.14);
+        border: 1px solid rgba(0,120,255,0.35);
+        border-radius: 8px;
+        padding: 9px 11px;
+        margin: 10px 0;
+        font-size: 13px;
+    }
+    .mini-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 8px;
+    }
+    .mini-table th {
+        text-align: left;
+        font-size: 11px;
+        color: var(--text-muted);
+        padding: 7px 6px;
+        border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+    .mini-table td {
+        font-size: 13px;
+        color: var(--text-secondary);
+        padding: 8px 6px;
+        border-bottom: 1px solid rgba(255,255,255,0.05);
+        vertical-align: top;
+    }
+    @media (max-width: 1080px) {
+        .tutorial-grid { grid-template-columns: 1fr; }
+        .toc { position: static; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-title">
+        <i data-lucide="book-open"></i>
+        Autotrader Tutorial
+    </div>
+    <div class="breadcrumbs">
+        <a href="/autotrader">Autotrader Live</a> / <span>Tutorial</span>
+    </div>
+</div>
+
+<div class="page-content">
+    <div class="tutorial-grid">
+        <aside class="toc">
+            <h3>Contents</h3>
+            <a href="#overview">1. Overview</a>
+            <a href="#architecture">2. Runtime Architecture</a>
+            <a href="#data">3. Data Sources</a>
+            <a href="#algorithms">4. Algorithms and Strategies</a>
+            <a href="#risk">5. Risk Management</a>
+            <a href="#execution">6. Execution Model</a>
+            <a href="#reward">7. Reward and Learning</a>
+            <a href="#timezone">8. Timezone and Market Day</a>
+            <a href="#dashboard">9. Dashboard Interpretation</a>
+            <a href="#api">10. API Reference</a>
+            <a href="#ops">11. Operations and Troubleshooting</a>
+        </aside>
+
+        <article class="doc">
+            <section id="overview">
+                <h2>1. Overview</h2>
+                <p>
+                    Autotrader is the Phase 6 runtime that evaluates multiple trading strategies on Polymarket using Helios nowcast data,
+                    selects one strategy per decision step, applies strict risk gates, and executes in paper mode by default.
+                </p>
+                <p>
+                    The live page at <code>/autotrader</code> is an operations console. It does not create “free-form AI strategies” on the fly.
+                    Strategy set is controlled in code for reproducibility and auditability.
+                </p>
+            </section>
+
+            <section id="architecture">
+                <h2>2. Runtime Architecture</h2>
+                <h3>Main loops</h3>
+                <ul>
+                    <li>Decision loop (default every 60s): builds context, evaluates all strategies, selects one policy, runs risk gate, executes actions.</li>
+                    <li>Execution loop: paper broker updates maker orders/fills between decision ticks.</li>
+                    <li>Nightly learning loop: offline calibration/selection pipeline at scheduled NYC time.</li>
+                </ul>
+                <h3>Core services</h3>
+                <ul>
+                    <li><code>core/autotrader/service.py</code>: orchestrator.</li>
+                    <li><code>core/autotrader/strategy.py</code>: strategy catalog and evaluation contract.</li>
+                    <li><code>core/autotrader/risk.py</code>: pre-trade blocking rules.</li>
+                    <li><code>core/autotrader/paper_broker.py</code>: order and fill simulation with PnL tracking.</li>
+                    <li><code>core/autotrader/bandit.py</code>: LinUCB selector state/update.</li>
+                    <li><code>core/autotrader/storage.py</code>: decisions/orders/fills/rewards persistence.</li>
+                </ul>
+            </section>
+
+            <section id="data">
+                <h2>3. Data Sources</h2>
+                <table class="mini-table">
+                    <thead>
+                        <tr>
+                            <th>Source</th>
+                            <th>Used For</th>
+                            <th>Notes</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><code>/api/v3/nowcast/{station}</code></td>
+                            <td>Confidence, bucket probabilities, sigma, QC state</td>
+                            <td>Helios probabilistic state is the predictive backbone.</td>
+                        </tr>
+                        <tr>
+                            <td>Polymarket WS orderbook</td>
+                            <td>Best bid/ask, spread, depth imbalance, staleness</td>
+                            <td>Realtime microstructure features and live prices.</td>
+                        </tr>
+                        <tr>
+                            <td>Polymarket Gamma event data</td>
+                            <td>Market metadata and fallback prices</td>
+                            <td>Slower than WS; used as fallback when WS mid is unavailable.</td>
+                        </tr>
+                        <tr>
+                            <td>Event window and QC</td>
+                            <td>Risk blocks and fade strategy gating</td>
+                            <td>Prevents trades during invalid/unsafe data regimes.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <section id="algorithms">
+                <h2>4. Algorithms and Strategies</h2>
+                <h3>Available strategies</h3>
+                <ul>
+                    <li><code>conservative_edge</code>: higher conviction thresholds, lower turnover.</li>
+                    <li><code>aggressive_edge</code>: lower threshold, higher frequency.</li>
+                    <li><code>fade_event_qc</code>: event/QC-aware contrarian behavior (requires active event window).</li>
+                    <li><code>maker_passive</code>: passive maker-style placement, spread capture profile.</li>
+                </ul>
+                <h3>Selector layer</h3>
+                <p>
+                    Strategy selection can be static or LinUCB (<code>selection_mode=linucb</code>). LinUCB maps context features to per-strategy
+                    expected reward and includes exploration pressure.
+                </p>
+                <p>
+                    Feature vector includes confidence, sigma, nowcast/market age, spread/depth, short volatility/churn, event window flag and QC/hour signals.
+                </p>
+            </section>
+
+            <section id="risk">
+                <h2>5. Risk Management</h2>
+                <ul>
+                    <li><code>max_daily_loss</code> hard stop.</li>
+                    <li><code>max_total_exposure</code> and <code>max_position_per_bucket</code>.</li>
+                    <li><code>max_orders_per_hour</code> and cooldown.</li>
+                    <li>Blocks on stale nowcast, stale market, and blocked QC states.</li>
+                    <li>Manual risk switch from API/UI (<code>risk_off</code> / <code>risk_on</code>).</li>
+                </ul>
+                <p>
+                    If risk blocks a decision, it is still persisted with no-trade reasons for auditability.
+                </p>
+            </section>
+
+            <section id="execution">
+                <h2>6. Execution Model</h2>
+                <p>
+                    Paper broker uses realistic execution assumptions from backtest simulator primitives:
+                </p>
+                <ul>
+                    <li>Taker fills at simulated executable prices plus fees/slippage model.</li>
+                    <li>Maker orders can remain active and fill later based on orderbook evolution.</li>
+                    <li>Position inventory and average price are tracked per Polymarket bracket label.</li>
+                    <li>Realized and mark-to-market PnL are split and reported.</li>
+                </ul>
+            </section>
+
+            <section id="reward">
+                <h2>7. Reward and Learning</h2>
+                <p>Online reward used by the selector is risk-adjusted:</p>
+                <div class="formula">
+                    reward = pnl_delta - (lambda_drawdown * dd_increment) - (lambda_turnover * turnover_penalty)
+                </div>
+                <p>
+                    Daily offline learning recalibrates and stores artifacts in model registry; promotion is gated and reversible.
+                </p>
+            </section>
+
+            <section id="timezone">
+                <h2>8. Timezone and Market Day</h2>
+                <ul>
+                    <li><code>D+0</code> means station-local “today” market.</li>
+                    <li><code>D+1</code> means station-local “tomorrow” market.</li>
+                    <li>UI surfaces NYC and Spain timestamps for operational clarity.</li>
+                    <li>Autotrader decisions are stored in UTC, rendered in multiple timezones.</li>
+                </ul>
+            </section>
+
+            <section id="dashboard">
+                <h2>9. Dashboard Interpretation</h2>
+                <h3>Signal Timeline</h3>
+                <ul>
+                    <li>Shows selected strategy, generated actions, risk result, reward and fills count per decision tick.</li>
+                </ul>
+                <h3>Execution Tape</h3>
+                <ul>
+                    <li>Fills and orders with timestamps, side, size, price, and cost terms (fees/slippage).</li>
+                </ul>
+                <h3>Polymarket Live Prices</h3>
+                <ul>
+                    <li>YES/NO prices prefer WS mid when present.</li>
+                    <li>Bid/ask and spread come from current WS L2 snapshot.</li>
+                    <li>If WS mid is unavailable, fallback source is Gamma last.</li>
+                </ul>
+            </section>
+
+            <section id="api">
+                <h2>10. API Reference</h2>
+                <table class="mini-table">
+                    <thead>
+                        <tr>
+                            <th>Endpoint</th>
+                            <th>Purpose</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>GET /api/v6/autotrader/status</code></td><td>Engine mode, running/paused/risk state, summary metrics.</td></tr>
+                        <tr><td><code>POST /api/v6/autotrader/control</code></td><td>Actions: start, pause, resume, risk_off, risk_on.</td></tr>
+                        <tr><td><code>GET /api/v6/autotrader/strategies</code></td><td>Selection counts/weights and reward by strategy.</td></tr>
+                        <tr><td><code>GET /api/v6/autotrader/positions</code></td><td>Paper inventory by bucket.</td></tr>
+                        <tr><td><code>GET /api/v6/autotrader/decisions</code></td><td>Decision stream for timeline/audit.</td></tr>
+                        <tr><td><code>GET /api/v6/autotrader/orders</code></td><td>Recent orders.</td></tr>
+                        <tr><td><code>GET /api/v6/autotrader/fills</code></td><td>Recent fills.</td></tr>
+                        <tr><td><code>POST /api/v6/learning/run</code></td><td>Manual offline learning run.</td></tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <section id="ops">
+                <h2>11. Operations and Troubleshooting</h2>
+                <ul>
+                    <li>If controls seem unresponsive, check <code>/api/v6/autotrader/status</code> and service logs.</li>
+                    <li>If market prices lag, verify WS connection health and stale metrics before relying on Gamma fallback.</li>
+                    <li>If risk is unexpectedly blocking, inspect <code>risk_reasons</code> in decisions.</li>
+                    <li>Keep system default in paper mode until long-run risk gates are passed.</li>
+                </ul>
+            </section>
+        </article>
+    </div>
+</div>
+{% endblock %}
+

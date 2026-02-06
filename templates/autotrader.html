@@ -39,6 +39,7 @@
         flex-wrap: wrap;
         gap: 8px;
         align-items: center;
+        row-gap: 10px;
         background: var(--bg-secondary);
         border: 1px solid rgba(255,255,255,0.06);
         border-radius: 12px;
@@ -66,6 +67,12 @@
         background: rgba(0,120,255,0.24);
         color: #b8daff;
         box-shadow: inset 0 0 0 1px rgba(0,120,255,0.35);
+    }
+    .control-link {
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
     }
     .btn-start { border-color: rgba(0,120,255,0.5) !important; background: rgba(0,120,255,0.2) !important; }
     .btn-riskoff { border-color: rgba(239,68,68,0.5) !important; background: rgba(239,68,68,0.16) !important; }
@@ -103,13 +110,17 @@
     }
     .market-day-meta {
         color: var(--text-secondary);
-        font-size: 11px;
-        white-space: nowrap;
+        font-size: 10px;
+        white-space: normal;
+        line-height: 1.45;
     }
     .control-msg {
-        margin-left: auto;
+        flex: 1 1 100%;
+        margin-left: 0;
         font-size: 12px;
         color: var(--text-secondary);
+        border-top: 1px solid rgba(255,255,255,0.06);
+        padding-top: 7px;
     }
 
     .kpi-grid {
@@ -135,6 +146,12 @@
         font-family: 'JetBrains Mono', monospace;
         font-size: 24px;
         font-weight: 700;
+    }
+    .kpi .value.value-ts {
+        font-family: 'Inter', sans-serif;
+        font-size: 12px;
+        font-weight: 600;
+        line-height: 1.4;
     }
     .kpi .sub {
         margin-top: 5px;
@@ -195,6 +212,11 @@
         font-size: 12px;
         vertical-align: top;
     }
+    .signal-table th:first-child,
+    .signal-table td:first-child {
+        width: 180px;
+        min-width: 180px;
+    }
     .mono { font-family: 'JetBrains Mono', monospace; }
     .actions { display: flex; flex-direction: column; gap: 3px; }
     .action {
@@ -242,10 +264,47 @@
     .metric .label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 4px; letter-spacing: 0.3px; }
     .metric .value { font-family: 'JetBrains Mono', monospace; font-size: 14px; }
 
-    .mini-list { max-height: 220px; overflow: auto; display: flex; flex-direction: column; gap: 7px; }
-    .mini-item { border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 7px 8px; background: rgba(255,255,255,0.03); }
-    .mini-item .head { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-secondary); margin-bottom: 4px; }
-    .mini-item .line { font-size: 12px; }
+    .execution-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+    }
+    .mini-list {
+        max-height: 430px;
+        min-height: 360px;
+        overflow: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding-right: 4px;
+    }
+    .mini-list::-webkit-scrollbar { width: 10px; }
+    .mini-list::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.45); border-radius: 99px; }
+    .mini-list::-webkit-scrollbar-track { background: rgba(255,255,255,0.05); border-radius: 99px; }
+    .mini-item {
+        border: 1px solid rgba(255,255,255,0.09);
+        border-radius: 10px;
+        padding: 9px 10px;
+        background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.015));
+    }
+    .mini-item .head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; font-size: 11px; color: var(--text-secondary); margin-bottom: 5px; }
+    .mini-item .line { font-size: 13px; font-weight: 600; }
+    .tz-stack {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        line-height: 1.35;
+        white-space: nowrap;
+    }
+    .tz-stack .tz-line {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 11px;
+        color: var(--text-secondary);
+    }
+    .tz-stack .tz-line strong {
+        color: var(--text-main);
+        font-weight: 700;
+    }
 
     .bar-wrap {
         height: 8px;
@@ -259,19 +318,57 @@
         background: linear-gradient(90deg, #0078FF, #00D4FF);
     }
 
-    .market-row {
-        display: grid;
-        grid-template-columns: 1.6fr 0.55fr 0.55fr 0.6fr 0.8fr;
-        gap: 7px;
-        padding: 7px 0;
-        border-bottom: 1px solid rgba(255,255,255,0.05);
-        font-size: 12px;
+    .market-table-wrap {
+        overflow: auto;
     }
-    .market-head { color: var(--text-muted); text-transform: uppercase; font-size: 10px; letter-spacing: 0.3px; }
-    .market-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .market-table {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0 6px;
+        table-layout: fixed;
+    }
+    .market-table th {
+        text-align: left;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        font-size: 10px;
+        letter-spacing: 0.3px;
+        padding: 0 12px 3px 12px;
+    }
+    .market-table td {
+        font-size: 12px;
+        padding: 10px 12px;
+        background: rgba(255,255,255,0.02);
+        border-top: 1px solid rgba(255,255,255,0.06);
+        border-bottom: 1px solid rgba(255,255,255,0.06);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .market-table td:first-child {
+        border-left: 1px solid rgba(255,255,255,0.06);
+        border-radius: 10px 0 0 10px;
+    }
+    .market-table td:last-child {
+        border-right: 1px solid rgba(255,255,255,0.06);
+        border-radius: 0 10px 10px 0;
+    }
+    .market-table col.bracket { width: 38%; }
+    .market-table col.yes-col { width: 14%; }
+    .market-table col.no-col { width: 14%; }
+    .market-table col.spread-col { width: 14%; }
+    .market-table col.ba-col { width: 20%; }
+    .market-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .yes { color: #10B981; font-family: 'JetBrains Mono', monospace; }
     .no { color: #EF4444; font-family: 'JetBrains Mono', monospace; }
     .spread { color: #F4D03F; font-family: 'JetBrains Mono', monospace; }
+    .market-source {
+        display: block;
+        margin-top: 2px;
+        color: var(--text-muted);
+        font-size: 10px;
+        font-family: 'JetBrains Mono', monospace;
+    }
 
     @media (max-width: 1300px) { .kpi-grid { grid-template-columns: repeat(2, minmax(0,1fr)); } }
     @media (max-width: 1100px) { .layout { grid-template-columns: 1fr; } }
@@ -286,6 +383,12 @@
         }
         .market-day-meta {
             white-space: normal;
+        }
+        .execution-grid {
+            grid-template-columns: 1fr;
+        }
+        .mini-list {
+            min-height: 250px;
         }
     }
 </style>
@@ -308,6 +411,7 @@
     <button id="btn-riskoff" class="control-btn btn-riskoff" onclick="sendControl('risk_off')">Risk Off</button>
     <button id="btn-riskon" class="control-btn" onclick="sendControl('risk_on')">Risk On</button>
     <button id="btn-refresh" class="control-btn" onclick="manualRefresh()">Refresh</button>
+    <a href="/autotrader/tutorial" class="control-btn control-link">Tutorial</a>
 
     <div class="market-select-wrap">
         <span class="market-select-label">Market</span>
@@ -352,7 +456,7 @@
                 <div id="signals-meta" class="panel-meta">latest decisions</div>
             </div>
             <div class="table-wrap">
-                <table class="table">
+                <table class="table signal-table">
                     <thead>
                         <tr>
                             <th>Time</th>
@@ -375,7 +479,7 @@
                 <div class="panel-title">Execution Tape</div>
                 <div class="panel-meta">latest paper fills/orders</div>
             </div>
-            <div class="metric-grid">
+            <div class="execution-grid">
                 <div>
                     <div class="panel-meta" style="margin-bottom:6px;">Fills</div>
                     <div id="fills-box" class="mini-list"><div class="empty">No fills yet.</div></div>
@@ -479,11 +583,6 @@ function signed(v, d = 4) {
     const n = Number(v);
     return `${n > 0 ? "+" : ""}${n.toFixed(d)}`;
 }
-function ts(v) {
-    if (!v) return "--";
-    const d = new Date(v);
-    return Number.isNaN(d.getTime()) ? "--" : d.toLocaleString();
-}
 function ago(v) {
     if (!v) return "--";
     const d = new Date(v);
@@ -511,6 +610,30 @@ function fmtDateInTz(dateObj, tz) {
         month: "2-digit",
         day: "2-digit",
     }).format(dateObj);
+}
+
+function formatDateTimeInTz(value, tz) {
+    if (!value) return "--";
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) return "--";
+    const parts = new Intl.DateTimeFormat("en-CA", {
+        timeZone: tz,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
+    }).formatToParts(date);
+    const get = (type) => parts.find((p) => p.type === type)?.value || "--";
+    return `${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get("minute")}:${get("second")}`;
+}
+
+function dualTsHtml(value) {
+    const nyc = formatDateTimeInTz(value, "America/New_York");
+    const es = formatDateTimeInTz(value, "Europe/Madrid");
+    return `<div class="tz-stack"><span class="tz-line"><strong>NYC</strong> ${nyc}</span><span class="tz-line"><strong>ES</strong> ${es}</span></div>`;
 }
 
 function setControlMessage(text, level = "info") {
@@ -569,10 +692,10 @@ function updateMarketDayMeta() {
     const target = new Date(now.getTime() + (live.targetDay * 24 * 60 * 60 * 1000));
 
     const stationDate = fmtDateInTz(target, live.stationTz);
-    const nycDate = fmtDateInTz(target, "America/New_York");
-    const localDate = fmtDateInTz(target, Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
+    const nycNow = formatDateTimeInTz(now, "America/New_York");
+    const esNow = formatDateTimeInTz(now, "Europe/Madrid");
 
-    meta.textContent = `D+${live.targetDay} | station(${live.stationTz}): ${stationDate} | NYC: ${nycDate} | local: ${localDate}`;
+    meta.textContent = `D+${live.targetDay} | station(${live.stationTz}) date: ${stationDate} | NYC now: ${nycNow} | ES now: ${esNow}`;
 }
 
 function setStatePill(status) {
@@ -603,8 +726,16 @@ function renderStatus(status, decisions, positions, strategies) {
     document.getElementById("kpi-of").textContent = `${perf.total_orders || 0} / ${perf.total_fills || 0}`;
     document.getElementById("kpi-costs").textContent = `fees ${num(perf.total_fees || 0, 4)} | slip ${num(perf.total_slippage || 0, 4)}`;
     const last = decisions && decisions.length ? decisions[decisions.length - 1] : null;
-    document.getElementById("kpi-last").textContent = last ? ago(last.ts_utc) : "--";
-    document.getElementById("kpi-strategy").textContent = `strategy: ${last?.selected_strategy || "--"}`;
+    const lastEl = document.getElementById("kpi-last");
+    if (last?.ts_utc) {
+        lastEl.className = "value value-ts";
+        lastEl.innerHTML = dualTsHtml(last.ts_utc);
+        document.getElementById("kpi-strategy").textContent = `strategy: ${last?.selected_strategy || "--"} | ${ago(last.ts_utc)}`;
+    } else {
+        lastEl.className = "value mono";
+        lastEl.textContent = "--";
+        document.getElementById("kpi-strategy").textContent = "strategy: --";
+    }
 
     document.getElementById("status-meta").textContent = `station: ${status?.station_id || "--"}`;
     document.getElementById("st-mode").textContent = status?.mode || "--";
@@ -618,7 +749,7 @@ function renderStatus(status, decisions, positions, strategies) {
     ].join("");
 
     const c = status?.last_context || {};
-    document.getElementById("ctx-meta").textContent = c.ts_utc ? ts(c.ts_utc) : "--";
+    document.getElementById("ctx-meta").innerHTML = c.ts_utc ? dualTsHtml(c.ts_utc) : "--";
     document.getElementById("ctx-confidence").textContent = pct(c.confidence, 1);
     document.getElementById("ctx-sigma").textContent = num(c.tmax_sigma_f, 2);
     document.getElementById("ctx-n-age").textContent = num(c.nowcast_age_seconds, 0);
@@ -663,7 +794,7 @@ function renderSignals(decisions) {
         const rewardCls = Number(d.reward || 0) > 0 ? "pos" : (Number(d.reward || 0) < 0 ? "neg" : "");
         return `
             <tr>
-                <td class="mono">${ts(d.ts_utc)}</td>
+                <td>${dualTsHtml(d.ts_utc)}</td>
                 <td>${esc(d.selected_strategy || "--")}</td>
                 <td>${signalHtml}</td>
                 <td>${riskHtml}</td>
@@ -683,7 +814,7 @@ function renderMini(items, id, type) {
             : `${esc(x.order_type || "--")} | ${esc(x.status || "--")}`;
         return `
             <div class="mini-item">
-                <div class="head"><span class="mono">${ts(x.ts_utc)}</span><span>${esc(x.strategy_name || "-")}</span></div>
+                <div class="head"><span>${dualTsHtml(x.ts_utc)}</span><span>${esc(x.strategy_name || "-")}</span></div>
                 <div class="line">
                     <span class="side ${String(x.side).toLowerCase() === "sell" ? "sell" : "buy"}">${esc(x.side || "--")}</span>
                     <span class="mono">${esc(x.bucket || "--")}</span>
@@ -762,24 +893,56 @@ function renderMarket(m) {
         box.innerHTML = `<div class="empty">${esc(m?.error || "No market data.")}</div>`;
         return;
     }
-    meta.textContent = `${m.station_id || live.stationId} | ${m.target_date || "--"} | ws:${m.ws_connected ? "on" : "off"} | day D+${live.targetDay}`;
+    const nycNow = formatDateTimeInTz(new Date(), "America/New_York");
+    const esNow = formatDateTimeInTz(new Date(), "Europe/Madrid");
+    meta.textContent = `${m.station_id || live.stationId} | station date ${m.target_date || "--"} | ws:${m.ws_connected ? "on" : "off"} | NYC ${nycNow} | ES ${esNow}`;
     const rows = (m.brackets || []).slice(0, 8);
     if (!rows.length) { box.innerHTML = '<div class="empty">No brackets in market.</div>'; return; }
     box.innerHTML = `
-        <div class="market-row market-head"><div>Bracket</div><div>YES</div><div>NO</div><div>Spread</div><div>Bid/Ask</div></div>
-        ${rows.map((b) => {
-            const spread = b.ws_spread !== null && b.ws_spread !== undefined ? `${(Number(b.ws_spread) * 100).toFixed(2)}c` : "--";
-            const ba = (b.ws_best_bid !== null && b.ws_best_ask !== null)
-                ? `${(Number(b.ws_best_bid) * 100).toFixed(1)}c / ${(Number(b.ws_best_ask) * 100).toFixed(1)}c`
-                : "--";
-            return `<div class="market-row">
-                <div class="market-name" title="${esc(b.name || "")}">${esc(b.name || "--")}</div>
-                <div class="yes">${(Number(b.yes_price || 0) * 100).toFixed(1)}c</div>
-                <div class="no">${(Number(b.no_price || 0) * 100).toFixed(1)}c</div>
-                <div class="spread">${spread}</div>
-                <div class="mono">${ba}</div>
-            </div>`;
-        }).join("")}`;
+        <div class="market-table-wrap">
+            <table class="market-table">
+                <colgroup>
+                    <col class="bracket">
+                    <col class="yes-col">
+                    <col class="no-col">
+                    <col class="spread-col">
+                    <col class="ba-col">
+                </colgroup>
+                <thead>
+                    <tr>
+                        <th>Bracket</th>
+                        <th>YES</th>
+                        <th>NO</th>
+                        <th>Spread</th>
+                        <th>Bid/Ask</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${rows.map((b) => {
+                        const wsMidFallback = (b.ws_best_bid !== null && b.ws_best_bid !== undefined && b.ws_best_ask !== null && b.ws_best_ask !== undefined)
+                            ? (Number(b.ws_best_bid) + Number(b.ws_best_ask)) / 2
+                            : null;
+                        const wsMid = (b.ws_mid !== null && b.ws_mid !== undefined) ? Number(b.ws_mid) : wsMidFallback;
+                        const hasWsMid = wsMid !== null && wsMid !== undefined;
+                        const yesLiveRaw = hasWsMid ? wsMid : Number(b.yes_price || 0);
+                        const yesLive = Math.max(0, Math.min(1, yesLiveRaw));
+                        const noLive = Math.max(0, Math.min(1, 1 - yesLive));
+                        const spread = b.ws_spread !== null && b.ws_spread !== undefined ? `${(Number(b.ws_spread) * 100).toFixed(2)}c` : "--";
+                        const ba = (b.ws_best_bid !== null && b.ws_best_ask !== null)
+                            ? `${(Number(b.ws_best_bid) * 100).toFixed(1)}c / ${(Number(b.ws_best_ask) * 100).toFixed(1)}c`
+                            : "--";
+                        const source = hasWsMid ? "source ws_mid" : "source gamma_last";
+                        return `<tr>
+                            <td class="market-name" title="${esc(b.name || "")}">${esc(b.name || "--")}<span class="market-source">${source}</span></td>
+                            <td class="yes">${(yesLive * 100).toFixed(1)}c</td>
+                            <td class="no">${(noLive * 100).toFixed(1)}c</td>
+                            <td class="spread">${spread}</td>
+                            <td class="mono">${ba}</td>
+                        </tr>`;
+                    }).join("")}
+                </tbody>
+            </table>
+        </div>`;
 }
 
 async function refreshFast() {
@@ -827,7 +990,7 @@ async function refreshSlow() {
     const s = live.stationId || "KLGA";
     const [n, m] = await Promise.allSettled([
         j(`/api/v3/nowcast/${s}`),
-        j(`/api/polymarket/${s}?target_day=${live.targetDay}&depth=3`),
+        j(`/api/polymarket/${s}?target_day=${live.targetDay}&depth=5`),
     ]);
     renderNowcast(n.status === "fulfilled" ? n.value : { error: n.reason?.message || "error" });
     renderMarket(m.status === "fulfilled" ? m.value : { error: m.reason?.message || "error" });
@@ -887,7 +1050,7 @@ function startPolling() {
     }), 5000);
     live.slowTimer = setInterval(() => refreshSlow().catch((e) => {
         setControlMessage(`slow loop error: ${e.message}`, "warn");
-    }), 20000);
+    }), 5000);
 }
 
 function onMarketDayChange() {
