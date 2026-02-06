@@ -12,6 +12,7 @@ Tests cover:
 - Report generation
 """
 
+import asyncio
 import pytest
 import math
 from datetime import datetime, date, timedelta
@@ -590,6 +591,28 @@ class TestIntegration:
 
         assert metrics.n_days == 1
         assert metrics.brier_global >= 0
+
+
+class TestBacktestApi:
+    """API-level behavior for backtest endpoint helpers."""
+
+    def test_run_backtest_returns_422_when_no_data(self):
+        """When no recordings exist, API should return a clear data-availability error."""
+        from fastapi.responses import JSONResponse
+        from web_server import run_backtest
+
+        response = asyncio.run(
+            run_backtest(
+                station_id="KLGA",
+                start_date="2099-01-01",
+                end_date="2099-01-01",
+                mode="execution",
+                policy="conservative",
+            )
+        )
+
+        assert isinstance(response, JSONResponse)
+        assert response.status_code == 422
 
 
 # =============================================================================

@@ -588,6 +588,86 @@ class HybridReader:
         self.parquet_base = Path(parquet_base)
         self._parquet_reader = ParquetReader(parquet_base)
 
+    def _iter_ndjson_event_files(self, date_str: str) -> Generator[Path, None, None]:
+        """Iterate NDJSON event files for a given date."""
+        date_path = self.ndjson_base / f"date={date_str}"
+        if not date_path.exists():
+            return
+
+        for channel_dir in date_path.iterdir():
+            if not (channel_dir.is_dir() and channel_dir.name.startswith("ch=")):
+                continue
+            event_file = channel_dir / "events.ndjson"
+            if event_file.exists():
+                yield event_file
+
+    def _file_has_any_event(self, event_file: Path) -> bool:
+        """Return True if file has at least one parseable event."""
+        try:
+            with open(event_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        json.loads(line)
+                        return True
+                    except json.JSONDecodeError:
+                        continue
+        except Exception:
+            return False
+        return False
+
+    def _file_has_station_event(self, event_file: Path, station_id: str) -> bool:
+        """Return True if file has at least one event for station_id (or global)."""
+        try:
+            with open(event_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        event = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+
+                    ev_station = event.get("station_id")
+                    if ev_station is None or ev_station == station_id:
+                        return True
+        except Exception:
+            return False
+        return False
+
+    def _date_has_events_ndjson(self, date_str: str, station_id: Optional[str]) -> bool:
+        """Return True when date has at least one usable NDJSON event."""
+        for event_file in self._iter_ndjson_event_files(date_str):
+            if station_id:
+                if self._file_has_station_event(event_file, station_id):
+                    return True
+            elif self._file_has_any_event(event_file):
+                return True
+        return False
+
+    def _channel_has_events_ndjson(
+        self,
+        date_str: str,
+        channel: str,
+        station_id: Optional[str],
+    ) -> bool:
+        """Return True when channel/date has events for station_id (or any station)."""
+        event_file = (
+            self.ndjson_base /
+            f"date={date_str}" /
+            f"ch={channel}" /
+            "events.ndjson"
+        )
+        if not event_file.exists():
+            return False
+
+        if station_id:
+            return self._file_has_station_event(event_file, station_id)
+        return self._file_has_any_event(event_file)
+
     def list_available_dates(self, station_id: Optional[str] = None) -> List[str]:
         """List dates with recorded data (NDJSON or Parquet)."""
         dates = set()
@@ -596,7 +676,9 @@ class HybridReader:
         if self.ndjson_base.exists():
             for item in self.ndjson_base.iterdir():
                 if item.is_dir() and item.name.startswith("date="):
-                    dates.add(item.name.replace("date=", ""))
+                    date_str = item.name.replace("date=", "")
+                    if self._date_has_events_ndjson(date_str, station_id):
+                        dates.add(date_str)
 
         # Also check Parquet
         parquet_dates = self._parquet_reader.list_available_dates(station_id)
@@ -617,7 +699,9 @@ class HybridReader:
         if ndjson_date_path.exists():
             for item in ndjson_date_path.iterdir():
                 if item.is_dir() and item.name.startswith("ch="):
-                    channels.add(item.name.replace("ch=", ""))
+                    channel = item.name.replace("ch=", "")
+                    if self._channel_has_events_ndjson(date_str, channel, station_id):
+                        channels.add(channel)
 
         # Also check Parquet
         parquet_channels = self._parquet_reader.list_channels_for_date(
@@ -671,7 +755,15 @@ class HybridReader:
         # Try NDJSON first (fresher data)
         events = self.read_channel_ndjson(date_str, channel)
         if events:
-            return events
+            if station_id:
+                filtered_events = [
+                    e for e in events
+                    if e.get("station_id") == station_id or e.get("station_id") is None
+                ]
+                if filtered_events:
+                    return filtered_events
+            else:
+                return events
 
         # Fall back to Parquet
         return self._parquet_reader.read_channel(date_str, channel, station_id)

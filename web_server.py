@@ -843,7 +843,14 @@ async def create_replay_session(date: str, station_id: str = None):
 
     session = await engine.create_session(date, station_id)
     if not session:
-        return {"error": "Failed to load session - no data found"}
+        return {
+            "error": "Failed to load session - no events found for selected date/station",
+            "date": date,
+            "station_id": station_id,
+            "channels": engine.list_channels_for_date(date, station_id),
+            "available_dates": engine.list_available_dates(station_id)[:10],
+            "date_reference": "NYC market date"
+        }
 
     return session.get_state()
 
@@ -2470,6 +2477,23 @@ async def run_backtest(
         )
 
         payload = result.to_dict()
+
+        coverage = payload.get("coverage", {})
+        if (coverage.get("days_with_data") or 0) == 0:
+            from core.backtest import get_dataset_builder
+            builder = get_dataset_builder()
+            available_dates = [d.isoformat() for d in builder.list_available_dates(station_id)[:10]]
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "error": "No recorded data found for requested range/station",
+                    "station_id": station_id,
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "available_dates": available_dates,
+                    "date_reference": "NYC market date"
+                }
+            )
 
         # report_level controls timeline payload size.
         if report_level == "summary":
