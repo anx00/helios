@@ -36,6 +36,9 @@ def _signal_to_action(signal: PolicySignal, force_maker: bool = False) -> Dict:
     return {
         "bucket": signal.bucket,
         "side": signal.side.value,
+        # Polymarket binary markets have YES and NO tokens per bracket.
+        # Current policy signals operate on the YES leg explicitly.
+        "outcome": "yes",
         "order_type": order_type,
         "target_size": signal.target_size,
         "max_price": signal.max_price,

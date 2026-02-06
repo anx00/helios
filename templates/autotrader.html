@@ -224,15 +224,20 @@
         align-items: center;
         gap: 7px;
         font-size: 11px;
+        flex-wrap: wrap;
     }
     .side {
-        min-width: 44px;
+        min-width: 78px;
         text-align: center;
         border-radius: 999px;
         padding: 2px 7px;
         font-size: 10px;
         font-weight: 700;
         text-transform: uppercase;
+    }
+    .side-note {
+        font-size: 10px;
+        opacity: 0.88;
     }
     .side.buy { color: #10B981; border: 1px solid rgba(16,185,129,0.45); background: rgba(16,185,129,0.16); }
     .side.sell { color: #EF4444; border: 1px solid rgba(239,68,68,0.45); background: rgba(239,68,68,0.16); }
@@ -353,11 +358,12 @@
         border-right: 1px solid rgba(255,255,255,0.06);
         border-radius: 0 10px 10px 0;
     }
-    .market-table col.bracket { width: 38%; }
-    .market-table col.yes-col { width: 14%; }
-    .market-table col.no-col { width: 14%; }
+    .market-table col.bracket { width: 30%; }
+    .market-table col.yes-col { width: 10%; }
+    .market-table col.no-col { width: 10%; }
+    .market-table col.ob-yes-col { width: 18%; }
+    .market-table col.ob-no-col { width: 18%; }
     .market-table col.spread-col { width: 14%; }
-    .market-table col.ba-col { width: 20%; }
     .market-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .yes { color: #10B981; font-family: 'JetBrains Mono', monospace; }
     .no { color: #EF4444; font-family: 'JetBrains Mono', monospace; }
@@ -644,6 +650,31 @@ function setControlMessage(text, level = "info") {
     else msg.style.color = "var(--text-secondary)";
 }
 
+function sideIntent(side, outcome = "yes") {
+    const s = String(side || "buy").toLowerCase();
+    const o = String(outcome || "yes").toLowerCase();
+    if (o === "no") {
+        if (s === "buy") return { css: "buy", primary: "BUY NO", equiv: "= SELL YES" };
+        return { css: "sell", primary: "SELL NO", equiv: "= BUY YES" };
+    }
+    if (s === "buy") return { css: "buy", primary: "BUY YES", equiv: "= SELL NO" };
+    return { css: "sell", primary: "SELL YES", equiv: "= BUY NO" };
+}
+
+function firstNum(...values) {
+    for (const v of values) {
+        if (v === null || v === undefined) continue;
+        const n = Number(v);
+        if (!Number.isNaN(n)) return n;
+    }
+    return null;
+}
+
+function fmtBookPair(bid, ask) {
+    if (bid === null || bid === undefined || ask === null || ask === undefined) return "--";
+    return `${(Number(bid) * 100).toFixed(1)}c / ${(Number(ask) * 100).toFixed(1)}c`;
+}
+
 function setControlsDisabled(disabled) {
     ["btn-start", "btn-pause", "btn-resume", "btn-riskoff", "btn-riskon", "btn-refresh"].forEach((id) => {
         const el = document.getElementById(id);
@@ -778,7 +809,7 @@ function renderSignals(decisions) {
         const signalHtml = acts.length
             ? `<div class="actions">${acts.map((a) => `
                 <div class="action">
-                    <span class="side ${String(a.side).toLowerCase() === "sell" ? "sell" : "buy"}">${esc(a.side || "buy")}</span>
+                    ${(() => { const intent = sideIntent(a.side, a.outcome || "yes"); return `<span class="side ${intent.css}">${intent.primary}</span><span class="muted side-note">${intent.equiv}</span>`; })()}
                     <span class="mono">${esc(a.bucket || "-")}</span>
                     <span class="mono">x${num(a.target_size ?? a.size, 3)}</span>
                     <span class="mono">${esc(a.order_type || "-")}</span>
@@ -816,7 +847,7 @@ function renderMini(items, id, type) {
             <div class="mini-item">
                 <div class="head"><span>${dualTsHtml(x.ts_utc)}</span><span>${esc(x.strategy_name || "-")}</span></div>
                 <div class="line">
-                    <span class="side ${String(x.side).toLowerCase() === "sell" ? "sell" : "buy"}">${esc(x.side || "--")}</span>
+                    ${(() => { const intent = sideIntent(x.side, x.outcome || "yes"); return `<span class="side ${intent.css}">${intent.primary}</span><span class="muted side-note">${intent.equiv}</span>`; })()}
                     <span class="mono">${esc(x.bucket || "--")}</span>
                     <span class="mono">x${num(x.size, 3)} @ ${px}</span>
                 </div>
@@ -905,39 +936,55 @@ function renderMarket(m) {
                     <col class="bracket">
                     <col class="yes-col">
                     <col class="no-col">
+                    <col class="ob-yes-col">
+                    <col class="ob-no-col">
                     <col class="spread-col">
-                    <col class="ba-col">
                 </colgroup>
                 <thead>
                     <tr>
                         <th>Bracket</th>
                         <th>YES</th>
                         <th>NO</th>
-                        <th>Spread</th>
-                        <th>Bid/Ask</th>
+                        <th>OB YES</th>
+                        <th>OB NO</th>
+                        <th>Spread Y/N</th>
                     </tr>
                 </thead>
                 <tbody>
                     ${rows.map((b) => {
-                        const wsMidFallback = (b.ws_best_bid !== null && b.ws_best_bid !== undefined && b.ws_best_ask !== null && b.ws_best_ask !== undefined)
-                            ? (Number(b.ws_best_bid) + Number(b.ws_best_ask)) / 2
-                            : null;
-                        const wsMid = (b.ws_mid !== null && b.ws_mid !== undefined) ? Number(b.ws_mid) : wsMidFallback;
-                        const hasWsMid = wsMid !== null && wsMid !== undefined;
-                        const yesLiveRaw = hasWsMid ? wsMid : Number(b.yes_price || 0);
+                        const yesBid = firstNum(b.ws_yes_best_bid, b.ws_best_bid);
+                        const yesAsk = firstNum(b.ws_yes_best_ask, b.ws_best_ask);
+                        const yesMidFromBook = (yesBid !== null && yesAsk !== null) ? ((yesBid + yesAsk) / 2) : null;
+                        const yesMid = firstNum(b.ws_yes_mid, b.ws_mid, yesMidFromBook, b.yes_price);
+
+                        const noBidRaw = firstNum(b.ws_no_best_bid);
+                        const noAskRaw = firstNum(b.ws_no_best_ask);
+                        const noBid = firstNum(noBidRaw, yesAsk !== null ? (1.0 - yesAsk) : null);
+                        const noAsk = firstNum(noAskRaw, yesBid !== null ? (1.0 - yesBid) : null);
+                        const noMidFromBook = (noBid !== null && noAsk !== null) ? ((noBid + noAsk) / 2) : null;
+                        const noMid = firstNum(b.ws_no_mid, noMidFromBook, yesMid !== null ? (1.0 - yesMid) : null, b.no_price);
+
+                        const hasWsYes = firstNum(b.ws_yes_mid, b.ws_mid, yesMidFromBook) !== null;
+                        const hasWsNo = firstNum(b.ws_no_mid, noMidFromBook) !== null;
+
+                        const yesLiveRaw = yesMid !== null ? yesMid : Number(b.yes_price || 0);
                         const yesLive = Math.max(0, Math.min(1, yesLiveRaw));
-                        const noLive = Math.max(0, Math.min(1, 1 - yesLive));
-                        const spread = b.ws_spread !== null && b.ws_spread !== undefined ? `${(Number(b.ws_spread) * 100).toFixed(2)}c` : "--";
-                        const ba = (b.ws_best_bid !== null && b.ws_best_ask !== null)
-                            ? `${(Number(b.ws_best_bid) * 100).toFixed(1)}c / ${(Number(b.ws_best_ask) * 100).toFixed(1)}c`
-                            : "--";
-                        const source = hasWsMid ? "source ws_mid" : "source gamma_last";
+                        const noLive = Math.max(0, Math.min(1, noMid !== null ? noMid : (1 - yesLive)));
+
+                        const yesSpread = firstNum(b.ws_yes_spread, b.ws_spread, (yesBid !== null && yesAsk !== null) ? (yesAsk - yesBid) : null);
+                        const noSpread = firstNum(b.ws_no_spread, (noBid !== null && noAsk !== null) ? (noAsk - noBid) : null);
+                        const spreadText = `${yesSpread !== null ? `${(yesSpread * 100).toFixed(2)}c` : "--"} / ${noSpread !== null ? `${(noSpread * 100).toFixed(2)}c` : "--"}`;
+
+                        const obYes = fmtBookPair(yesBid, yesAsk);
+                        const obNo = fmtBookPair(noBid, noAsk);
+                        const source = `Y:${hasWsYes ? "ws" : "gamma"} N:${hasWsNo ? "ws" : "derived"}`;
                         return `<tr>
                             <td class="market-name" title="${esc(b.name || "")}">${esc(b.name || "--")}<span class="market-source">${source}</span></td>
                             <td class="yes">${(yesLive * 100).toFixed(1)}c</td>
                             <td class="no">${(noLive * 100).toFixed(1)}c</td>
-                            <td class="spread">${spread}</td>
-                            <td class="mono">${ba}</td>
+                            <td class="mono">${obYes}</td>
+                            <td class="mono">${obNo}</td>
+                            <td class="spread">${spreadText}</td>
                         </tr>`;
                     }).join("")}
                 </tbody>

@@ -1223,26 +1223,36 @@ async def get_polymarket_dashboard_data(station_id: str, target_day: int = 0, de
         except (ValueError, TypeError, IndexError):
             yes_price = 0.0
 
-        # Parse clobTokenIds (JSON string) to get YES token
+        # Parse clobTokenIds (JSON string): [YES token, NO token]
         clob_raw = market.get("clobTokenIds", "[]")
         try:
             if isinstance(clob_raw, str):
                 clob_ids = _json.loads(clob_raw)
             else:
                 clob_ids = clob_raw
-            yes_token = clob_ids[0] if clob_ids else None
+            yes_token = clob_ids[0] if len(clob_ids) > 0 else None
+            no_token = clob_ids[1] if len(clob_ids) > 1 else None
         except (ValueError, TypeError, IndexError):
             yes_token = None
+            no_token = None
 
         brackets.append({
             "name": bracket_name,
             "yes_price": yes_price,
             "no_price": round(1.0 - yes_price, 4),
             "volume": volume,
-            "token_id": yes_token,
+            "token_id": yes_token,  # backwards-compatible alias for YES token
+            "yes_token_id": yes_token,
+            "no_token_id": no_token,
             "ws_best_bid": None, "ws_best_ask": None, "ws_spread": None,
             "ws_mid": None, "ws_bid_depth": None, "ws_ask_depth": None,
             "ws_bids": [], "ws_asks": [], "ws_staleness_ms": None,
+            "ws_yes_best_bid": None, "ws_yes_best_ask": None, "ws_yes_spread": None,
+            "ws_yes_mid": None, "ws_yes_bid_depth": None, "ws_yes_ask_depth": None,
+            "ws_yes_bids": [], "ws_yes_asks": [], "ws_yes_staleness_ms": None,
+            "ws_no_best_bid": None, "ws_no_best_ask": None, "ws_no_spread": None,
+            "ws_no_mid": None, "ws_no_bid_depth": None, "ws_no_ask_depth": None,
+            "ws_no_bids": [], "ws_no_asks": [], "ws_no_staleness_ms": None,
         })
 
     # 3. Enrich with WebSocket orderbook data (join by token_id)
@@ -1255,18 +1265,43 @@ async def get_polymarket_dashboard_data(station_id: str, target_day: int = 0, de
 
         if client.state and hasattr(client.state, 'orderbooks'):
             for b in brackets:
-                token_id = b.get("token_id")
-                if token_id and token_id in client.state.orderbooks:
-                    snap = client.state.orderbooks[token_id].get_l2_snapshot(top_n=depth)
-                    b["ws_best_bid"] = snap.get("best_bid")
-                    b["ws_best_ask"] = snap.get("best_ask")
-                    b["ws_spread"] = snap.get("spread")
-                    b["ws_mid"] = snap.get("mid")
-                    b["ws_bid_depth"] = snap.get("bid_depth")
-                    b["ws_ask_depth"] = snap.get("ask_depth")
-                    b["ws_bids"] = snap.get("bids", [])
-                    b["ws_asks"] = snap.get("asks", [])
-                    b["ws_staleness_ms"] = snap.get("staleness_ms")
+                yes_token_id = b.get("yes_token_id")
+                no_token_id = b.get("no_token_id")
+
+                if yes_token_id and yes_token_id in client.state.orderbooks:
+                    snap_yes = client.state.orderbooks[yes_token_id].get_l2_snapshot(top_n=depth)
+                    b["ws_yes_best_bid"] = snap_yes.get("best_bid")
+                    b["ws_yes_best_ask"] = snap_yes.get("best_ask")
+                    b["ws_yes_spread"] = snap_yes.get("spread")
+                    b["ws_yes_mid"] = snap_yes.get("mid")
+                    b["ws_yes_bid_depth"] = snap_yes.get("bid_depth")
+                    b["ws_yes_ask_depth"] = snap_yes.get("ask_depth")
+                    b["ws_yes_bids"] = snap_yes.get("bids", [])
+                    b["ws_yes_asks"] = snap_yes.get("asks", [])
+                    b["ws_yes_staleness_ms"] = snap_yes.get("staleness_ms")
+
+                    # Backwards-compatible fields continue representing YES orderbook.
+                    b["ws_best_bid"] = b["ws_yes_best_bid"]
+                    b["ws_best_ask"] = b["ws_yes_best_ask"]
+                    b["ws_spread"] = b["ws_yes_spread"]
+                    b["ws_mid"] = b["ws_yes_mid"]
+                    b["ws_bid_depth"] = b["ws_yes_bid_depth"]
+                    b["ws_ask_depth"] = b["ws_yes_ask_depth"]
+                    b["ws_bids"] = b["ws_yes_bids"]
+                    b["ws_asks"] = b["ws_yes_asks"]
+                    b["ws_staleness_ms"] = b["ws_yes_staleness_ms"]
+
+                if no_token_id and no_token_id in client.state.orderbooks:
+                    snap_no = client.state.orderbooks[no_token_id].get_l2_snapshot(top_n=depth)
+                    b["ws_no_best_bid"] = snap_no.get("best_bid")
+                    b["ws_no_best_ask"] = snap_no.get("best_ask")
+                    b["ws_no_spread"] = snap_no.get("spread")
+                    b["ws_no_mid"] = snap_no.get("mid")
+                    b["ws_no_bid_depth"] = snap_no.get("bid_depth")
+                    b["ws_no_ask_depth"] = snap_no.get("ask_depth")
+                    b["ws_no_bids"] = snap_no.get("bids", [])
+                    b["ws_no_asks"] = snap_no.get("asks", [])
+                    b["ws_no_staleness_ms"] = snap_no.get("staleness_ms")
     except Exception:
         pass
 
