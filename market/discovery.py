@@ -3,7 +3,7 @@ import httpx
 import logging
 import json
 from datetime import datetime, date, timedelta
-from typing import List, Optional, Tuple
+from typing import Iterable, List, Optional, Tuple
 
 from config import POLYMARKET_EVENTS_URL, POLYMARKET_CITY_SLUGS
 
@@ -83,19 +83,7 @@ async def fetch_market_token_ids_for_station_date(station_id: str, target_date: 
         return []
 
     markets = event.get("markets", [])
-    result = []
-    for market in markets:
-        clob_tokens = market.get("clobTokenIds")
-        bracket = market.get("groupItemTitle", "")
-
-        if clob_tokens:
-            if isinstance(clob_tokens, str):
-                clob_tokens = json.loads(clob_tokens)
-            if clob_tokens:
-                yes_token = clob_tokens[0]
-                result.append((yes_token, bracket))
-
-    return result
+    return _extract_market_token_ids(markets)
 
 async def fetch_market_token_ids(event_slug: str) -> List[Tuple[str, str]]:
     """
@@ -120,23 +108,39 @@ async def fetch_market_token_ids(event_slug: str) -> List[Tuple[str, str]]:
                 
             event = data[0]
             markets = event.get("markets", [])
-            
-            result = []
-            for market in markets:
-                # The clobTokenIds field contains the YES/NO token IDs
-                clob_tokens = market.get("clobTokenIds")
-                bracket = market.get("groupItemTitle", "")
-                
-                if clob_tokens:
-                    if isinstance(clob_tokens, str):
-                        clob_tokens = json.loads(clob_tokens)
-                    # First token is YES, second is NO
-                    if clob_tokens:
-                        yes_token = clob_tokens[0]
-                        result.append((yes_token, bracket))
-                        
-            return result
+            return _extract_market_token_ids(markets)
             
     except Exception as e:
         logger.error(f"Error fetching token IDs: {e}")
         return []
+
+
+def _extract_market_token_ids(markets: Iterable[dict]) -> List[Tuple[str, str]]:
+    """
+    Parse market payloads and return all token IDs for each bracket.
+    Includes both YES and NO tokens when present.
+    """
+    result: List[Tuple[str, str]] = []
+    seen: set[str] = set()
+
+    for market in markets or []:
+        clob_tokens = market.get("clobTokenIds")
+        bracket = market.get("groupItemTitle", "")
+
+        if not clob_tokens:
+            continue
+        if isinstance(clob_tokens, str):
+            try:
+                clob_tokens = json.loads(clob_tokens)
+            except json.JSONDecodeError:
+                continue
+        if not isinstance(clob_tokens, list):
+            continue
+
+        # Polymarket binary markets expose [YES, NO]. Keep both.
+        for token in clob_tokens[:2]:
+            if token and token not in seen:
+                seen.add(token)
+                result.append((token, bracket))
+
+    return result

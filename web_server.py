@@ -1263,6 +1263,19 @@ async def get_polymarket_dashboard_data(station_id: str, target_day: int = 0, de
         ws_connected = client.is_connected
         ws_metrics = client.state.metrics if client.state else {}
 
+        # Ensure both YES and NO token books are subscribed for the requested market.
+        missing_tokens: list[str] = []
+        if client.state and hasattr(client.state, "orderbooks"):
+            for b in brackets:
+                for token_key in ("yes_token_id", "no_token_id"):
+                    token_id = b.get(token_key)
+                    if token_id and token_id not in client.state.orderbooks:
+                        missing_tokens.append(token_id)
+                        client.set_market_info(token_id, f"{station_id}|{b.get('name', 'Unknown')}")
+            if missing_tokens:
+                unique_missing = list(dict.fromkeys(missing_tokens))
+                await client.subscribe_to_markets(unique_missing)
+
         if client.state and hasattr(client.state, 'orderbooks'):
             for b in brackets:
                 yes_token_id = b.get("yes_token_id")
