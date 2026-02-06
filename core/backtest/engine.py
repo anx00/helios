@@ -673,7 +673,6 @@ class BacktestEngine:
             )
 
         # Calculate average staleness (filter out infinity values)
-        import math
         valid_staleness = [s for s in staleness_samples if not math.isinf(s)]
         if valid_staleness:
             day_result.staleness_avg = sum(valid_staleness) / len(valid_staleness)

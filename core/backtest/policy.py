@@ -25,6 +25,43 @@ UTC = ZoneInfo("UTC")
 NYC = ZoneInfo("America/New_York")
 
 
+def _safe_float(value: Any) -> Optional[float]:
+    """Return float value when valid, otherwise None."""
+    if value is None:
+        return None
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return None
+    if math.isnan(out) or math.isinf(out):
+        return None
+    return out
+
+
+def _resolve_mid_price(
+    bucket_market: Optional[Dict[str, Any]],
+    fallback_mid: float,
+    default_spread: float = 0.04,
+) -> float:
+    """
+    Build a robust mid-price from bucket market data.
+    Falls back to model-prob-based synthetic spread if bid/ask is missing.
+    """
+    if not bucket_market:
+        return fallback_mid
+
+    bid = _safe_float(bucket_market.get("best_bid"))
+    ask = _safe_float(bucket_market.get("best_ask"))
+
+    if bid is not None and ask is not None:
+        return (bid + ask) / 2.0
+    if bid is not None:
+        return (bid + (bid + default_spread)) / 2.0
+    if ask is not None:
+        return ((ask - default_spread) + ask) / 2.0
+    return fallback_mid
+
+
 class PolicyState(Enum):
     """
     Position management state machine.
@@ -386,10 +423,7 @@ class Policy:
         market_price = model_prob  # Default: no edge
         if market_state:
             bucket_market = market_state.get(bucket, {})
-            bid = bucket_market.get("best_bid", model_prob - 0.02)
-            ask = bucket_market.get("best_ask", model_prob + 0.02)
-            mid = (bid + ask) / 2
-            market_price = mid
+            market_price = _resolve_mid_price(bucket_market, fallback_mid=model_prob)
 
         # Get current position
         position = self.get_position(bucket)
@@ -540,8 +574,7 @@ class Policy:
             # Track edge for diagnostics
             if market_state and bucket in market_state:
                 bucket_market = market_state[bucket]
-                mid = (bucket_market.get("best_bid", model_prob) +
-                       bucket_market.get("best_ask", model_prob)) / 2
+                mid = _resolve_mid_price(bucket_market, fallback_mid=model_prob)
                 edge = model_prob - mid
                 result.edge_by_bucket[bucket] = edge
 
@@ -586,9 +619,7 @@ class Policy:
         market_price = model_prob
         if market_state and bucket in market_state:
             bucket_market = market_state[bucket]
-            bid = bucket_market.get("best_bid", model_prob - 0.02)
-            ask = bucket_market.get("best_ask", model_prob + 0.02)
-            market_price = (bid + ask) / 2
+            market_price = _resolve_mid_price(bucket_market, fallback_mid=model_prob)
 
         # Get current position
         position = self.get_position(bucket)

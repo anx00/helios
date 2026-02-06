@@ -772,7 +772,18 @@ function renderStatus(status, decisions, positions, strategies) {
     document.getElementById("st-mode").textContent = status?.mode || "--";
     document.getElementById("st-selection").textContent = status?.selection_mode || "--";
     document.getElementById("st-interval").textContent = status?.decision_interval_seconds ? `${status.decision_interval_seconds}s` : "--";
-    document.getElementById("st-buckets").textContent = String(status?.last_context?.market_bucket_count ?? "--");
+    const marketBuckets = status?.last_context?.market_bucket_count;
+    const overlapBuckets = status?.last_context?.market_overlap_count;
+    const nowcastBuckets = status?.last_context?.nowcast_bucket_count;
+    if (
+        marketBuckets !== undefined && marketBuckets !== null &&
+        overlapBuckets !== undefined && overlapBuckets !== null &&
+        nowcastBuckets !== undefined && nowcastBuckets !== null
+    ) {
+        document.getElementById("st-buckets").textContent = `${marketBuckets} (match ${overlapBuckets}/${nowcastBuckets})`;
+    } else {
+        document.getElementById("st-buckets").textContent = String(marketBuckets ?? "--");
+    }
     document.getElementById("status-badges").innerHTML = [
         `<span class="badge ${status?.running ? "ok" : "warn"}">engine ${status?.running ? "on" : "off"}</span>`,
         `<span class="badge ${status?.paused ? "warn" : "ok"}">paused ${status?.paused ? "yes" : "no"}</span>`,
@@ -817,10 +828,14 @@ function renderSignals(decisions) {
                 </div>`).join("")}</div>`
             : `<span class="muted">NO TRADE</span>`;
         const blocked = !!d.risk_blocked;
-        const reasons = (d.risk_reasons || []).map(esc).join(", ");
-        const riskHtml = blocked
-            ? `<span class="badge error">blocked</span><div class="muted">${reasons || "risk_gate"}</div>`
-            : `<span class="badge ok">pass</span>`;
+        const riskReasons = (d.risk_reasons || []).map(esc).join(", ");
+        const noTradeReasons = (d.no_trade_reasons || []).map(esc).join(", ");
+        let riskHtml = `<span class="badge ok">pass</span>`;
+        if (blocked) {
+            riskHtml = `<span class="badge error">blocked</span><div class="muted">${riskReasons || "risk_gate"}</div>`;
+        } else if (!acts.length) {
+            riskHtml = `<span class="badge warn">no_trade</span><div class="muted">${noTradeReasons || "no_signal"}</div>`;
+        }
         const reward = d.reward === null || d.reward === undefined ? "--" : signed(d.reward, 4);
         const rewardCls = Number(d.reward || 0) > 0 ? "pos" : (Number(d.reward || 0) < 0 ? "neg" : "");
         return `

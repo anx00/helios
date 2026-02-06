@@ -319,6 +319,42 @@ class TestPolicy:
         # Should generate at least one signal (model has edge)
         assert len(signals) > 0
 
+    def test_policy_handles_partial_orderbook_levels(self):
+        """Policy should not crash when bid/ask levels are partially missing."""
+        from core.backtest.policy import Policy, PolicyTable
+
+        table = PolicyTable(
+            min_edge_to_enter=0.01,
+            min_confidence_to_trade=0.1,
+        )
+        policy = Policy(table)
+
+        nowcast = {
+            "p_bucket": [{"label": "20-21°F", "probability": 0.70}],
+            "confidence": 0.9,
+        }
+
+        # Real recordings can have one-sided books temporarily (bid or ask missing).
+        market_state = {
+            "20-21°F": {
+                "best_bid": None,
+                "best_ask": 0.40,
+                "bid_depth": 0,
+                "ask_depth": 120,
+            }
+        }
+
+        result = policy.evaluate_with_reasons(
+            timestamp_utc=datetime.now(UTC),
+            nowcast=nowcast,
+            market_state=market_state,
+            qc_flags=[],
+            nowcast_age_seconds=0.0,
+            market_age_seconds=0.0,
+        )
+        assert result is not None
+        assert isinstance(result.signals, list)
+
 
 # =============================================================================
 # Simulator Tests

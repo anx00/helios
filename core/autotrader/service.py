@@ -397,10 +397,18 @@ class AutoTraderService:
             "risk_blocked": risk.blocked,
             "risk_reasons": risk.reasons,
             "actions": decision.actions,
+            "no_trade_reasons": decision.no_trade_reasons,
             "fills_count": len(fills),
             "reward": reward,
             "performance": perf,
         }
+        nowcast_labels = {
+            normalize_label(b.get("label", ""))
+            for b in (ctx.nowcast.get("p_bucket") or [])
+            if isinstance(b, dict) and b.get("label")
+        }
+        market_labels = set(ctx.market_state.keys())
+        overlap_count = len(nowcast_labels & market_labels)
         self._last_context_summary = {
             "ts_utc": ctx.ts_utc.isoformat(),
             "confidence": ctx.confidence,
@@ -414,6 +422,8 @@ class AutoTraderService:
             "event_window_active": ctx.event_window_active,
             "qc_state": ctx.qc_state,
             "market_bucket_count": len(ctx.market_state),
+            "nowcast_bucket_count": len(nowcast_labels),
+            "market_overlap_count": overlap_count,
         }
         self._recent_decisions.append(event)
         return event
