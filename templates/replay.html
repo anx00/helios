@@ -1220,11 +1220,21 @@
 
         const action = isPlaying ? 'pause' : 'play';
         try {
-            await fetch(`/api/v4/replay/session/${sessionId}/${action}?speed=${currentSpeed}`, {
+            const resp = await fetch(`/api/v4/replay/session/${sessionId}/${action}?speed=${currentSpeed}`, {
                 method: 'POST'
             });
-            isPlaying = !isPlaying;
+            const data = await resp.json();
+            if (data.error) {
+                alert(data.error);
+                return;
+            }
+            if (data.state) {
+                isPlaying = data.state === 'playing';
+            } else {
+                isPlaying = !isPlaying;
+            }
             updatePlayButton();
+            await updateState();
         } catch (e) {
             console.error('Play/pause error:', e);
         }
@@ -1234,11 +1244,17 @@
         if (!sessionId) return;
 
         try {
-            await fetch(`/api/v4/replay/session/${sessionId}/stop`, {
+            const resp = await fetch(`/api/v4/replay/session/${sessionId}/stop`, {
                 method: 'POST'
             });
-            isPlaying = false;
+            const data = await resp.json();
+            if (data.error) {
+                alert(data.error);
+                return;
+            }
+            isPlaying = data.state === 'playing';
             updatePlayButton();
+            await updateState();
         } catch (e) {
             console.error('Stop error:', e);
         }
@@ -1262,12 +1278,18 @@
         // Adjust poll frequency for new speed
         if (sessionId) adjustPollInterval();
 
-        // If playing, update speed on server
-        if (isPlaying && sessionId) {
+        // Update speed on server (playing or paused)
+        if (sessionId) {
             try {
-                await fetch(`/api/v4/replay/session/${sessionId}/speed?speed=${speed}`, {
+                const resp = await fetch(`/api/v4/replay/session/${sessionId}/speed?speed=${speed}`, {
                     method: 'POST'
                 });
+                const data = await resp.json();
+                if (data.error) {
+                    alert(data.error);
+                    return;
+                }
+                await updateState();
             } catch (e) {
                 console.error('Speed change error:', e);
             }
@@ -1278,9 +1300,15 @@
         if (!sessionId) return;
 
         try {
-            await fetch(`/api/v4/replay/session/${sessionId}/seek?percent=${percent}`, {
+            const resp = await fetch(`/api/v4/replay/session/${sessionId}/seek?percent=${percent}`, {
                 method: 'POST'
             });
+            const data = await resp.json();
+            if (data.error) {
+                alert(data.error);
+                return;
+            }
+            await updateState();
         } catch (e) {
             console.error('Seek error:', e);
         }
@@ -1290,9 +1318,15 @@
         if (!sessionId) return;
 
         try {
-            await fetch(`/api/v4/replay/session/${sessionId}/jump/${type}`, {
+            const resp = await fetch(`/api/v4/replay/session/${sessionId}/jump/${type}`, {
                 method: 'POST'
             });
+            const data = await resp.json();
+            if (data.error) {
+                alert(data.error);
+                return;
+            }
+            await updateState();
         } catch (e) {
             console.error('Jump error:', e);
         }

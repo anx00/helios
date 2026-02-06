@@ -226,11 +226,15 @@ class ReplaySession:
             self._build_indices()
 
             # Initialize clock from event timestamps
-            first_ts = self._parse_timestamp(self._events[0])
-            last_ts = self._parse_timestamp(self._events[-1])
+            first_ts, last_ts = self._find_session_bounds()
 
             if first_ts and last_ts:
                 self.clock.initialize(first_ts, last_ts)
+            else:
+                logger.warning(
+                    "Replay session loaded without parseable timestamps; "
+                    "clock/progress controls will be limited"
+                )
 
             self.state = ReplayState.READY
             self._event_index = 0
@@ -246,6 +250,25 @@ class ReplaySession:
             logger.error(f"Failed to load replay: {e}")
             self.state = ReplayState.IDLE
             return False
+
+    def _find_session_bounds(self) -> tuple[Optional[datetime], Optional[datetime]]:
+        """Find first/last parseable timestamps in the loaded event list."""
+        first_ts: Optional[datetime] = None
+        last_ts: Optional[datetime] = None
+
+        for event in self._events:
+            ts = self._parse_timestamp(event)
+            if ts is not None:
+                first_ts = ts
+                break
+
+        for event in reversed(self._events):
+            ts = self._parse_timestamp(event)
+            if ts is not None:
+                last_ts = ts
+                break
+
+        return first_ts, last_ts
 
     def _build_indices(self):
         """Build indices for special events."""
@@ -266,18 +289,35 @@ class ReplaySession:
 
     def _parse_timestamp(self, event: Dict) -> Optional[datetime]:
         """Parse timestamp from event."""
-        ts_str = event.get("ts_ingest_utc") or event.get("obs_time_utc")
-        if not ts_str:
+        ts_val = event.get("ts_ingest_utc") or event.get("obs_time_utc")
+        if ts_val is None:
             return None
 
         try:
-            # Handle both ISO format and simple format
-            if "T" in ts_str:
+            # Native datetime (including from parquet/pandas conversion).
+            if isinstance(ts_val, datetime):
+                return ts_val if ts_val.tzinfo else ts_val.replace(tzinfo=UTC)
+
+            # pandas.Timestamp-like object
+            to_py = getattr(ts_val, "to_pydatetime", None)
+            if callable(to_py):
+                py_dt = to_py()
+                if isinstance(py_dt, datetime):
+                    return py_dt if py_dt.tzinfo else py_dt.replace(tzinfo=UTC)
+
+            # Numeric epoch seconds
+            if isinstance(ts_val, (int, float)):
+                return datetime.fromtimestamp(ts_val, tz=UTC)
+
+            # String encodings
+            if isinstance(ts_val, str):
+                ts_str = ts_val.strip()
+                if not ts_str:
+                    return None
                 return datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
-            else:
-                return datetime.fromisoformat(ts_str)
-        except:
+        except Exception:
             return None
+        return None
 
     def set_event_callback(self, callback: Callable[[Dict], None]):
         """Set callback for event emission."""
@@ -285,6 +325,13 @@ class ReplaySession:
 
     async def play(self, speed: float = 1.0):
         """Start/resume playback."""
+        if self.state == ReplayState.FINISHED:
+            # Restart from beginning when user presses Play after finish.
+            self._event_index = 0
+            if self.clock._session_start:
+                self.clock.seek(self.clock._session_start)
+            self.state = ReplayState.READY
+
         if self.state not in [ReplayState.READY, ReplayState.PAUSED]:
             return
 
