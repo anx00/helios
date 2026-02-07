@@ -853,18 +853,21 @@ class BacktestEngine:
         total_fees = 0.0
 
         for fill in fills:
-            # Determine settlement value
-            if fill.bucket == label.y_bucket_winner:
-                settlement = 1.0  # Winner pays $1
+            # Determine settlement value based on token type
+            outcome = getattr(fill, "outcome", "yes")
+            if outcome == "no":
+                # NO token: settles at $1 if bucket LOSES, $0 if it wins
+                settlement = 0.0 if fill.bucket == label.y_bucket_winner else 1.0
             else:
-                settlement = 0.0  # Loser pays $0
+                # YES token: settles at $1 if bucket WINS, $0 if it loses
+                settlement = 1.0 if fill.bucket == label.y_bucket_winner else 0.0
 
             # Calculate PnL
             if fill.side == "buy":
                 # Bought at fill.price, settles at settlement
                 pnl = (settlement - fill.price) * fill.size
             else:
-                # Sold at fill.price, settles at settlement
+                # Sold at fill.price, settles at settlement (closing position)
                 pnl = (fill.price - settlement) * fill.size
 
             gross_pnl += pnl

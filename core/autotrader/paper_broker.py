@@ -77,17 +77,19 @@ class PaperBroker:
             order_type_val = (action.get("order_type") or "taker").lower()
             order_type = OrderType.MAKER if order_type_val == "maker" else OrderType.TAKER
             bucket = normalize_label(str(action.get("bucket", "")))
+            outcome = str(action.get("outcome", "yes")).lower()
             target_size = float(action.get("target_size", 0.0) or 0.0)
             if target_size <= 0.0:
                 continue
 
             # Do not allow naked shorting in paper mode unless explicitly enabled.
-            # This aligns with "sell requires inventory" expectation from the UI.
+            # SELL only valid for closing existing positions of the same outcome.
             if side == Side.SELL and not self.allow_naked_short:
-                current_yes = self._get_position(bucket).size
-                if current_yes <= 1e-9:
+                pos_key = f"{bucket}_{outcome}"
+                current = self._get_position(pos_key).size
+                if current <= 1e-9:
                     continue
-                target_size = min(target_size, float(current_yes))
+                target_size = min(target_size, float(current))
                 if target_size <= 0.0:
                     continue
 
@@ -119,6 +121,7 @@ class PaperBroker:
                 ttl_seconds=float(action.get("ttl_seconds", 300)),
                 reason=str(action.get("reason", "")),
                 policy_state=PolicyState.BUILD_POSITION,
+                outcome=outcome,
             )
 
             self.total_orders += 1
@@ -207,6 +210,7 @@ class PaperBroker:
             limit_price=float(order.limit_price),
             order_type=order.order_type,
             status=order.status,
+            outcome=getattr(order, "outcome", "yes"),
             raw=raw,
         )
 
@@ -223,6 +227,7 @@ class PaperBroker:
             fill_type=fill.fill_type.value,
             fees=float(fill.fees),
             slippage=float(fill.slippage),
+            outcome=getattr(fill, "outcome", "yes"),
             order_id=fill.order_id,
             raw=raw,
         )
@@ -234,7 +239,9 @@ class PaperBroker:
 
     def _apply_fill(self, fill: Fill) -> None:
         bucket = normalize_label(fill.bucket)
-        pos = self._get_position(bucket)
+        outcome = getattr(fill, "outcome", "yes")
+        pos_key = f"{bucket}_{outcome}"
+        pos = self._get_position(pos_key)
         qty = float(fill.size if fill.side == "buy" else -fill.size)
         price = float(fill.price)
         fee_cost = float(fill.fees + fill.slippage)
@@ -281,14 +288,29 @@ class PaperBroker:
             return 0.0
 
         total = 0.0
-        for bucket, pos in self.positions.items():
+        for pos_key, pos in self.positions.items():
             if abs(pos.size) < 1e-9:
                 pos.unrealized_pnl = 0.0
                 continue
+            # Position keys are "bucket_outcome" (e.g. "32-33°F_yes")
+            if pos_key.endswith("_no"):
+                bucket = pos_key[:-3]
+                is_no = True
+            elif pos_key.endswith("_yes"):
+                bucket = pos_key[:-4]
+                is_no = False
+            else:
+                bucket = pos_key
+                is_no = False
             snap = market_state.get(bucket, {})
-            bid = float(snap.get("best_bid", 0.0) or 0.0)
-            ask = float(snap.get("best_ask", 0.0) or 0.0)
-            mid = (bid + ask) / 2.0 if bid > 0.0 and ask > 0.0 else pos.avg_price
+            yes_bid = float(snap.get("best_bid", 0.0) or 0.0)
+            yes_ask = float(snap.get("best_ask", 0.0) or 0.0)
+            if is_no:
+                # NO mid ≈ 1 - YES mid
+                yes_mid = (yes_bid + yes_ask) / 2.0 if yes_bid > 0.0 and yes_ask > 0.0 else 0.5
+                mid = 1.0 - yes_mid
+            else:
+                mid = (yes_bid + yes_ask) / 2.0 if yes_bid > 0.0 and yes_ask > 0.0 else pos.avg_price
             if pos.size > 0:
                 pos.unrealized_pnl = (mid - pos.avg_price) * abs(pos.size)
             else:
@@ -296,16 +318,26 @@ class PaperBroker:
             total += pos.unrealized_pnl
         return total
 
-    def get_positions(self) -> Dict[str, Dict[str, float]]:
-        return {
-            bucket: {
+    def get_positions(self) -> Dict[str, Dict[str, Any]]:
+        result = {}
+        for pos_key, pos in self.positions.items():
+            if abs(pos.size) < 1e-9:
+                continue
+            # Parse "bucket_outcome" key
+            if pos_key.endswith("_no"):
+                bucket, outcome = pos_key[:-3], "no"
+            elif pos_key.endswith("_yes"):
+                bucket, outcome = pos_key[:-4], "yes"
+            else:
+                bucket, outcome = pos_key, "yes"
+            result[pos_key] = {
+                "bucket": bucket,
+                "outcome": outcome,
                 "size": pos.size,
                 "avg_price": pos.avg_price,
                 "unrealized_pnl": pos.unrealized_pnl,
             }
-            for bucket, pos in self.positions.items()
-            if abs(pos.size) > 1e-9
-        }
+        return result
 
     def get_orders(self, limit: int = 200) -> List[Dict[str, Any]]:
         return [o.to_dict() for o in self._orders[-limit:]]

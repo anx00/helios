@@ -710,6 +710,18 @@
 {% block scripts %}
 <script>
 (function() {
+    // Polymarket YES/NO side intent helper
+    function sideIntent(side, outcome) {
+        const s = String(side || "buy").toLowerCase();
+        const o = String(outcome || "yes").toLowerCase();
+        if (o === "no") {
+            if (s === "buy") return { css: "buy", label: "BUY NO" };
+            return { css: "sell", label: "SELL NO" };
+        }
+        if (s === "buy") return { css: "buy", label: "BUY YES" };
+        return { css: "sell", label: "SELL YES" };
+    }
+
     // Set default dates
     const today = new Date();
     const endDate = new Date(today);
@@ -1098,7 +1110,7 @@
                         <tr>
                             <th>Time (UTC)</th>
                             <th>Bucket</th>
-                            <th>Side</th>
+                            <th>Action</th>
                             <th>Size</th>
                             <th>Price</th>
                             <th>Fees</th>
@@ -1109,12 +1121,12 @@
             `;
             for (const f of fills) {
                 const ts = f.timestamp_utc ? f.timestamp_utc.split('T')[1]?.substring(0, 8) || f.timestamp_utc : '-';
-                const sideClass = f.side === 'buy' ? 'buy' : 'sell';
+                const intent = sideIntent(f.side, f.outcome);
                 html += `
                     <tr>
                         <td>${ts}</td>
                         <td>${f.bucket || '-'}</td>
-                        <td class="${sideClass}">${(f.side || '-').toUpperCase()}</td>
+                        <td class="${intent.css}">${intent.label}</td>
                         <td>${(f.size || 0).toFixed(2)}</td>
                         <td>${(f.price || 0).toFixed(4)}</td>
                         <td>${(f.fees || 0).toFixed(4)}</td>

@@ -94,6 +94,7 @@ class PaperOrder:
     limit_price: float
     order_type: str
     status: str
+    outcome: str = "yes"
     raw: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -108,6 +109,7 @@ class PaperOrder:
             "limit_price": self.limit_price,
             "order_type": self.order_type,
             "status": self.status,
+            "outcome": self.outcome,
             "raw": self.raw,
         }
 
@@ -124,6 +126,7 @@ class PaperFill:
     fill_type: str
     fees: float = 0.0
     slippage: float = 0.0
+    outcome: str = "yes"
     order_id: Optional[str] = None
     raw: Dict[str, Any] = field(default_factory=dict)
 
@@ -139,6 +142,7 @@ class PaperFill:
             "fill_type": self.fill_type,
             "fees": self.fees,
             "slippage": self.slippage,
+            "outcome": self.outcome,
             "order_id": self.order_id,
             "raw": self.raw,
         }

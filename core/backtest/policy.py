@@ -78,8 +78,8 @@ class PolicyState(Enum):
 
 class Side(Enum):
     """Order side."""
-    BUY = "buy"      # Buy YES (long temperature up)
-    SELL = "sell"    # Sell YES (short temperature / long NO)
+    BUY = "buy"      # Buy tokens (YES or NO depending on outcome)
+    SELL = "sell"    # Sell tokens (closing existing position only)
 
 
 class OrderType(Enum):
@@ -133,6 +133,7 @@ class PolicySignal:
     # Metadata
     reason: str = ""
     policy_state: PolicyState = PolicyState.NEUTRAL
+    outcome: str = "yes"  # "yes" or "no" token (Polymarket binary market)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
@@ -151,6 +152,7 @@ class PolicySignal:
             "ttl_seconds": self.ttl_seconds,
             "reason": self.reason,
             "policy_state": self.policy_state.value,
+            "outcome": self.outcome,
         }
 
 
@@ -429,12 +431,14 @@ class Policy:
         position = self.get_position(bucket)
 
         # Determine direction
+        # BUY YES = bracket is underpriced (model > market)
+        # BUY NO  = bracket is overpriced  (model < market)
         if model_prob > market_price:
-            side = Side.BUY
-            edge = self.table.calculate_edge(model_prob, market_price, side)
+            outcome = "yes"
+            edge = model_prob - market_price
         else:
-            side = Side.SELL
-            edge = self.table.calculate_edge(model_prob, market_price, side)
+            outcome = "no"
+            edge = market_price - model_prob
 
         # Check edge threshold
         min_edge = self.table.min_edge_to_enter
@@ -453,24 +457,28 @@ class Policy:
         urgency = min(1.0, edge / 0.20)  # More edge = more urgent
         order_type = OrderType.TAKER if urgency > 0.7 else OrderType.MAKER
 
-        # Calculate price limits
-        if side == Side.BUY:
+        # Calculate price limits for the token being traded
+        if outcome == "yes":
+            # Buying YES: pay up to model_prob minus safety margin
             max_price = model_prob - (self.table.min_edge_to_enter / 2)
             min_price = 0.0
         else:
-            max_price = 1.0
-            min_price = model_prob + (self.table.min_edge_to_enter / 2)
+            # Buying NO: NO price ≈ 1 - YES price
+            no_model_price = 1.0 - model_prob
+            max_price = no_model_price - (self.table.min_edge_to_enter / 2)
+            min_price = 0.0
 
         return PolicySignal(
             timestamp_utc=timestamp_utc,
             bucket=bucket,
-            side=side,
+            side=Side.BUY,
             order_type=order_type,
             target_size=target_size,
             max_price=max_price,
             min_price=min_price,
             confidence=confidence,
             urgency=urgency,
+            outcome=outcome,
             reason=f"Edge={edge:.3f}, Model={model_prob:.3f}, Market={market_price:.3f}",
             policy_state=self._state,
         )
@@ -625,12 +633,14 @@ class Policy:
         position = self.get_position(bucket)
 
         # Determine direction and edge
+        # BUY YES = bracket is underpriced (model > market)
+        # BUY NO  = bracket is overpriced  (model < market)
         if model_prob > market_price:
-            side = Side.BUY
-            edge = self.table.calculate_edge(model_prob, market_price, side)
+            outcome = "yes"
+            edge = model_prob - market_price
         else:
-            side = Side.SELL
-            edge = self.table.calculate_edge(model_prob, market_price, side)
+            outcome = "no"
+            edge = market_price - model_prob
 
         # Check edge threshold
         min_edge = self.table.min_edge_to_enter
@@ -649,24 +659,26 @@ class Policy:
         urgency = min(1.0, edge / 0.20)
         order_type = OrderType.TAKER if urgency > 0.7 else OrderType.MAKER
 
-        # Calculate price limits
-        if side == Side.BUY:
+        # Calculate price limits for the token being traded
+        if outcome == "yes":
             max_price = model_prob - (self.table.min_edge_to_enter / 2)
             min_price = 0.0
         else:
-            max_price = 1.0
-            min_price = model_prob + (self.table.min_edge_to_enter / 2)
+            no_model_price = 1.0 - model_prob
+            max_price = no_model_price - (self.table.min_edge_to_enter / 2)
+            min_price = 0.0
 
         signal = PolicySignal(
             timestamp_utc=timestamp_utc,
             bucket=bucket,
-            side=side,
+            side=Side.BUY,
             order_type=order_type,
             target_size=target_size,
             max_price=max_price,
             min_price=min_price,
             confidence=confidence,
             urgency=urgency,
+            outcome=outcome,
             reason=f"Edge={edge:.3f}, Model={model_prob:.3f}, Market={market_price:.3f}",
             policy_state=self._state,
         )

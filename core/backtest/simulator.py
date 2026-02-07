@@ -56,6 +56,7 @@ class Fill:
     # Metadata
     order_id: Optional[str] = None
     signal_id: Optional[str] = None
+    outcome: str = "yes"  # "yes" or "no" token (Polymarket binary market)
 
     @property
     def total_cost(self) -> float:
@@ -86,6 +87,7 @@ class Fill:
             "price_1s_after": self.price_1s_after,
             "price_5s_after": self.price_5s_after,
             "price_30s_after": self.price_30s_after,
+            "outcome": self.outcome,
         }
 
 
@@ -114,6 +116,7 @@ class Order:
     # Metadata
     ttl_seconds: float = 300
     signal_id: Optional[str] = None
+    outcome: str = "yes"  # "yes" or "no" token (Polymarket binary market)
 
     @property
     def remaining_size(self) -> float:
@@ -169,6 +172,7 @@ class TakerModel:
         market_state: Optional[Dict] = None,
         signal_id: Optional[str] = None,
         min_order_usd: float = 0.0,
+        outcome: str = "yes",
     ) -> Fill:
         """
         Execute a taker order.
@@ -178,26 +182,37 @@ class TakerModel:
             bucket: Bucket to trade
             side: "buy" or "sell"
             size: Size to execute
-            market_state: Market data with bid/ask
+            market_state: Market data with bid/ask (YES token book)
             signal_id: Optional signal reference
             min_order_usd: Minimum notional; size is bumped up if needed
+            outcome: "yes" or "no" token to trade
 
         Returns:
             Fill object
         """
-        # Get prices from market state
+        # Get YES token prices from market state
         if market_state and bucket in market_state:
             bucket_data = market_state[bucket]
-            best_bid = bucket_data.get("best_bid", 0.5)
-            best_ask = bucket_data.get("best_ask", 0.5)
+            yes_bid = bucket_data.get("best_bid", 0.5)
+            yes_ask = bucket_data.get("best_ask", 0.5)
             bid_depth = bucket_data.get("bid_depth", 100)
             ask_depth = bucket_data.get("ask_depth", 100)
         else:
             # Simulated: assume 50/50 with 4% spread
-            best_bid = 0.48
-            best_ask = 0.52
+            yes_bid = 0.48
+            yes_ask = 0.52
             bid_depth = 100
             ask_depth = 100
+
+        # Derive NO token prices from YES book (complementary)
+        # NO ask ≈ 1 - YES bid (buying NO from someone selling NO)
+        # NO bid ≈ 1 - YES ask (selling NO to someone buying NO)
+        if outcome == "no":
+            best_bid = max(0.01, 1.0 - yes_ask)
+            best_ask = min(0.99, 1.0 - yes_bid)
+        else:
+            best_bid = yes_bid
+            best_ask = yes_ask
 
         # Enforce minimum notional
         if min_order_usd > 0.0:
@@ -209,7 +224,6 @@ class TakerModel:
         if side == "buy":
             # Buying: pay the ask + slippage
             base_price = best_ask
-            # Slippage increases with size relative to depth
             depth_ratio = size / ask_depth if ask_depth > 0 else 1.0
             slippage = self.base_slippage + self.size_impact * depth_ratio
             price = base_price * (1 + slippage)
@@ -235,6 +249,7 @@ class TakerModel:
             fees=fees,
             slippage=abs(price - base_price),
             signal_id=signal_id,
+            outcome=outcome,
         )
 
 
@@ -274,7 +289,8 @@ class MakerModel:
         limit_price: float,
         market_state: Optional[Dict] = None,
         signal_id: Optional[str] = None,
-        ttl_seconds: float = 300
+        ttl_seconds: float = 300,
+        outcome: str = "yes",
     ) -> Order:
         """
         Place a maker order.
@@ -296,6 +312,7 @@ class MakerModel:
             size=size,
             limit_price=limit_price,
             order_type="maker",
+            outcome=outcome,
             queue_position=queue_position,
             ttl_seconds=ttl_seconds,
             signal_id=signal_id,
@@ -436,6 +453,7 @@ class MakerModel:
             slippage=0.0,  # Maker fills at limit
             order_id=order.order_id,
             signal_id=order.signal_id,
+            outcome=getattr(order, "outcome", "yes"),
         )
 
     def cancel_all(self):
@@ -513,6 +531,8 @@ class ExecutionSimulator:
         """
         from .policy import OrderType
 
+        outcome = getattr(signal, "outcome", "yes")
+
         if signal.order_type == OrderType.TAKER:
             fill = self.taker.execute(
                 timestamp_utc=signal.timestamp_utc,
@@ -521,6 +541,7 @@ class ExecutionSimulator:
                 size=signal.target_size,
                 market_state=market_state,
                 min_order_usd=self.min_order_usd,
+                outcome=outcome,
             )
             self._record_fill(fill)
             return fill
@@ -540,6 +561,7 @@ class ExecutionSimulator:
                 limit_price=limit_price,
                 market_state=market_state,
                 ttl_seconds=signal.ttl_seconds,
+                outcome=outcome,
             )
             return None
 
