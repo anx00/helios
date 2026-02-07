@@ -218,6 +218,7 @@
         min-width: 180px;
     }
     .mono { font-family: 'JetBrains Mono', monospace; }
+    .cost-highlight { color: #fbbf24; font-weight: 600; }
     .actions { display: flex; flex-direction: column; gap: 3px; }
     .action {
         display: inline-flex;
@@ -608,6 +609,17 @@ function formatActionReason(reason) {
     const market = Number(m[3]);
     return `edge ${signed(edge, 3)} | model ${(model * 100).toFixed(1)}c | market ${(market * 100).toFixed(1)}c`;
 }
+function calcCost(action) {
+    const txt = String(action.reason || "");
+    const m = txt.match(/Market=([+-]?[0-9]*\\.?[0-9]+)/i);
+    if (!m) return null;
+    const marketYesPrice = Number(m[1]);
+    const qty = Number(action.target_size ?? action.size ?? 0);
+    if (!qty || Number.isNaN(marketYesPrice)) return null;
+    const outcome = String(action.outcome || "yes").toLowerCase();
+    const price = outcome === "no" ? (1 - marketYesPrice) : marketYesPrice;
+    return qty * price;
+}
 function ago(v) {
     if (!v) return "--";
     const d = new Date(v);
@@ -847,7 +859,14 @@ function renderSignals(decisions) {
                         return `<span class="side ${intent.css}">${intent.primary}</span>${note}`;
                     })()}
                     <span class="mono">${esc(a.bucket || "-")}</span>
-                    <span class="mono">qty ${num(a.target_size ?? a.size, 3)}</span>
+                    ${(() => {
+                        const cost = calcCost(a);
+                        const qty = num(a.target_size ?? a.size, 3);
+                        if (cost !== null) {
+                            return `<span class="mono cost-highlight">$${cost.toFixed(2)}</span><span class="muted mono">( ${qty} sh )</span>`;
+                        }
+                        return `<span class="mono">qty ${qty}</span>`;
+                    })()}
                     <span class="mono">${esc(a.order_type || "-")}</span>
                     ${a.reason ? `<span class="muted">${esc(formatActionReason(a.reason))}</span>` : ""}
                 </div>`).join("")}</div>`

@@ -492,7 +492,7 @@ class ExecutionSimulator:
         self,
         taker_model: Optional[TakerModel] = None,
         maker_model: Optional[MakerModel] = None,
-        min_order_usd: float = 1.0,
+        min_order_usd: float = 0.01,
     ):
         self.taker = taker_model or TakerModel()
         self.maker = maker_model or MakerModel()

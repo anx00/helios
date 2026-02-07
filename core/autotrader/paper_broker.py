@@ -33,7 +33,7 @@ class PaperBroker:
         simulator: Optional[ExecutionSimulator] = None,
         *,
         allow_naked_short: bool = False,
-        min_buy_notional_usd: float = 1.0,
+        min_buy_notional_usd: float = 0.01,
     ):
         self.simulator = simulator or ExecutionSimulator()
         self.allow_naked_short = bool(allow_naked_short)

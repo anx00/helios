@@ -352,7 +352,7 @@ El Paper Broker ejecuta acciones de trading de forma simulada usando el `Executi
 | Parámetro | Default | Descripción |
 |-----------|---------|-------------|
 | `allow_naked_short` | False | Permite venta sin inventario |
-| `min_buy_notional_usd` | 1.0 | Mínimo nocional de compra ($1) |
+| `min_buy_notional_usd` | 0.01 | Mínimo nocional via API (la UI tiene $1, pero la API CLOB permite mucho menos) |
 
 ### 7.3 Flujo de Ejecución
 

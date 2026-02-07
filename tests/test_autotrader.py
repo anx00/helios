@@ -107,8 +107,10 @@ def test_paper_broker_executes_taker_and_updates_position():
     )
     assert len(fills) >= 1
     pos = broker.get_positions()
-    assert "30-31°F" in pos
-    assert pos["30-31°F"]["size"] > 0
+    # Position keys include outcome suffix (e.g. "30-31°F_yes")
+    pos_key = "30-31°F_yes"
+    assert pos_key in pos
+    assert pos[pos_key]["size"] > 0
 
     # maker updates should be safe even without pending orders
     upd_orders, upd_fills = broker.update(
@@ -151,6 +153,7 @@ def test_paper_broker_blocks_naked_short_sell():
 
 
 def test_paper_broker_enforces_min_buy_notional():
+    # API minimum is ~$0.01, not $1 (UI-only restriction)
     broker = PaperBroker()
     ctx = _sample_context()
     tiny_buy = [
@@ -158,7 +161,7 @@ def test_paper_broker_enforces_min_buy_notional():
             "bucket": "30-31Â°F",
             "side": "buy",
             "order_type": "taker",
-            "target_size": 0.2,  # Below $1 notional at ~0.56 ask
+            "target_size": 0.2,  # ~$0.11 notional at ~0.56 ask — above API min
             "max_price": 0.8,
             "min_price": 0.0,
             "confidence": 0.8,
@@ -175,8 +178,9 @@ def test_paper_broker_enforces_min_buy_notional():
         market_state=ctx.market_state,
     )
     assert len(fills) == 1
-    assert fills[0].size >= 1.7
-    assert fills[0].size * fills[0].price >= 1.0
+    # With API min ($0.01), the 0.2-share order goes through without bumping
+    assert fills[0].size >= 0.19  # ~0.2 (no bump)
+    assert fills[0].size * fills[0].price >= 0.01
 
 
 def test_bandit_state_roundtrip_and_update():
