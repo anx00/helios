@@ -82,8 +82,18 @@ class CalibrationResult:
     best_train_score: float = 0.0
     best_val_score: float = 0.0
 
+    # Best validation run metrics (for multi-objective promotion)
+    best_val_pnl_net: float = 0.0
+    best_val_max_drawdown: float = 0.0
+    best_val_total_turnover: float = 0.0
+    best_val_total_fills: int = 0
+    best_val_total_signals: int = 0
+
     # All tried combinations
     all_results: List[Dict[str, Any]] = field(default_factory=list)
+
+    # Probability calibrator params (temperature T or isotonic breakpoints)
+    prob_calibrator_params: Optional[Dict[str, Any]] = None
 
     # Timing
     run_started: datetime = field(default_factory=lambda: datetime.now(UTC))
@@ -105,7 +115,13 @@ class CalibrationResult:
                 "params": self.best_params,
                 "train_score": self.best_train_score,
                 "val_score": self.best_val_score,
+                "val_pnl_net": self.best_val_pnl_net,
+                "val_max_drawdown": self.best_val_max_drawdown,
+                "val_total_turnover": self.best_val_total_turnover,
+                "val_total_fills": self.best_val_total_fills,
+                "val_total_signals": self.best_val_total_signals,
             },
+            "prob_calibrator": self.prob_calibrator_params,
             "summary": {
                 "total_combinations": self.total_combinations,
                 "combinations_tested": self.combinations_tested,
@@ -143,13 +159,19 @@ class ObjectiveFunction:
         ece_weight: float = 0.5,
         pnl_weight: float = 0.3,
         drawdown_penalty: float = 0.5,
-        stability_weight: float = 0.2
+        stability_weight: float = 0.2,
+        turnover_penalty: float = 0.1,
+        fill_rate_bonus: float = 0.1,
+        capital: float = 100.0,
     ):
         self.brier_weight = brier_weight
         self.ece_weight = ece_weight
         self.pnl_weight = pnl_weight
         self.drawdown_penalty = drawdown_penalty
         self.stability_weight = stability_weight
+        self.turnover_penalty = turnover_penalty
+        self.fill_rate_bonus = fill_rate_bonus
+        self.capital = capital
 
     def compute(self, result: BacktestResult) -> float:
         """
@@ -182,6 +204,21 @@ class ObjectiveFunction:
         # Drawdown penalty
         score -= self.drawdown_penalty * result.max_drawdown
 
+        # Turnover penalty: penalize excessive trading volume relative to capital
+        total_turnover = sum(
+            f.size * f.price
+            for d in result.day_results
+            for f in d.fills
+        )
+        if self.capital > 0:
+            score -= self.turnover_penalty * (total_turnover / self.capital)
+
+        # Fill rate bonus: reward strategies that actually execute signals
+        total_signals = sum(d.signals_generated for d in result.day_results)
+        if total_signals > 0:
+            fill_rate = result.total_fills / total_signals
+            score += self.fill_rate_bonus * fill_rate
+
         return score
 
 
@@ -192,13 +229,30 @@ class CalibrationLoop:
     Performs grid search over parameter space with walk-forward validation.
     """
 
-    # Default parameters to calibrate
+    # Default parameters to calibrate (policy + nowcast)
     DEFAULT_PARAMS = [
+        # Policy params
         ParameterSet("bias_alpha", 0.1, 0.05, 0.3, 0.05),
         ParameterSet("sigma_base", 1.5, 1.0, 3.0, 0.5),
         ParameterSet("min_edge_to_enter", 0.05, 0.02, 0.10, 0.02),
-        ParameterSet("min_confidence", 0.5, 0.3, 0.7, 0.1),
+        ParameterSet("min_confidence_to_trade", 0.5, 0.3, 0.7, 0.1),
+        ParameterSet("edge_to_fade", 0.10, 0.06, 0.15, 0.04),
+        ParameterSet("max_daily_loss", 0.20, 0.10, 0.30, 0.10),
+        ParameterSet("max_position_per_bucket", 1.0, 0.5, 2.0, 0.5),
+        ParameterSet("size_per_confidence", 0.5, 0.3, 0.8, 0.25),
+        # Nowcast params (used by NowcastCalibrator, not by _run_with_params)
+        ParameterSet("bias_decay_hours", 6.0, 4.0, 8.0, 2.0),
+        ParameterSet("bias_alpha_normal", 0.3, 0.15, 0.4, 0.05),
+        ParameterSet("base_sigma_f", 2.0, 1.5, 2.5, 0.5),
+        ParameterSet("sigma_qc_penalty_uncertain", 0.5, 0.3, 0.7, 0.2),
+        ParameterSet("sigma_stale_source_penalty", 0.3, 0.2, 0.5, 0.1),
     ]
+
+    # Subset of param names that are nowcast-only (used by NowcastCalibrator)
+    NOWCAST_PARAM_NAMES = {
+        "bias_decay_hours", "bias_alpha_normal", "base_sigma_f",
+        "sigma_qc_penalty_uncertain", "sigma_stale_source_penalty",
+    }
 
     def __init__(
         self,
@@ -312,6 +366,19 @@ class CalibrationLoop:
                     result.best_train_score = train_score
                     result.best_val_score = val_score
 
+                    # Capture validation metrics for promotion
+                    result.best_val_pnl_net = val_result.total_pnl_net
+                    result.best_val_max_drawdown = val_result.max_drawdown
+                    result.best_val_total_fills = val_result.total_fills
+                    result.best_val_total_signals = sum(
+                        d.signals_generated for d in val_result.day_results
+                    )
+                    result.best_val_total_turnover = sum(
+                        f.size * f.price
+                        for d in val_result.day_results
+                        for f in d.fills
+                    )
+
                     logger.info(
                         f"New best: val_score={val_score:.4f}, params={params}"
                     )
@@ -320,6 +387,14 @@ class CalibrationLoop:
                 logger.warning(f"Failed combination {params}: {e}")
 
         result.run_completed = datetime.now(UTC)
+
+        # Fit probability calibrator on training data using best params
+        try:
+            result.prob_calibrator_params = self._fit_prob_calibrator(
+                station_id, train_start, train_end
+            )
+        except Exception as e:
+            logger.warning(f"Probability calibrator fitting failed: {e}")
 
         logger.info(
             f"Calibration complete: best_val_score={result.best_val_score:.4f}"
@@ -335,11 +410,12 @@ class CalibrationLoop:
         params: Dict[str, Any]
     ) -> BacktestResult:
         """Run backtest with specific parameters."""
-        # Create policy with parameters
-        policy_table = PolicyTable(
-            min_edge_to_enter=params.get("min_edge_to_enter", 0.05),
-            min_confidence_to_trade=params.get("min_confidence", 0.5),
-        )
+        # Create policy with parameters - set all matching PolicyTable fields
+        policy_table = PolicyTable()
+        policy_table_fields = set(PolicyTable.__dataclass_fields__.keys())
+        for name, value in params.items():
+            if name in policy_table_fields:
+                setattr(policy_table, name, value)
         policy = Policy(policy_table, name=f"calibration_{hash(str(params)) % 10000}")
 
         # Create and run engine
@@ -349,6 +425,61 @@ class CalibrationLoop:
         )
 
         return engine.run(station_id, start_date, end_date)
+
+    def _fit_prob_calibrator(
+        self,
+        station_id: str,
+        train_start: date,
+        train_end: date,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Fit a ProbabilityCalibrator on training data.
+
+        Collects the final nowcast p_bucket from each training day and the
+        corresponding DayLabel, then fits temperature scaling.
+
+        Returns serialized calibration params dict, or None on failure.
+        """
+        from .prob_calibrator import ProbabilityCalibrator
+        from .dataset import get_dataset_builder
+
+        builder = get_dataset_builder()
+        predictions = []
+        labels = []
+
+        current = train_start
+        while current <= train_end:
+            try:
+                ds = builder.build_dataset(station_id, current)
+                if ds.nowcast_events and ds.label and ds.label.y_bucket_winner:
+                    # Use the last nowcast of the day as the "prediction"
+                    last_nowcast = ds.nowcast_events[-1]
+                    data = last_nowcast.get("data", last_nowcast)
+                    if data.get("p_bucket"):
+                        predictions.append(data)
+                        labels.append(ds.label)
+            except Exception:
+                pass
+            current += timedelta(days=1)
+
+        if len(predictions) < 3:
+            logger.info(
+                "Not enough days (%d) for prob calibrator fitting", len(predictions)
+            )
+            return None
+
+        calibrator = ProbabilityCalibrator(method="temperature_scaling")
+        calibrator.fit(predictions, labels)
+
+        if calibrator.is_fitted:
+            params = calibrator.to_dict()
+            logger.info(
+                "Prob calibrator fitted: T=%.4f on %d days",
+                calibrator.temperature, len(predictions),
+            )
+            return params
+
+        return None
 
     def walk_forward(
         self,

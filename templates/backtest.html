@@ -216,12 +216,249 @@
         font-size: 11px;
     }
 
+    .day-table tr.day-row {
+        cursor: pointer;
+        transition: background 0.15s;
+    }
+
+    .day-table tr.day-row:hover {
+        background: rgba(255,255,255,0.04);
+    }
+
     .day-table tr.correct {
         background: rgba(16, 185, 129, 0.1);
     }
 
+    .day-table tr.correct:hover {
+        background: rgba(16, 185, 129, 0.18);
+    }
+
     .day-table tr.wrong {
         background: rgba(239, 68, 68, 0.1);
+    }
+
+    .day-table tr.wrong:hover {
+        background: rgba(239, 68, 68, 0.18);
+    }
+
+    .day-table tr.day-row.expanded {
+        border-bottom: none;
+    }
+
+    /* Coverage badge in day table */
+    .coverage-bar-mini {
+        display: inline-block;
+        width: 40px;
+        height: 6px;
+        background: rgba(255,255,255,0.1);
+        border-radius: 3px;
+        overflow: hidden;
+        vertical-align: middle;
+        margin-right: 4px;
+    }
+
+    .coverage-bar-mini-fill {
+        height: 100%;
+        border-radius: 3px;
+        transition: width 0.3s;
+    }
+
+    .status-badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 10px;
+        font-size: 10px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .status-badge.ok { background: rgba(16,185,129,0.2); color: #10B981; }
+    .status-badge.integrity_warning { background: rgba(244,208,63,0.2); color: #F4D03F; }
+    .status-badge.no_market_data { background: rgba(239,68,68,0.2); color: #EF4444; }
+    .status-badge.no_data { background: rgba(100,116,139,0.2); color: #64748b; }
+
+    .expand-icon {
+        display: inline-block;
+        transition: transform 0.2s;
+        color: var(--text-muted);
+        font-size: 12px;
+        margin-right: 6px;
+    }
+
+    .day-row.expanded .expand-icon {
+        transform: rotate(90deg);
+    }
+
+    /* Day Detail Drilldown Panel */
+    .day-detail-row td {
+        padding: 0;
+        border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+
+    .day-detail-panel {
+        background: var(--bg-primary);
+        border: 1px solid rgba(0,120,255,0.15);
+        border-radius: 8px;
+        margin: 8px 12px 12px;
+        overflow: hidden;
+    }
+
+    .day-detail-loading {
+        padding: 30px;
+        text-align: center;
+        color: var(--text-muted);
+    }
+
+    .day-detail-content {
+        padding: 16px;
+    }
+
+    /* Coverage Stats Card */
+    .dd-stats-row {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+        gap: 10px;
+        margin-bottom: 16px;
+    }
+
+    .dd-stat {
+        background: rgba(255,255,255,0.03);
+        border-radius: 8px;
+        padding: 10px 12px;
+        text-align: center;
+    }
+
+    .dd-stat .dd-label {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: var(--text-muted);
+        margin-bottom: 4px;
+    }
+
+    .dd-stat .dd-value {
+        font-size: 16px;
+        font-weight: 700;
+        font-family: 'JetBrains Mono', monospace;
+        color: var(--text-main);
+    }
+
+    /* Intraday Chart */
+    .dd-chart-container {
+        background: rgba(255,255,255,0.02);
+        border-radius: 8px;
+        padding: 12px;
+        margin-bottom: 16px;
+        position: relative;
+        height: 280px;
+    }
+
+    .dd-chart-title {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--text-secondary);
+        margin-bottom: 8px;
+    }
+
+    /* Reason Counters */
+    .dd-reasons {
+        margin-bottom: 16px;
+    }
+
+    .dd-reasons-title {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--text-secondary);
+        margin-bottom: 8px;
+    }
+
+    .dd-reasons-grid {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .dd-reason-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 4px 10px;
+        background: rgba(255,255,255,0.05);
+        border-radius: 6px;
+        font-size: 11px;
+        color: var(--text-secondary);
+    }
+
+    .dd-reason-chip .count {
+        font-family: 'JetBrains Mono', monospace;
+        font-weight: 700;
+        color: var(--text-main);
+    }
+
+    /* Fills Blotter */
+    .dd-fills-title {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--text-secondary);
+        margin-bottom: 8px;
+    }
+
+    .dd-fills-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+        margin-bottom: 16px;
+    }
+
+    .dd-fills-table th,
+    .dd-fills-table td {
+        padding: 6px 10px;
+        text-align: left;
+        border-bottom: 1px solid rgba(255,255,255,0.04);
+    }
+
+    .dd-fills-table th {
+        color: var(--text-muted);
+        font-weight: 500;
+        text-transform: uppercase;
+        font-size: 10px;
+    }
+
+    .dd-fills-table td {
+        font-family: 'JetBrains Mono', monospace;
+    }
+
+    .dd-fills-table .buy { color: #10B981; }
+    .dd-fills-table .sell { color: #EF4444; }
+
+    .dd-empty {
+        padding: 16px;
+        text-align: center;
+        color: var(--text-muted);
+        font-size: 12px;
+    }
+
+    /* Signals summary */
+    .dd-signals-row {
+        display: flex;
+        gap: 16px;
+        margin-bottom: 12px;
+        font-size: 12px;
+        color: var(--text-muted);
+    }
+
+    .dd-signals-row span {
+        font-family: 'JetBrains Mono', monospace;
+        font-weight: 600;
+        color: var(--text-main);
+    }
+
+    /* Section divider */
+    .dd-section-divider {
+        border: none;
+        border-top: 1px solid rgba(255,255,255,0.05);
+        margin: 12px 0;
     }
 
     /* Progress */
@@ -266,6 +503,9 @@
     @media (max-width: 768px) {
         .metrics-grid {
             grid-template-columns: 1fr;
+        }
+        .dd-stats-row {
+            grid-template-columns: repeat(2, 1fr);
         }
     }
 </style>
@@ -442,12 +682,15 @@
         <table class="day-table" id="day-table">
             <thead>
                 <tr>
+                    <th></th>
                     <th>Date</th>
                     <th>Predicted</th>
                     <th>Actual</th>
                     <th>Pred Tmax</th>
                     <th>Actual Tmax</th>
                     <th>PnL</th>
+                    <th>Coverage</th>
+                    <th>Status</th>
                 </tr>
             </thead>
             <tbody id="day-tbody">
@@ -477,6 +720,11 @@
 
     document.getElementById('start-date').value = startDate.toISOString().split('T')[0];
     document.getElementById('end-date').value = endDate.toISOString().split('T')[0];
+
+    // Track expanded day and its chart instance
+    let expandedDate = null;
+    let activeChart = null;
+    let lastResult = null;
 
     // Run backtest
     document.getElementById('run-btn').onclick = async function() {
@@ -535,6 +783,8 @@
             document.getElementById('progress-fill').style.width = '100%';
             document.getElementById('progress-text').textContent = 'Complete!';
 
+            lastResult = result;
+
             // Display results
             setTimeout(() => {
                 document.getElementById('progress-container').style.display = 'none';
@@ -553,6 +803,8 @@
 
     function displayResults(result) {
         document.getElementById('results-panel').style.display = 'block';
+        expandedDate = null;
+        if (activeChart) { activeChart.destroy(); activeChart = null; }
 
         // Period
         document.getElementById('results-period').textContent =
@@ -610,11 +862,11 @@
             cal.sharpness?.toFixed(4) || '-';
 
         document.getElementById('m-mae').textContent =
-            point.tmax_mae?.toFixed(2) + '°F' || '-';
+            point.tmax_mae?.toFixed(2) + '\u00B0F' || '-';
         document.getElementById('m-rmse').textContent =
-            point.tmax_rmse?.toFixed(2) + '°F' || '-';
+            point.tmax_rmse?.toFixed(2) + '\u00B0F' || '-';
         document.getElementById('m-bias').textContent =
-            (point.tmax_bias >= 0 ? '+' : '') + point.tmax_bias?.toFixed(2) + '°F' || '-';
+            (point.tmax_bias >= 0 ? '+' : '') + point.tmax_bias?.toFixed(2) + '\u00B0F' || '-';
         document.getElementById('m-churn').textContent =
             stability.avg_churn?.toFixed(4) || '-';
 
@@ -625,23 +877,584 @@
         for (const day of (result.day_results || [])) {
             const pred = day.predictions || {};
             const trading = day.trading || {};
+            const cov = day.coverage || {};
+            const status = day.status || 'ok';
 
             const correct = pred.predicted_winner === pred.actual_winner;
+
+            // Coverage percentage
+            const tlSteps = cov.timeline_steps || 0;
+            const mktSteps = cov.timesteps_with_market || 0;
+            const covPct = tlSteps > 0 ? Math.round((mktSteps / tlSteps) * 100) : 0;
+            const covColor = covPct >= 70 ? '#10B981' : covPct >= 30 ? '#F4D03F' : '#EF4444';
+
+            // Status badge class
+            let badgeClass = 'ok';
+            if (status === 'no_market_data') badgeClass = 'no_market_data';
+            else if (status === 'integrity_warning') badgeClass = 'integrity_warning';
+            else if (status === 'no_data') badgeClass = 'no_data';
+
             const tr = document.createElement('tr');
-            tr.className = correct ? 'correct' : 'wrong';
+            tr.className = (correct ? 'correct' : 'wrong') + ' day-row';
+            tr.dataset.date = day.market_date;
+            tr.dataset.station = result.config.station_id;
 
             tr.innerHTML = `
+                <td><span class="expand-icon">&#9654;</span></td>
                 <td>${day.market_date}</td>
                 <td>${pred.predicted_winner || '-'}</td>
                 <td>${pred.actual_winner || '-'}</td>
-                <td>${pred.predicted_tmax?.toFixed(1) || '-'}°F</td>
-                <td>${pred.actual_tmax?.toFixed(1) || '-'}°F</td>
+                <td>${pred.predicted_tmax?.toFixed(1) || '-'}\u00B0F</td>
+                <td>${pred.actual_tmax?.toFixed(1) || '-'}\u00B0F</td>
                 <td>$${trading.pnl_net?.toFixed(2) || '0.00'}</td>
+                <td>
+                    <span class="coverage-bar-mini">
+                        <span class="coverage-bar-mini-fill" style="width:${covPct}%;background:${covColor}"></span>
+                    </span>
+                    <span style="font-family:'JetBrains Mono',monospace;font-size:11px;">${covPct}%</span>
+                </td>
+                <td><span class="status-badge ${badgeClass}">${status.replace(/_/g, ' ')}</span></td>
             `;
+
+            tr.onclick = () => toggleDayDetail(tr, day.market_date, result.config.station_id);
             tbody.appendChild(tr);
         }
 
         lucide.createIcons();
+    }
+
+    // ================================================================
+    // Day Detail Drilldown
+    // ================================================================
+
+    async function toggleDayDetail(dayRow, dateStr, stationId) {
+        const existingDetail = dayRow.nextElementSibling;
+
+        // If already expanded, collapse
+        if (existingDetail && existingDetail.classList.contains('day-detail-row')) {
+            if (activeChart) { activeChart.destroy(); activeChart = null; }
+            existingDetail.remove();
+            dayRow.classList.remove('expanded');
+            expandedDate = null;
+            return;
+        }
+
+        // Collapse any other expanded row
+        const prevExpanded = document.querySelector('.day-row.expanded');
+        if (prevExpanded) {
+            const prevDetail = prevExpanded.nextElementSibling;
+            if (prevDetail && prevDetail.classList.contains('day-detail-row')) {
+                prevDetail.remove();
+            }
+            prevExpanded.classList.remove('expanded');
+        }
+        if (activeChart) { activeChart.destroy(); activeChart = null; }
+
+        // Mark as expanded
+        dayRow.classList.add('expanded');
+        expandedDate = dateStr;
+
+        // Insert detail row
+        const detailRow = document.createElement('tr');
+        detailRow.className = 'day-detail-row';
+        const detailTd = document.createElement('td');
+        detailTd.colSpan = 9;
+        detailTd.innerHTML = `
+            <div class="day-detail-panel">
+                <div class="day-detail-loading">Loading day detail...</div>
+            </div>
+        `;
+        detailRow.appendChild(detailTd);
+        dayRow.after(detailRow);
+
+        // Fetch day detail data
+        try {
+            const params = new URLSearchParams({
+                date: dateStr,
+                downsample: '3'
+            });
+            const resp = await fetch(`/api/v5/backtest/day_detail/${stationId}?${params}`);
+            const data = await resp.json();
+
+            if (!resp.ok || data.error) {
+                throw new Error(data.error || 'Failed to load day detail');
+            }
+
+            // Render the detail panel
+            renderDayDetail(detailTd.querySelector('.day-detail-panel'), data);
+
+        } catch (e) {
+            detailTd.querySelector('.day-detail-panel').innerHTML = `
+                <div class="day-detail-loading" style="color:#EF4444;">
+                    Error: ${e.message}
+                </div>
+            `;
+        }
+    }
+
+    function renderDayDetail(panel, data) {
+        const cov = data.coverage || {};
+        const outputs = data.outputs || {};
+        const reasons = data.reason_counters || {};
+        const summary = data.summary || {};
+        const predictions = outputs.predictions || [];
+        const fills = outputs.fills || [];
+        const signalsTotal = outputs.signals_total || 0;
+        const ordersCount = (outputs.orders || []).length;
+
+        // Build HTML
+        let html = '<div class="day-detail-content">';
+
+        // === Coverage Stats Card ===
+        const tlSteps = cov.timeline_steps || 0;
+        const mktSteps = cov.timesteps_with_market || 0;
+        const ncSteps = cov.timesteps_with_nowcast || 0;
+        const mktPct = tlSteps > 0 ? Math.round((mktSteps / tlSteps) * 100) : 0;
+        const ncPct = tlSteps > 0 ? Math.round((ncSteps / tlSteps) * 100) : 0;
+        const statusBadge = summary.status || data.coverage?.status || 'ok';
+        let badgeClass = 'ok';
+        if (statusBadge === 'no_market_data') badgeClass = 'no_market_data';
+        else if (statusBadge === 'integrity_warning') badgeClass = 'integrity_warning';
+
+        html += `
+            <div class="dd-stats-row">
+                <div class="dd-stat">
+                    <div class="dd-label">Timeline Steps</div>
+                    <div class="dd-value">${tlSteps}</div>
+                </div>
+                <div class="dd-stat">
+                    <div class="dd-label">Market Data</div>
+                    <div class="dd-value" style="color:${mktPct >= 70 ? '#10B981' : mktPct >= 30 ? '#F4D03F' : '#EF4444'}">${mktPct}%</div>
+                </div>
+                <div class="dd-stat">
+                    <div class="dd-label">Nowcast Data</div>
+                    <div class="dd-value" style="color:${ncPct >= 70 ? '#10B981' : ncPct >= 30 ? '#F4D03F' : '#EF4444'}">${ncPct}%</div>
+                </div>
+                <div class="dd-stat">
+                    <div class="dd-label">Predictions</div>
+                    <div class="dd-value">${predictions.length}</div>
+                </div>
+                <div class="dd-stat">
+                    <div class="dd-label">Status</div>
+                    <div class="dd-value"><span class="status-badge ${badgeClass}">${(summary.status || 'ok').replace(/_/g, ' ')}</span></div>
+                </div>
+            </div>
+        `;
+
+        // === Signals Summary ===
+        html += `
+            <div class="dd-signals-row">
+                Signals: <span>${signalsTotal}</span>
+                &nbsp;&middot;&nbsp;
+                Orders: <span>${ordersCount}</span>
+                &nbsp;&middot;&nbsp;
+                Fills: <span>${fills.length}</span>
+            </div>
+        `;
+
+        // === Intraday Prediction Chart ===
+        if (predictions.length > 0) {
+            html += `
+                <div class="dd-chart-title">Intraday Tmax Prediction</div>
+                <div class="dd-chart-container">
+                    <canvas id="dd-chart-${data.market_date}"></canvas>
+                </div>
+            `;
+        }
+
+        // === p_bucket Top-K Probability Chart ===
+        if (predictions.length > 0 && predictions[0].p_bucket && predictions[0].p_bucket.length > 0) {
+            html += `
+                <div class="dd-chart-title">Bucket Probabilities (Top-5)</div>
+                <div class="dd-chart-container">
+                    <canvas id="dd-pbucket-chart-${data.market_date}"></canvas>
+                </div>
+            `;
+        }
+
+        // === Reason Counters ===
+        const reasonEntries = Object.entries(reasons);
+        if (reasonEntries.length > 0) {
+            html += '<hr class="dd-section-divider">';
+            html += '<div class="dd-reasons">';
+            html += '<div class="dd-reasons-title">No-Trade Reasons</div>';
+            html += '<div class="dd-reasons-grid">';
+            // Sort by count descending
+            reasonEntries.sort((a, b) => b[1] - a[1]);
+            for (const [reason, count] of reasonEntries) {
+                const label = reason.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+                html += `<div class="dd-reason-chip"><span class="count">${count}</span> ${label}</div>`;
+            }
+            html += '</div></div>';
+        }
+
+        // === Fills Blotter ===
+        html += '<hr class="dd-section-divider">';
+        html += '<div class="dd-fills-title">Fills Blotter</div>';
+        if (fills.length > 0) {
+            html += `
+                <table class="dd-fills-table">
+                    <thead>
+                        <tr>
+                            <th>Time (UTC)</th>
+                            <th>Bucket</th>
+                            <th>Side</th>
+                            <th>Size</th>
+                            <th>Price</th>
+                            <th>Fees</th>
+                            <th>Type</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+            for (const f of fills) {
+                const ts = f.timestamp_utc ? f.timestamp_utc.split('T')[1]?.substring(0, 8) || f.timestamp_utc : '-';
+                const sideClass = f.side === 'buy' ? 'buy' : 'sell';
+                html += `
+                    <tr>
+                        <td>${ts}</td>
+                        <td>${f.bucket || '-'}</td>
+                        <td class="${sideClass}">${(f.side || '-').toUpperCase()}</td>
+                        <td>${(f.size || 0).toFixed(2)}</td>
+                        <td>${(f.price || 0).toFixed(4)}</td>
+                        <td>${(f.fees || 0).toFixed(4)}</td>
+                        <td>${(f.fill_type || '-').replace(/_/g, ' ')}</td>
+                    </tr>
+                `;
+            }
+            html += '</tbody></table>';
+        } else {
+            html += '<div class="dd-empty">No fills for this day</div>';
+        }
+
+        html += '</div>'; // end day-detail-content
+        panel.innerHTML = html;
+
+        // === Render Charts ===
+        if (predictions.length > 0) {
+            renderIntradayChart(data.market_date, predictions, summary.actual_tmax, fills);
+            renderPBucketChart(data.market_date, predictions, summary.actual_winner);
+        }
+    }
+
+    function renderIntradayChart(dateStr, predictions, actualTmax, fills) {
+        const canvasId = `dd-chart-${dateStr}`;
+        const canvas = document.getElementById(canvasId);
+        if (!canvas) return;
+
+        const ctx = canvas.getContext('2d');
+
+        // Extract data
+        const labels = [];
+        const means = [];
+        const upperBand = [];
+        const lowerBand = [];
+
+        for (const p of predictions) {
+            // Parse ts_nyc for display
+            const tsNyc = p.ts_nyc || p.ts_utc;
+            let timeLabel = '';
+            if (tsNyc) {
+                const dt = new Date(tsNyc);
+                timeLabel = dt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+            }
+            labels.push(timeLabel);
+
+            const mean = p.tmax_mean;
+            const sigma = p.tmax_sigma || 0;
+            means.push(mean);
+            upperBand.push(mean != null ? mean + sigma : null);
+            lowerBand.push(mean != null ? mean - sigma : null);
+        }
+
+        // Fill markers (scatter points on the timeline)
+        const fillPoints = [];
+        if (fills && fills.length > 0) {
+            for (const f of fills) {
+                const fTs = f.timestamp_utc;
+                if (!fTs) continue;
+                const fDt = new Date(fTs);
+                const fLabel = fDt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+                // Find nearest label index
+                let nearest = 0;
+                let minDist = Infinity;
+                for (let i = 0; i < labels.length; i++) {
+                    // Simple string compare for proximity
+                    if (labels[i] === fLabel) { nearest = i; break; }
+                    const dist = Math.abs(labels[i].localeCompare(fLabel));
+                    if (dist < minDist) { minDist = dist; nearest = i; }
+                }
+                fillPoints.push({
+                    x: nearest,
+                    y: means[nearest] || 0,
+                    side: f.side,
+                    bucket: f.bucket,
+                    price: f.price
+                });
+            }
+        }
+
+        const datasets = [
+            {
+                label: 'Tmax Mean',
+                data: means,
+                borderColor: '#0078FF',
+                backgroundColor: 'transparent',
+                borderWidth: 2,
+                tension: 0.3,
+                pointRadius: 0,
+                pointHoverRadius: 4,
+                order: 2
+            },
+            {
+                label: '+1\u03C3',
+                data: upperBand,
+                borderColor: 'transparent',
+                backgroundColor: 'rgba(0, 120, 255, 0.1)',
+                fill: '+1',
+                borderWidth: 0,
+                pointRadius: 0,
+                order: 3
+            },
+            {
+                label: '-1\u03C3',
+                data: lowerBand,
+                borderColor: 'transparent',
+                backgroundColor: 'rgba(0, 120, 255, 0.1)',
+                fill: '-1',
+                borderWidth: 0,
+                pointRadius: 0,
+                order: 3
+            }
+        ];
+
+        // Actual tmax horizontal line
+        if (actualTmax != null) {
+            datasets.push({
+                label: 'Actual Tmax',
+                data: Array(labels.length).fill(actualTmax),
+                borderColor: '#EF4444',
+                borderWidth: 1.5,
+                borderDash: [6, 4],
+                pointRadius: 0,
+                fill: false,
+                order: 1
+            });
+        }
+
+        // Fill markers as scatter
+        if (fillPoints.length > 0) {
+            const buyPts = fillPoints.filter(p => p.side === 'buy');
+            const sellPts = fillPoints.filter(p => p.side === 'sell');
+
+            if (buyPts.length > 0) {
+                datasets.push({
+                    label: 'Buy Fill',
+                    data: buyPts.map(p => ({ x: p.x, y: p.y })),
+                    type: 'scatter',
+                    backgroundColor: '#10B981',
+                    borderColor: '#10B981',
+                    pointRadius: 6,
+                    pointStyle: 'triangle',
+                    order: 0
+                });
+            }
+            if (sellPts.length > 0) {
+                datasets.push({
+                    label: 'Sell Fill',
+                    data: sellPts.map(p => ({ x: p.x, y: p.y })),
+                    type: 'scatter',
+                    backgroundColor: '#EF4444',
+                    borderColor: '#EF4444',
+                    pointRadius: 6,
+                    pointStyle: 'triangleDown' ,
+                    order: 0
+                });
+            }
+        }
+
+        if (activeChart) { activeChart.destroy(); activeChart = null; }
+
+        activeChart = new Chart(ctx, {
+            type: 'line',
+            data: { labels, datasets },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false
+                },
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'top',
+                        labels: {
+                            color: '#94a3b8',
+                            font: { size: 11, family: 'Inter' },
+                            boxWidth: 12,
+                            padding: 10,
+                            filter: function(item) {
+                                // Hide sigma bands from legend
+                                return item.text !== '+1\u03C3' && item.text !== '-1\u03C3';
+                            }
+                        }
+                    },
+                    tooltip: {
+                        backgroundColor: '#1a2035',
+                        borderColor: 'rgba(255,255,255,0.1)',
+                        borderWidth: 1,
+                        titleColor: '#f1f5f9',
+                        bodyColor: '#94a3b8',
+                        titleFont: { family: 'Inter', size: 12 },
+                        bodyFont: { family: 'JetBrains Mono', size: 11 },
+                        callbacks: {
+                            label: function(ctx) {
+                                if (ctx.dataset.label === '+1\u03C3' || ctx.dataset.label === '-1\u03C3') return null;
+                                const val = ctx.parsed.y;
+                                if (val == null) return null;
+                                return `${ctx.dataset.label}: ${val.toFixed(1)}\u00B0F`;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: { color: 'rgba(255,255,255,0.03)' },
+                        ticks: {
+                            color: '#64748b',
+                            font: { size: 10, family: 'JetBrains Mono' },
+                            maxTicksLimit: 12,
+                            maxRotation: 0
+                        }
+                    },
+                    y: {
+                        grid: { color: 'rgba(255,255,255,0.05)' },
+                        ticks: {
+                            color: '#64748b',
+                            font: { size: 10, family: 'JetBrains Mono' },
+                            callback: function(value) { return value + '\u00B0F'; }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    function renderPBucketChart(dateStr, predictions, actualWinner) {
+        const canvasId = `dd-pbucket-chart-${dateStr}`;
+        const canvas = document.getElementById(canvasId);
+        if (!canvas) return;
+
+        const ctx = canvas.getContext('2d');
+
+        // Determine top-5 buckets by final prediction probabilities
+        const lastPred = predictions[predictions.length - 1];
+        if (!lastPred || !lastPred.p_bucket || lastPred.p_bucket.length === 0) return;
+
+        const bucketsSorted = [...lastPred.p_bucket]
+            .map((b, i) => ({ label: b.label, prob: b.prob || b.probability || 0, idx: i }))
+            .sort((a, b) => b.prob - a.prob);
+        const top5 = bucketsSorted.slice(0, 5);
+        const top5Labels = top5.map(b => b.label);
+        const top5Indices = top5.map(b => b.idx);
+
+        // Build time labels (same as tmax chart)
+        const timeLabels = [];
+        for (const p of predictions) {
+            const tsNyc = p.ts_nyc || p.ts_utc;
+            let tl = '';
+            if (tsNyc) {
+                const dt = new Date(tsNyc);
+                tl = dt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+            }
+            timeLabels.push(tl);
+        }
+
+        // Colors for the 5 lines
+        const colors = [
+            '#3b82f6', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6'
+        ];
+
+        // Build datasets for each of the top-5 buckets
+        const datasets = top5.map((bucket, i) => {
+            const data = predictions.map(p => {
+                if (!p.p_bucket || !p.p_bucket[bucket.idx]) return null;
+                const b = p.p_bucket[bucket.idx];
+                return (b.prob || b.probability || 0) * 100;
+            });
+            const isActual = actualWinner && bucket.label === actualWinner;
+            return {
+                label: bucket.label + (isActual ? ' ★' : ''),
+                data: data,
+                borderColor: colors[i],
+                backgroundColor: colors[i] + '20',
+                borderWidth: isActual ? 2.5 : 1.5,
+                borderDash: isActual ? [] : [4, 2],
+                pointRadius: 0,
+                tension: 0.3,
+                fill: false,
+            };
+        });
+
+        new Chart(ctx, {
+            type: 'line',
+            data: { labels: timeLabels, datasets },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'top',
+                        labels: {
+                            color: '#94a3b8',
+                            font: { size: 11, family: 'Inter' },
+                            boxWidth: 12,
+                            padding: 10,
+                        }
+                    },
+                    tooltip: {
+                        backgroundColor: '#1a2035',
+                        borderColor: 'rgba(255,255,255,0.1)',
+                        borderWidth: 1,
+                        titleColor: '#f1f5f9',
+                        bodyColor: '#94a3b8',
+                        titleFont: { family: 'Inter', size: 12 },
+                        bodyFont: { family: 'JetBrains Mono', size: 11 },
+                        callbacks: {
+                            label: function(ctx) {
+                                const val = ctx.parsed.y;
+                                if (val == null) return null;
+                                return `${ctx.dataset.label}: ${val.toFixed(1)}%`;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: { color: 'rgba(255,255,255,0.03)' },
+                        ticks: {
+                            color: '#64748b',
+                            font: { size: 10, family: 'JetBrains Mono' },
+                            maxTicksLimit: 12,
+                            maxRotation: 0
+                        }
+                    },
+                    y: {
+                        grid: { color: 'rgba(255,255,255,0.05)' },
+                        ticks: {
+                            color: '#64748b',
+                            font: { size: 10, family: 'JetBrains Mono' },
+                            callback: function(value) { return value + '%'; }
+                        },
+                        min: 0,
+                        suggestedMax: 50,
+                    }
+                }
+            }
+        });
     }
 
     lucide.createIcons();

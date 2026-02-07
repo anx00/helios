@@ -211,7 +211,7 @@ class BacktestDataset:
                     last_nowcast = data
                     last_nowcast_ts = event_ts
 
-                elif ch == "market" or ch == "l2_snap":
+                elif ch in ("market", "l2_snap", "l2_snap_1s"):
                     last_market = data
                     last_market_ts = event_ts
 
@@ -352,6 +352,24 @@ class DatasetBuilder:
                 dataset.market_events.append(event)
             elif ch == "event_window":
                 dataset.event_windows.append(event)
+
+        # Diagnostic logging: per-channel event counts
+        logger.debug(
+            "Dataset %s/%s channel counts: world=%d pws=%d features=%d "
+            "nowcast=%d market=%d event_window=%d (total=%d)",
+            station_id, date_str,
+            len(dataset.world_events), len(dataset.pws_events),
+            len(dataset.features_events), len(dataset.nowcast_events),
+            len(dataset.market_events), len(dataset.event_windows),
+            len(all_events),
+        )
+        if not dataset.market_events:
+            logger.warning(
+                "No market events found for %s/%s. "
+                "Channels seen: %s",
+                station_id, date_str,
+                sorted(set(e.get("ch", "?") for e in all_events)),
+            )
 
         # Normalize nowcast and market events to Polymarket labels
         for event in dataset.nowcast_events:

@@ -167,7 +167,8 @@ class TakerModel:
         side: str,
         size: float,
         market_state: Optional[Dict] = None,
-        signal_id: Optional[str] = None
+        signal_id: Optional[str] = None,
+        min_order_usd: float = 0.0,
     ) -> Fill:
         """
         Execute a taker order.
@@ -179,6 +180,7 @@ class TakerModel:
             size: Size to execute
             market_state: Market data with bid/ask
             signal_id: Optional signal reference
+            min_order_usd: Minimum notional; size is bumped up if needed
 
         Returns:
             Fill object
@@ -196,6 +198,12 @@ class TakerModel:
             best_ask = 0.52
             bid_depth = 100
             ask_depth = 100
+
+        # Enforce minimum notional
+        if min_order_usd > 0.0:
+            ref_price = best_ask if side == "buy" else best_bid
+            if ref_price and ref_price > 0 and size * ref_price < min_order_usd:
+                size = min_order_usd / ref_price
 
         # Calculate execution price
         if side == "buy":
@@ -465,10 +473,12 @@ class ExecutionSimulator:
     def __init__(
         self,
         taker_model: Optional[TakerModel] = None,
-        maker_model: Optional[MakerModel] = None
+        maker_model: Optional[MakerModel] = None,
+        min_order_usd: float = 1.0,
     ):
         self.taker = taker_model or TakerModel()
         self.maker = maker_model or MakerModel()
+        self.min_order_usd = min_order_usd
 
         # Fill history
         self._fills: List[Fill] = []
@@ -510,17 +520,24 @@ class ExecutionSimulator:
                 side=signal.side.value,
                 size=signal.target_size,
                 market_state=market_state,
+                min_order_usd=self.min_order_usd,
             )
             self._record_fill(fill)
             return fill
 
         else:  # MAKER
+            # Enforce minimum notional on maker orders
+            target_size = signal.target_size
+            limit_price = signal.max_price if signal.side.value == "buy" else signal.min_price
+            if self.min_order_usd > 0.0 and limit_price > 0 and target_size * limit_price < self.min_order_usd:
+                target_size = self.min_order_usd / limit_price
+
             self.maker.place_order(
                 timestamp_utc=signal.timestamp_utc,
                 bucket=signal.bucket,
                 side=signal.side.value,
-                size=signal.target_size,
-                limit_price=signal.max_price if signal.side.value == "buy" else signal.min_price,
+                size=target_size,
+                limit_price=limit_price,
                 market_state=market_state,
                 ttl_seconds=signal.ttl_seconds,
             )

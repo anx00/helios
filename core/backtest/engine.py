@@ -61,6 +61,7 @@ class DayResult:
     pnl_gross: float = 0.0
     pnl_net: float = 0.0  # After fees/slippage
     max_drawdown: float = 0.0
+    turnover_usd: float = 0.0
 
     # Label info
     actual_winner: Optional[str] = None
@@ -117,6 +118,7 @@ class DayResult:
                 "pnl_gross": safe_float(self.pnl_gross),
                 "pnl_net": safe_float(self.pnl_net),
                 "max_drawdown": safe_float(self.max_drawdown),
+                "turnover_usd": safe_float(self.turnover_usd),
             },
             "predictions": {
                 "actual_winner": self.actual_winner,
@@ -252,6 +254,7 @@ class BacktestResult:
     total_pnl_gross: float = 0.0
     total_pnl_net: float = 0.0
     total_fills: int = 0
+    total_turnover: float = 0.0
     win_rate: float = 0.0
     sharpe_ratio: float = 0.0
     max_drawdown: float = 0.0
@@ -287,6 +290,7 @@ class BacktestResult:
                 "total_pnl_gross": safe_float(self.total_pnl_gross),
                 "total_pnl_net": safe_float(self.total_pnl_net),
                 "total_fills": self.total_fills,
+                "total_turnover": safe_float(self.total_turnover),
                 "win_rate": safe_float(self.win_rate),
                 "sharpe_ratio": safe_float(self.sharpe_ratio),
                 "max_drawdown": safe_float(self.max_drawdown),
@@ -445,6 +449,7 @@ class BacktestEngine:
         result.total_fills = sum(len(d.fills) for d in result.day_results)
         result.total_pnl_gross = sum(d.pnl_gross for d in result.day_results)
         result.total_pnl_net = sum(d.pnl_net for d in result.day_results)
+        result.total_turnover = sum(d.turnover_usd for d in result.day_results)
 
         # Calculate win rate
         profitable_days = sum(1 for d in result.day_results if d.pnl_net > 0)
@@ -596,6 +601,7 @@ class BacktestEngine:
 
                     # Hard gate: no trading without real market data
                     if market_state is None and eval_result.signals:
+                        reason_counters["hard_gate_no_market"] += len(eval_result.signals)
                         eval_result.signals = []
 
                     signals = eval_result.signals
@@ -658,12 +664,16 @@ class BacktestEngine:
         day_result.first_ts_utc = first_ts
         day_result.last_ts_utc = last_ts
 
+        # Compute turnover
+        day_result.turnover_usd = sum(f.size * f.price for f in day_result.fills)
+
         if self.mode == BacktestMode.EXECUTION_AWARE and timesteps_with_market == 0:
             day_result.status = "no_market_data"
             day_result.signals_generated = 0
             day_result.fills = []
             day_result.pnl_gross = 0.0
             day_result.pnl_net = 0.0
+            day_result.turnover_usd = 0.0
 
         # Calculate PnL at settlement
         if dataset.label and self.mode == BacktestMode.EXECUTION_AWARE:

@@ -181,6 +181,10 @@ class LearningRunResult:
     best_train_score: float = 0.0
     best_val_score: float = 0.0
     notes: str = ""
+    # Multi-objective metrics from validation run
+    val_pnl_net: float = 0.0
+    val_max_drawdown: float = 0.0
+    val_turnover_ratio: float = 0.0
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -197,6 +201,9 @@ class LearningRunResult:
             "best_train_score": self.best_train_score,
             "best_val_score": self.best_val_score,
             "notes": self.notes,
+            "val_pnl_net": self.val_pnl_net,
+            "val_max_drawdown": self.val_max_drawdown,
+            "val_turnover_ratio": self.val_turnover_ratio,
         }
 
 
