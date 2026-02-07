@@ -1112,8 +1112,9 @@
                             <th>Bucket</th>
                             <th>Action</th>
                             <th>Size</th>
-                            <th>Price</th>
-                            <th>Fees</th>
+                            <th>Price/unit</th>
+                            <th>Notional</th>
+                            <th>PnL @99c</th>
                             <th>Type</th>
                         </tr>
                     </thead>
@@ -1122,14 +1123,20 @@
             for (const f of fills) {
                 const ts = f.timestamp_utc ? f.timestamp_utc.split('T')[1]?.substring(0, 8) || f.timestamp_utc : '-';
                 const intent = sideIntent(f.side, f.outcome);
+                const sz = f.size || 0;
+                const px = f.price || 0;
+                const notional = px * sz;
+                const pnl = (f.side === 'buy') ? (0.99 - px) * sz : (px - 0.01) * sz;
+                const pnlClass = pnl > 0 ? 'buy' : (pnl < 0 ? 'sell' : '');
                 html += `
                     <tr>
                         <td>${ts}</td>
                         <td>${f.bucket || '-'}</td>
                         <td class="${intent.css}">${intent.label}</td>
-                        <td>${(f.size || 0).toFixed(2)}</td>
-                        <td>${(f.price || 0).toFixed(4)}</td>
-                        <td>${(f.fees || 0).toFixed(4)}</td>
+                        <td>${sz.toFixed(2)}</td>
+                        <td>${px.toFixed(2)}c</td>
+                        <td>$${notional.toFixed(2)}</td>
+                        <td class="${pnlClass}">${pnl >= 0 ? '+' : ''}$${Math.abs(pnl).toFixed(2)}</td>
                         <td>${(f.fill_type || '-').replace(/_/g, ' ')}</td>
                     </tr>
                 `;

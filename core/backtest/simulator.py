@@ -155,7 +155,7 @@ class TakerModel:
 
     def __init__(
         self,
-        fee_rate: float = 0.02,        # 2% fee
+        fee_rate: float = 0.0,         # Polymarket: 0% fees on most markets
         base_slippage: float = 0.005,   # 0.5% base slippage
         size_impact: float = 0.01,      # Additional slippage per unit size
     ):
