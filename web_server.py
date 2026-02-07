@@ -10,7 +10,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 import asyncio
 import logging
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 # Silence verbose loggers
 logging.getLogger("httpx").setLevel(logging.WARNING)
