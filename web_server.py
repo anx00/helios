@@ -30,6 +30,13 @@ from opportunity import check_bet_opportunity
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+def _default_station() -> str:
+    """Return the first active station ID for use as default."""
+    active = get_active_stations()
+    return next(iter(active)) if active else "KLGA"
+
+DEFAULT_STATION = _default_station()
+
 app = FastAPI(title="Helios Weather Interface")
 
 # Mount static files
@@ -1588,7 +1595,7 @@ async def get_v12_debug(station_id: str):
 
 
 @app.get("/api/analytics")
-def get_analytics_api(station_id: str = "KLGA", date: str = None):
+def get_analytics_api(station_id: str = DEFAULT_STATION, date: str = None):
     """Get performance data for the dashboard, filtered by TARGET DATE."""
     from database import get_performance_history_by_target_date
     from zoneinfo import ZoneInfo
@@ -2109,7 +2116,7 @@ from fastapi.responses import StreamingResponse
 import io, csv
 
 @app.get("/api/export_csv")
-def export_csv_api(station_id: str = "KLGA", window: str = "1h", date: str = None):
+def export_csv_api(station_id: str = DEFAULT_STATION, window: str = "1h", date: str = None):
     """
     Export raw performance data as CSV for analysis.
     
@@ -2393,7 +2400,7 @@ async def fullscreen_chart(request: Request, station_id: str, chart_type: str):
 # v6.0: Redirect old analytics URL for backward compatibility
 from fastapi.responses import RedirectResponse
 @app.get("/analytics", response_class=HTMLResponse)
-async def read_analytics_redirect(request: Request, station_id: str = "KLGA"):
+async def read_analytics_redirect(request: Request, station_id: str = DEFAULT_STATION):
     return RedirectResponse(url=f"/station/{station_id}/analytics", status_code=302)
 
 # Phase 2: World Dashboard - Real-time Event-Driven UI
@@ -2685,7 +2692,7 @@ class AutoTraderControlRequest(BaseModel):
 
 
 class LearningRunRequest(BaseModel):
-    station_id: str = "KLGA"
+    station_id: str = DEFAULT_STATION
     train_days: int = 53
     val_days: int = 7
     max_combinations: int = 50

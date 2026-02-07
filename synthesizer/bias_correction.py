@@ -1,7 +1,6 @@
 """
 HELIOS Weather Lab - 7-Day Bias Correction Module
 Calculates rolling bias for HRRR predictions to correct systematic errors.
-KLGA-specific implementation.
 """
 
 from typing import Optional
@@ -17,15 +16,12 @@ def get_7day_bias(station_id: str) -> float:
     Positive bias means HRRR overestimates (common in winter)
     
     Args:
-        station_id: ICAO station code (only KLGA uses this correction)
-        
+        station_id: ICAO station code
+
     Returns:
-        Bias value in Fahrenheit (to be subtracted from HRRR base)
+        Bias value in Fahrenheit (to be subtracted from HRRR base).
+        Returns 0.0 if insufficient history (<3 verified predictions).
     """
-    # Only apply to KLGA
-    if station_id != "KLGA":
-        return 0.0
-    
     try:
         with get_connection() as conn:
             cursor = conn.cursor()

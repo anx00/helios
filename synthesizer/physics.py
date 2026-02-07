@@ -144,7 +144,7 @@ def calculate_physics_prediction(
             adv_f = advection_adj_c * 1.8  # C to F delta
             
             # v12.0: Apply Cold Memory persistence
-            if target_date_str is not None and local_hour is not None and station_id == "KLGA":
+            if target_date_str is not None and local_hour is not None:
                 adv_f, cold_memory_note = apply_cold_memory(
                     station_id=station_id,
                     target_date=target_date_str,
@@ -277,7 +277,7 @@ def calculate_physics_prediction(
     # v7.0 TASK 4: Momentum Priority - If heating velocity is positive, ignore negative SST adjustments
     sst_momentum_override = (velocity_ratio is not None and velocity_ratio > 1.0)
     
-    if sst_delta_c is not None and station_id == "KLGA":
+    if sst_delta_c is not None:
         if sst_delta_c > 2.0:
             sst_adj = -sst_delta_c * 0.5 * 1.8
             sst_adj = max(-3.0, sst_adj)
@@ -295,10 +295,7 @@ def calculate_physics_prediction(
         else:
             reasons.append("SST+0.0F(Neutral)")
     else:
-        if station_id == "KLGA":
-             reasons.append("SST+0.0F(NoData)")
-        else:
-             reasons.append("SST+0.0F(N/A)")
+        reasons.append("SST+0.0F(N/A)")
 
     # Apply Post-Peak Decay
     if physics_weight < 1.0:

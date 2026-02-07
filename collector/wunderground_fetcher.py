@@ -503,9 +503,9 @@ async def get_observed_max(
         return None
 
     # =========================================================================
-    # v3.0: KLGA Anti-Ghost Peak (Triple Peak Validation)
+    # v3.0: Anti-Ghost Peak (Triple Peak Validation)
     # =========================================================================
-    if station_id == "KLGA" and final_max_f is not None:
+    if final_max_f is not None:
         target_date_str = target_date.strftime("%Y-%m-%d")
         validated_f, is_new_peak = validate_reality_floor(station_id, target_date_str, final_max_f)
         

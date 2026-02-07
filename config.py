@@ -78,7 +78,7 @@ STATIONS: Dict[str, StationConfig] = {
         longitude=-84.4277,
         timezone="America/New_York",
         characteristics="Continental - watch for afternoon storm cooling effects",
-        enabled=False,  # DISABLED - focusing on KLGA only
+        enabled=True,
     ),
     "EGLC": StationConfig(
         icao_id="EGLC",

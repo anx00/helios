@@ -127,80 +127,32 @@
     </div>
 
     <div class="home-grid">
-        <!-- KLGA Card -->
-        <a href="/station/KLGA/analytics" class="station-card">
+        {% for sid in active_stations %}
+        {% set stn = all_stations[sid] %}
+        <a href="/station/{{ sid }}/analytics" class="station-card">
             <div class="station-card-header">
-                <span class="station-flag">🇺🇸</span>
+                <span class="station-flag">{% if stn.timezone.startswith('Europe') %}🇬🇧{% else %}🇺🇸{% endif %}</span>
                 <div class="station-info">
-                    <h3>KLGA - LaGuardia</h3>
-                    <span>New York, NY</span>
+                    <h3>{{ sid }} - {{ stn.name.split(' ')[-1] }}</h3>
+                    <span>{{ stn.name }}</span>
                 </div>
             </div>
             <div class="station-stats">
                 <div class="stat-item">
-                    <div class="stat-value" id="klga-pred">--</div>
+                    <div class="stat-value" id="{{ sid|lower }}-pred">--</div>
                     <div class="stat-label">HELIOS</div>
                 </div>
                 <div class="stat-item">
-                    <div class="stat-value" id="klga-metar">--</div>
+                    <div class="stat-value" id="{{ sid|lower }}-metar">--</div>
                     <div class="stat-label">METAR</div>
                 </div>
                 <div class="stat-item">
-                    <div class="stat-value" style="color: var(--accent-green);" id="klga-status">●</div>
+                    <div class="stat-value" style="color: var(--accent-green);" id="{{ sid|lower }}-status">&#x25CF;</div>
                     <div class="stat-label">Status</div>
                 </div>
             </div>
         </a>
-
-        <!-- KATL Card -->
-        <a href="/station/KATL/analytics" class="station-card">
-            <div class="station-card-header">
-                <span class="station-flag">🇺🇸</span>
-                <div class="station-info">
-                    <h3>KATL - Hartsfield</h3>
-                    <span>Atlanta, GA</span>
-                </div>
-            </div>
-            <div class="station-stats">
-                <div class="stat-item">
-                    <div class="stat-value" id="katl-pred">--</div>
-                    <div class="stat-label">HELIOS</div>
-                </div>
-                <div class="stat-item">
-                    <div class="stat-value" id="katl-metar">--</div>
-                    <div class="stat-label">METAR</div>
-                </div>
-                <div class="stat-item">
-                    <div class="stat-value" style="color: var(--accent-green);" id="katl-status">●</div>
-                    <div class="stat-label">Status</div>
-                </div>
-            </div>
-        </a>
-
-        <!-- EGLC Card -->
-        <a href="/station/EGLC/analytics" class="station-card">
-            <div class="station-card-header">
-                <span class="station-flag">🇬🇧</span>
-                <div class="station-info">
-                    <h3>EGLC - London City</h3>
-                    <span>London, UK</span>
-                </div>
-            </div>
-            <div class="station-stats">
-                <div class="stat-item">
-                    <div class="stat-value" id="eglc-pred">--</div>
-                    <div class="stat-label">HELIOS</div>
-                </div>
-                <div class="stat-item">
-                    <div class="stat-value" id="eglc-metar">--</div>
-                    <div class="stat-label">METAR</div>
-                </div>
-                <div class="stat-item">
-                    <div class="stat-value" style="color: var(--accent-green);" id="eglc-status">●</div>
-                    <div class="stat-label">Status</div>
-                </div>
-            </div>
-        </a>
+        {% endfor %}
     </div>
 </div>
 {% endblock %}
@@ -227,7 +179,7 @@
         }
     }
 
-    // Load all stations
-    ['KLGA', 'KATL', 'EGLC'].forEach(loadStationData);
+    // Load active stations
+    {{ active_stations|tojson }}.forEach(loadStationData);
 </script>
 {% endblock %}

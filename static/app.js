@@ -1,6 +1,17 @@
 
-// Station IDs
-const STATIONS = ['KLGA', 'KATL'];
+// Station IDs - fetched dynamically from backend
+let STATIONS = [];
+
+async function loadStations() {
+    try {
+        const resp = await fetch('/api/stations');
+        const data = await resp.json();
+        STATIONS = data.map(s => s.id);
+    } catch (e) {
+        console.error('Failed to load stations, using fallback:', e);
+        STATIONS = ['KLGA', 'KATL'];
+    }
+}
 
 async function fetchPrediction(stationId) {
     try {
@@ -125,7 +136,8 @@ async function fetchMarketData(stationId) {
     }
 }
 
-function init() {
+async function init() {
+    await loadStations();
     STATIONS.forEach(id => {
         fetchPrediction(id);
         fetchMarketData(id);

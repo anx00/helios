@@ -228,17 +228,17 @@ async def collect_and_predict(station_id: str, target_days: List[int] = None) ->
                     hrrr_max_f = hrrr_base_f
 
                 # ============================================================
-                # BIAS CORRECTION: 7-day rolling bias for KLGA (v3.0)
+                # BIAS CORRECTION: 7-day rolling bias (v3.0)
                 # ============================================================
-                if station_id == "KLGA" and day_offset <= 1:
-                    klga_bias = get_7day_bias(station_id)
-                    if abs(klga_bias) > 0.1:
-                        hrrr_max_f = apply_bias_correction(hrrr_max_f, klga_bias)
+                if day_offset <= 1:
+                    station_bias = get_7day_bias(station_id)
+                    if abs(station_bias) > 0.1:
+                        hrrr_max_f = apply_bias_correction(hrrr_max_f, station_bias)
 
                 # ============================================================
                 # VOLATILITY FILTER: Ignore >2°F jumps between updates (v3.0)
                 # ============================================================
-                if station_id == "KLGA" and day_offset == 0:
+                if day_offset == 0:
                     cache_key = f"{station_id}_last_hrrr"
                     last_hrrr = STATION_CACHE.get(cache_key)
                     if last_hrrr:
@@ -752,12 +752,12 @@ async def collect_and_predict(station_id: str, target_days: List[int] = None) ->
                     # ============================================================
                     # ALPHA CONFIDENCE: Reduce confidence if divergence > 2.0°F (v3.0)
                     # ============================================================
-                    if station_id == "KLGA" and day_offset == 0:
+                    if day_offset == 0:
                         try:
                             mkt_avg = 0.0
                             if opp and hasattr(opp, 'market_avg') and opp.market_avg:
                                 mkt_avg = opp.market_avg
-                            
+
                             if mkt_avg > 0:
                                 divergence = abs(prediction.final_prediction_f - mkt_avg)
                                 if divergence > 2.0:
