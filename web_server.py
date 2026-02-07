@@ -2689,6 +2689,7 @@ async def get_day_detail(
 
 class AutoTraderControlRequest(BaseModel):
     action: str
+    station_id: Optional[str] = None
 
 
 class LearningRunRequest(BaseModel):
@@ -2730,6 +2731,13 @@ async def autotrader_control(req: AutoTraderControlRequest):
         service.risk_off()
     elif action == "risk_on":
         service.risk_on()
+    elif action == "change_station":
+        if not req.station_id:
+            return {"ok": False, "error": "station_id required for change_station"}
+        try:
+            service.change_station(req.station_id)
+        except ValueError as e:
+            return {"ok": False, "error": str(e)}
     else:
         return {"ok": False, "error": f"unsupported action: {req.action}"}
 

@@ -421,6 +421,15 @@
     <a href="/autotrader/tutorial" class="control-btn control-link">Tutorial</a>
 
     <div class="market-select-wrap">
+        <span class="market-select-label">Station</span>
+        <select id="station-select" class="market-select" onchange="onStationChange(this.value)">
+            {% for sid in active_stations %}
+            <option value="{{ sid }}">{{ sid }}</option>
+            {% endfor %}
+        </select>
+    </div>
+
+    <div class="market-select-wrap">
         <span class="market-select-label">Market</span>
         <select id="market-day-select" class="market-select" onchange="onMarketDayChange()">
             <option value="0">Today</option>
@@ -564,8 +573,8 @@ const STATION_TIMEZONES = {
 };
 
 const live = {
-    stationId: "KLGA",
-    stationTz: "America/New_York",
+    stationId: "{{ active_stations[0] if active_stations else 'KLGA' }}",
+    stationTz: "{{ all_stations[active_stations[0]].timezone if active_stations else 'America/New_York' }}",
     targetDay: 0,
     fastTimer: null,
     slowTimer: null,
@@ -753,6 +762,8 @@ function renderStatus(status, decisions, positions, strategies) {
     live.lastStatus = status || null;
     live.stationId = status?.station_id || live.stationId;
     live.stationTz = stationTimezone(live.stationId);
+    const stSel = document.getElementById("station-select");
+    if (stSel && stSel.value !== live.stationId) stSel.value = live.stationId;
     setControlActive(status);
     updateMarketDayMeta();
 
@@ -1141,15 +1152,44 @@ function onMarketDayChange() {
     manualRefresh();
 }
 
+async function onStationChange(stationId) {
+    setControlMessage(`Switching to ${stationId}...`);
+    try {
+        const r = await fetch("/api/v6/autotrader/control", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({action: "change_station", station_id: stationId}),
+        });
+        const data = await r.json();
+        if (data.ok) {
+            live.stationId = stationId;
+            live.stationTz = STATION_TIMEZONES[stationId] || "America/New_York";
+            setControlMessage(`Switched to ${stationId}`, "ok");
+            manualRefresh();
+        } else {
+            setControlMessage(`Error: ${data.error}`, "warn");
+        }
+    } catch (e) {
+        setControlMessage(`Station switch failed: ${e.message}`, "warn");
+    }
+}
+
 document.addEventListener("visibilitychange", () => { if (!document.hidden) manualRefresh(); });
 document.addEventListener("DOMContentLoaded", async () => {
     live.targetDay = Number(document.getElementById("market-day-select").value || 0);
     updateMarketDayMeta();
     await manualRefresh();
+    // Sync station selector with actual service station
+    const sel = document.getElementById("station-select");
+    if (sel && live.lastStatus?.station_id) {
+        sel.value = live.lastStatus.station_id;
+        live.stationId = live.lastStatus.station_id;
+    }
     startPolling();
 });
 window.sendControl = sendControl;
 window.manualRefresh = manualRefresh;
 window.onMarketDayChange = onMarketDayChange;
+window.onStationChange = onStationChange;
 </script>
 {% endblock %}

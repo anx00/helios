@@ -28,9 +28,18 @@ UTC = ZoneInfo("UTC")
 NYC = ZoneInfo("America/New_York")
 
 
+def _default_station_id() -> str:
+    try:
+        from config import get_active_stations
+        active = get_active_stations()
+        return next(iter(active)) if active else "KLGA"
+    except Exception:
+        return "KLGA"
+
+
 @dataclass
 class AutoTraderConfig:
-    station_id: str = "KLGA"
+    station_id: str = _default_station_id()
     mode: TradingMode = TradingMode.PAPER
     selection_mode: str = "linucb"  # static | linucb
     decision_interval_seconds: int = 60
@@ -84,6 +93,7 @@ class AutoTraderService:
         self._last_mark_to_market = 0.0
 
         self._load_bandit_state()
+        self._reload_recent_decisions()
         self._initialized = True
 
     def _load_bandit_state(self) -> None:
@@ -94,6 +104,25 @@ class AutoTraderService:
             self.bandit = LinUCBBandit.from_state(state)
         except Exception:
             logger.warning("Failed to restore bandit state; using fresh state")
+
+    def _reload_recent_decisions(self) -> None:
+        """Reload recent decisions from DB so they survive restarts."""
+        try:
+            rows = self.storage.get_recent_decisions(limit=500)
+            # Rows come newest-first from DB; reverse so deque is chronological
+            for row in reversed(rows):
+                self._recent_decisions.append(row)
+                # Restore strategy counts
+                name = row.get("strategy_name", "")
+                if row.get("selected") and name in self._selected_strategy_counts:
+                    self._selected_strategy_counts[name] += 1
+                    reward = row.get("reward")
+                    if reward is not None:
+                        self._strategy_rewards[name] += reward
+            if rows:
+                logger.info("Reloaded %d decisions from DB", len(rows))
+        except Exception:
+            logger.warning("Failed to reload decisions from DB")
 
     async def start(self) -> None:
         if self._running:
@@ -126,6 +155,21 @@ class AutoTraderService:
 
     def risk_on(self) -> None:
         self._risk_off = False
+
+    def change_station(self, station_id: str) -> None:
+        """Switch the autotrader to a different station."""
+        from config import STATIONS
+        if station_id not in STATIONS:
+            raise ValueError(f"Unknown station: {station_id}")
+        self.config.station_id = station_id
+        self.storage.save_bandit_state(station_id, self.bandit.to_state())
+        self._load_bandit_state()
+        self._recent_decisions.clear()
+        self._selected_strategy_counts = {k: 0 for k in self.strategies}
+        self._strategy_rewards = {k: 0.0 for k in self.strategies}
+        self._last_context_summary = {}
+        self._reload_recent_decisions()
+        logger.info("Switched to station %s", station_id)
 
     async def _loop(self) -> None:
         while self._running:

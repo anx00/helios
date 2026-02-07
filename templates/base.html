@@ -48,6 +48,37 @@
             display: flex;
         }
 
+        /* Global dark-theme select/option styling */
+        select {
+            background: var(--bg-tertiary);
+            color: var(--text-main);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 8px;
+            padding: 7px 28px 7px 10px;
+            font-size: 12px;
+            font-family: 'JetBrains Mono', monospace;
+            cursor: pointer;
+            appearance: none;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 8px center;
+        }
+        select:focus {
+            outline: none;
+            border-color: rgba(0, 120, 255, 0.55);
+        }
+        select option {
+            background: var(--bg-tertiary);
+            color: var(--text-main);
+            padding: 6px 10px;
+        }
+        select option:checked {
+            background: var(--accent-blue);
+            color: #fff;
+        }
+
         /* ============================================
            SIDEBAR
         ============================================ */
