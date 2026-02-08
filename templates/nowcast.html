@@ -468,11 +468,11 @@
     <div class="market-banner">
         <div class="market-info">
             <div class="market-date">
-                <span class="market-date-label">Settlement Date (NYC)</span>
+                <span class="market-date-label" id="settlement-date-label">Settlement Date</span>
                 <span class="market-date-value" id="market-date">--</span>
             </div>
             <div class="market-time">
-                <span class="market-time-label">Current Time NYC (ES)</span>
+                <span class="market-time-label" id="market-time-label">Current Time</span>
                 <span class="market-time-value" id="market-time">--:-- (--:--)</span>
             </div>
         </div>
@@ -506,7 +506,7 @@
             <div class="stat-value neutral" id="stat-max-observed">--</div>
         </div>
         <div class="stat-card">
-            <div class="stat-label">Expected Peak NYC (ES)</div>
+            <div class="stat-label" id="stat-peak-label">Expected Peak</div>
             <div class="stat-value neutral" id="stat-peak-hour">--</div>
         </div>
         <div class="stat-card">
@@ -564,8 +564,48 @@
     let currentStation = 'KLGA';
     let pollInterval = null;
 
+    // Station timezone info
+    const stationTimezones = {};  // stationId -> IANA timezone
+    const TZ_LABELS = { 'KLGA': 'NYC', 'KATL': 'ATL', 'EGLC': 'LON' };
+    const ES_TZ = 'Europe/Madrid';
+
+    // Dynamic formatters (rebuilt when station changes)
+    let localTimeFormatter = null;
+    let localDateFormatter = null;
+    let esTimeFormatter = null;
+    let localTzLabel = 'NYC';
+
+    function updateTimezoneFormatters() {
+        const tz = stationTimezones[currentStation] || 'America/New_York';
+        localTzLabel = TZ_LABELS[currentStation] || currentStation;
+
+        localTimeFormatter = new Intl.DateTimeFormat('en-US', {
+            timeZone: tz,
+            hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+        });
+        localDateFormatter = new Intl.DateTimeFormat('en-US', {
+            timeZone: tz,
+            year: 'numeric', month: '2-digit', day: '2-digit'
+        });
+        esTimeFormatter = new Intl.DateTimeFormat('en-US', {
+            timeZone: ES_TZ,
+            hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+        });
+
+        // Update labels
+        const timeLabel = document.getElementById('market-time-label');
+        if (timeLabel) timeLabel.textContent = `Current Time ${localTzLabel} (ES)`;
+        const peakLabel = document.getElementById('stat-peak-label');
+        if (peakLabel) peakLabel.textContent = `Expected Peak ${localTzLabel} (ES)`;
+        const dateLabel = document.getElementById('settlement-date-label');
+        if (dateLabel) dateLabel.textContent = `Settlement Date (${localTzLabel})`;
+    }
+
     // Initialize
     async function init() {
+        // Set up default formatters before anything else
+        updateTimezoneFormatters();
+
         await loadStations();
         await loadNowcast();
 
@@ -579,54 +619,24 @@
 
     // Market clock and countdown
     function updateMarketClock() {
+        if (!localTimeFormatter || !esTimeFormatter) return;
         const now = new Date();
 
-        // Calculate NYC time (UTC-5, but handle DST)
-        // Using Intl to get accurate NYC time
-        const nycFormatter = new Intl.DateTimeFormat('en-US', {
-            timeZone: 'America/New_York',
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit',
-            hour12: false
-        });
-        const nycDateFormatter = new Intl.DateTimeFormat('en-US', {
-            timeZone: 'America/New_York',
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit'
-        });
-        const esFormatter = new Intl.DateTimeFormat('en-US', {
-            timeZone: 'Europe/Madrid',
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit',
-            hour12: false
-        });
+        const localTime = localTimeFormatter.format(now);
+        const esTime = esTimeFormatter.format(now);
 
-        const nycTime = nycFormatter.format(now);
-        const esTime = esFormatter.format(now);
-        const nycDateParts = nycDateFormatter.format(now).split('/');
-        const nycDate = `${nycDateParts[2]}-${nycDateParts[0]}-${nycDateParts[1]}`;
+        document.getElementById('market-time').textContent =
+            `${localTime} ${localTzLabel} (${esTime} ES)`;
 
-        document.getElementById('market-time').textContent = `${nycTime} (${esTime})`;
+        // Parse local hour for countdown calculation
+        const localHour = parseInt(localTime.split(':')[0]);
+        const localMin = parseInt(localTime.split(':')[1]);
+        const localSec = parseInt(localTime.split(':')[2]);
 
-        // Get NYC hour to determine market status
-        const nycHour = parseInt(nycTime.split(':')[0]);
-        const nycMin = parseInt(nycTime.split(':')[1]);
-        const nycSec = parseInt(nycTime.split(':')[2]);
+        // Market closes at midnight station local time
+        const secondsUntilMidnight = (24 - localHour - 1) * 3600 + (60 - localMin - 1) * 60 + (60 - localSec);
 
-        // Market is LIVE from 00:00 to 23:59:59 NYC
-        // After midnight NYC, the market for that day is resolved
-        // Calculate seconds until midnight NYC
-        const secondsUntilMidnight = (24 - nycHour - 1) * 3600 + (60 - nycMin - 1) * 60 + (60 - nycSec);
-
-        const badge = document.getElementById('market-status-badge');
         const countdownContainer = document.getElementById('market-countdown-container');
-
-        // Market is always live during the day, resolved after midnight
-        // For simplicity: if we have a target_date from the API that matches today NYC = LIVE
-        const isLive = true; // Will be updated by renderNowcast based on target_date
 
         if (secondsUntilMidnight > 0) {
             const hours = Math.floor(secondsUntilMidnight / 3600);
@@ -641,7 +651,8 @@
     }
 
     function updateMarketStatus(targetDate, tsNyc) {
-        // Parse NYC date from ts_nyc (format: "2026-01-29 10:30:00")
+        // Parse station local date from ts_nyc (format: "2026-01-29 10:30:00")
+        // Note: ts_nyc is actually NYC time (market settlement tz), not station local
         const currentNycDate = tsNyc ? tsNyc.split(' ')[0] : null;
 
         const badge = document.getElementById('market-status-badge');
@@ -707,19 +718,24 @@
             const resp = await fetch('/api/stations');
             const stations = await resp.json();
 
+            // Store timezone info per station
+            for (const stn of stations) {
+                stationTimezones[stn.id] = stn.timezone;
+            }
+
             const container = document.getElementById('station-selector');
             container.innerHTML = '';
 
             for (const stn of stations) {
                 const btn = document.createElement('button');
                 btn.className = 'station-btn' + (stn.id === currentStation ? ' active' : '');
-                btn.dataset.stationId = stn.id;
-                // Show name: "KLGA - LaGuardia"
-                const shortName = stn.name.split(' ').slice(-1)[0];
-                btn.textContent = `${stn.id} - ${shortName}`;
+                btn.textContent = stn.id;
                 btn.onclick = () => selectStation(stn.id);
                 container.appendChild(btn);
             }
+
+            // Initialize formatters for the default station
+            updateTimezoneFormatters();
         } catch (e) {
             console.error('Failed to load stations:', e);
         }
@@ -730,9 +746,11 @@
 
         // Update buttons
         document.querySelectorAll('.station-btn').forEach(btn => {
-            btn.classList.toggle('active', btn.dataset.stationId === stationId);
+            btn.classList.toggle('active', btn.textContent === stationId);
         });
 
+        // Update timezone formatters for the new station
+        updateTimezoneFormatters();
         loadNowcast();
     }
 
@@ -811,10 +829,20 @@
 
         // Expected peak hour with both timezones
         if (data.t_peak_expected_hour !== undefined) {
-            const peakNyc = data.t_peak_expected_hour;
-            const peakEs = (peakNyc + 6) % 24;  // NYC + 6 = ES
+            const peakLocal = data.t_peak_expected_hour;
+            // Calculate ES hour dynamically from station tz offset
+            const tz = stationTimezones[currentStation] || 'America/New_York';
+            const refDate = new Date();
+            refDate.setHours(peakLocal, 0, 0, 0);
+            // Compute offset: create a date at peak hour in station tz, format in ES tz
+            const localStr = localTimeFormatter.format(refDate);
+            const esStr = esTimeFormatter.format(refDate);
+            const localH = parseInt(localStr.split(':')[0]);
+            const esH = parseInt(esStr.split(':')[0]);
+            const offset = ((esH - localH) + 24) % 24;
+            const peakEs = (peakLocal + offset) % 24;
             document.getElementById('stat-peak-hour').textContent =
-                `${peakNyc}:00 (${peakEs}:00)`;
+                `${peakLocal}:00 (${peakEs}:00)`;
         } else {
             document.getElementById('stat-peak-hour').textContent = '--';
         }

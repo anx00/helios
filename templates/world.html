@@ -439,6 +439,35 @@
         background: rgba(139, 92, 246, 0.1);
     }
 
+    /* Station Selector */
+    .station-selector {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 20px;
+    }
+
+    .station-btn {
+        padding: 8px 20px;
+        background: rgba(255,255,255,0.05);
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 8px;
+        color: var(--text-secondary);
+        font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .station-btn:hover {
+        background: rgba(255,255,255,0.1);
+    }
+
+    .station-btn.active {
+        background: rgba(0,120,255,0.2);
+        border-color: var(--accent-blue);
+        color: var(--accent-blue);
+    }
+
     /* Responsive */
     @media (max-width: 900px) {
         .world-grid {
@@ -463,6 +492,11 @@
 </div>
 
 <div class="page-content">
+    <!-- Station Selector -->
+    <div class="station-selector" id="station-selector">
+        <!-- Populated by JS -->
+    </div>
+
     <!-- System Status Bar -->
     <div class="system-bar" id="system-bar">
         <div class="system-bar-left">
@@ -471,11 +505,11 @@
                 <span id="system-status-text">Connecting...</span>
             </div>
             <div class="system-bar-item">
-                <span>NYC</span>
-                <span class="ts-value" id="ts-nyc">--</span>
+                <span id="ts-local-label">Local</span>
+                <span class="ts-value" id="ts-local">--</span>
             </div>
             <div class="system-bar-item">
-                <span>Madrid</span>
+                <span>ES</span>
                 <span class="ts-value" id="ts-madrid">--</span>
             </div>
             <div class="system-bar-item">
@@ -551,11 +585,11 @@
                         <span class="ts-value" id="metar-obs-utc">--</span>
                     </div>
                     <div class="ts-item">
-                        <span class="ts-flag">NYC</span>
-                        <span class="ts-value" id="metar-obs-nyc">--</span>
+                        <span class="ts-flag" id="metar-obs-local-label">Local</span>
+                        <span class="ts-value" id="metar-obs-local">--</span>
                     </div>
                     <div class="ts-item">
-                        <span class="ts-flag">Madrid</span>
+                        <span class="ts-flag">ES</span>
                         <span class="ts-value" id="metar-obs-mad">--</span>
                     </div>
                 </div>
@@ -628,11 +662,11 @@
             </div>
             <div class="timestamps-row" id="env-timestamps">
                 <div class="ts-item">
-                    <span class="ts-flag">NYC</span>
-                    <span class="ts-value" id="env-ts-nyc">--</span>
+                    <span class="ts-flag" id="env-ts-local-label">Local</span>
+                    <span class="ts-value" id="env-ts-local">--</span>
                 </div>
                 <div class="ts-item">
-                    <span class="ts-flag">Madrid</span>
+                    <span class="ts-flag">ES</span>
                     <span class="ts-value" id="env-ts-mad">--</span>
                 </div>
             </div>
@@ -694,6 +728,97 @@
     let evtSource = null;
     let lastSnapshot = null;
     let metarObsTimeUtc = null;  // Store obs time for live age calculation
+    let currentStation = 'KLGA';  // Default station
+
+    // Station timezone info
+    const stationTimezones = {};  // stationId -> IANA timezone
+    const TZ_LABELS = { 'KLGA': 'NYC', 'KATL': 'ATL', 'EGLC': 'LON' };
+    const ES_TZ = 'Europe/Madrid';
+
+    // Dynamic formatters (rebuilt when station changes)
+    let localTimeFormatter = null;
+    let esTimeFormatter = null;
+    let localTzLabel = 'NYC';
+
+    function updateTimezoneFormatters() {
+        const tz = stationTimezones[currentStation] || 'America/New_York';
+        localTzLabel = TZ_LABELS[currentStation] || currentStation;
+
+        localTimeFormatter = new Intl.DateTimeFormat('en-US', {
+            timeZone: tz,
+            hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+        });
+        esTimeFormatter = new Intl.DateTimeFormat('en-US', {
+            timeZone: ES_TZ,
+            hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+        });
+
+        // Update labels in system bar and panels
+        const localLabel = document.getElementById('ts-local-label');
+        if (localLabel) localLabel.textContent = localTzLabel;
+        const metarLocalLabel = document.getElementById('metar-obs-local-label');
+        if (metarLocalLabel) metarLocalLabel.textContent = localTzLabel;
+        const envLocalLabel = document.getElementById('env-ts-local-label');
+        if (envLocalLabel) envLocalLabel.textContent = localTzLabel;
+    }
+
+    function formatTimeInTz(isoUtc, formatter) {
+        if (!isoUtc || !formatter) return '--';
+        try {
+            const d = new Date(isoUtc);
+            if (isNaN(d.getTime())) return '--';
+            return formatter.format(d);
+        } catch { return '--'; }
+    }
+
+    // === Station Selector ===
+    async function loadStations() {
+        try {
+            const resp = await fetch('/api/stations');
+            const stations = await resp.json();
+            if (!stations || stations.length === 0) return;
+
+            // Store timezone info per station
+            for (const stn of stations) {
+                stationTimezones[stn.id] = stn.timezone;
+            }
+
+            const container = document.getElementById('station-selector');
+            container.innerHTML = '';
+
+            for (const stn of stations) {
+                const btn = document.createElement('button');
+                btn.className = 'station-btn' + (stn.id === currentStation ? ' active' : '');
+                btn.textContent = stn.id;
+                btn.onclick = () => selectStation(stn.id);
+                container.appendChild(btn);
+            }
+
+            // If current station not in list, switch to first
+            if (!stations.find(s => s.id === currentStation) && stations.length > 0) {
+                currentStation = stations[0].id;
+            }
+
+            updateTimezoneFormatters();
+        } catch (e) {
+            console.error('Failed to load stations:', e);
+        }
+    }
+
+    function selectStation(stationId) {
+        currentStation = stationId;
+
+        // Update buttons
+        document.querySelectorAll('.station-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.textContent === stationId);
+        });
+
+        // Update timezone formatters
+        updateTimezoneFormatters();
+
+        // Re-render with existing data
+        if (lastSnapshot) renderAll(lastSnapshot);
+    }
 
     // === SSE Connection ===
     function connectSSE() {
@@ -710,7 +835,6 @@
         });
 
         evtSource.addEventListener('update', (e) => {
-            // Apply incremental update directly (no extra HTTP round-trip)
             try {
                 const event = JSON.parse(e.data);
                 if (lastSnapshot) {
@@ -755,7 +879,6 @@
             lastSnapshot.env[feat] = event.data;
             renderEnv(lastSnapshot.env);
         } else {
-            // Unknown type, fallback to full snapshot
             fetchSnapshot();
         }
     }
@@ -785,10 +908,11 @@
 
     function renderSystemBar(snap) {
         const el = (id) => document.getElementById(id);
-        if (snap.ts_nyc) el('ts-nyc').textContent = snap.ts_nyc;
-        if (snap.ts_madrid) el('ts-madrid').textContent = snap.ts_madrid;
+        // Use dynamic timezone formatters instead of backend-provided NYC time
         if (snap.ts_utc) {
             const d = new Date(snap.ts_utc);
+            el('ts-local').textContent = formatTimeInTz(snap.ts_utc, localTimeFormatter);
+            el('ts-madrid').textContent = formatTimeInTz(snap.ts_utc, esTimeFormatter);
             el('ts-utc').textContent = d.toISOString().substring(11, 19) + ' UTC';
         }
     }
@@ -796,13 +920,23 @@
     function renderMetar(official) {
         if (!official || Object.keys(official).length === 0) return;
 
-        // Show first station found (priority: KLGA > KATL > EGLC)
-        const priority = ['KLGA', 'KATL', 'EGLC'];
-        let obs = null;
-        for (const sid of priority) {
-            if (official[sid]) { obs = official[sid]; break; }
+        // Show selected station's data
+        const obs = official[currentStation];
+        if (!obs) {
+            // No data for selected station — show message
+            const el = (id) => document.getElementById(id);
+            el('metar-temp').textContent = '--';
+            el('metar-station').textContent = currentStation;
+            el('metar-source').textContent = 'No data';
+            el('metar-age').textContent = '--';
+            const badge = el('metar-badge');
+            badge.textContent = 'NO DATA';
+            badge.className = 'panel-badge badge-no-data';
+            // Clear extra stations
+            const extraDiv = document.getElementById('metar-extra-stations');
+            if (extraDiv) extraDiv.innerHTML = '';
+            return;
         }
-        if (!obs) obs = Object.values(official)[0];
 
         const el = (id) => document.getElementById(id);
 
@@ -816,7 +950,7 @@
         // Store obs time for live age ticker
         if (obs.obs_time_utc) {
             metarObsTimeUtc = new Date(obs.obs_time_utc);
-            updateMetarLiveAge();  // Immediate update
+            updateMetarLiveAge();
         }
         el('metar-temp-c').textContent = obs.temp_c != null ? obs.temp_c.toFixed(1) + ' C' : '--';
         el('metar-settlement').textContent = obs.temp_f != null ? obs.temp_f.toFixed(0) + '°F' : '--';
@@ -842,39 +976,19 @@
             el('metar-qc').textContent += ' (' + obs.qc_flags.join(', ') + ')';
         }
 
-        // Timestamps
+        // Timestamps — use dynamic timezone formatters
         el('metar-obs-utc').textContent = obs.obs_time_utc ? obs.obs_time_utc.substring(0, 19) : '--';
-        el('metar-obs-nyc').textContent = obs.obs_time_nyc || '--';
-        el('metar-obs-mad').textContent = obs.obs_time_madrid || '--';
+        el('metar-obs-local').textContent = formatTimeInTz(obs.obs_time_utc, localTimeFormatter);
+        el('metar-obs-mad').textContent = formatTimeInTz(obs.obs_time_utc, esTimeFormatter);
 
         // Badge
         const badge = el('metar-badge');
         badge.textContent = 'LIVE';
         badge.className = 'panel-badge badge-live';
 
-        // If multiple stations, render all
-        if (Object.keys(official).length > 1) {
-            let multiHtml = '';
-            for (const [sid, o] of Object.entries(official)) {
-                if (sid === obs.station_id) continue;
-                multiHtml += `
-                    <div class="aux-card" style="margin-top:12px;">
-                        <div>
-                            <div class="aux-id">${sid}</div>
-                            <div style="font-size:11px; color: var(--text-muted);">${o.source} | Age: ${formatAge(o.source_age_s)}</div>
-                        </div>
-                        <div class="aux-temp">${o.temp_f != null ? o.temp_f.toFixed(0) + 'F' : '--'}</div>
-                    </div>`;
-            }
-            // Append after metar-content
-            let extraDiv = document.getElementById('metar-extra-stations');
-            if (!extraDiv) {
-                extraDiv = document.createElement('div');
-                extraDiv.id = 'metar-extra-stations';
-                document.getElementById('metar-content').appendChild(extraDiv);
-            }
-            extraDiv.innerHTML = multiHtml;
-        }
+        // Clear extra stations div (no longer showing mixed stations)
+        let extraDiv = document.getElementById('metar-extra-stations');
+        if (extraDiv) extraDiv.innerHTML = '';
     }
 
     function renderAux(aux) {
@@ -888,11 +1002,27 @@
             return;
         }
 
+        // Filter aux entries: exclude PWS clusters, and only show entries associated with current station
+        // Aux station_ids are like "UPSTREAM_KLGA_xxx" — filter by currentStation in the key
+        const stationLower = currentStation.toLowerCase();
+        const filtered = Object.entries(aux).filter(([sid]) => {
+            if (sid.startsWith('PWS_')) return false;  // PWS shown in separate panel
+            // Match aux entries containing the station ID
+            return sid.toLowerCase().includes(stationLower) || sid.includes(currentStation);
+        });
+
+        if (filtered.length === 0) {
+            container.innerHTML = '<p style="color: var(--text-muted); font-size: 13px;">No auxiliary observations for ' + currentStation + '.</p>';
+            badge.textContent = 'NO DATA';
+            badge.className = 'panel-badge badge-no-data';
+            return;
+        }
+
         badge.textContent = 'ACTIVE';
         badge.className = 'panel-badge badge-ok';
 
         let html = '';
-        for (const [sid, a] of Object.entries(aux)) {
+        for (const [sid, a] of filtered) {
             const driftClass = a.drift > 0.5 ? 'positive' : (a.drift < -0.5 ? 'negative' : 'neutral');
             const driftSign = a.drift > 0 ? '+' : '';
             html += `
@@ -1006,10 +1136,10 @@
                                 Temp°F${getSortArrow('temp_f')}
                             </th>
                             <th style="padding:6px 4px; cursor:pointer; user-select:none;" onclick="sortPWSColumn('${stationName}', 'obs_time_nyc')" class="${getSortClass('obs_time_nyc')}">
-                                NYC Time${getSortArrow('obs_time_nyc')}
+                                ${localTzLabel} Time${getSortArrow('obs_time_nyc')}
                             </th>
                             <th style="padding:6px 4px; cursor:pointer; user-select:none;" onclick="sortPWSColumn('${stationName}', 'obs_time_madrid')" class="${getSortClass('obs_time_madrid')}">
-                                Madrid Time${getSortArrow('obs_time_madrid')}
+                                ES Time${getSortArrow('obs_time_madrid')}
                             </th>
                             <th style="padding:6px 4px;">Status</th>
                         </tr>
@@ -1020,8 +1150,9 @@
             const rowStyle = r.valid ? '' : 'opacity:0.5; text-decoration:line-through;';
             const statusColor = r.valid ? '#10B981' : '#EF4444';
             const statusText = r.valid ? 'OK' : (r.qc_flag || 'EXCLUDED');
-            const nycTime = r.obs_time_nyc ? r.obs_time_nyc.substring(11, 19) : '--';
-            const madTime = r.obs_time_madrid ? r.obs_time_madrid.substring(11, 19) : '--';
+            // Use dynamic timezone formatters for local time
+            const localTime = formatTimeInTz(r.obs_time_utc, localTimeFormatter);
+            const madTime = formatTimeInTz(r.obs_time_utc, esTimeFormatter);
             const nycDate = r.obs_time_nyc ? r.obs_time_nyc.substring(5, 10) : '';
             const madDate = r.obs_time_madrid ? r.obs_time_madrid.substring(5, 10) : '';
 
@@ -1043,7 +1174,7 @@
                     <td style="padding:5px 4px; font-weight:500;">${r.distance_km.toFixed(1)}km</td>
                     <td style="padding:5px 4px; font-weight:600; color:#8B5CF6;">${r.temp_f.toFixed(1)}°F <span style="color:var(--text-muted); font-size:9px;">(${r.temp_c.toFixed(1)}C)</span></td>
                     <td style="padding:5px 4px; font-family:'JetBrains Mono',monospace;">
-                        <div style="color:#3B82F6;">${nycTime}</div>
+                        <div style="color:#3B82F6;">${localTime}</div>
                         <div style="font-size:8px; color:var(--text-muted);">${nycDate}</div>
                     </td>
                     <td style="padding:5px 4px; font-family:'JetBrains Mono',monospace;">
@@ -1081,11 +1212,13 @@
             return;
         }
 
-        // Find PWS entries (station_id starts with "PWS_")
-        const pwsEntries = Object.entries(aux).filter(([sid]) => sid.startsWith('PWS_'));
+        // Find PWS entries for the current station (e.g., "PWS_KLGA")
+        const pwsEntries = Object.entries(aux).filter(([sid]) =>
+            sid === 'PWS_' + currentStation
+        );
 
         if (pwsEntries.length === 0) {
-            container.innerHTML = '<p style="color: var(--text-muted); font-size: 13px;">No PWS cluster data yet. Appears after first prediction cycle.</p>';
+            container.innerHTML = '<p style="color: var(--text-muted); font-size: 13px;">No PWS cluster data for ' + currentStation + ' yet.</p>';
             badge.textContent = 'NO DATA';
             badge.className = 'panel-badge badge-no-data';
             return;
@@ -1157,8 +1290,9 @@
             document.getElementById('env-sst-source').textContent = 'Source: ' + (sst.source || '--');
             document.getElementById('env-sst-age').textContent = 'Age: ' + formatAge(sst.source_age_s);
             document.getElementById('env-sst-location').textContent = 'Ref: ' + (sst.location_ref || '--');
-            if (sst.obs_time_nyc) document.getElementById('env-ts-nyc').textContent = sst.obs_time_nyc;
-            if (sst.obs_time_madrid) document.getElementById('env-ts-mad').textContent = sst.obs_time_madrid;
+            // Use dynamic timezone formatters
+            document.getElementById('env-ts-local').textContent = formatTimeInTz(sst.obs_time_utc, localTimeFormatter);
+            document.getElementById('env-ts-mad').textContent = formatTimeInTz(sst.obs_time_utc, esTimeFormatter);
         }
 
         // AOD
@@ -1189,8 +1323,16 @@
             return;
         }
 
+        // Filter QC data for current station
+        const filtered = Object.entries(qc).filter(([sid]) => sid === currentStation);
+
+        if (filtered.length === 0) {
+            container.innerHTML = '<p style="color: var(--text-muted); font-size: 13px;">No QC data for ' + currentStation + '.</p>';
+            return;
+        }
+
         let html = '';
-        for (const [sid, q] of Object.entries(qc)) {
+        for (const [sid, q] of filtered) {
             const dotClass = q.status.toLowerCase();
             const flagsHtml = (q.flags || []).map(f => `<span class="qc-flag">${f}</span>`).join('');
             html += `
@@ -1221,10 +1363,21 @@
             return;
         }
 
+        // Filter health entries for current station
+        const stationUpper = currentStation.toUpperCase();
+        const filtered = Object.entries(health).filter(([key, h]) => {
+            const src = (h.source || key).toUpperCase();
+            return src.includes(stationUpper);
+        });
+
+        if (filtered.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" style="color: var(--text-muted); text-align:center;">No health data for ' + currentStation + '.</td></tr>';
+            return;
+        }
+
         let html = '';
-        // Sort by status priority (DEAD first, then STALE, then OK, then LIVE)
         const statusOrder = { 'DEAD': 0, 'STALE': 1, 'NO_DATA': 2, 'OK': 3, 'LIVE': 4 };
-        const sorted = Object.entries(health).sort((a, b) =>
+        const sorted = filtered.sort((a, b) =>
             (statusOrder[a[1].status] || 5) - (statusOrder[b[1].status] || 5)
         );
 
@@ -1299,7 +1452,13 @@
     }
 
     // === Init ===
-    function init() {
+    async function init() {
+        // Set up default formatters
+        updateTimezoneFormatters();
+
+        // Load stations for selector
+        await loadStations();
+
         // Try SSE first
         connectSSE();
 
@@ -1313,12 +1472,10 @@
         setInterval(updateMetarLiveAge, 1000);
 
         // Force immediate refresh when tab becomes visible again
-        // (browser throttles timers and SSE may disconnect in background tabs)
         document.addEventListener('visibilitychange', () => {
             if (!document.hidden) {
                 fetchSnapshot();
                 updateMetarLiveAge();
-                // Reconnect SSE if it was closed during background
                 if (!evtSource || evtSource.readyState === EventSource.CLOSED) {
                     connectSSE();
                 }

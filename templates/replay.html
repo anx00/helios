@@ -835,60 +835,91 @@
     let pollInterval = null;
     let isDragging = false;
 
-    // Timezone helpers
-    const nycFormatter = new Intl.DateTimeFormat('en-US', {
-        timeZone: 'America/New_York',
-        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
-    });
-    const esFormatter = new Intl.DateTimeFormat('en-US', {
-        timeZone: 'Europe/Madrid',
-        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
-    });
-    const nycDateFormatter = new Intl.DateTimeFormat('en-CA', {
-        timeZone: 'America/New_York',
-        year: 'numeric', month: '2-digit', day: '2-digit'
-    });
+    // Station timezone info (populated from template data)
+    const stationTimezones = {
+        {% for sid in active_stations %}
+        '{{ sid }}': '{{ all_stations[sid].timezone }}',
+        {% endfor %}
+    };
+    const TZ_LABELS = { 'KLGA': 'NYC', 'KATL': 'ATL', 'EGLC': 'LON' };
+    const ES_TZ = 'Europe/Madrid';
+
+    // Dynamic timezone formatters (rebuilt when station changes)
+    let localTimeFormatter = null;
+    let localDateFormatter = null;
+    let esTimeFormatter = null;
+    let localTzLabel = '';
+
+    function updateReplayFormatters() {
+        const stationId = document.getElementById('station-select').value;
+        const tz = stationTimezones[stationId] || 'America/New_York';
+        localTzLabel = TZ_LABELS[stationId] || stationId || 'Local';
+
+        localTimeFormatter = new Intl.DateTimeFormat('en-US', {
+            timeZone: tz,
+            hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+        });
+        localDateFormatter = new Intl.DateTimeFormat('en-CA', {
+            timeZone: tz,
+            year: 'numeric', month: '2-digit', day: '2-digit'
+        });
+        esTimeFormatter = new Intl.DateTimeFormat('en-US', {
+            timeZone: ES_TZ,
+            hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+        });
+    }
 
     function formatDualTime(isoUtc) {
         const dt = new Date(isoUtc);
-        if (isNaN(dt.getTime())) return { nyc: '--:--:--', es: '--:--:--', date: '--' };
+        if (isNaN(dt.getTime())) return { local: '--:--:--', es: '--:--:--', date: '--' };
         return {
-            nyc: nycFormatter.format(dt),
-            es: esFormatter.format(dt),
-            date: nycDateFormatter.format(dt)
+            local: localTimeFormatter.format(dt),
+            es: esTimeFormatter.format(dt),
+            date: localDateFormatter.format(dt)
         };
     }
 
-    function nycTimeFromTsNyc(tsNyc) {
-        // ts_nyc format: "2026-02-07 15:30:00" — already NYC time
-        if (!tsNyc) return { nyc: '--:--', es: '--:--' };
+    function localTimeFromTsNyc(tsNyc) {
+        // ts_nyc format: "2026-02-07 15:30:00" — NYC time from recorder
+        // Convert to station local time and ES time
+        if (!tsNyc) return { local: '--:--', es: '--:--' };
         const timePart = tsNyc.split(' ')[1];
-        if (!timePart) return { nyc: '--:--', es: '--:--' };
-        const nycShort = timePart.substring(0, 5); // HH:MM
-
-        // Use the UTC ts if available on the event (more accurate)
-        // Otherwise compute ES from NYC: winter +6h, summer +6h
+        if (!timePart) return { local: '--:--', es: '--:--' };
         const datePart = tsNyc.split(' ')[0];
+
+        // ts_nyc is always NYC time from the recorder
+        const nycFormatter = new Intl.DateTimeFormat('en-US', {
+            timeZone: 'America/New_York',
+            hour: '2-digit', minute: '2-digit', hour12: false
+        });
+        const nycShort = timePart.substring(0, 5);
+
         try {
-            // Try both EST (-05:00) and EDT (-04:00) and pick the one
-            // whose NYC rendering matches the original ts_nyc time
+            // Try EST/EDT offsets to reconstruct the UTC instant
             for (const offset of ['-05:00', '-04:00']) {
                 const candidate = new Date(datePart + 'T' + timePart + offset);
                 const nycRendered = nycFormatter.format(candidate).substring(0, 5);
                 if (nycRendered === nycShort) {
-                    return { nyc: nycShort, es: esFormatter.format(candidate).substring(0, 5) };
+                    return {
+                        local: localTimeFormatter.format(candidate).substring(0, 5),
+                        es: esTimeFormatter.format(candidate).substring(0, 5)
+                    };
                 }
             }
-            // Fallback: use EST
+            // Fallback: EST
             const fallback = new Date(datePart + 'T' + timePart + '-05:00');
-            return { nyc: nycShort, es: esFormatter.format(fallback).substring(0, 5) };
+            return {
+                local: localTimeFormatter.format(fallback).substring(0, 5),
+                es: esTimeFormatter.format(fallback).substring(0, 5)
+            };
         } catch {
-            return { nyc: nycShort, es: '--:--' };
+            return { local: '--:--', es: '--:--' };
         }
     }
 
     // Initialize
     async function init() {
+        updateReplayFormatters();  // Default formatters
         await loadAvailableDates();
         setupEventListeners();
         lucide.createIcons();
@@ -995,6 +1026,9 @@
 
         if (!date) return;
 
+        // Set timezone formatters based on selected station
+        updateReplayFormatters();
+
         document.getElementById('load-btn').disabled = true;
         document.getElementById('load-btn').textContent = 'Loading...';
 
@@ -1064,13 +1098,13 @@
             isPlaying = data.state === 'playing';
             updatePlayButton();
 
-            // Update clock with dual timezone
+            // Update clock with dual timezone (station local + Spain)
             if (data.clock) {
                 const currentTime = data.clock.current_time;
                 if (currentTime) {
                     const tz = formatDualTime(currentTime);
                     document.getElementById('current-time').textContent =
-                        `${tz.nyc} NYC`;
+                        `${tz.local} ${localTzLabel}`;
                     document.getElementById('current-date').textContent =
                         `${tz.es} ES  ·  ${tz.date}`;
                 }
@@ -1112,12 +1146,12 @@
 
         container.innerHTML = events.map(e => {
             const ch = e.ch || 'unknown';
-            const tz = nycTimeFromTsNyc(e.ts_nyc);
+            const tz = localTimeFromTsNyc(e.ts_nyc);
             const content = formatEventContent(e);
 
             return `
                 <div class="event-item ${e.isCurrent ? 'current' : ''}">
-                    <span class="event-time">${tz.nyc} <span style="color:var(--text-muted);font-size:9px;">NYC</span><br>${tz.es} <span style="color:var(--text-muted);font-size:9px;">ES</span></span>
+                    <span class="event-time">${tz.local} <span style="color:var(--text-muted);font-size:9px;">${localTzLabel}</span><br>${tz.es} <span style="color:var(--text-muted);font-size:9px;">ES</span></span>
                     <span class="event-channel ${ch}">${ch}</span>
                     <span class="event-content">${content}</span>
                 </div>
