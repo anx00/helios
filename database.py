@@ -5,7 +5,7 @@ SQLite database for physics-based weather predictions.
 
 import sqlite3
 from datetime import datetime
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, Iterator, List
 from contextlib import contextmanager
 
 from config import DATABASE_PATH
@@ -639,6 +639,67 @@ def get_performance_history_by_target_date(station_id: str, target_date: str) ->
             (station_id, target_date)
         )
         return [dict(row) for row in cursor.fetchall()]
+
+
+def iter_performance_history_by_target_date(
+    station_id: str,
+    target_date: str,
+    since_utc: Optional[str] = None,
+    ascending: bool = False,
+    batch_size: int = 1000,
+) -> Iterator[Dict[str, Any]]:
+    """
+    Stream performance logs for a target date.
+    Useful for large exports/series without building a full list in memory.
+    """
+    order = "ASC" if ascending else "DESC"
+    safe_batch = max(1, int(batch_size))
+
+    query = f"""
+        SELECT * FROM performance_logs
+        WHERE station_id = ?
+        AND target_date = ?
+        {"AND timestamp >= ?" if since_utc else ""}
+        ORDER BY timestamp {order}, id {order}
+    """
+    params: List[Any] = [station_id, target_date]
+    if since_utc:
+        params.append(since_utc)
+
+    with get_connection() as conn:
+        cursor = conn.execute(query, tuple(params))
+        while True:
+            rows = cursor.fetchmany(safe_batch)
+            if not rows:
+                break
+            for row in rows:
+                yield dict(row)
+
+
+def get_observed_max_for_target_date(station_id: str, target_date: str) -> Optional[float]:
+    """
+    Return best observed max for a target date, preferring cumulative max when available.
+    """
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            SELECT MAX(
+                CASE
+                    WHEN cumulative_max_f IS NOT NULL THEN cumulative_max_f
+                    ELSE metar_actual
+                END
+            ) AS observed_max_f
+            FROM performance_logs
+            WHERE station_id = ?
+            AND target_date = ?
+            """,
+            (station_id, target_date),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return None
+        value = row["observed_max_f"]
+        return float(value) if value is not None else None
 
 
 def get_latest_performance_log(station_id: str) -> Optional[Dict]:
