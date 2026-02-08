@@ -714,9 +714,10 @@ class HybridReader:
     def read_channel_ndjson(
         self,
         date_str: str,
-        channel: str
+        channel: str,
+        station_id: Optional[str] = None
     ) -> List[Dict]:
-        """Read events from NDJSON file."""
+        """Read events from NDJSON file, optionally filtering by station."""
         ndjson_path = (
             self.ndjson_base /
             f"date={date_str}" /
@@ -735,7 +736,10 @@ class HybridReader:
                     if line:
                         try:
                             event = json.loads(line)
-                            # Ensure channel is set
+                            # Filter by station early to keep memory flat.
+                            if station_id and event.get("station_id") not in (station_id, None):
+                                continue
+                            # Ensure channel is set.
                             event["ch"] = channel
                             events.append(event)
                         except json.JSONDecodeError:
@@ -753,17 +757,9 @@ class HybridReader:
     ) -> List[Dict]:
         """Read channel from NDJSON first, then Parquet."""
         # Try NDJSON first (fresher data)
-        events = self.read_channel_ndjson(date_str, channel)
+        events = self.read_channel_ndjson(date_str, channel, station_id=station_id)
         if events:
-            if station_id:
-                filtered_events = [
-                    e for e in events
-                    if e.get("station_id") == station_id or e.get("station_id") is None
-                ]
-                if filtered_events:
-                    return filtered_events
-            else:
-                return events
+            return events
 
         # Fall back to Parquet
         return self._parquet_reader.read_channel(date_str, channel, station_id)
@@ -773,8 +769,21 @@ class HybridReader:
         date_str: str,
         station_id: Optional[str] = None
     ) -> Dict[str, List[Dict]]:
-        """Read all channels for a date."""
-        channels = self.list_channels_for_date(date_str, station_id)
+        """
+        Read all channels for a date.
+
+        Optimized path: avoid expensive station pre-scans in list_channels_for_date
+        and let read_channel() do station filtering in one pass.
+        """
+        channels = set()
+        ndjson_date_path = self.ndjson_base / f"date={date_str}"
+        if ndjson_date_path.exists():
+            for item in ndjson_date_path.iterdir():
+                if item.is_dir() and item.name.startswith("ch="):
+                    channels.add(item.name.replace("ch=", ""))
+
+        # Include compacted channels as fallback/merge source.
+        channels.update(self._parquet_reader.list_channels_for_date(date_str, station_id))
         result = {}
 
         for channel in channels:

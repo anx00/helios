@@ -412,9 +412,6 @@ class BacktestEngine:
         # Reset metrics calculator
         self.metrics_calc.reset()
 
-        # Get available dates
-        available_dates = set(self.dataset_builder.list_available_dates(station_id))
-
         # Iterate through dates
         current_date = start_date
         total_days = (end_date - start_date).days + 1
@@ -424,21 +421,25 @@ class BacktestEngine:
             day_idx += 1
             self._report_progress(day_idx, total_days, f"Processing {current_date}")
 
-            if current_date in available_dates:
-                try:
-                    day_result = self._run_day(
-                        station_id=station_id,
-                        market_date=current_date,
-                        interval_seconds=interval_seconds
-                    )
-                    result.day_results.append(day_result)
-                    result.days_with_data += 1
+            try:
+                day_result = self._run_day(
+                    station_id=station_id,
+                    market_date=current_date,
+                    interval_seconds=interval_seconds
+                )
+                # Skip empty dates without events.
+                if (day_result.total_events or 0) <= 0:
+                    current_date += timedelta(days=1)
+                    continue
 
-                    if day_result.actual_winner:
-                        result.days_with_labels += 1
+                result.day_results.append(day_result)
+                result.days_with_data += 1
 
-                except Exception as e:
-                    logger.error(f"Error processing {current_date}: {e}")
+                if day_result.actual_winner:
+                    result.days_with_labels += 1
+
+            except Exception as e:
+                logger.error(f"Error processing {current_date}: {e}")
 
             current_date += timedelta(days=1)
 

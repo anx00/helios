@@ -19,6 +19,9 @@ from typing import Optional, Dict, List, Any, Iterator, Tuple
 from zoneinfo import ZoneInfo
 from pathlib import Path
 import json
+import os
+from collections import OrderedDict
+from threading import RLock
 
 from core.polymarket_labels import (
     normalize_label,
@@ -289,6 +292,13 @@ class DatasetBuilder:
 
         # Import reader lazily
         self._reader = None
+        # LRU cache for expensive per-day dataset builds.
+        try:
+            self._cache_size = int(os.getenv("HELIOS_BACKTEST_DATASET_CACHE_SIZE", "16"))
+        except (TypeError, ValueError):
+            self._cache_size = 16
+        self._dataset_cache: "OrderedDict[Tuple[str, str, Optional[str]], BacktestDataset]" = OrderedDict()
+        self._cache_lock = RLock()
 
     def _get_reader(self):
         """Get HybridReader instance."""
@@ -319,8 +329,17 @@ class DatasetBuilder:
         """
         reader = self._get_reader()
         date_str = market_date.isoformat()
+        cache_key = (station_id, date_str, market_id)
 
         logger.info(f"Building dataset for {station_id}/{date_str}")
+
+        # Fast path: return cached dataset for repeated suite runs.
+        if self._cache_size > 0:
+            with self._cache_lock:
+                if cache_key in self._dataset_cache:
+                    self._dataset_cache.move_to_end(cache_key)
+                    logger.debug("Dataset cache hit for %s/%s", station_id, date_str)
+                    return self._dataset_cache[cache_key]
 
         # Create dataset
         dataset = BacktestDataset(
@@ -417,6 +436,14 @@ class DatasetBuilder:
             f"Built dataset: {dataset.total_events} events, "
             f"{dataset.duration_seconds:.0f}s duration"
         )
+
+        # Store in LRU cache.
+        if self._cache_size > 0:
+            with self._cache_lock:
+                self._dataset_cache[cache_key] = dataset
+                self._dataset_cache.move_to_end(cache_key)
+                while len(self._dataset_cache) > self._cache_size:
+                    self._dataset_cache.popitem(last=False)
 
         return dataset
 
