@@ -3027,14 +3027,6 @@ async def run_backtest_suite(
 
     return StreamingResponse(generate(), media_type="application/x-ndjson")
 
-    except Exception as e:
-        import traceback
-        logger.error(f"Backtest suite failed: {e}\n{traceback.format_exc()}")
-        return JSONResponse(
-            status_code=500,
-            content={"error": str(e), "type": type(e).__name__},
-        )
-
 
 @app.get("/api/v5/backtest/labels/{station_id}")
 async def get_labels(station_id: str, start_date: str = None, end_date: str = None):
