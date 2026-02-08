@@ -216,7 +216,7 @@ class ReplaySession:
             # Default channel set optimized for UI/replay latency.
             # Prefer lower-volume market channel when multiple variants exist.
             if channels is None and hasattr(self._reader, "list_channels_for_date"):
-                available = set(self._reader.list_channels_for_date(self.date_str))
+                available = set(self._reader.list_channels_for_date(self.date_str, self.station_id))
                 channels = ["world", "pws", "nowcast", "features", "health", "event_window"]
                 if "l2_snap" in available:
                     channels.append("l2_snap")

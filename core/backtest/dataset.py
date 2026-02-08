@@ -22,6 +22,7 @@ import json
 import os
 from collections import OrderedDict
 from threading import RLock
+from time import perf_counter
 
 from core.polymarket_labels import (
     normalize_label,
@@ -349,25 +350,34 @@ class DatasetBuilder:
         )
 
         # Read only channels relevant to backtest runtime.
-        # This avoids loading heavy channels (e.g. health/features) that are not used.
-        available_channels = set(reader.list_channels_for_date(date_str))
+        # Station-scoped lookup avoids pulling giant channels from other stations.
+        available_channels = set(reader.list_channels_for_date(date_str, station_id))
         channels_env = os.getenv("HELIOS_BACKTEST_CHANNELS", "").strip()
         if channels_env:
             requested_channels = [c.strip() for c in channels_env.split(",") if c.strip()]
         else:
             requested_channels = ["world", "pws", "nowcast", "event_window"]
             # Prefer lower-volume market channel when both exist.
-            if "l2_snap" in available_channels:
-                requested_channels.append("l2_snap")
-            elif "market" in available_channels:
+            if "market" in available_channels:
                 requested_channels.append("market")
+            elif "l2_snap" in available_channels:
+                requested_channels.append("l2_snap")
             elif "l2_snap_1s" in available_channels:
                 requested_channels.append("l2_snap_1s")
 
+        read_t0 = perf_counter()
         all_events = reader.get_events_sorted(
             date_str,
             station_id,
             channels=requested_channels if requested_channels else None,
+        )
+        logger.info(
+            "Loaded raw events for %s/%s: %s events in %.2fs (channels=%s)",
+            station_id,
+            date_str,
+            len(all_events),
+            perf_counter() - read_t0,
+            requested_channels,
         )
 
         if not all_events:
@@ -421,7 +431,17 @@ class DatasetBuilder:
         for event in dataset.market_events:
             data = event.get("data", event)
             if isinstance(data, dict):
-                event["data"] = normalize_market_snapshot(data)
+                normalized = normalize_market_snapshot(data)
+                # Keep only execution-relevant fields in-memory.
+                for bucket, payload in list(normalized.items()):
+                    if not isinstance(payload, dict):
+                        continue
+                    if "bids" in payload or "asks" in payload:
+                        slim = dict(payload)
+                        slim.pop("bids", None)
+                        slim.pop("asks", None)
+                        normalized[bucket] = slim
+                event["data"] = normalized
 
         # Store all events sorted
         dataset.all_events = all_events

@@ -12,10 +12,12 @@ Parquet layout (per Section 4.7):
 import asyncio
 import logging
 import json
+import os
 from datetime import datetime, date, timedelta
 from pathlib import Path
 from typing import Optional, Dict, List, Any, Generator
 from zoneinfo import ZoneInfo
+from time import perf_counter
 
 logger = logging.getLogger("compactor")
 
@@ -29,6 +31,7 @@ try:
 except ImportError:
     PARQUET_AVAILABLE = False
     logger.warning("pyarrow not installed - Parquet compaction disabled")
+_PARQUET_READ_WARNED = False
 
 
 def read_ndjson_file(file_path: Path) -> Generator[Dict, None, None]:
@@ -462,8 +465,11 @@ class ParquetReader:
         station_id: Optional[str] = None
     ) -> List[Dict]:
         """Read all events from a channel."""
+        global _PARQUET_READ_WARNED
         if not PARQUET_AVAILABLE:
-            logger.warning("Parquet not available")
+            if not _PARQUET_READ_WARNED:
+                logger.warning("Parquet not available")
+                _PARQUET_READ_WARNED = True
             return []
 
         # Find parquet file
@@ -587,6 +593,52 @@ class HybridReader:
         self.ndjson_base = Path(ndjson_base)
         self.parquet_base = Path(parquet_base)
         self._parquet_reader = ParquetReader(parquet_base)
+        # Cache for expensive "does this file contain station X?" scans.
+        self._station_presence_cache: Dict[tuple, bool] = {}
+        try:
+            self._station_presence_cache_max = int(
+                os.getenv("HELIOS_STATION_PRESENCE_CACHE_MAX", "2048")
+            )
+        except (TypeError, ValueError):
+            self._station_presence_cache_max = 2048
+
+    def _station_cache_key(self, event_file: Path, station_id: str) -> tuple:
+        """Build a cache key that invalidates when file changes."""
+        try:
+            st = event_file.stat()
+            return (str(event_file), station_id, st.st_mtime_ns, st.st_size)
+        except OSError:
+            return (str(event_file), station_id, 0, 0)
+
+    @staticmethod
+    def _top_level_prefix(line: str) -> str:
+        """
+        Return the top-level JSON prefix before the 'data' payload.
+        This lets us inspect station_id without parsing large nested books.
+        """
+        idx = line.find('"data"')
+        if idx <= 0:
+            return line
+        return line[:idx]
+
+    def _line_matches_station(self, line: str, station_id: str) -> bool:
+        """
+        Fast station filter using only top-level JSON text.
+        Accepts:
+        - exact station_id
+        - global events with no station_id
+        - explicit null station_id
+        """
+        prefix = self._top_level_prefix(line)
+        if '"station_id"' not in prefix:
+            return True
+        if f'"station_id":"{station_id}"' in prefix:
+            return True
+        if f'"station_id": "{station_id}"' in prefix:
+            return True
+        if '"station_id":null' in prefix or '"station_id": null' in prefix:
+            return True
+        return False
 
     def _iter_ndjson_event_files(self, date_str: str) -> Generator[Path, None, None]:
         """Iterate NDJSON event files for a given date."""
@@ -602,41 +654,42 @@ class HybridReader:
                 yield event_file
 
     def _file_has_any_event(self, event_file: Path) -> bool:
-        """Return True if file has at least one parseable event."""
+        """Return True if file has at least one non-empty line."""
         try:
             with open(event_file, "r", encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
                     if not line:
                         continue
-                    try:
-                        json.loads(line)
-                        return True
-                    except json.JSONDecodeError:
-                        continue
+                    return True
         except Exception:
             return False
         return False
 
     def _file_has_station_event(self, event_file: Path, station_id: str) -> bool:
         """Return True if file has at least one event for station_id (or global)."""
+        cache_key = self._station_cache_key(event_file, station_id)
+        cached = self._station_presence_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        has_station = False
         try:
             with open(event_file, "r", encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
                     if not line:
                         continue
-                    try:
-                        event = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-
-                    ev_station = event.get("station_id")
-                    if ev_station is None or ev_station == station_id:
-                        return True
+                    if self._line_matches_station(line, station_id):
+                        has_station = True
+                        break
         except Exception:
             return False
-        return False
+
+        if len(self._station_presence_cache) >= self._station_presence_cache_max:
+            self._station_presence_cache.clear()
+        self._station_presence_cache[cache_key] = has_station
+        return has_station
 
     def _date_has_events_ndjson(self, date_str: str, station_id: Optional[str]) -> bool:
         """Return True when date has at least one usable NDJSON event."""
@@ -729,24 +782,109 @@ class HybridReader:
             return []
 
         events = []
+        l2_channels = {"l2_snap", "l2_snap_1s"}
+        sample_every = 1
+        if channel in l2_channels:
+            # Optional explicit sampling knob for very large L2 files.
+            try:
+                sample_every = max(1, int(os.getenv("HELIOS_L2_READ_SAMPLE_EVERY", "1")))
+            except (TypeError, ValueError):
+                sample_every = 1
+            if sample_every <= 1:
+                # Auto-sample only for very large files to bound latency.
+                try:
+                    target_mb = float(os.getenv("HELIOS_L2_AUTO_SAMPLE_TARGET_MB", "96"))
+                except (TypeError, ValueError):
+                    target_mb = 96.0
+                if target_mb > 0:
+                    file_mb = ndjson_path.stat().st_size / (1024 * 1024)
+                    if file_mb > target_mb:
+                        sample_every = max(1, int(file_mb // target_mb))
+
+        t0 = perf_counter()
+        total_lines = 0
+        parsed_lines = 0
         try:
             with open(ndjson_path, "r", encoding="utf-8") as f:
-                for line in f:
+                for line_no, line in enumerate(f, start=1):
+                    total_lines += 1
                     line = line.strip()
-                    if line:
-                        try:
-                            event = json.loads(line)
-                            # Filter by station early to keep memory flat.
-                            if station_id and event.get("station_id") not in (station_id, None):
-                                continue
-                            # Ensure channel is set.
-                            event["ch"] = channel
-                            events.append(event)
-                        except json.JSONDecodeError:
+                    if not line:
+                        continue
+
+                    # Cheap pre-filter: skip lines that clearly belong to another station
+                    # without paying JSON decoding cost for huge nested payloads.
+                    if station_id and not self._line_matches_station(line, station_id):
+                        continue
+
+                    # For high-volume L2 channels, optionally sample lines before decoding.
+                    if sample_every > 1 and (line_no % sample_every) != 1:
+                        continue
+
+                    try:
+                        event = json.loads(line)
+                        parsed_lines += 1
+                    except json.JSONDecodeError:
+                        continue
+
+                    # Filter by station early to keep memory flat.
+                    if station_id:
+                        ev_station = event.get("station_id")
+                        if ev_station not in (station_id, None):
                             continue
+                        # Backward compatibility: old events may carry station_id in data.
+                        if ev_station is None:
+                            data_station = None
+                            data = event.get("data")
+                            if isinstance(data, dict):
+                                data_station = data.get("station_id")
+                            if data_station not in (None, station_id):
+                                continue
+
+                    # Drop heavy depth arrays for replay/backtest paths.
+                    # Simulator/policy only require best bid/ask + depth, not full ladders.
+                    if channel in l2_channels:
+                        data = event.get("data")
+                        if isinstance(data, dict):
+                            for bucket, payload in list(data.items()):
+                                if not isinstance(payload, dict):
+                                    continue
+                                if "bids" in payload or "asks" in payload:
+                                    slim = dict(payload)
+                                    slim.pop("bids", None)
+                                    slim.pop("asks", None)
+                                    data[bucket] = slim
+                            event["data"] = data
+
+                    # Ensure channel is set.
+                    event["ch"] = channel
+                    events.append(event)
         except Exception as e:
             logger.error(f"Failed to read NDJSON {ndjson_path}: {e}")
 
+        elapsed = perf_counter() - t0
+        logger.debug(
+            "NDJSON read date=%s ch=%s station=%s sample=%s lines=%s parsed=%s kept=%s elapsed=%.2fs",
+            date_str,
+            channel,
+            station_id,
+            sample_every,
+            total_lines,
+            parsed_lines,
+            len(events),
+            elapsed,
+        )
+        if elapsed >= 5.0:
+            logger.info(
+                "Slow NDJSON read date=%s ch=%s station=%s sample=%s lines=%s kept=%s elapsed=%.2fs",
+                date_str,
+                channel,
+                station_id,
+                sample_every,
+                total_lines,
+                len(events),
+                elapsed,
+            )
         return events
 
     def read_channel(
