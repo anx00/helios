@@ -68,8 +68,9 @@ class StationConfig(BaseModel):
 
 @app.get("/api/stations")
 def get_stations():
-    """Return list of supported stations."""
-    return [{"id": k, "name": v.name, "timezone": v.timezone} for k, v in STATIONS.items()]
+    """Return list of active stations."""
+    active = get_active_stations()
+    return [{"id": k, "name": v.name, "timezone": v.timezone} for k, v in active.items()]
 
 def parse_physics_breakdown(physics_reason: str) -> list:
     """Parse the physics reason string into a structured list with values."""
@@ -850,12 +851,25 @@ async def create_replay_session(date: str, station_id: str = None):
 
     session = await engine.create_session(date, station_id)
     if not session:
+        channels = engine.list_channels_for_date(date, station_id)
+        all_channels = engine.list_channels_for_date(date, None) if station_id else channels
+        available_dates = engine.list_available_dates(station_id)[:10]
+
+        # Build descriptive error
+        if not all_channels:
+            reason = f"No recorded data exists for {date}. The recorder may not have been running."
+        elif station_id and not channels:
+            reason = f"Data exists for {date} but not for station {station_id}. Try 'All stations'."
+        else:
+            reason = f"No events found for {date}" + (f" / {station_id}" if station_id else "")
+
         return {
-            "error": "Failed to load session - no events found for selected date/station",
+            "error": reason,
             "date": date,
             "station_id": station_id,
-            "channels": engine.list_channels_for_date(date, station_id),
-            "available_dates": engine.list_available_dates(station_id)[:10],
+            "channels_for_date": all_channels,
+            "channels_for_station": channels,
+            "available_dates": available_dates,
             "date_reference": "NYC market date"
         }
 

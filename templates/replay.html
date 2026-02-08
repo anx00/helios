@@ -358,8 +358,9 @@
     .event-time {
         font-family: 'JetBrains Mono', monospace;
         font-size: 11px;
-        color: var(--text-muted);
-        min-width: 80px;
+        color: var(--text-secondary);
+        min-width: 100px;
+        line-height: 1.5;
     }
 
     .event-channel {
@@ -834,6 +835,58 @@
     let pollInterval = null;
     let isDragging = false;
 
+    // Timezone helpers
+    const nycFormatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/New_York',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+    });
+    const esFormatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Europe/Madrid',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+    });
+    const nycDateFormatter = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/New_York',
+        year: 'numeric', month: '2-digit', day: '2-digit'
+    });
+
+    function formatDualTime(isoUtc) {
+        const dt = new Date(isoUtc);
+        if (isNaN(dt.getTime())) return { nyc: '--:--:--', es: '--:--:--', date: '--' };
+        return {
+            nyc: nycFormatter.format(dt),
+            es: esFormatter.format(dt),
+            date: nycDateFormatter.format(dt)
+        };
+    }
+
+    function nycTimeFromTsNyc(tsNyc) {
+        // ts_nyc format: "2026-02-07 15:30:00" — already NYC time
+        if (!tsNyc) return { nyc: '--:--', es: '--:--' };
+        const timePart = tsNyc.split(' ')[1];
+        if (!timePart) return { nyc: '--:--', es: '--:--' };
+        const nycShort = timePart.substring(0, 5); // HH:MM
+
+        // Use the UTC ts if available on the event (more accurate)
+        // Otherwise compute ES from NYC: winter +6h, summer +6h
+        const datePart = tsNyc.split(' ')[0];
+        try {
+            // Try both EST (-05:00) and EDT (-04:00) and pick the one
+            // whose NYC rendering matches the original ts_nyc time
+            for (const offset of ['-05:00', '-04:00']) {
+                const candidate = new Date(datePart + 'T' + timePart + offset);
+                const nycRendered = nycFormatter.format(candidate).substring(0, 5);
+                if (nycRendered === nycShort) {
+                    return { nyc: nycShort, es: esFormatter.format(candidate).substring(0, 5) };
+                }
+            }
+            // Fallback: use EST
+            const fallback = new Date(datePart + 'T' + timePart + '-05:00');
+            return { nyc: nycShort, es: esFormatter.format(fallback).substring(0, 5) };
+        } catch {
+            return { nyc: nycShort, es: '--:--' };
+        }
+    }
+
     // Initialize
     async function init() {
         await loadAvailableDates();
@@ -955,7 +1008,14 @@
             const data = await resp.json();
 
             if (data.error) {
-                alert('Failed to load: ' + data.error);
+                let msg = data.error;
+                if (data.available_dates && data.available_dates.length > 0) {
+                    msg += `\n\nAvailable dates: ${data.available_dates.join(', ')}`;
+                }
+                if (data.channels_for_date && data.channels_for_date.length > 0) {
+                    msg += `\nChannels on ${date}: ${data.channels_for_date.join(', ')}`;
+                }
+                alert(msg);
                 return;
             }
 
@@ -1004,15 +1064,15 @@
             isPlaying = data.state === 'playing';
             updatePlayButton();
 
-            // Update clock
+            // Update clock with dual timezone
             if (data.clock) {
                 const currentTime = data.clock.current_time;
                 if (currentTime) {
-                    const dt = new Date(currentTime);
+                    const tz = formatDualTime(currentTime);
                     document.getElementById('current-time').textContent =
-                        dt.toISOString().substr(11, 8);
+                        `${tz.nyc} NYC`;
                     document.getElementById('current-date').textContent =
-                        dt.toISOString().substr(0, 10) + ' NYC';
+                        `${tz.es} ES  ·  ${tz.date}`;
                 }
 
                 // Update progress (skip visual update during drag)
@@ -1052,12 +1112,12 @@
 
         container.innerHTML = events.map(e => {
             const ch = e.ch || 'unknown';
-            const time = e.ts_nyc ? e.ts_nyc.split(' ')[1] : '--:--:--';
+            const tz = nycTimeFromTsNyc(e.ts_nyc);
             const content = formatEventContent(e);
 
             return `
                 <div class="event-item ${e.isCurrent ? 'current' : ''}">
-                    <span class="event-time">${time}</span>
+                    <span class="event-time">${tz.nyc} <span style="color:var(--text-muted);font-size:9px;">NYC</span><br>${tz.es} <span style="color:var(--text-muted);font-size:9px;">ES</span></span>
                     <span class="event-channel ${ch}">${ch}</span>
                     <span class="event-content">${content}</span>
                 </div>

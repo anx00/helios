@@ -647,6 +647,10 @@
         const badge = document.getElementById('market-status-badge');
         const countdownContainer = document.getElementById('market-countdown-container');
 
+        // If already marked RESOLVED by checkMarketResolution (98%+ bracket),
+        // don't override with date-based LIVE status
+        if (badge.textContent === 'RESOLVED') return;
+
         // If target_date matches current NYC date, market is LIVE
         // If target_date is in the past (NYC time), market is RESOLVED
         if (targetDate && currentNycDate) {
@@ -709,7 +713,10 @@
             for (const stn of stations) {
                 const btn = document.createElement('button');
                 btn.className = 'station-btn' + (stn.id === currentStation ? ' active' : '');
-                btn.textContent = stn.id;
+                btn.dataset.stationId = stn.id;
+                // Show name: "KLGA - LaGuardia"
+                const shortName = stn.name.split(' ').slice(-1)[0];
+                btn.textContent = `${stn.id} - ${shortName}`;
                 btn.onclick = () => selectStation(stn.id);
                 container.appendChild(btn);
             }
@@ -723,7 +730,7 @@
 
         // Update buttons
         document.querySelectorAll('.station-btn').forEach(btn => {
-            btn.classList.toggle('active', btn.textContent === stationId);
+            btn.classList.toggle('active', btn.dataset.stationId === stationId);
         });
 
         loadNowcast();
@@ -731,21 +738,24 @@
 
     async function loadNowcast() {
         try {
-            // Fetch both distribution and state in parallel
-            const [distResp, stateResp] = await Promise.all([
+            // Fetch distribution, state, and market data in parallel
+            const [distResp, stateResp, marketResp] = await Promise.all([
                 fetch(`/api/v3/nowcast/${currentStation}`),
-                fetch(`/api/v3/nowcast/${currentStation}/state`)
+                fetch(`/api/v3/nowcast/${currentStation}/state`),
+                fetch(`/api/market/${currentStation}`)
             ]);
 
             const data = await distResp.json();
             const state = await stateResp.json();
+            let marketData = null;
+            try { marketData = await marketResp.json(); } catch {}
 
             if (data.error) {
                 console.warn('Nowcast error:', data.error);
                 return;
             }
 
-            renderNowcast(data, state);
+            renderNowcast(data, state, marketData);
 
             // Update timestamp - show NYC time from data
             const updateTime = data.ts_nyc ?
@@ -758,7 +768,10 @@
         }
     }
 
-    function renderNowcast(data, state) {
+    function renderNowcast(data, state, marketData) {
+        // Check for market resolution via live Polymarket probabilities
+        checkMarketResolution(marketData);
+
         // Update market status banner
         updateMarketStatus(data.target_date, data.ts_nyc);
 
@@ -827,6 +840,52 @@
 
         // Explanations
         renderExplanations(data.explanations || []);
+    }
+
+    function checkMarketResolution(marketData) {
+        const badge = document.getElementById('market-status-badge');
+        const countdownContainer = document.getElementById('market-countdown-container');
+        const estimateCard = document.querySelector('.estimate-card');
+
+        // Remove any previous resolved overlay
+        const oldOverlay = document.getElementById('resolved-overlay');
+        if (oldOverlay) oldOverlay.remove();
+
+        if (!marketData || marketData.error || !marketData.outcomes) return;
+
+        // Find bracket with 98%+ probability = market resolved
+        const winner = marketData.outcomes.find(o => o.probability >= 0.98);
+        if (!winner) return;
+
+        // Market is resolved!
+        badge.className = 'market-status-badge resolved';
+        badge.textContent = 'RESOLVED';
+        countdownContainer.style.display = 'none';
+
+        // Add resolved overlay to the estimate card
+        const pct = (winner.probability * 100).toFixed(1);
+        const overlay = document.createElement('div');
+        overlay.id = 'resolved-overlay';
+        overlay.style.cssText = `
+            margin-top: 12px;
+            padding: 10px 16px;
+            background: rgba(16,185,129,0.15);
+            border: 1px solid rgba(16,185,129,0.3);
+            border-radius: 10px;
+            text-align: center;
+        `;
+        overlay.innerHTML = `
+            <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#10B981;margin-bottom:4px;">
+                Market Resolved
+            </div>
+            <div style="font-size:20px;font-weight:700;font-family:'JetBrains Mono',monospace;color:#10B981;">
+                ${winner.title}
+            </div>
+            <div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">
+                ${pct}% probability
+            </div>
+        `;
+        estimateCard.appendChild(overlay);
     }
 
     function renderBuckets(buckets) {

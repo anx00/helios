@@ -218,7 +218,35 @@ class ReplaySession:
             )
 
             if not self._events:
-                logger.warning(f"No events found for {self.date_str}")
+                # Diagnostic logging
+                try:
+                    available_channels = self._reader.list_channels_for_date(self.date_str)
+                    available_dates = self._reader.list_available_dates(self.station_id)
+                    logger.warning(
+                        f"No events found for date={self.date_str}, station={self.station_id}. "
+                        f"Channels on date: {available_channels}. "
+                        f"Recent dates for station: {available_dates[:5]}"
+                    )
+                    if not available_channels:
+                        logger.warning(
+                            f"No NDJSON or Parquet data exists for {self.date_str}. "
+                            f"Is the recorder running?"
+                        )
+                    elif self.station_id:
+                        # Data exists but not for this station
+                        all_events = self._reader.get_events_sorted(self.date_str, None, self.channels)
+                        stations_found = set()
+                        for ev in all_events[:200]:
+                            sid = ev.get("station_id") or ev.get("data", {}).get("station_id")
+                            if sid:
+                                stations_found.add(sid)
+                        if stations_found:
+                            logger.warning(
+                                f"Data exists for stations: {stations_found}, "
+                                f"but not for requested station={self.station_id}"
+                            )
+                except Exception as diag_err:
+                    logger.warning(f"Diagnostics failed: {diag_err}")
                 self.state = ReplayState.IDLE
                 return False
 
