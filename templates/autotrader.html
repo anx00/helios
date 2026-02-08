@@ -324,7 +324,7 @@
         background: linear-gradient(90deg, #0078FF, #00D4FF);
     }
     .intraday-wrap {
-        height: 320px;
+        height: 380px;
         min-height: 280px;
         position: relative;
     }
@@ -475,6 +475,17 @@
     </div>
 </div>
 
+<div class="panel">
+    <div class="panel-header">
+        <div class="panel-title">Intraday Signals Chart</div>
+        <div id="intraday-meta" class="panel-meta">loading...</div>
+    </div>
+    <div id="intraday-submeta" class="intraday-meta">tmax mean +/- sigma with signals and fills</div>
+    <div class="intraday-wrap">
+        <canvas id="intraday-chart"></canvas>
+    </div>
+</div>
+
 <div class="layout">
     <div>
         <div class="panel">
@@ -518,16 +529,6 @@
             </div>
         </div>
 
-        <div class="panel">
-            <div class="panel-header">
-                <div class="panel-title">Intraday Signals Chart</div>
-                <div id="intraday-meta" class="panel-meta">loading...</div>
-            </div>
-            <div id="intraday-submeta" class="intraday-meta">tmax mean +/- sigma with signals and fills</div>
-            <div class="intraday-wrap">
-                <canvas id="intraday-chart"></canvas>
-            </div>
-        </div>
     </div>
 
     <div>
@@ -1132,14 +1133,17 @@ function renderIntraday(payload) {
         return;
     }
 
-    const timeline = Array.isArray(payload.timeline) ? payload.timeline : [];
+    const rawTimeline = Array.isArray(payload.timeline) ? payload.timeline : [];
     const fills = Array.isArray(payload.fills) ? payload.fills : [];
     const marketSeries = Array.isArray(payload.market_series) ? payload.market_series : [];
-    if (!timeline.length) {
+    if (!rawTimeline.length) {
         meta.textContent = "no intraday decisions";
         submeta.textContent = `target ${payload?.window?.target_date || "--"} | fills ${fills.length}`;
         return;
     }
+    const MAX_PLOTTED_DECISIONS = 300;
+    const step = Math.max(1, Math.ceil(rawTimeline.length / MAX_PLOTTED_DECISIONS));
+    const timeline = rawTimeline.filter((_, idx) => idx % step === 0);
 
     const labels = [];
     const means = [];
@@ -1239,7 +1243,8 @@ function renderIntraday(payload) {
         },
     ];
 
-    const observed = Number(payload.observed_max_f);
+    const observedRaw = payload?.observed_max_f;
+    const observed = (observedRaw === null || observedRaw === undefined) ? Number.NaN : Number(observedRaw);
     if (!Number.isNaN(observed)) {
         datasets.push({
             label: "Observed Max So Far",
@@ -1361,10 +1366,11 @@ function renderIntraday(payload) {
         },
     });
 
-    meta.textContent = `${payload?.window?.target_date || "--"} | decisions ${timeline.length} | orders ${payload?.counts?.orders || 0} | fills ${fills.length}`;
+    const actionTicks = rawTimeline.filter((p) => Array.isArray(p?.actions) && p.actions.length > 0).length;
+    meta.textContent = `${payload?.window?.target_date || "--"} | decisions ${rawTimeline.length} (chart ${timeline.length}) | action ticks ${actionTicks} | orders ${payload?.counts?.orders || 0} | fills ${fills.length}`;
     const marketPts = marketSeries.length;
     submeta.textContent =
-        `signals/fills mapped to intraday tmax timeline | observed max ${Number.isNaN(observed) ? "--" : `${observed.toFixed(1)}F`} | market points ${marketPts}`;
+        `cada decision = tick de evaluacion; orders/fills solo cuando ejecuta | observed max ${Number.isNaN(observed) ? "--" : `${observed.toFixed(1)}F`} | market points ${marketPts}`;
 }
 
 async function refreshFast() {
@@ -1413,7 +1419,7 @@ async function refreshSlow() {
     const [n, m, intraday] = await Promise.allSettled([
         j(`/api/v6/autotrader/nowcast?target_day=${live.targetDay}`),
         j(`/api/polymarket/${s}?target_day=${live.targetDay}&depth=5`),
-        j(`/api/v6/autotrader/intraday?target_day=${live.targetDay}&limit=2000`),
+        j(`/api/v6/autotrader/intraday?target_day=${live.targetDay}&limit=1000`),
     ]);
     renderNowcast(n.status === "fulfilled" ? n.value : { error: n.reason?.message || "error" });
     renderMarket(m.status === "fulfilled" ? m.value : { error: m.reason?.message || "error" });
