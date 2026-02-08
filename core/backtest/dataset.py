@@ -348,8 +348,27 @@ class DatasetBuilder:
             market_id=market_id
         )
 
-        # Read all events
-        all_events = reader.get_events_sorted(date_str, station_id)
+        # Read only channels relevant to backtest runtime.
+        # This avoids loading heavy channels (e.g. health/features) that are not used.
+        available_channels = set(reader.list_channels_for_date(date_str))
+        channels_env = os.getenv("HELIOS_BACKTEST_CHANNELS", "").strip()
+        if channels_env:
+            requested_channels = [c.strip() for c in channels_env.split(",") if c.strip()]
+        else:
+            requested_channels = ["world", "pws", "nowcast", "event_window"]
+            # Prefer lower-volume market channel when both exist.
+            if "l2_snap" in available_channels:
+                requested_channels.append("l2_snap")
+            elif "market" in available_channels:
+                requested_channels.append("market")
+            elif "l2_snap_1s" in available_channels:
+                requested_channels.append("l2_snap_1s")
+
+        all_events = reader.get_events_sorted(
+            date_str,
+            station_id,
+            channels=requested_channels if requested_channels else None,
+        )
 
         if not all_events:
             logger.warning(f"No events found for {date_str}")

@@ -525,13 +525,17 @@ class ParquetReader:
     def read_all_channels(
         self,
         date_str: str,
-        station_id: Optional[str] = None
+        station_id: Optional[str] = None,
+        channels: Optional[List[str]] = None
     ) -> Dict[str, List[Dict]]:
         """Read all channels for a date."""
-        channels = self.list_channels_for_date(date_str, station_id)
+        available_channels = self.list_channels_for_date(date_str, station_id)
+        channel_filter = set(channels) if channels else None
         result = {}
 
-        for channel in channels:
+        for channel in available_channels:
+            if channel_filter is not None and channel not in channel_filter:
+                continue
             result[channel] = self.read_channel(date_str, channel, station_id)
 
         return result
@@ -547,11 +551,7 @@ class ParquetReader:
 
         This is the main method for replay.
         """
-        all_data = self.read_all_channels(date_str, station_id)
-
-        # Filter channels if specified
-        if channels:
-            all_data = {k: v for k, v in all_data.items() if k in channels}
+        all_data = self.read_all_channels(date_str, station_id, channels=channels)
 
         # Flatten to single list
         all_events = []
@@ -767,7 +767,8 @@ class HybridReader:
     def read_all_channels(
         self,
         date_str: str,
-        station_id: Optional[str] = None
+        station_id: Optional[str] = None,
+        channels: Optional[List[str]] = None
     ) -> Dict[str, List[Dict]]:
         """
         Read all channels for a date.
@@ -775,18 +776,21 @@ class HybridReader:
         Optimized path: avoid expensive station pre-scans in list_channels_for_date
         and let read_channel() do station filtering in one pass.
         """
-        channels = set()
+        available_channels = set()
         ndjson_date_path = self.ndjson_base / f"date={date_str}"
         if ndjson_date_path.exists():
             for item in ndjson_date_path.iterdir():
                 if item.is_dir() and item.name.startswith("ch="):
-                    channels.add(item.name.replace("ch=", ""))
+                    available_channels.add(item.name.replace("ch=", ""))
 
         # Include compacted channels as fallback/merge source.
-        channels.update(self._parquet_reader.list_channels_for_date(date_str, station_id))
+        available_channels.update(self._parquet_reader.list_channels_for_date(date_str, station_id))
+        channel_filter = set(channels) if channels else None
         result = {}
 
-        for channel in channels:
+        for channel in available_channels:
+            if channel_filter is not None and channel not in channel_filter:
+                continue
             events = self.read_channel(date_str, channel, station_id)
             if events:
                 result[channel] = events
@@ -804,11 +808,7 @@ class HybridReader:
 
         This is the main method for replay.
         """
-        all_data = self.read_all_channels(date_str, station_id)
-
-        # Filter channels if specified
-        if channels:
-            all_data = {k: v for k, v in all_data.items() if k in channels}
+        all_data = self.read_all_channels(date_str, station_id, channels=channels)
 
         # Flatten to single list
         all_events = []

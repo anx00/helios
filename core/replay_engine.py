@@ -210,11 +210,24 @@ class ReplaySession:
         logger.info(f"Loading replay session: {self.date_str} / {self.station_id}")
 
         try:
+            channels = self.channels
+            # Default channel set optimized for UI/replay latency.
+            # Prefer lower-volume market channel when multiple variants exist.
+            if channels is None and hasattr(self._reader, "list_channels_for_date"):
+                available = set(self._reader.list_channels_for_date(self.date_str))
+                channels = ["world", "pws", "nowcast", "features", "health", "event_window"]
+                if "l2_snap" in available:
+                    channels.append("l2_snap")
+                elif "market" in available:
+                    channels.append("market")
+                elif "l2_snap_1s" in available:
+                    channels.append("l2_snap_1s")
+
             # Read all events sorted by timestamp
             self._events = self._reader.get_events_sorted(
                 self.date_str,
                 self.station_id,
-                self.channels
+                channels
             )
 
             if not self._events:
