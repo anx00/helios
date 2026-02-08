@@ -2449,6 +2449,164 @@ async def get_backtest_dates(station_id: str = None):
         )
 
 
+def _parse_backtest_mode(mode: str):
+    """Parse API mode aliases into BacktestMode."""
+    from core.backtest import BacktestMode
+
+    mode_norm = (mode or "").strip().lower()
+    if mode_norm in ("signal_only", "signal"):
+        return BacktestMode.SIGNAL_ONLY
+    if mode_norm in ("execution_aware", "execution"):
+        return BacktestMode.EXECUTION_AWARE
+    # Fallback to execution for unknown values
+    return BacktestMode.EXECUTION_AWARE
+
+
+def _build_backtest_policy(policy: str, selection_mode: str, risk_profile: str):
+    """Instantiate policy object from request params."""
+    from core.backtest import (
+        create_conservative_policy,
+        create_aggressive_policy,
+        create_fade_policy,
+        create_maker_passive_policy,
+    )
+    from core.autotrader import create_multi_bandit_policy
+
+    policy_norm = (policy or "conservative").strip().lower()
+
+    if policy_norm == "aggressive":
+        return create_aggressive_policy()
+    if policy_norm == "fade":
+        return create_fade_policy()
+    if policy_norm == "maker_passive":
+        return create_maker_passive_policy()
+    if policy_norm == "multi_bandit":
+        return create_multi_bandit_policy(
+            selection_mode=(selection_mode or "static"),
+            risk_profile=(risk_profile or "risk_first"),
+        )
+    if policy_norm == "toy_debug":
+        from core.backtest import create_toy_debug_policy
+        return create_toy_debug_policy()
+    return create_conservative_policy()
+
+
+def _trim_backtest_payload(payload: dict, report_level: str):
+    """Trim heavy timeline payload based on report level."""
+    report_norm = (report_level or "summary").strip().lower()
+    if report_norm == "summary":
+        for day in payload.get("day_results", []):
+            day.pop("prediction_points", None)
+            day.pop("decision_points", None)
+            day.pop("orders", None)
+            day.pop("fills", None)
+    elif report_norm == "day_detail":
+        for day in payload.get("day_results", []):
+            day["prediction_points"] = day.get("prediction_points", [])[:200]
+            day["decision_points"] = day.get("decision_points", [])[:200]
+            day["orders"] = day.get("orders", [])[:200]
+            day["fills"] = day.get("fills", [])[:200]
+    # full_timeline -> unchanged
+
+
+def _run_backtest_core(
+    station_id: str,
+    start_date: str,
+    end_date: str,
+    mode: str,
+    policy: str,
+    selection_mode: str,
+    risk_profile: str,
+    report_level: str,
+):
+    """
+    Run backtest and return normalized tuple:
+      (payload, error_payload, status_code)
+    """
+    from datetime import date
+    from core.backtest import BacktestEngine, get_dataset_builder
+
+    bt_mode = _parse_backtest_mode(mode)
+    bt_policy = _build_backtest_policy(policy, selection_mode, risk_profile)
+    engine = BacktestEngine(policy=bt_policy, mode=bt_mode)
+
+    result = engine.run(
+        station_id=station_id,
+        start_date=date.fromisoformat(start_date),
+        end_date=date.fromisoformat(end_date),
+    )
+
+    payload = result.to_dict()
+    coverage = payload.get("coverage", {})
+    if (coverage.get("days_with_data") or 0) == 0:
+        builder = get_dataset_builder()
+        available_dates = [d.isoformat() for d in builder.list_available_dates(station_id)[:10]]
+        return (
+            None,
+            {
+                "error": "No recorded data found for requested range/station",
+                "station_id": station_id,
+                "start_date": start_date,
+                "end_date": end_date,
+                "available_dates": available_dates,
+                "date_reference": "NYC market date",
+            },
+            422,
+        )
+
+    _trim_backtest_payload(payload, report_level)
+    payload["request"] = {
+        "mode": mode,
+        "policy": policy,
+        "selection_mode": selection_mode,
+        "risk_profile": risk_profile,
+        "report_level": report_level,
+    }
+    return payload, None, 200
+
+
+def _safe_float(value: Optional[float], default: float = 0.0) -> float:
+    try:
+        if value is None:
+            return default
+        return float(value)
+    except Exception:
+        return default
+
+
+def _score_suite_run(payload: dict) -> float:
+    """
+    Composite score for auto-compare ranking.
+    Higher is better.
+    """
+    trading = payload.get("trading_summary", {}) or {}
+    metrics = payload.get("aggregated_metrics", {}) or {}
+    calibration = metrics.get("calibration", {}) or {}
+    coverage = payload.get("coverage", {}) or {}
+
+    pnl = _safe_float(trading.get("total_pnl_net"), 0.0)
+    sharpe = _safe_float(trading.get("sharpe_ratio"), 0.0)
+    win_rate = _safe_float(trading.get("win_rate"), 0.0)
+    max_dd = _safe_float(trading.get("max_drawdown"), 0.0)
+    fills = _safe_float(trading.get("total_fills"), 0.0)
+    brier = _safe_float(calibration.get("brier_global"), 0.35)
+
+    days_with_data = int(coverage.get("days_with_data") or 0)
+    days_with_labels = int(coverage.get("days_with_labels") or 0)
+    coverage_ratio = (days_with_labels / days_with_data) if days_with_data > 0 else 0.0
+
+    # Pragmatic weighted score: reward PnL/risk-adjusted returns and penalize drawdown/calibration error.
+    score = 0.0
+    score += pnl * 0.40
+    score += sharpe * 8.0
+    score += win_rate * 20.0
+    score -= max_dd * 90.0
+    score -= brier * 18.0
+    score += coverage_ratio * 12.0
+    score += min(fills, 300.0) * 0.02
+    return round(score, 4)
+
+
 @app.post("/api/v5/backtest/run")
 async def run_backtest(
     station_id: str,
@@ -2461,82 +2619,24 @@ async def run_backtest(
     report_level: str = "summary",
 ):
     """Run a backtest."""
-    from datetime import date
     from fastapi.responses import JSONResponse
 
     try:
-        from core.backtest import (
-            BacktestEngine, BacktestMode,
-            create_conservative_policy, create_aggressive_policy, create_fade_policy, create_maker_passive_policy
-        )
-        from core.autotrader import create_multi_bandit_policy
-
-        bt_mode = BacktestMode.SIGNAL_ONLY if mode == "signal" else BacktestMode.EXECUTION_AWARE
-
-        if policy == "aggressive":
-            bt_policy = create_aggressive_policy()
-        elif policy == "fade":
-            bt_policy = create_fade_policy()
-        elif policy == "maker_passive":
-            bt_policy = create_maker_passive_policy()
-        elif policy == "multi_bandit":
-            bt_policy = create_multi_bandit_policy(
-                selection_mode=selection_mode,
-                risk_profile=risk_profile,
-            )
-        elif policy == "toy_debug":
-            from core.backtest import create_toy_debug_policy
-            bt_policy = create_toy_debug_policy()
-        else:
-            bt_policy = create_conservative_policy()
-
-        engine = BacktestEngine(policy=bt_policy, mode=bt_mode)
-        result = engine.run(
+        payload, err, status = _run_backtest_core(
             station_id=station_id,
-            start_date=date.fromisoformat(start_date),
-            end_date=date.fromisoformat(end_date)
+            start_date=start_date,
+            end_date=end_date,
+            mode=mode,
+            policy=policy,
+            selection_mode=selection_mode,
+            risk_profile=risk_profile,
+            report_level=report_level,
         )
-
-        payload = result.to_dict()
-
-        coverage = payload.get("coverage", {})
-        if (coverage.get("days_with_data") or 0) == 0:
-            from core.backtest import get_dataset_builder
-            builder = get_dataset_builder()
-            available_dates = [d.isoformat() for d in builder.list_available_dates(station_id)[:10]]
+        if status != 200:
             return JSONResponse(
-                status_code=422,
-                content={
-                    "error": "No recorded data found for requested range/station",
-                    "station_id": station_id,
-                    "start_date": start_date,
-                    "end_date": end_date,
-                    "available_dates": available_dates,
-                    "date_reference": "NYC market date"
-                }
+                status_code=status,
+                content=err or {"error": "Unknown backtest error"},
             )
-
-        # report_level controls timeline payload size.
-        if report_level == "summary":
-            for day in payload.get("day_results", []):
-                day.pop("prediction_points", None)
-                day.pop("decision_points", None)
-                day.pop("orders", None)
-                day.pop("fills", None)
-        elif report_level == "day_detail":
-            for day in payload.get("day_results", []):
-                day["prediction_points"] = day.get("prediction_points", [])[:200]
-                day["decision_points"] = day.get("decision_points", [])[:200]
-                day["orders"] = day.get("orders", [])[:200]
-                day["fills"] = day.get("fills", [])[:200]
-        # full_timeline returns complete payload
-
-        payload["request"] = {
-            "policy": policy,
-            "selection_mode": selection_mode,
-            "risk_profile": risk_profile,
-            "report_level": report_level,
-        }
         return payload
 
     except Exception as e:
@@ -2545,6 +2645,194 @@ async def run_backtest(
         return JSONResponse(
             status_code=500,
             content={"error": str(e), "type": type(e).__name__}
+        )
+
+
+@app.post("/api/v5/backtest/run_suite")
+async def run_backtest_suite(
+    station_id: str,
+    start_date: str,
+    end_date: str,
+    suite_name: str = "default_auto_compare_v1",
+    report_level: str = "summary",
+):
+    """
+    Run curated strategy suite and return auto-compare ranking + recommendation.
+
+    This endpoint powers Simple mode in /backtest.
+    """
+    from fastapi.responses import JSONResponse
+
+    try:
+        suite_runs = [
+            {
+                "run_id": "conservative_exec",
+                "label": "Conservative (Execution)",
+                "mode": "execution",
+                "policy": "conservative",
+                "selection_mode": "static",
+                "risk_profile": "risk_first",
+            },
+            {
+                "run_id": "aggressive_exec",
+                "label": "Aggressive (Execution)",
+                "mode": "execution",
+                "policy": "aggressive",
+                "selection_mode": "static",
+                "risk_profile": "pnl_first",
+            },
+            {
+                "run_id": "fade_exec",
+                "label": "Fade Event QC (Execution)",
+                "mode": "execution",
+                "policy": "fade",
+                "selection_mode": "static",
+                "risk_profile": "risk_first",
+            },
+            {
+                "run_id": "maker_passive_exec",
+                "label": "Maker Passive (Execution)",
+                "mode": "execution",
+                "policy": "maker_passive",
+                "selection_mode": "static",
+                "risk_profile": "risk_first",
+            },
+            {
+                "run_id": "multi_bandit_risk",
+                "label": "Multi-Bandit LinUCB (Risk First)",
+                "mode": "execution",
+                "policy": "multi_bandit",
+                "selection_mode": "linucb",
+                "risk_profile": "risk_first",
+            },
+            {
+                "run_id": "multi_bandit_pnl",
+                "label": "Multi-Bandit LinUCB (PnL First)",
+                "mode": "execution",
+                "policy": "multi_bandit",
+                "selection_mode": "linucb",
+                "risk_profile": "pnl_first",
+            },
+        ]
+
+        run_summaries = []
+        successful_runs = []
+        first_error = None
+
+        for run_cfg in suite_runs:
+            payload, err, status = _run_backtest_core(
+                station_id=station_id,
+                start_date=start_date,
+                end_date=end_date,
+                mode=run_cfg["mode"],
+                policy=run_cfg["policy"],
+                selection_mode=run_cfg["selection_mode"],
+                risk_profile=run_cfg["risk_profile"],
+                report_level=report_level,
+            )
+
+            if status != 200:
+                if first_error is None:
+                    first_error = err or {"error": "Unknown suite run error"}
+                run_summaries.append(
+                    {
+                        "run_id": run_cfg["run_id"],
+                        "label": run_cfg["label"],
+                        "request": {
+                            "mode": run_cfg["mode"],
+                            "policy": run_cfg["policy"],
+                            "selection_mode": run_cfg["selection_mode"],
+                            "risk_profile": run_cfg["risk_profile"],
+                        },
+                        "status": "error",
+                        "error": (err or {}).get("error", "Unknown error"),
+                    }
+                )
+                continue
+
+            score = _score_suite_run(payload)
+            trading = payload.get("trading_summary", {}) or {}
+            calibration = (payload.get("aggregated_metrics", {}) or {}).get("calibration", {}) or {}
+            coverage = payload.get("coverage", {}) or {}
+
+            summary = {
+                "run_id": run_cfg["run_id"],
+                "label": run_cfg["label"],
+                "request": {
+                    "mode": run_cfg["mode"],
+                    "policy": run_cfg["policy"],
+                    "selection_mode": run_cfg["selection_mode"],
+                    "risk_profile": run_cfg["risk_profile"],
+                },
+                "status": "ok",
+                "score": score,
+                "trading": {
+                    "total_pnl_net": _safe_float(trading.get("total_pnl_net")),
+                    "win_rate": _safe_float(trading.get("win_rate")),
+                    "sharpe_ratio": _safe_float(trading.get("sharpe_ratio")),
+                    "max_drawdown": _safe_float(trading.get("max_drawdown")),
+                    "total_fills": int(trading.get("total_fills") or 0),
+                },
+                "calibration": {
+                    "brier_global": _safe_float(calibration.get("brier_global"), 0.0),
+                    "ece": _safe_float(calibration.get("ece"), 0.0),
+                },
+                "coverage": coverage,
+            }
+            run_summaries.append(summary)
+            successful_runs.append((summary, payload))
+
+        if not successful_runs:
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "error": "No successful runs in strategy suite",
+                    "suite_name": suite_name,
+                    "first_error": first_error,
+                    "runs": run_summaries,
+                },
+            )
+
+        successful_runs.sort(key=lambda x: x[0]["score"], reverse=True)
+        recommended_summary, recommended_payload = successful_runs[0]
+
+        recommendation_reason = (
+            f"Best composite score {recommended_summary['score']:.2f}, "
+            f"PnL ${recommended_summary['trading']['total_pnl_net']:.2f}, "
+            f"Sharpe {recommended_summary['trading']['sharpe_ratio']:.2f}, "
+            f"Max DD {(recommended_summary['trading']['max_drawdown'] * 100):.1f}%."
+        )
+
+        # Re-sort output list by score desc while keeping errored runs at bottom.
+        ok_runs = [r for r in run_summaries if r.get("status") == "ok"]
+        err_runs = [r for r in run_summaries if r.get("status") != "ok"]
+        ok_runs.sort(key=lambda x: x.get("score", -999999), reverse=True)
+
+        return {
+            "kind": "suite",
+            "suite_name": suite_name,
+            "station_id": station_id,
+            "start_date": start_date,
+            "end_date": end_date,
+            "runs": ok_runs + err_runs,
+            "recommendation": {
+                "run_id": recommended_summary["run_id"],
+                "label": recommended_summary["label"],
+                "reason": recommendation_reason,
+            },
+            "recommended_result": recommended_payload,
+            "guide": {
+                "mode": "simple_auto_compare",
+                "note": "Use Advanced mode to tune one strategy manually after selecting a baseline from this ranking.",
+            },
+        }
+
+    except Exception as e:
+        import traceback
+        logger.error(f"Backtest suite failed: {e}\n{traceback.format_exc()}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e), "type": type(e).__name__},
         )
 
 

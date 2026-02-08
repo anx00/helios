@@ -11,6 +11,52 @@
         margin-bottom: 20px;
     }
 
+    /* Embedded guide */
+    .guide-panel {
+        background: linear-gradient(135deg, rgba(0,120,255,0.10), rgba(16,185,129,0.08));
+        border: 1px solid rgba(59,130,246,0.25);
+        border-radius: 12px;
+        padding: 16px;
+        margin-bottom: 16px;
+    }
+
+    .guide-title {
+        font-size: 14px;
+        font-weight: 700;
+        color: #dbeafe;
+        margin-bottom: 10px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .guide-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 10px;
+    }
+
+    .guide-card {
+        background: rgba(15, 23, 42, 0.45);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 10px;
+        padding: 10px 12px;
+    }
+
+    .guide-card .h {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.7px;
+        color: #93c5fd;
+        margin-bottom: 5px;
+    }
+
+    .guide-card .b {
+        font-size: 12px;
+        color: #cbd5e1;
+        line-height: 1.45;
+    }
+
     /* Config Panel */
     .config-panel {
         display: grid;
@@ -86,6 +132,67 @@
     .run-btn:disabled {
         opacity: 0.5;
         cursor: not-allowed;
+    }
+
+    .advanced-only {
+        transition: opacity 0.15s ease;
+    }
+
+    .advanced-hidden {
+        display: none !important;
+    }
+
+    /* Suite compare panel */
+    .suite-panel {
+        margin-bottom: 16px;
+    }
+
+    .suite-reco {
+        margin-bottom: 12px;
+        padding: 10px 12px;
+        border-radius: 8px;
+        background: rgba(16,185,129,0.10);
+        border: 1px solid rgba(16,185,129,0.25);
+        color: #d1fae5;
+        font-size: 12px;
+    }
+
+    .suite-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+    }
+
+    .suite-table th,
+    .suite-table td {
+        padding: 8px 10px;
+        border-bottom: 1px solid rgba(255,255,255,0.06);
+        text-align: left;
+    }
+
+    .suite-table th {
+        color: var(--text-muted);
+        text-transform: uppercase;
+        font-size: 10px;
+        letter-spacing: 0.4px;
+    }
+
+    .suite-table tr.recommended {
+        background: rgba(16,185,129,0.12);
+    }
+
+    .suite-select-btn {
+        background: rgba(0,120,255,0.15);
+        border: 1px solid rgba(0,120,255,0.35);
+        color: #93c5fd;
+        border-radius: 6px;
+        font-size: 10px;
+        padding: 4px 8px;
+        cursor: pointer;
+    }
+
+    .suite-select-btn:hover {
+        opacity: 0.9;
     }
 
     /* Results Panel */
@@ -520,8 +627,36 @@
 </div>
 
 <div class="page-content">
+    <div class="guide-panel">
+        <div class="guide-title">
+            <i data-lucide="book-open" style="width:16px;height:16px;"></i>
+            How To Use Backtest
+        </div>
+        <div class="guide-grid">
+            <div class="guide-card">
+                <div class="h">Simple (Recommended)</div>
+                <div class="b">Solo elige estación y fechas. HELIOS compara automáticamente un conjunto curado de estrategias y te recomienda la mejor.</div>
+            </div>
+            <div class="guide-card">
+                <div class="h">Advanced</div>
+                <div class="b">Ajusta policy, modo, riesgo y nivel de reporte para afinar una estrategia concreta después de comparar en modo simple.</div>
+            </div>
+            <div class="guide-card">
+                <div class="h">Signal vs Execution</div>
+                <div class="b"><b>Signal</b> evalúa calidad predictiva. <b>Execution</b> simula fills, costes y PnL realista para trading histórico.</div>
+            </div>
+        </div>
+    </div>
+
     <!-- Configuration -->
     <div class="config-panel">
+        <div class="config-group">
+            <label class="config-label">Experience</label>
+            <select id="ui-mode-select" class="config-input">
+                <option value="simple">Simple Auto-Compare (Recommended)</option>
+                <option value="advanced">Advanced Manual</option>
+            </select>
+        </div>
         <div class="config-group">
             <label class="config-label">Station</label>
             <select id="station-select" class="config-input">
@@ -539,14 +674,14 @@
             <label class="config-label">End Date</label>
             <input type="date" id="end-date" class="config-input">
         </div>
-        <div class="config-group">
+        <div class="config-group advanced-only">
             <label class="config-label">Mode</label>
             <select id="mode-select" class="config-input">
                 <option value="signal">Signal Only</option>
                 <option value="execution">Execution Aware</option>
             </select>
         </div>
-        <div class="config-group">
+        <div class="config-group advanced-only">
             <label class="config-label">Policy</label>
             <select id="policy-select" class="config-input">
                 <option value="conservative">Conservative</option>
@@ -557,14 +692,14 @@
                 <option value="toy_debug">Toy Debug</option>
             </select>
         </div>
-        <div class="config-group">
+        <div class="config-group advanced-only">
             <label class="config-label">Selection Mode</label>
             <select id="selection-mode-select" class="config-input">
                 <option value="static">Static</option>
                 <option value="linucb">LinUCB</option>
             </select>
         </div>
-        <div class="config-group">
+        <div class="config-group advanced-only">
             <label class="config-label">Risk Profile</label>
             <select id="risk-profile-select" class="config-input">
                 <option value="risk_first">Risk First</option>
@@ -572,7 +707,7 @@
                 <option value="calibration_first">Calibration First</option>
             </select>
         </div>
-        <div class="config-group">
+        <div class="config-group advanced-only">
             <label class="config-label">Report Level</label>
             <select id="report-level-select" class="config-input">
                 <option value="summary">Summary</option>
@@ -582,7 +717,7 @@
         </div>
         <button id="run-btn" class="run-btn">
             <i data-lucide="play" style="width:16px;height:16px;display:inline;margin-right:6px;"></i>
-            Run Backtest
+            Run Auto-Compare
         </button>
     </div>
 
@@ -592,6 +727,36 @@
             <div class="progress-bar-fill" id="progress-fill" style="width: 0%"></div>
         </div>
         <div class="progress-text" id="progress-text">Preparing...</div>
+    </div>
+
+    <!-- Suite Compare Results -->
+    <div class="results-panel suite-panel" id="suite-panel" style="display: none;">
+        <div class="results-header">
+            <div class="results-title">
+                <i data-lucide="sparkles"></i>
+                Auto-Compare Ranking
+            </div>
+            <span id="suite-period" class="text-muted"></span>
+        </div>
+        <div class="suite-reco" id="suite-reco"></div>
+        <table class="suite-table">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Strategy</th>
+                    <th>PnL</th>
+                    <th>Sharpe</th>
+                    <th>Max DD</th>
+                    <th>Win Rate</th>
+                    <th>Fills</th>
+                    <th>Brier</th>
+                    <th>Coverage</th>
+                    <th>Score</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody id="suite-tbody"></tbody>
+        </table>
     </div>
 
     <!-- Results -->
@@ -702,7 +867,7 @@
     <div class="empty-state" id="empty-state">
         <i data-lucide="flask-conical"></i>
         <h3>No Backtest Results</h3>
-        <p>Configure parameters and click "Run Backtest" to start.</p>
+        <p>Selecciona estación + fechas y ejecuta el modo simple para obtener una comparación automática.</p>
     </div>
 </div>
 {% endblock %}
@@ -737,9 +902,31 @@
     let expandedDate = null;
     let activeChart = null;
     let lastResult = null;
+    let lastSuite = null;
+
+    // UX mode: simple (auto-compare) vs advanced
+    const uiModeSelect = document.getElementById('ui-mode-select');
+    const runBtn = document.getElementById('run-btn');
+
+    function applyUIMode() {
+        const isSimple = uiModeSelect.value === 'simple';
+        document.querySelectorAll('.advanced-only').forEach(el => {
+            if (isSimple) el.classList.add('advanced-hidden');
+            else el.classList.remove('advanced-hidden');
+        });
+        runBtn.innerHTML = `
+            <i data-lucide="play" style="width:16px;height:16px;display:inline;margin-right:6px;"></i>
+            ${isSimple ? 'Run Auto-Compare' : 'Run Backtest'}
+        `;
+        lucide.createIcons();
+    }
+
+    uiModeSelect.addEventListener('change', applyUIMode);
+    applyUIMode();
 
     // Run backtest
     document.getElementById('run-btn').onclick = async function() {
+        const uiMode = uiModeSelect.value;
         const station = document.getElementById('station-select').value;
         const start = document.getElementById('start-date').value;
         const end = document.getElementById('end-date').value;
@@ -756,10 +943,13 @@
 
         // Show progress
         document.getElementById('empty-state').style.display = 'none';
+        document.getElementById('suite-panel').style.display = 'none';
         document.getElementById('results-panel').style.display = 'none';
         document.getElementById('progress-container').style.display = 'block';
         document.getElementById('progress-fill').style.width = '0%';
-        document.getElementById('progress-text').textContent = 'Starting backtest...';
+        document.getElementById('progress-text').textContent = uiMode === 'simple'
+            ? 'Running strategy auto-compare suite...'
+            : 'Starting backtest...';
         document.getElementById('run-btn').disabled = true;
 
         try {
@@ -770,21 +960,35 @@
                 document.getElementById('progress-fill').style.width = progress + '%';
             }, 500);
 
-            const params = new URLSearchParams({
-                station_id: station,
-                start_date: start,
-                end_date: end,
-                mode: mode,
-                policy: policy,
-                selection_mode: selectionMode,
-                risk_profile: riskProfile,
-                report_level: reportLevel
-            });
-
-            const resp = await fetch(`/api/v5/backtest/run?${params}`, {
-                method: 'POST'
-            });
-            const result = await resp.json();
+            let resp, result;
+            if (uiMode === 'simple') {
+                const params = new URLSearchParams({
+                    station_id: station,
+                    start_date: start,
+                    end_date: end,
+                    suite_name: 'default_auto_compare_v1',
+                    report_level: 'summary'
+                });
+                resp = await fetch(`/api/v5/backtest/run_suite?${params}`, {
+                    method: 'POST'
+                });
+                result = await resp.json();
+            } else {
+                const params = new URLSearchParams({
+                    station_id: station,
+                    start_date: start,
+                    end_date: end,
+                    mode: mode,
+                    policy: policy,
+                    selection_mode: selectionMode,
+                    risk_profile: riskProfile,
+                    report_level: reportLevel
+                });
+                resp = await fetch(`/api/v5/backtest/run?${params}`, {
+                    method: 'POST'
+                });
+                result = await resp.json();
+            }
 
             // Check for error response
             if (!resp.ok || result.error) {
@@ -796,11 +1000,21 @@
             document.getElementById('progress-text').textContent = 'Complete!';
 
             lastResult = result;
+            lastSuite = (result.kind === 'suite') ? result : null;
 
             // Display results
             setTimeout(() => {
                 document.getElementById('progress-container').style.display = 'none';
-                displayResults(result);
+                if (result.kind === 'suite') {
+                    displaySuiteResults(result);
+                    if (result.recommended_result) {
+                        displayResults(result.recommended_result, result);
+                    } else {
+                        document.getElementById('results-panel').style.display = 'none';
+                    }
+                } else {
+                    displayResults(result, null);
+                }
             }, 500);
 
         } catch (e) {
@@ -813,17 +1027,115 @@
         }
     };
 
-    function displayResults(result) {
+    function applySuiteRunToAdvanced(req) {
+        if (!req) return;
+        uiModeSelect.value = 'advanced';
+        applyUIMode();
+        if (req.mode) document.getElementById('mode-select').value = req.mode;
+        if (req.policy) document.getElementById('policy-select').value = req.policy;
+        if (req.selection_mode) document.getElementById('selection-mode-select').value = req.selection_mode;
+        if (req.risk_profile) document.getElementById('risk-profile-select').value = req.risk_profile;
+        document.getElementById('report-level-select').value = req.report_level || 'summary';
+    }
+
+    function displaySuiteResults(suiteResult) {
+        const panel = document.getElementById('suite-panel');
+        const tbody = document.getElementById('suite-tbody');
+        const reco = document.getElementById('suite-reco');
+        const period = document.getElementById('suite-period');
+
+        panel.style.display = 'block';
+        period.textContent = `${suiteResult.start_date} to ${suiteResult.end_date}`;
+
+        const recommendation = suiteResult.recommendation || {};
+        reco.innerHTML = `
+            <b>Recommended:</b> ${recommendation.label || '-'}<br>
+            <span style="opacity:0.95">${recommendation.reason || ''}</span>
+        `;
+
+        tbody.innerHTML = '';
+        const runs = suiteResult.runs || [];
+        const recoId = recommendation.run_id;
+
+        let rank = 0;
+        for (const run of runs) {
+            const isOk = run.status === 'ok';
+            if (isOk) rank += 1;
+            const tr = document.createElement('tr');
+            if (run.run_id === recoId) tr.classList.add('recommended');
+
+            if (!isOk) {
+                tr.innerHTML = `
+                    <td>-</td>
+                    <td>${run.label || run.run_id}</td>
+                    <td colspan="8" style="color:#ef4444;">${run.error || 'Run failed'}</td>
+                    <td>-</td>
+                `;
+                tbody.appendChild(tr);
+                continue;
+            }
+
+            const t = run.trading || {};
+            const c = run.calibration || {};
+            const cv = run.coverage || {};
+            const coveragePct = (cv.days_with_data || 0) > 0
+                ? Math.round(((cv.days_with_labels || 0) / cv.days_with_data) * 100)
+                : 0;
+
+            const buttonHtml = `
+                <button class="suite-select-btn" data-run-id="${run.run_id}">
+                    Use In Advanced
+                </button>
+            `;
+
+            tr.innerHTML = `
+                <td>${rank}</td>
+                <td>${run.label || run.run_id}</td>
+                <td>$${(t.total_pnl_net || 0).toFixed(2)}</td>
+                <td>${(t.sharpe_ratio || 0).toFixed(2)}</td>
+                <td>${((t.max_drawdown || 0) * 100).toFixed(1)}%</td>
+                <td>${((t.win_rate || 0) * 100).toFixed(1)}%</td>
+                <td>${t.total_fills || 0}</td>
+                <td>${(c.brier_global || 0).toFixed(4)}</td>
+                <td>${coveragePct}%</td>
+                <td>${(run.score || 0).toFixed(2)}</td>
+                <td>${buttonHtml}</td>
+            `;
+            tbody.appendChild(tr);
+        }
+
+        // Bind "Use In Advanced" actions
+        tbody.querySelectorAll('button[data-run-id]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const runId = btn.getAttribute('data-run-id');
+                const match = runs.find(r => r.run_id === runId);
+                if (match?.request) {
+                    applySuiteRunToAdvanced(match.request);
+                }
+            });
+        });
+    }
+
+    function displayResults(result, suiteResult = null) {
         document.getElementById('results-panel').style.display = 'block';
         expandedDate = null;
         if (activeChart) { activeChart.destroy(); activeChart = null; }
 
         // Period
+        const periodBase = `${result.config.start_date} to ${result.config.end_date}`;
+        const recommendation = suiteResult?.recommendation?.label;
         document.getElementById('results-period').textContent =
-            `${result.config.start_date} to ${result.config.end_date}`;
+            recommendation ? `${periodBase} | Recommended: ${recommendation}` : periodBase;
 
         // Check if Signal Only mode
         const isSignalOnly = result.config.mode === 'signal_only';
+
+        // Reset value classes before applying mode-specific formatting
+        document.getElementById('stat-pnl').className = 'value';
+        document.getElementById('stat-winrate').className = 'value';
+        document.getElementById('stat-sharpe').className = 'value';
+        document.getElementById('stat-dd').className = 'value';
+        document.getElementById('stat-fills').className = 'value';
 
         // Show/hide trading stats based on mode
         document.querySelectorAll('.trading-stat').forEach(el => {
@@ -850,12 +1162,16 @@
 
             document.getElementById('stat-winrate').textContent =
                 ((trading.win_rate || 0) * 100).toFixed(1) + '%';
+            document.getElementById('stat-winrate').className = 'value blue';
             document.getElementById('stat-sharpe').textContent =
                 (trading.sharpe_ratio || 0).toFixed(2);
+            document.getElementById('stat-sharpe').className = 'value';
             document.getElementById('stat-dd').textContent =
                 ((trading.max_drawdown || 0) * 100).toFixed(1) + '%';
+            document.getElementById('stat-dd').className = 'value red';
             document.getElementById('stat-fills').textContent =
                 trading.total_fills || 0;
+            document.getElementById('stat-fills').className = 'value';
         }
 
         // Calibration metrics
