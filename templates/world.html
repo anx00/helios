@@ -1081,12 +1081,28 @@
         const getSortClass = (col) => pwsSortState.column === col ? 'pws-sort-active' : '';
         const getSortArrow = (col) => pwsSortState.column === col ? arrow : '';
 
-        // Count sources
-        const synopticCount = details.filter(d => d.source === 'SYNOPTIC').length;
-        const openMeteoCount = details.filter(d => d.source === 'OPEN_METEO').length;
-        const sourceInfo = synopticCount > 0 && openMeteoCount > 0
-            ? `${synopticCount} SYN + ${openMeteoCount} OM`
-            : synopticCount > 0 ? `${synopticCount} Synoptic` : `${openMeteoCount} Open-Meteo`;
+        const sourceLabel = (src) => {
+            if (!src) return 'Unknown';
+            if (src === 'SYNOPTIC') return 'Synoptic';
+            if (src === 'OPEN_METEO') return 'Open-Meteo';
+            if (src.startsWith('MADIS_')) {
+                const provider = src.replace('MADIS_', '');
+                if (provider === 'APRSWXNET') return 'MADIS CWOP';
+                if (provider === 'MesoWest') return 'MADIS MesoWest';
+                return `MADIS ${provider}`;
+            }
+            return src;
+        };
+
+        const sourceCounts = {};
+        for (const d of details) {
+            const src = d.source || 'UNKNOWN';
+            sourceCounts[src] = (sourceCounts[src] || 0) + 1;
+        }
+        const sourceInfo = Object.entries(sourceCounts)
+            .sort((a, b) => b[1] - a[1])
+            .map(([src, count]) => `${count} ${sourceLabel(src)}`)
+            .join(' + ');
 
         const expandIcon = isExpanded ? '▼' : '▶';
         const expandText = isExpanded ? 'Collapse' : 'Expand';
@@ -1156,11 +1172,28 @@
             const nycDate = r.obs_time_nyc ? r.obs_time_nyc.substring(5, 10) : '';
             const madDate = r.obs_time_madrid ? r.obs_time_madrid.substring(5, 10) : '';
 
-            // Source badge color
-            const isSynoptic = r.source === 'SYNOPTIC';
-            const sourceColor = isSynoptic ? '#10B981' : '#F59E0B';
-            const sourceLabel = isSynoptic ? 'SYN' : 'OM';
-            const sourceTitle = isSynoptic ? 'Synoptic Data (Real PWS)' : 'Open-Meteo (Grid Point)';
+            // Source badge metadata
+            let sourceColor = '#6B7280';
+            let sourceBadge = r.source || 'UNK';
+            let sourceTitle = sourceLabel(r.source);
+
+            if (r.source === 'SYNOPTIC') {
+                sourceColor = '#10B981';
+                sourceBadge = 'SYN';
+                sourceTitle = 'Synoptic Data (Real PWS)';
+            } else if (r.source === 'OPEN_METEO') {
+                sourceColor = '#F59E0B';
+                sourceBadge = 'OM';
+                sourceTitle = 'Open-Meteo (Grid Point)';
+            } else if ((r.source || '').startsWith('MADIS_APRSWXNET')) {
+                sourceColor = '#22C55E';
+                sourceBadge = 'CWOP';
+                sourceTitle = 'MADIS / CWOP (APRSWXNET)';
+            } else if ((r.source || '').startsWith('MADIS_')) {
+                sourceColor = '#06B6D4';
+                sourceBadge = 'MADIS';
+                sourceTitle = sourceLabel(r.source);
+            }
 
             html += `
                 <tr style="${rowStyle}">
@@ -1169,7 +1202,7 @@
                         <div style="font-size:9px; color:var(--text-muted); max-width:100px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${r.station_name}">${r.station_name || ''}</div>
                     </td>
                     <td style="padding:5px 4px;">
-                        <span style="font-size:9px; padding:2px 6px; border-radius:4px; background:${sourceColor}20; color:${sourceColor}; font-weight:600;" title="${sourceTitle}">${sourceLabel}</span>
+                        <span style="font-size:9px; padding:2px 6px; border-radius:4px; background:${sourceColor}20; color:${sourceColor}; font-weight:600;" title="${sourceTitle}">${sourceBadge}</span>
                     </td>
                     <td style="padding:5px 4px; font-weight:500;">${r.distance_km.toFixed(1)}km</td>
                     <td style="padding:5px 4px; font-weight:600; color:#8B5CF6;">${r.temp_f.toFixed(1)}°F <span style="color:var(--text-muted); font-size:9px;">(${r.temp_c.toFixed(1)}C)</span></td>

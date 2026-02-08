@@ -195,6 +195,28 @@ import os as _os
 SYNOPTIC_API_TOKEN = _os.environ.get("SYNOPTIC_API_TOKEN", "")
 SYNOPTIC_BASE_URL = "https://api.synopticdata.com/v2"
 
+# ============================================================================
+# MADIS PUBLIC API (PWS / CWOP via NOAA)
+# ============================================================================
+
+MADIS_BASE_URL = "https://madis-data.ncep.noaa.gov"
+MADIS_CGI_URL = f"{MADIS_BASE_URL}/madisPublic/cgi-bin/madisXmlPublicDir"
+
+# MADIS request behavior
+MADIS_TIMEOUT_SECONDS = 25.0
+MADIS_QC_LEVEL = 2  # Return observations passing levels 1+2
+MADIS_QC_TYPE = 0   # 0 = MADIS QC
+MADIS_ACCEPT_QCD = {"C", "S", "V"}
+MADIS_RECWIN = 3
+
+# Provider selection by station.
+# APRSWXNET = CWOP (Citizen Weather Observer Program)
+MADIS_PROVIDER_CONFIG = {
+    "KLGA": ["APRSWXNET", "MesoWest"],
+    "KATL": ["APRSWXNET", "MesoWest"],
+    "EGLC": ["APRSWXNET", "MesoWest"],
+}
+
 # PWS search configuration per station
 PWS_SEARCH_CONFIG = {
     "KLGA": {"radius_km": 25, "max_stations": 20},

@@ -2,66 +2,78 @@
 Helios Weather Lab - PWS (Personal Weather Station) Fetcher
 Phase 2, Section 2.4: Cluster + Consensus + QC
 
-Fetches nearby weather station observations and computes a robust
-consensus using Median + MAD (Median Absolute Deviation).
+This implementation uses NOAA MADIS Public surface service as the primary
+source for dense nearby observations, with CWOP (APRSWXNET) as core provider.
 
-Sources (priority order):
-  1. Synoptic Data / MesoWest API (real PWS, requires SYNOPTIC_API_TOKEN)
-  2. Open-Meteo Weather API (nearby grid points as pseudo-PWS fallback)
-
-The output is an AuxObs(is_aggregate=True) with:
-  - median temperature (the "consensus")
-  - MAD (spread)
-  - support (number of valid stations)
-  - drift (consensus minus official METAR)
+Data flow:
+  1. Query MADIS public CGI for nearby stations around target ICAO.
+  2. Parse temperature observations (Kelvin -> Celsius).
+  3. Apply hard QC + spatial MAD outlier filtering.
+  4. Publish robust consensus as AuxObs aggregate.
 """
 
-import httpx
-import asyncio
-import statistics
 import logging
-import os
+import math
+import statistics
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Optional, List
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+
+import httpx
 
 logger = logging.getLogger("pws_fetcher")
 
 # ---------------------------------------------------------------------------
-# Open-Meteo grid offsets (fallback pseudo-PWS)
+# Config (with safe defaults)
 # ---------------------------------------------------------------------------
-_GRID_OFFSETS = {
-    "KLGA": {
-        "lat": 40.7769, "lon": -73.8740,
-        "offsets": [
-            (0.05, 0.0), (-0.05, 0.0), (0.0, 0.06), (0.0, -0.06),
-            (0.10, 0.0), (-0.10, 0.0), (0.05, 0.06), (-0.05, -0.06),
-            (0.15, 0.0), (0.0, -0.12),
-        ],
-    },
-    "KATL": {
-        "lat": 33.6407, "lon": -84.4277,
-        "offsets": [
-            (0.05, 0.0), (-0.05, 0.0), (0.0, 0.06), (0.0, -0.06),
-            (0.10, 0.0), (-0.10, 0.0), (0.05, 0.06), (-0.05, -0.06),
-            (0.15, 0.0), (0.0, -0.12),
-        ],
-    },
-    "EGLC": {
-        "lat": 51.5048, "lon": 0.0495,
-        "offsets": [
-            (0.04, 0.0), (-0.04, 0.0), (0.0, 0.06), (0.0, -0.06),
-            (0.08, 0.0), (-0.08, 0.0), (0.04, 0.06), (-0.04, -0.06),
-            (0.12, 0.0), (0.0, -0.10),
-        ],
-    },
-}
+try:
+    from config import (
+        MADIS_CGI_URL,
+        MADIS_TIMEOUT_SECONDS,
+        MADIS_QC_LEVEL,
+        MADIS_QC_TYPE,
+        MADIS_ACCEPT_QCD,
+        MADIS_PROVIDER_CONFIG,
+        MADIS_RECWIN,
+        PWS_SEARCH_CONFIG,
+        PWS_MAX_AGE_MINUTES,
+        PWS_MIN_SUPPORT,
+    )
+except Exception:
+    MADIS_CGI_URL = "https://madis-data.ncep.noaa.gov/madisPublic/cgi-bin/madisXmlPublicDir"
+    MADIS_TIMEOUT_SECONDS = 25.0
+    MADIS_QC_LEVEL = 2
+    MADIS_QC_TYPE = 0
+    MADIS_ACCEPT_QCD = {"C", "S", "V"}
+    MADIS_PROVIDER_CONFIG = {
+        "KLGA": ["APRSWXNET", "MesoWest"],
+        "KATL": ["APRSWXNET", "MesoWest"],
+        "EGLC": ["APRSWXNET", "MesoWest"],
+    }
+    MADIS_RECWIN = 3
+    PWS_SEARCH_CONFIG = {
+        "KLGA": {"radius_km": 25, "max_stations": 20},
+        "KATL": {"radius_km": 30, "max_stations": 20},
+        "EGLC": {"radius_km": 20, "max_stations": 20},
+    }
+    PWS_MAX_AGE_MINUTES = 90
+    PWS_MIN_SUPPORT = 3
 
-# Station coordinates for Synoptic radius search
-_STATION_COORDS = {
+
+# ---------------------------------------------------------------------------
+# Station metadata
+# ---------------------------------------------------------------------------
+_STATION_COORDS: Dict[str, Tuple[float, float]] = {
     "KLGA": (40.7769, -73.8740),
     "KATL": (33.6407, -84.4277),
     "EGLC": (51.5048, 0.0495),
+}
+
+_STATION_STATE: Dict[str, str] = {
+    "KLGA": "NY",
+    "KATL": "GA",
+    "EGLC": "",  # non-US
 }
 
 
@@ -71,12 +83,13 @@ _STATION_COORDS = {
 @dataclass
 class PWSReading:
     """Single PWS observation."""
+
     lat: float
     lon: float
     temp_c: float
-    label: str               # Station ID or grid label
-    source: str = "UNKNOWN"  # "SYNOPTIC" or "OPEN_METEO"
-    station_name: str = ""   # Human name (Synoptic only)
+    label: str
+    source: str = "UNKNOWN"  # e.g. MADIS_APRSWXNET
+    station_name: str = ""
     distance_km: float = 0.0
     obs_time_utc: Optional[datetime] = None
     age_minutes: float = 0.0
@@ -87,300 +100,336 @@ class PWSReading:
 @dataclass
 class PWSConsensus:
     """Cluster consensus result."""
+
     station_id: str
     median_temp_c: float
     median_temp_f: float
-    mad: float                # Median Absolute Deviation
-    support: int              # Number of valid stations
+    mad: float
+    support: int
     total_queried: int
     readings: List[PWSReading]
     outliers: List[PWSReading]
     obs_time_utc: datetime
-    drift_c: float = 0.0     # consensus - official METAR
-    data_source: str = "UNKNOWN"  # "SYNOPTIC" or "OPEN_METEO"
-    station_details: List[str] = field(default_factory=list)  # Detailed per-station log lines
+    drift_c: float = 0.0
+    data_source: str = "UNKNOWN"
+    station_details: List[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
-# Synoptic Data API (primary source - real PWS)
+# Helpers
 # ---------------------------------------------------------------------------
-async def _fetch_synoptic_cluster(
-    station_id: str,
-    radius_km: float = 40.0,  # Increased from 25km to get more stations
-    max_stations: int = 50,   # Increased from 20 to get more stations
-) -> Optional[List[PWSReading]]:
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Compute great-circle distance in km."""
+    r = 6371.0
+    p1 = math.radians(lat1)
+    p2 = math.radians(lat2)
+    dp = math.radians(lat2 - lat1)
+    dl = math.radians(lon2 - lon1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * r * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+
+def _parse_obs_time_utc(value: str) -> Optional[datetime]:
     """
-    Fetch real PWS observations from Synoptic Data API.
-    Returns list of PWSReading or None if unavailable.
+    Parse MADIS ObTime (e.g., 2026-02-08T01:19) as UTC.
+    MADIS surface viewer timestamps are in GMT/UTC.
     """
-    token = os.environ.get("SYNOPTIC_API_TOKEN", "")
-    if not token:
-        logger.debug("No SYNOPTIC_API_TOKEN configured, skipping Synoptic source")
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        else:
+            dt = dt.astimezone(timezone.utc)
+        return dt
+    except Exception:
         return None
 
+
+def _kelvin_to_celsius(temp_k: float) -> float:
+    """Convert Kelvin to Celsius."""
+    return temp_k - 273.15
+
+
+def _build_madis_query_params(
+    station_id: str,
+    center_lat: float,
+    center_lon: float,
+    radius_km: float,
+    providers: Sequence[str],
+    max_age_minutes: int,
+) -> List[Tuple[str, str]]:
+    """
+    Build MADIS CGI query parameters using a lat/lon bounding box.
+    The endpoint accepts repeated keys (e.g., pvd, nvars).
+    """
+    lat_delta = radius_km / 111.0
+    lon_scale = max(0.2, math.cos(math.radians(center_lat)))
+    lon_delta = radius_km / (111.0 * lon_scale)
+
+    latll = center_lat - lat_delta
+    latur = center_lat + lat_delta
+    lonll = center_lon - lon_delta
+    lonur = center_lon + lon_delta
+
+    params: List[Tuple[str, str]] = [
+        ("time", "0"),
+        ("minbck", f"-{int(max_age_minutes)}"),
+        ("minfwd", "0"),
+        ("recwin", str(MADIS_RECWIN)),
+        ("timefilter", "0"),
+        ("dfltrsel", "1"),  # lat/lon corners
+        ("state", _STATION_STATE.get(station_id, "")),
+        ("latll", f"{latll:.4f}"),
+        ("lonll", f"{lonll:.4f}"),
+        ("latur", f"{latur:.4f}"),
+        ("lonur", f"{lonur:.4f}"),
+        ("stanam", ""),
+        ("stasel", "0"),
+        ("pvdrsel", "1" if providers else "0"),
+        ("varsel", "1"),  # selected variables
+        ("nvars", "T"),  # temperature only
+        ("qctype", str(MADIS_QC_TYPE)),  # MADIS QC
+        ("qcsel", str(MADIS_QC_LEVEL)),
+        ("xml", "1"),  # XML output
+        ("csvmiss", "0"),
+        ("rdr", ""),
+    ]
+
+    for provider in providers:
+        params.append(("pvd", provider))
+
+    return params
+
+
+def _parse_madis_xml_records(
+    xml_text: str,
+    center_lat: float,
+    center_lon: float,
+    max_age_minutes: int,
+    accepted_qcd: Iterable[str],
+) -> List[PWSReading]:
+    """
+    Parse MADIS XML response into PWSReading entries.
+    Keeps only valid temperature records with accepted QC descriptor.
+    """
+    if not xml_text:
+        return []
+
+    # MADIS returns an HTML error page for malformed requests.
+    low = xml_text.lower()
+    if "<html" in low and "misconfigured" in low:
+        logger.warning("MADIS returned HTML error payload (misconfigured request)")
+        return []
+
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError as e:
+        logger.warning(f"MADIS XML parse error: {e}")
+        return []
+
+    now = datetime.now(timezone.utc)
+    allowed = {str(x).upper().strip() for x in accepted_qcd}
+    dedupe: Dict[Tuple[str, str], PWSReading] = {}
+
+    for rec in root.findall(".//record"):
+        try:
+            var_name = (rec.attrib.get("var") or "").upper().strip()
+            if var_name not in {"V-T", "T"}:
+                continue
+
+            qcd = (rec.attrib.get("QCD") or "").upper().strip()
+            if allowed and qcd and qcd not in allowed:
+                continue
+
+            provider = (rec.attrib.get("provider") or "MADIS").strip()
+            shef_id = (rec.attrib.get("shef_id") or "?").strip()
+            lat = float(rec.attrib.get("lat", "nan"))
+            lon = float(rec.attrib.get("lon", "nan"))
+
+            if not (math.isfinite(lat) and math.isfinite(lon)):
+                continue
+
+            obs_time = _parse_obs_time_utc(rec.attrib.get("ObTime", ""))
+            if not obs_time:
+                continue
+
+            age_min = (now - obs_time).total_seconds() / 60.0
+            if age_min < 0 or age_min > max_age_minutes:
+                continue
+
+            temp_k = float(rec.attrib.get("data_value", "nan"))
+            if not math.isfinite(temp_k):
+                continue
+            # Sanity bounds for near-surface air temperature in Kelvin.
+            if temp_k < 180.0 or temp_k > 340.0:
+                continue
+
+            temp_c = _kelvin_to_celsius(temp_k)
+            dist_km = _haversine_km(center_lat, center_lon, lat, lon)
+
+            reading = PWSReading(
+                lat=lat,
+                lon=lon,
+                temp_c=temp_c,
+                label=shef_id,
+                source=f"MADIS_{provider}",
+                station_name=f"{provider} {shef_id}",
+                distance_km=round(dist_km, 2),
+                obs_time_utc=obs_time,
+                age_minutes=round(age_min, 1),
+            )
+
+            key = (reading.source, reading.label)
+            prev = dedupe.get(key)
+            if prev is None:
+                dedupe[key] = reading
+            elif prev.obs_time_utc and reading.obs_time_utc and reading.obs_time_utc > prev.obs_time_utc:
+                dedupe[key] = reading
+
+        except Exception as e:
+            logger.debug(f"MADIS record parse error: {e}")
+            continue
+
+    readings = list(dedupe.values())
+    readings.sort(key=lambda r: (r.distance_km, r.age_minutes))
+    return readings
+
+
+# ---------------------------------------------------------------------------
+# MADIS source fetcher
+# ---------------------------------------------------------------------------
+async def _fetch_madis_cluster(
+    station_id: str,
+    radius_km: float,
+    max_stations: int,
+    providers: Sequence[str],
+) -> Optional[List[PWSReading]]:
+    """
+    Fetch nearby PWS-like observations from MADIS public endpoint.
+    """
     coords = _STATION_COORDS.get(station_id)
     if not coords:
-        logger.debug(f"No coordinates for {station_id}")
+        logger.debug(f"No station coordinates for {station_id}")
         return None
 
     lat, lon = coords
-    now = datetime.now(timezone.utc)
+    params = _build_madis_query_params(
+        station_id=station_id,
+        center_lat=lat,
+        center_lon=lon,
+        radius_km=radius_km,
+        providers=providers,
+        max_age_minutes=PWS_MAX_AGE_MINUTES,
+    )
 
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.get(
-                "https://api.synopticdata.com/v2/stations/latest",
-                params={
-                    "token": token,
-                    "radius": f"{lat},{lon},{radius_km}",
-                    "vars": "air_temp",
-                    "units": "temp|C",
-                    "limit": max_stations,
-                    "obtimezone": "UTC",
-                    "status": "active",
-                },
-            )
+        async with httpx.AsyncClient(timeout=MADIS_TIMEOUT_SECONDS) as client:
+            resp = await client.get(MADIS_CGI_URL, params=params)
             resp.raise_for_status()
-            data = resp.json()
-
-        # Check API response code
-        summary = data.get("SUMMARY", {})
-        resp_code = summary.get("RESPONSE_CODE")
-        if resp_code != 1:
-            resp_msg = summary.get("RESPONSE_MESSAGE", "unknown")
-            logger.warning(f"Synoptic API error for {station_id}: code={resp_code} msg={resp_msg}")
-            return None
-
-        stations_data = data.get("STATION", [])
-        if not stations_data:
-            logger.info(f"Synoptic returned 0 stations for {station_id}")
-            return None
-
-        readings = []
-        skipped_age = 0
-        skipped_parse = 0
-
-        for stn in stations_data:
-            try:
-                stn_id = stn.get("STID", "?")
-                stn_name = stn.get("NAME", "")
-                stn_lat = float(stn.get("LATITUDE", 0))
-                stn_lon = float(stn.get("LONGITUDE", 0))
-                distance = float(stn.get("DISTANCE", 0))  # miles from Synoptic
-                distance_km_val = distance * 1.60934  # convert miles to km
-
-                # Get air_temp observation
-                obs_data = stn.get("OBSERVATIONS", {})
-                air_temp_entry = obs_data.get("air_temp_value_1")
-                if not air_temp_entry:
-                    skipped_parse += 1
-                    continue
-
-                temp_c = float(air_temp_entry.get("value", 0))
-                obs_time_str = air_temp_entry.get("date_time", "")
-
-                if obs_time_str:
-                    obs_time = datetime.fromisoformat(
-                        obs_time_str.replace("Z", "+00:00")
-                    )
-                else:
-                    obs_time = now
-
-                # Filter by age (max 90 minutes)
-                age_min = (now - obs_time).total_seconds() / 60.0
-                if age_min > 90:
-                    skipped_age += 1
-                    continue
-
-                readings.append(PWSReading(
-                    lat=stn_lat,
-                    lon=stn_lon,
-                    temp_c=temp_c,
-                    label=stn_id,
-                    source="SYNOPTIC",
-                    station_name=stn_name,
-                    distance_km=round(distance_km_val, 1),
-                    obs_time_utc=obs_time,
-                    age_minutes=round(age_min, 1),
-                ))
-
-            except Exception as e:
-                skipped_parse += 1
-                logger.debug(f"Synoptic station parse error: {e}")
-                continue
-
-        logger.info(
-            f"Synoptic {station_id}: {len(readings)} valid stations "
-            f"(skipped: {skipped_age} stale, {skipped_parse} parse errors) "
-            f"from {len(stations_data)} total"
-        )
-        return readings if readings else None
-
+            raw = resp.text
     except httpx.HTTPStatusError as e:
-        logger.warning(f"Synoptic HTTP error for {station_id}: {e.response.status_code}")
+        logger.warning(f"MADIS HTTP error for {station_id}: {e.response.status_code}")
         return None
     except Exception as e:
-        logger.warning(f"Synoptic fetch failed for {station_id}: {e}")
+        logger.warning(f"MADIS request failed for {station_id}: {e}")
         return None
 
+    readings = _parse_madis_xml_records(
+        xml_text=raw,
+        center_lat=lat,
+        center_lon=lon,
+        max_age_minutes=PWS_MAX_AGE_MINUTES,
+        accepted_qcd=MADIS_ACCEPT_QCD,
+    )
 
-# ---------------------------------------------------------------------------
-# Open-Meteo grid fallback (pseudo-PWS)
-# ---------------------------------------------------------------------------
-async def _fetch_open_meteo_point(
-    client: httpx.AsyncClient,
-    lat: float,
-    lon: float,
-    label: str,
-) -> Optional[PWSReading]:
-    """Fetch current temperature from Open-Meteo for a single grid point."""
-    try:
-        resp = await client.get(
-            "https://api.open-meteo.com/v1/forecast",
-            params={
-                "latitude": round(lat, 4),
-                "longitude": round(lon, 4),
-                "current": "temperature_2m",
-                "temperature_unit": "celsius",
-            },
-            timeout=5.0,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        temp = data.get("current", {}).get("temperature_2m")
-        if temp is not None:
-            return PWSReading(
-                lat=lat, lon=lon, temp_c=temp, label=label,
-                source="OPEN_METEO", station_name=f"Grid {label}",
-                obs_time_utc=datetime.now(timezone.utc),
-            )
-    except Exception as e:
-        logger.debug(f"Open-Meteo point {label} failed: {e}")
-    return None
-
-
-async def _fetch_open_meteo_cluster(station_id: str) -> Optional[List[PWSReading]]:
-    """Fetch Open-Meteo grid points as pseudo-PWS fallback."""
-    cfg = _GRID_OFFSETS.get(station_id)
-    if not cfg:
+    if not readings:
+        logger.info(f"MADIS {station_id}: 0 valid readings")
         return None
 
-    base_lat = cfg["lat"]
-    base_lon = cfg["lon"]
-    offsets = cfg["offsets"]
+    if max_stations > 0 and len(readings) > max_stations:
+        readings = readings[:max_stations]
 
-    async with httpx.AsyncClient() as client:
-        tasks = []
-        for dlat, dlon in offsets:
-            lat = base_lat + dlat
-            lon = base_lon + dlon
-            dist_km = ((dlat * 111) ** 2 + (dlon * 85) ** 2) ** 0.5
-            direction = _bearing_label(dlat, dlon)
-            label = f"{direction}_{dist_km:.0f}km"
-            tasks.append(_fetch_open_meteo_point(client, lat, lon, label))
-
-        results = await asyncio.gather(*tasks)
-
-    readings = [r for r in results if r is not None]
+    provider_counts: Dict[str, int] = {}
     for r in readings:
-        r.distance_km = round(((r.lat - base_lat) ** 2 * 111 ** 2 + (r.lon - base_lon) ** 2 * 85 ** 2) ** 0.5, 1)
+        provider = r.source.replace("MADIS_", "", 1)
+        provider_counts[provider] = provider_counts.get(provider, 0) + 1
 
-    logger.info(f"Open-Meteo fallback {station_id}: {len(readings)}/{len(offsets)} grid points")
-    return readings if readings else None
+    provider_log = ", ".join(f"{k}:{v}" for k, v in sorted(provider_counts.items()))
+    logger.info(
+        f"MADIS {station_id}: {len(readings)} readings "
+        f"(providers: {provider_log}; radius={radius_km}km)"
+    )
 
-
-def _bearing_label(dlat: float, dlon: float) -> str:
-    """Human label from lat/lon offset."""
-    if abs(dlat) < 0.01 and abs(dlon) < 0.01:
-        return "C"
-    ns = "N" if dlat > 0.01 else ("S" if dlat < -0.01 else "")
-    ew = "E" if dlon > 0.01 else ("W" if dlon < -0.01 else "")
-    return ns + ew or "C"
+    return readings
 
 
 # ---------------------------------------------------------------------------
-# Main consensus pipeline
+# Consensus pipeline
 # ---------------------------------------------------------------------------
 def _build_detail_lines(readings: List[PWSReading]) -> List[str]:
-    """Build detailed per-station log lines for visibility."""
-    lines = []
+    """Build detailed per-station lines for logs and diagnostics."""
+    lines: List[str] = []
     for r in readings:
         temp_f = round((r.temp_c * 9 / 5) + 32, 1)
-        age_str = f"age={r.age_minutes:.0f}min" if r.age_minutes > 0 else ""
-        source_tag = "SYN" if r.source == "SYNOPTIC" else "OM"
-        if r.source == "SYNOPTIC":
-            lines.append(
-                f"  [{source_tag}] [{r.label}] '{r.station_name}' "
-                f"({r.lat:.4f}, {r.lon:.4f}) "
-                f"dist={r.distance_km:.1f}km "
-                f"temp={r.temp_c:.1f}C ({temp_f:.1f}F) "
-                f"{age_str} "
-                f"{'VALID' if r.valid else f'EXCLUDED: {r.qc_flag}'}"
-            )
-        else:
-            lines.append(
-                f"  [{source_tag}] [GRID {r.label}] "
-                f"({r.lat:.4f}, {r.lon:.4f}) "
-                f"dist={r.distance_km:.1f}km "
-                f"temp={r.temp_c:.1f}C ({temp_f:.1f}F) "
-                f"{'VALID' if r.valid else f'EXCLUDED: {r.qc_flag}'}"
-            )
+        provider = r.source.replace("MADIS_", "", 1)
+        lines.append(
+            f"  [MADIS/{provider}] [{r.label}] "
+            f"({r.lat:.4f}, {r.lon:.4f}) "
+            f"dist={r.distance_km:.1f}km "
+            f"temp={r.temp_c:.1f}C ({temp_f:.1f}F) "
+            f"age={r.age_minutes:.0f}min "
+            f"{'VALID' if r.valid else f'EXCLUDED: {r.qc_flag}'}"
+        )
     return lines
 
 
-async def fetch_pws_cluster(station_id: str, min_support: int = 3) -> Optional[PWSConsensus]:
+def _resolve_station_source(readings: List[PWSReading]) -> str:
+    providers = sorted({r.source.replace("MADIS_", "", 1) for r in readings if r.source.startswith("MADIS_")})
+    if not providers:
+        return "MADIS"
+    if len(providers) == 1:
+        return f"MADIS_{providers[0]}"
+    return "MADIS_MULTI"
+
+
+async def fetch_pws_cluster(station_id: str, min_support: int = PWS_MIN_SUPPORT) -> Optional[PWSConsensus]:
     """
-    Fetch PWS observations and compute robust consensus.
+    Fetch nearby observations from MADIS/CWOP and compute robust consensus.
 
     Strategy:
-      1. Fetch from BOTH Synoptic Data API (real PWS) AND Open-Meteo (grid points)
-      2. Combine all readings from both sources
-      3. Apply two-layer QC: hard rules + spatial MAD outlier detection
+      1. Pull readings from MADIS (CWOP/APRSWXNET + optional providers)
+      2. Hard-rule QC filter
+      3. Spatial MAD outlier filter
+      4. Median consensus
     """
-    all_readings = []
-    synoptic_count = 0
-    openmeteo_count = 0
+    station_id = station_id.upper()
+    cfg = PWS_SEARCH_CONFIG.get(station_id, {"radius_km": 25, "max_stations": 20})
+    radius_km = float(cfg.get("radius_km", 25))
+    max_stations = int(cfg.get("max_stations", 20))
+    providers = MADIS_PROVIDER_CONFIG.get(station_id, ["APRSWXNET"])
 
-    # --- Fetch from Synoptic (real PWS stations) ---
-    synoptic_readings = await _fetch_synoptic_cluster(station_id)
-    if synoptic_readings:
-        synoptic_count = len(synoptic_readings)
-        all_readings.extend(synoptic_readings)
-        logger.info(f"PWS {station_id}: Synoptic returned {synoptic_count} real stations")
-    else:
-        logger.info(f"PWS {station_id}: Synoptic unavailable or returned 0 stations")
+    readings = await _fetch_madis_cluster(
+        station_id=station_id,
+        radius_km=radius_km,
+        max_stations=max_stations,
+        providers=providers,
+    )
 
-    # --- Also fetch from Open-Meteo (grid points) ---
-    openmeteo_readings = await _fetch_open_meteo_cluster(station_id)
-    if openmeteo_readings:
-        openmeteo_count = len(openmeteo_readings)
-        all_readings.extend(openmeteo_readings)
-        logger.info(f"PWS {station_id}: Open-Meteo returned {openmeteo_count} grid points")
-    else:
-        logger.info(f"PWS {station_id}: Open-Meteo unavailable")
-
-    # Determine data source label
-    if synoptic_count > 0 and openmeteo_count > 0:
-        data_source = "SYNOPTIC+OPENMETEO"
-    elif synoptic_count > 0:
-        data_source = "SYNOPTIC"
-    elif openmeteo_count > 0:
-        data_source = "OPEN_METEO"
-    else:
-        logger.warning(f"PWS {station_id}: Both sources failed, no cluster data")
+    if not readings:
+        logger.warning(f"PWS {station_id}: MADIS returned no data")
         return None
 
-    readings = all_readings
     total_queried = len(readings)
-    logger.info(f"PWS {station_id}: Combined {synoptic_count} Synoptic + {openmeteo_count} Open-Meteo = {total_queried} total")
-
-    if len(readings) < min_support:
-        logger.warning(f"PWS {station_id}: only {len(readings)}/{total_queried} readings, below min_support={min_support}")
+    if total_queried < min_support:
+        logger.warning(f"PWS {station_id}: {total_queried} readings, below min_support={min_support}")
         return None
 
-    # --- QC Layer 1: Hard Rules ---
+    # QC Layer 1: Hard rules
     from core.qc import QualityControl
-    valid_readings = []
+
+    valid_readings: List[PWSReading] = []
     for r in readings:
         qc = QualityControl.check_hard_rules(r.temp_c)
         if qc.is_valid:
@@ -390,18 +439,17 @@ async def fetch_pws_cluster(station_id: str, min_support: int = 3) -> Optional[P
             r.qc_flag = "HARD_RULE_FAIL"
 
     if len(valid_readings) < min_support:
-        logger.warning(f"PWS {station_id}: only {len(valid_readings)} valid after hard rules QC")
+        logger.warning(f"PWS {station_id}: only {len(valid_readings)} valid after hard-rule QC")
         return None
 
-    # --- QC Layer 2: Spatial MAD (applied on ALL combined readings) ---
+    # QC Layer 2: Spatial MAD outlier filtering
     temps = [r.temp_c for r in valid_readings]
     median_val = statistics.median(temps)
     deviations = [abs(t - median_val) for t in temps]
     mad = statistics.median(deviations)
 
-    # Mark outliers (> 3*MAD from median)
-    outliers = []
-    final_valid = []
+    outliers: List[PWSReading] = []
+    final_valid: List[PWSReading] = []
     for r in valid_readings:
         if mad > 0 and abs(r.temp_c - median_val) > 3.0 * mad:
             r.valid = False
@@ -410,24 +458,26 @@ async def fetch_pws_cluster(station_id: str, min_support: int = 3) -> Optional[P
         else:
             final_valid.append(r)
 
-    # Recompute after removing outliers
-    if len(final_valid) >= min_support:
-        final_temps = [r.temp_c for r in final_valid]
-        median_val = statistics.median(final_temps)
+    if not final_valid:
+        logger.warning(f"PWS {station_id}: no readings left after MAD filtering")
+        return None
+
+    final_temps = [r.temp_c for r in final_valid]
+    median_val = statistics.median(final_temps)
+    if len(final_temps) > 1:
         mad = statistics.median([abs(t - median_val) for t in final_temps])
-    elif len(final_valid) > 0:
-        final_temps = [r.temp_c for r in final_valid]
-        median_val = statistics.median(final_temps)
-    else:
+
+    if len(final_valid) < min_support:
+        logger.warning(
+            f"PWS {station_id}: only {len(final_valid)} valid after MAD, below min_support={min_support}"
+        )
         return None
 
     median_f = round((median_val * 9 / 5) + 32, 1)
-
-    # Build detailed station log
+    data_source = _resolve_station_source(final_valid + outliers)
     detail_lines = _build_detail_lines(readings)
 
-    # Log every station in detail
-    logger.info(f"PWS {station_id} [{data_source}] — {len(readings)} stations queried:")
+    logger.info(f"PWS {station_id} [{data_source}] - {len(readings)} stations queried")
     for line in detail_lines:
         logger.info(line)
     if outliers:
@@ -451,10 +501,6 @@ async def fetch_pws_cluster(station_id: str, min_support: int = 3) -> Optional[P
 async def fetch_and_publish_pws(station_id: str, official_temp_c: Optional[float] = None):
     """
     Full pipeline: fetch PWS cluster, compute consensus, QC, and publish to WorldState.
-
-    Args:
-        station_id: Station ICAO code
-        official_temp_c: Current METAR temperature for drift calculation
     """
     consensus = await fetch_pws_cluster(station_id)
     if not consensus:
@@ -464,7 +510,6 @@ async def fetch_and_publish_pws(station_id: str, official_temp_c: Optional[float
     if official_temp_c is not None:
         consensus.drift_c = round(consensus.median_temp_c - official_temp_c, 2)
 
-    # Publish to WorldState as AuxObs(is_aggregate=True)
     try:
         from core.models import AuxObs
         from core.world import get_world
@@ -486,39 +531,41 @@ async def fetch_and_publish_pws(station_id: str, official_temp_c: Optional[float
 
         # Store individual station details for UI breakdown
         from zoneinfo import ZoneInfo
-        NYC = ZoneInfo("America/New_York")
-        MAD = ZoneInfo("Europe/Madrid")
+
+        nyc_tz = ZoneInfo("America/New_York")
+        mad_tz = ZoneInfo("Europe/Madrid")
 
         all_readings = consensus.readings + consensus.outliers
         details = []
         for r in all_readings:
             temp_f = round((r.temp_c * 9 / 5) + 32, 1)
-            # Convert obs_time to NYC and Madrid
-            obs_nyc = r.obs_time_utc.astimezone(NYC).strftime("%Y-%m-%d %H:%M:%S") if r.obs_time_utc else None
-            obs_mad = r.obs_time_utc.astimezone(MAD).strftime("%Y-%m-%d %H:%M:%S") if r.obs_time_utc else None
+            obs_nyc = r.obs_time_utc.astimezone(nyc_tz).strftime("%Y-%m-%d %H:%M:%S") if r.obs_time_utc else None
+            obs_mad = r.obs_time_utc.astimezone(mad_tz).strftime("%Y-%m-%d %H:%M:%S") if r.obs_time_utc else None
             obs_utc = r.obs_time_utc.strftime("%Y-%m-%dT%H:%M:%SZ") if r.obs_time_utc else None
 
-            details.append({
-                "station_id": r.label,
-                "station_name": r.station_name,
-                "lat": round(r.lat, 4),
-                "lon": round(r.lon, 4),
-                "temp_c": round(r.temp_c, 1),
-                "temp_f": temp_f,
-                "distance_km": r.distance_km,
-                "age_minutes": r.age_minutes,
-                "obs_time_utc": obs_utc,
-                "obs_time_nyc": obs_nyc,
-                "obs_time_madrid": obs_mad,
-                "source": r.source,
-                "valid": r.valid,
-                "qc_flag": r.qc_flag,
-            })
-        # Sort by distance
+            details.append(
+                {
+                    "station_id": r.label,
+                    "station_name": r.station_name,
+                    "lat": round(r.lat, 4),
+                    "lon": round(r.lon, 4),
+                    "temp_c": round(r.temp_c, 1),
+                    "temp_f": temp_f,
+                    "distance_km": r.distance_km,
+                    "age_minutes": r.age_minutes,
+                    "obs_time_utc": obs_utc,
+                    "obs_time_nyc": obs_nyc,
+                    "obs_time_madrid": obs_mad,
+                    "source": r.source,
+                    "valid": r.valid,
+                    "qc_flag": r.qc_flag,
+                }
+            )
+
         details.sort(key=lambda x: x["distance_km"])
         world.set_pws_details(station_id, details)
 
-        # Update QC with spatial info
+        # Update QC state
         flags = []
         if consensus.outliers:
             flags.append(f"PWS_OUTLIERS_{len(consensus.outliers)}")
@@ -526,8 +573,9 @@ async def fetch_and_publish_pws(station_id: str, official_temp_c: Optional[float
             flags.append("PWS_LOW_SUPPORT")
         if consensus.mad > 2.0:
             flags.append(f"PWS_HIGH_SPREAD_MAD_{consensus.mad:.1f}")
-        if consensus.data_source == "OPEN_METEO":
-            flags.append("PWS_FALLBACK_GRID")
+        if not any(r.source == "MADIS_APRSWXNET" for r in consensus.readings):
+            flags.append("PWS_NO_CWOP")
+
         if flags:
             world.set_qc_state(f"PWS_{station_id}", "UNCERTAIN", flags)
         else:
@@ -544,8 +592,9 @@ async def fetch_and_publish_pws(station_id: str, official_temp_c: Optional[float
         logger.error(f"PWS publish failed for {station_id}: {e}")
         try:
             from core.world import get_world
+
             get_world().record_error(f"PWS_{station_id}", str(e))
-        except:
+        except Exception:
             pass
 
     return consensus
@@ -556,15 +605,16 @@ async def fetch_and_publish_pws(station_id: str, official_temp_c: Optional[float
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     from dotenv import load_dotenv
-    load_dotenv()
+    import asyncio
 
+    load_dotenv()
     logging.basicConfig(level=logging.INFO, format="%(name)s | %(message)s")
 
     async def test():
         for station in ["KLGA", "KATL", "EGLC"]:
-            print(f"\n{'='*60}")
-            print(f"  PWS Cluster: {station}")
-            print(f"{'='*60}")
+            print(f"\n{'=' * 60}")
+            print(f"  PWS Cluster (MADIS/CWOP): {station}")
+            print(f"{'=' * 60}")
             c = await fetch_pws_cluster(station)
             if c:
                 print(f"\n  Source:    {c.data_source}")
