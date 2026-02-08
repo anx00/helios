@@ -124,11 +124,25 @@ def spawn_bg(coro, *, kind: str = "general", critical: bool = False) -> bool:
     backlog = len(_bg_tasks)
     soft_limit = MAX_BG_TASKS if MAX_BG_TASKS > 0 else 0
     hard_limit = MAX_BG_TASKS_HARD if MAX_BG_TASKS_HARD > 0 else soft_limit
+    # Critical tasks (recorder ground truth + window state) must never be dropped
+    # to preserve backtest/replay integrity.
     should_drop = False
-    if hard_limit and backlog >= hard_limit:
-        should_drop = True
-    elif not critical and soft_limit and backlog >= soft_limit:
-        should_drop = True
+    if not critical:
+        if hard_limit and backlog >= hard_limit:
+            should_drop = True
+        elif soft_limit and backlog >= soft_limit:
+            should_drop = True
+    elif hard_limit and backlog >= hard_limit:
+        now_ts = time.time()
+        if now_ts - _last_bg_overflow_log_ts >= BG_TASK_WARN_EVERY_S:
+            logger.warning(
+                "Critical backlog high kind=%s backlog=%s soft=%s hard=%s (not dropped)",
+                kind,
+                backlog,
+                soft_limit,
+                hard_limit,
+            )
+            _last_bg_overflow_log_ts = now_ts
 
     if should_drop:
         now_ts = time.time()
@@ -470,7 +484,7 @@ async def pws_loop():
                         qc_state = "UNCERTAIN"
                     pws_ids = [r.label for r in consensus.readings]
                     mad_f = round(consensus.mad * 9 / 5, 2)
-                    spawn_bg(recorder.record_pws(
+                    await recorder.record_pws(
                         station_id=station_id,
                         median_f=consensus.median_temp_f,
                         mad_f=mad_f,
@@ -478,7 +492,7 @@ async def pws_loop():
                         pws_ids=pws_ids,
                         qc_state=qc_state,
                         obs_time_utc=consensus.obs_time_utc
-                    ), kind="record_pws", critical=True)
+                    )
 
             await asyncio.sleep(120)  # Every 2 minutes
         except Exception as e:
@@ -715,10 +729,10 @@ async def recorder_loop():
                         }
 
                         buckets["__meta__"] = meta
-                        spawn_bg(recorder.record_l2_snap(
+                        await recorder.record_l2_snap(
                             station_id=station_id,
                             market_state=buckets
-                        ), kind="record_l2_snap", critical=True)
+                        )
 
                     await asyncio.sleep(1)
 
@@ -776,22 +790,22 @@ async def recorder_loop():
                         latencies["ws_publisher_lag_ms"] = metrics.get("publisher_lag_ms") if metrics else None
                         sources_status["ws_connected"] = "OK" if ws_connected else "DISCONNECTED"
 
-                        spawn_bg(recorder.record_features(
+                        await recorder.record_features(
                             station_id=station_id,
                             features={
                                 "env": env_features,
                                 "qc": snapshot.get("qc", {}).get(station_id)
                             },
                             staleness=staleness
-                        ), kind="record_features", critical=False)
+                        )
 
-                        spawn_bg(recorder.record_health(
+                        await recorder.record_health(
                             station_id=station_id,
                             latencies=latencies,
                             sources_status=sources_status,
                             reconnects=metrics.get("reconnect_count", 0),
                             gaps=metrics.get("resync_count", 0)
-                        ), kind="record_health", critical=False)
+                        )
 
                     await asyncio.sleep(60)
 
