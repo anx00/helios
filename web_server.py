@@ -11,7 +11,7 @@ from pydantic import BaseModel
 import asyncio
 import logging
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 # Silence verbose loggers
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -19,7 +19,12 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 logger = logging.getLogger("web_server")
 
-from database import get_latest_prediction, get_accuracy_report
+from database import (
+    get_accuracy_report,
+    get_latest_prediction,
+    get_observed_max_for_target_date,
+    iter_performance_history_by_target_date,
+)
 from config import STATIONS, get_active_stations
 import sys
 sys.path.append(".")
@@ -30,6 +35,7 @@ from market.polymarket_ws import get_ws_client
 from opportunity import check_bet_opportunity
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+from core.polymarket_labels import normalize_label, parse_label
 
 def _default_station() -> str:
     """Return the first active station ID for use as default."""
@@ -3187,6 +3193,246 @@ class BacktestReplayRequest(BaseModel):
     risk_profile: str = "risk_first"
 
 
+def _to_float_or_none(value) -> Optional[float]:
+    try:
+        if value is None:
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _first_float(*values) -> Optional[float]:
+    for v in values:
+        out = _to_float_or_none(v)
+        if out is not None:
+            return out
+    return None
+
+
+def _resolve_yes_probability_from_bracket(bracket: Dict[str, Any]) -> Optional[float]:
+    yes_bid = _first_float(bracket.get("ws_yes_best_bid"), bracket.get("ws_best_bid"))
+    yes_ask = _first_float(bracket.get("ws_yes_best_ask"), bracket.get("ws_best_ask"))
+    yes_mid_from_book = None
+    if yes_bid is not None and yes_ask is not None:
+        yes_mid_from_book = (yes_bid + yes_ask) / 2.0
+    yes_mid = _first_float(bracket.get("ws_yes_mid"), bracket.get("ws_mid"), yes_mid_from_book, bracket.get("yes_price"))
+    if yes_mid is None:
+        return None
+    return max(0.0, min(1.0, float(yes_mid)))
+
+
+def _normalize_prob_dict(raw: Dict[str, float]) -> Dict[str, float]:
+    cleaned: Dict[str, float] = {}
+    for label, prob in raw.items():
+        if not label:
+            continue
+        p = max(0.0, float(prob))
+        cleaned[normalize_label(label)] = p
+    total = sum(cleaned.values())
+    if total <= 0:
+        return {}
+    return {k: v / total for k, v in cleaned.items()}
+
+
+def _bucket_is_impossible_with_observed_max(label: str, observed_max_f: Optional[float]) -> bool:
+    if observed_max_f is None:
+        return False
+    aligned_obs = int(round(float(observed_max_f)))
+    kind, low, high = parse_label(label)
+    if kind == "range" and high is not None:
+        return high <= aligned_obs
+    if kind == "below" and high is not None:
+        return high <= aligned_obs
+    if kind == "single" and low is not None:
+        return low <= aligned_obs
+    return False
+
+
+def _top_bucket_summary(p_bucket: List[Dict[str, Any]]) -> Dict[str, Any]:
+    top_label = ""
+    top_prob = 0.0
+    for b in p_bucket:
+        if not isinstance(b, dict):
+            continue
+        prob = float(b.get("probability", b.get("prob", 0.0)) or 0.0)
+        if prob > top_prob:
+            top_prob = prob
+            top_label = normalize_label(str(b.get("label", b.get("bucket", ""))))
+    return {"label": top_label, "probability": top_prob}
+
+
+def _calibrate_nowcast_with_market(
+    raw_p_bucket: List[Dict[str, Any]],
+    market_probs: Dict[str, float],
+    *,
+    observed_max_f: Optional[float],
+    nowcast_target_date: Optional[str],
+    requested_target_date: str,
+) -> Dict[str, Any]:
+    raw_entries: List[Dict[str, Any]] = []
+    raw_probs: Dict[str, float] = {}
+    for b in raw_p_bucket or []:
+        if not isinstance(b, dict):
+            continue
+        label = normalize_label(str(b.get("label", b.get("bucket", ""))))
+        if not label:
+            continue
+        prob = float(b.get("probability", b.get("prob", 0.0)) or 0.0)
+        raw_entries.append({"label": label, "probability": prob})
+        raw_probs[label] = prob
+
+    raw_probs = _normalize_prob_dict(raw_probs)
+    market_probs = _normalize_prob_dict(market_probs)
+
+    market_top_prob = max(market_probs.values()) if market_probs else 0.0
+    blend_weight = 0.20
+    if market_top_prob >= 0.90:
+        blend_weight += 0.55
+    elif market_top_prob >= 0.80:
+        blend_weight += 0.40
+    elif market_top_prob >= 0.65:
+        blend_weight += 0.25
+    elif market_top_prob >= 0.50:
+        blend_weight += 0.15
+    if observed_max_f is not None:
+        blend_weight += 0.10
+    if nowcast_target_date and nowcast_target_date != requested_target_date:
+        blend_weight += 0.20
+    blend_weight = max(0.0, min(0.90, blend_weight))
+
+    ordered_labels = [e["label"] for e in raw_entries]
+    for label, _ in sorted(market_probs.items(), key=lambda kv: kv[1], reverse=True):
+        if label not in ordered_labels:
+            ordered_labels.append(label)
+
+    filtered_by_floor: List[str] = []
+    blended: Dict[str, float] = {}
+    for label in ordered_labels:
+        p_now = raw_probs.get(label, 0.0)
+        p_mkt = market_probs.get(label, 0.0)
+        p = ((1.0 - blend_weight) * p_now) + (blend_weight * p_mkt)
+        if _bucket_is_impossible_with_observed_max(label, observed_max_f):
+            p = 0.0
+            filtered_by_floor.append(label)
+        blended[label] = p
+
+    total = sum(blended.values())
+    if total <= 0:
+        # Fallback to raw distribution if all got filtered.
+        blended = dict(raw_probs)
+        total = sum(blended.values())
+
+    if total > 0:
+        for k in list(blended.keys()):
+            blended[k] = blended[k] / total
+
+    calibrated_bucket = [
+        {"label": label, "probability": prob}
+        for label, prob in sorted(blended.items(), key=lambda kv: kv[1], reverse=True)
+    ]
+    raw_bucket = [
+        {"label": label, "probability": prob}
+        for label, prob in sorted(raw_probs.items(), key=lambda kv: kv[1], reverse=True)
+    ]
+
+    return {
+        "raw_bucket": raw_bucket,
+        "calibrated_bucket": calibrated_bucket,
+        "blend_weight": blend_weight,
+        "overlap_count": len(set(raw_probs.keys()) & set(market_probs.keys())),
+        "market_count": len(market_probs),
+        "raw_count": len(raw_probs),
+        "filtered_by_observed_max": filtered_by_floor,
+        "raw_top": _top_bucket_summary(raw_bucket),
+        "calibrated_top": _top_bucket_summary(calibrated_bucket),
+    }
+
+
+@app.get("/api/v6/autotrader/nowcast")
+async def autotrader_nowcast(target_day: int = 0):
+    from core.autotrader import get_autotrader_service
+    from core.nowcast_integration import get_nowcast_integration
+
+    service = get_autotrader_service()
+    station_id = service.config.station_id
+    station = STATIONS.get(station_id)
+    if not station:
+        return {"error": f"Unknown station for autotrader: {station_id}"}
+
+    station_tz = ZoneInfo(station.timezone)
+    requested_target_date = (datetime.now(station_tz) + timedelta(days=int(target_day))).date().isoformat()
+
+    integration = get_nowcast_integration()
+    distribution = integration.get_distribution(station_id)
+    if not distribution:
+        # Best effort generation if the engine exists but has no cached distribution yet.
+        try:
+            engine = integration.get_engine(station_id)
+            distribution = engine.generate_distribution()
+        except Exception:
+            distribution = None
+    if not distribution:
+        return {
+            "error": "No nowcast distribution available",
+            "station_id": station_id,
+            "requested_target_date": requested_target_date,
+        }
+
+    raw = distribution.to_dict()
+    market_payload = await get_polymarket_dashboard_data(station_id=station_id, target_day=target_day, depth=5)
+
+    market_probs: Dict[str, float] = {}
+    market_error = None
+    if isinstance(market_payload, dict):
+        market_error = market_payload.get("error")
+        for b in market_payload.get("brackets", []) if isinstance(market_payload.get("brackets"), list) else []:
+            label = normalize_label(str(b.get("name", "")))
+            if not label:
+                continue
+            yes_prob = _resolve_yes_probability_from_bracket(b)
+            if yes_prob is None:
+                continue
+            market_probs[label] = yes_prob
+
+    observed_max_f = get_observed_max_for_target_date(station_id, requested_target_date)
+    calibrated = _calibrate_nowcast_with_market(
+        raw_p_bucket=raw.get("p_bucket") or [],
+        market_probs=market_probs,
+        observed_max_f=observed_max_f,
+        nowcast_target_date=raw.get("target_date"),
+        requested_target_date=requested_target_date,
+    )
+
+    warnings: List[str] = []
+    if market_error:
+        warnings.append(f"market_error:{market_error}")
+    if raw.get("target_date") and raw.get("target_date") != requested_target_date:
+        warnings.append("nowcast_target_mismatch")
+
+    return {
+        **raw,
+        "station_id": station_id,
+        "target_day": int(target_day),
+        "requested_target_date": requested_target_date,
+        "observed_max_f": observed_max_f,
+        "market_probs": market_probs,
+        "raw_top": calibrated["raw_top"],
+        "calibrated": {
+            "p_bucket": calibrated["calibrated_bucket"],
+            "top": calibrated["calibrated_top"],
+            "blend_weight": calibrated["blend_weight"],
+        },
+        "diagnostics": {
+            "raw_count": calibrated["raw_count"],
+            "market_count": calibrated["market_count"],
+            "overlap_count": calibrated["overlap_count"],
+            "filtered_by_observed_max": calibrated["filtered_by_observed_max"],
+            "warnings": warnings,
+        },
+    }
+
+
 @app.get("/api/v6/autotrader/status")
 async def autotrader_status():
     from core.autotrader import get_autotrader_service
@@ -3256,6 +3502,38 @@ async def autotrader_orders(limit: int = 200):
 async def autotrader_fills(limit: int = 200):
     from core.autotrader import get_autotrader_service
     return get_autotrader_service().get_fills(limit=limit)
+
+
+@app.get("/api/v6/autotrader/intraday")
+async def autotrader_intraday(target_day: int = 0, limit: int = 2000):
+    from core.autotrader import get_autotrader_service
+
+    service = get_autotrader_service()
+    payload = service.get_intraday_timeline(target_day=target_day, limit=limit)
+
+    station_id = payload.get("station_id")
+    target_date = ((payload.get("window") or {}).get("target_date")) or ""
+    observed_max_f = None
+    market_series: List[Dict[str, Any]] = []
+    if station_id and target_date:
+        observed_max_f = get_observed_max_for_target_date(station_id, target_date)
+        try:
+            for row in iter_performance_history_by_target_date(station_id, target_date):
+                market_series.append(
+                    {
+                        "ts_utc": row.get("timestamp"),
+                        "market_top1_bracket": row.get("market_top1_bracket"),
+                        "market_top1_prob": row.get("market_top1_prob"),
+                        "helios_pred": row.get("helios_pred"),
+                        "cumulative_max_f": row.get("cumulative_max_f"),
+                    }
+                )
+        except Exception:
+            pass
+
+    payload["observed_max_f"] = observed_max_f
+    payload["market_series"] = market_series
+    return payload
 
 
 @app.post("/api/v6/learning/run")

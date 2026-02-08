@@ -364,6 +364,211 @@ class AutoTraderStorage:
             )
             conn.commit()
 
+    @staticmethod
+    def _build_time_where(
+        station_id: Optional[str],
+        start_ts_utc: Optional[str] = None,
+        end_ts_utc: Optional[str] = None,
+        *,
+        selected_only: bool = False,
+    ) -> tuple[str, List[Any]]:
+        clauses: List[str] = []
+        params: List[Any] = []
+        if station_id:
+            clauses.append("station_id = ?")
+            params.append(station_id)
+        if start_ts_utc:
+            clauses.append("ts_utc >= ?")
+            params.append(start_ts_utc)
+        if end_ts_utc:
+            clauses.append("ts_utc < ?")
+            params.append(end_ts_utc)
+        if selected_only:
+            clauses.append("selected = 1")
+        where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        return where_sql, params
+
+    def count_decisions(
+        self,
+        station_id: Optional[str] = None,
+        start_ts_utc: Optional[str] = None,
+        end_ts_utc: Optional[str] = None,
+        *,
+        selected_only: bool = False,
+    ) -> int:
+        where_sql, params = self._build_time_where(
+            station_id=station_id,
+            start_ts_utc=start_ts_utc,
+            end_ts_utc=end_ts_utc,
+            selected_only=selected_only,
+        )
+        with self._lock, self._connect() as conn:
+            row = conn.execute(
+                f"""
+                SELECT COUNT(*) AS n
+                FROM autotrader_decisions
+                {where_sql}
+                """,
+                tuple(params),
+            ).fetchone()
+        return int(row["n"]) if row and row["n"] is not None else 0
+
+    def count_orders(
+        self,
+        station_id: Optional[str] = None,
+        start_ts_utc: Optional[str] = None,
+        end_ts_utc: Optional[str] = None,
+    ) -> int:
+        where_sql, params = self._build_time_where(
+            station_id=station_id,
+            start_ts_utc=start_ts_utc,
+            end_ts_utc=end_ts_utc,
+        )
+        with self._lock, self._connect() as conn:
+            row = conn.execute(
+                f"""
+                SELECT COUNT(*) AS n
+                FROM autotrader_orders
+                {where_sql}
+                """,
+                tuple(params),
+            ).fetchone()
+        return int(row["n"]) if row and row["n"] is not None else 0
+
+    def count_fills(
+        self,
+        station_id: Optional[str] = None,
+        start_ts_utc: Optional[str] = None,
+        end_ts_utc: Optional[str] = None,
+    ) -> int:
+        where_sql, params = self._build_time_where(
+            station_id=station_id,
+            start_ts_utc=start_ts_utc,
+            end_ts_utc=end_ts_utc,
+        )
+        with self._lock, self._connect() as conn:
+            row = conn.execute(
+                f"""
+                SELECT COUNT(*) AS n
+                FROM autotrader_fills
+                {where_sql}
+                """,
+                tuple(params),
+            ).fetchone()
+        return int(row["n"]) if row and row["n"] is not None else 0
+
+    def get_decisions_between(
+        self,
+        start_ts_utc: str,
+        end_ts_utc: str,
+        station_id: Optional[str] = None,
+        *,
+        selected_only: bool = False,
+        include_context: bool = False,
+        limit: int = 2000,
+    ) -> List[Dict[str, Any]]:
+        where_sql, params = self._build_time_where(
+            station_id=station_id,
+            start_ts_utc=start_ts_utc,
+            end_ts_utc=end_ts_utc,
+            selected_only=selected_only,
+        )
+        limit_sql = ""
+        if limit and limit > 0:
+            limit_sql = "LIMIT ?"
+            params.append(limit)
+
+        context_col = ", context_json" if include_context else ""
+        with self._lock, self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT ts_utc, station_id, strategy_name, selected, decision_json, reward{context_col}
+                FROM autotrader_decisions
+                {where_sql}
+                ORDER BY ts_utc ASC, id ASC
+                {limit_sql}
+                """,
+                tuple(params),
+            ).fetchall()
+
+        out: List[Dict[str, Any]] = []
+        for row in rows:
+            payload = json.loads(row["decision_json"])
+            payload["ts_utc"] = row["ts_utc"]
+            payload["station_id"] = row["station_id"]
+            payload["strategy_name"] = row["strategy_name"]
+            payload["selected"] = bool(row["selected"])
+            payload["reward"] = row["reward"]
+            if include_context:
+                try:
+                    payload["context"] = json.loads(row["context_json"]) if row["context_json"] else {}
+                except Exception:
+                    payload["context"] = {}
+            out.append(payload)
+        return out
+
+    def get_orders_between(
+        self,
+        start_ts_utc: str,
+        end_ts_utc: str,
+        station_id: Optional[str] = None,
+        *,
+        limit: int = 2000,
+    ) -> List[Dict[str, Any]]:
+        where_sql, params = self._build_time_where(
+            station_id=station_id,
+            start_ts_utc=start_ts_utc,
+            end_ts_utc=end_ts_utc,
+        )
+        limit_sql = ""
+        if limit and limit > 0:
+            limit_sql = "LIMIT ?"
+            params.append(limit)
+
+        with self._lock, self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT ts_utc, station_id, order_id, strategy_name, bucket, side, size, limit_price, order_type, status
+                FROM autotrader_orders
+                {where_sql}
+                ORDER BY ts_utc ASC, id ASC
+                {limit_sql}
+                """,
+                tuple(params),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_fills_between(
+        self,
+        start_ts_utc: str,
+        end_ts_utc: str,
+        station_id: Optional[str] = None,
+        *,
+        limit: int = 2000,
+    ) -> List[Dict[str, Any]]:
+        where_sql, params = self._build_time_where(
+            station_id=station_id,
+            start_ts_utc=start_ts_utc,
+            end_ts_utc=end_ts_utc,
+        )
+        limit_sql = ""
+        if limit and limit > 0:
+            limit_sql = "LIMIT ?"
+            params.append(limit)
+
+        with self._lock, self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT ts_utc, station_id, strategy_name, order_id, bucket, side, size, price, fill_type, fees, slippage
+                FROM autotrader_fills
+                {where_sql}
+                ORDER BY ts_utc ASC, id ASC
+                {limit_sql}
+                """,
+                tuple(params),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def get_recent_decisions(self, limit: int = 200, station_id: Optional[str] = None) -> List[Dict[str, Any]]:
         with self._lock, self._connect() as conn:
             if station_id:

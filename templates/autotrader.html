@@ -323,6 +323,16 @@
         height: 100%;
         background: linear-gradient(90deg, #0078FF, #00D4FF);
     }
+    .intraday-wrap {
+        height: 320px;
+        min-height: 280px;
+        position: relative;
+    }
+    .intraday-meta {
+        font-size: 11px;
+        color: var(--text-secondary);
+        margin-bottom: 8px;
+    }
 
     .market-table-wrap {
         overflow: auto;
@@ -507,6 +517,17 @@
                 </div>
             </div>
         </div>
+
+        <div class="panel">
+            <div class="panel-header">
+                <div class="panel-title">Intraday Signals Chart</div>
+                <div id="intraday-meta" class="panel-meta">loading...</div>
+            </div>
+            <div id="intraday-submeta" class="intraday-meta">tmax mean +/- sigma with signals and fills</div>
+            <div class="intraday-wrap">
+                <canvas id="intraday-chart"></canvas>
+            </div>
+        </div>
     </div>
 
     <div>
@@ -581,6 +602,7 @@ const live = {
     slowTimer: null,
     pendingAction: null,
     lastStatus: null,
+    intradayChart: null,
 };
 
 function esc(v) {
@@ -707,6 +729,12 @@ function fmtBookPair(bid, ask) {
     return `${(Number(bid) * 100).toFixed(1)}c / ${(Number(ask) * 100).toFixed(1)}c`;
 }
 
+function toMillis(ts) {
+    if (!ts) return null;
+    const n = Date.parse(ts);
+    return Number.isNaN(n) ? null : n;
+}
+
 function setControlsDisabled(disabled) {
     ["btn-start", "btn-pause", "btn-resume", "btn-riskoff", "btn-riskon", "btn-refresh"].forEach((id) => {
         const el = document.getElementById(id);
@@ -789,8 +817,12 @@ function renderStatus(status, decisions, positions, strategies) {
     document.getElementById("kpi-pnl-sub").textContent = `realized ${signed(perf.realized_pnl || 0, 4)} | mtm ${signed(perf.mark_to_market_pnl || 0, 4)}`;
     document.getElementById("kpi-dd").textContent = num(status?.max_drawdown_abs || 0, 4);
     document.getElementById("kpi-dd").className = "value mono neg";
-    document.getElementById("kpi-of").textContent = `${perf.total_orders || 0} / ${perf.total_fills || 0}`;
-    document.getElementById("kpi-costs").textContent = `fees ${num(perf.total_fees || 0, 4)} | slip ${num(perf.total_slippage || 0, 4)}`;
+    const dayPerf = status?.performance_day || {};
+    const dayOrders = Number(dayPerf.orders_count ?? perf.total_orders ?? 0);
+    const dayFills = Number(dayPerf.fills_count ?? perf.total_fills ?? 0);
+    document.getElementById("kpi-of").textContent = `${dayOrders} / ${dayFills}`;
+    document.getElementById("kpi-costs").textContent =
+        `day ${dayPerf.target_date || "--"} | session ${perf.total_orders || 0}/${perf.total_fills || 0} | fees ${num(perf.total_fees || 0, 4)} | slip ${num(perf.total_slippage || 0, 4)}`;
     const last = decisions && decisions.length ? decisions[decisions.length - 1] : null;
     const lastEl = document.getElementById("kpi-last");
     if (last?.ts_utc) {
@@ -979,10 +1011,24 @@ function renderNowcast(n) {
         box.innerHTML = `<div class="empty">${esc(n?.error || "No nowcast data.")}</div>`;
         return;
     }
-    meta.textContent = `${n.station_id || live.stationId} | conf ${pct(n.confidence,1)} | tmax ${num(n.tmax_mean_f,1)}F | nowcast live`;
-    const top = [...(n.p_bucket || [])].sort((a,b) => Number(b.probability||0) - Number(a.probability||0)).slice(0, 6);
+    const calibratedBucket = n?.calibrated?.p_bucket || n?.p_bucket || [];
+    const top = [...calibratedBucket].sort((a,b) => Number(b.probability||0) - Number(a.probability||0)).slice(0, 6);
+    const blend = Number(n?.calibrated?.blend_weight);
+    const blendTxt = Number.isFinite(blend) ? `blend ${Math.round(blend * 100)}% market` : "raw";
+    const requestedDate = n?.requested_target_date || "--";
+    const nowcastDate = n?.target_date || "--";
+    const warns = (n?.diagnostics?.warnings || []).map((w) => esc(w)).join(", ");
+    meta.textContent = `${n.station_id || live.stationId} | conf ${pct(n.confidence,1)} | tmax ${num(n.tmax_mean_f,1)}F | req ${requestedDate} | nowcast ${nowcastDate} | ${blendTxt}`;
     if (!top.length) { box.innerHTML = '<div class="empty">No bucket probabilities.</div>'; return; }
-    box.innerHTML = top.map((b) => {
+    const headerBits = [];
+    if (n?.raw_top?.label) headerBits.push(`raw top ${esc(n.raw_top.label)} ${pct(n.raw_top.probability, 1)}`);
+    if (n?.calibrated?.top?.label) headerBits.push(`cal top ${esc(n.calibrated.top.label)} ${pct(n.calibrated.top.probability, 1)}`);
+    if (n?.observed_max_f !== null && n?.observed_max_f !== undefined) headerBits.push(`observed max ${num(n.observed_max_f, 1)}F`);
+    if (warns) headerBits.push(`warn ${warns}`);
+
+    box.innerHTML = `
+        ${headerBits.length ? `<div class="muted mono" style="margin-bottom:8px;">${headerBits.join(" | ")}</div>` : ""}
+        ${top.map((b) => {
         const p = Number(b.probability || 0);
         return `<div style="margin-bottom:8px;">
             <div style="display:flex;justify-content:space-between;font-size:12px;">
@@ -990,7 +1036,7 @@ function renderNowcast(n) {
             </div>
             <div class="bar-wrap"><div class="bar" style="width:${Math.max(0, Math.min(p*100, 100)).toFixed(1)}%"></div></div>
         </div>`;
-    }).join("");
+    }).join("")}`;
 }
 
 function renderMarket(m) {
@@ -1069,6 +1115,258 @@ function renderMarket(m) {
         </div>`;
 }
 
+function renderIntraday(payload) {
+    const meta = document.getElementById("intraday-meta");
+    const submeta = document.getElementById("intraday-submeta");
+    const canvas = document.getElementById("intraday-chart");
+    if (!canvas) return;
+
+    if (live.intradayChart) {
+        live.intradayChart.destroy();
+        live.intradayChart = null;
+    }
+
+    if (!payload || payload.error) {
+        meta.textContent = "intraday unavailable";
+        submeta.textContent = payload?.error || "No intraday payload";
+        return;
+    }
+
+    const timeline = Array.isArray(payload.timeline) ? payload.timeline : [];
+    const fills = Array.isArray(payload.fills) ? payload.fills : [];
+    const marketSeries = Array.isArray(payload.market_series) ? payload.market_series : [];
+    if (!timeline.length) {
+        meta.textContent = "no intraday decisions";
+        submeta.textContent = `target ${payload?.window?.target_date || "--"} | fills ${fills.length}`;
+        return;
+    }
+
+    const labels = [];
+    const means = [];
+    const upper = [];
+    const lower = [];
+    const timeMs = [];
+    const buySignalPts = [];
+    const sellSignalPts = [];
+
+    for (let i = 0; i < timeline.length; i += 1) {
+        const p = timeline[i] || {};
+        const ts = p.ts_utc || p.ts_nyc;
+        const ms = toMillis(ts);
+        timeMs.push(ms);
+        labels.push(ts ? formatDateTimeInTz(ts, live.stationTz).slice(11, 16) : `#${i + 1}`);
+
+        const mean = Number(p.tmax_mean_f);
+        const sigma = Number(p.tmax_sigma_f || 0);
+        means.push(Number.isNaN(mean) ? null : mean);
+        upper.push(Number.isNaN(mean) ? null : (mean + (Number.isNaN(sigma) ? 0 : sigma)));
+        lower.push(Number.isNaN(mean) ? null : (mean - (Number.isNaN(sigma) ? 0 : sigma)));
+
+        const actions = Array.isArray(p.actions) ? p.actions : [];
+        for (const a of actions) {
+            const side = String(a?.side || "").toLowerCase();
+            const y = Number.isNaN(mean) ? null : mean;
+            if (y === null) continue;
+            if (side === "buy") buySignalPts.push({ x: i, y });
+            if (side === "sell") sellSignalPts.push({ x: i, y });
+        }
+    }
+
+    const nearestIndex = (ms) => {
+        if (ms === null || ms === undefined || !timeMs.length) return null;
+        let bestIdx = null;
+        let bestDist = Infinity;
+        for (let i = 0; i < timeMs.length; i += 1) {
+            const t = timeMs[i];
+            if (t === null || t === undefined) continue;
+            const d = Math.abs(t - ms);
+            if (d < bestDist) {
+                bestDist = d;
+                bestIdx = i;
+            }
+        }
+        return bestIdx;
+    };
+
+    const buyFillPts = [];
+    const sellFillPts = [];
+    for (const f of fills) {
+        const idx = nearestIndex(toMillis(f.ts_utc));
+        if (idx === null) continue;
+        const y = means[idx];
+        if (y === null || y === undefined) continue;
+        const side = String(f.side || "").toLowerCase();
+        if (side === "buy") buyFillPts.push({ x: idx, y });
+        if (side === "sell") sellFillPts.push({ x: idx, y });
+    }
+
+    const marketTopSeries = Array(labels.length).fill(null);
+    for (const m of marketSeries) {
+        const idx = nearestIndex(toMillis(m.ts_utc));
+        if (idx === null) continue;
+        const p = Number(m.market_top1_prob);
+        if (!Number.isNaN(p)) marketTopSeries[idx] = p;
+    }
+
+    const datasets = [
+        {
+            label: "Tmax Mean",
+            data: means,
+            borderColor: "#0078FF",
+            backgroundColor: "transparent",
+            borderWidth: 2,
+            tension: 0.25,
+            pointRadius: 0,
+            order: 5,
+        },
+        {
+            label: "+1sigma",
+            data: upper,
+            borderColor: "transparent",
+            backgroundColor: "rgba(0, 120, 255, 0.12)",
+            pointRadius: 0,
+            fill: "+1",
+            order: 6,
+        },
+        {
+            label: "-1sigma",
+            data: lower,
+            borderColor: "transparent",
+            backgroundColor: "rgba(0, 120, 255, 0.12)",
+            pointRadius: 0,
+            fill: false,
+            order: 6,
+        },
+    ];
+
+    const observed = Number(payload.observed_max_f);
+    if (!Number.isNaN(observed)) {
+        datasets.push({
+            label: "Observed Max So Far",
+            data: Array(labels.length).fill(observed),
+            borderColor: "#F59E0B",
+            borderDash: [6, 4],
+            borderWidth: 1.5,
+            pointRadius: 0,
+            fill: false,
+            order: 4,
+        });
+    }
+    if (buySignalPts.length) {
+        datasets.push({
+            label: "Buy Signal",
+            data: buySignalPts,
+            type: "scatter",
+            yAxisID: "y",
+            backgroundColor: "#10B981",
+            borderColor: "#10B981",
+            pointRadius: 5,
+            pointStyle: "triangle",
+            order: 2,
+        });
+    }
+    if (sellSignalPts.length) {
+        datasets.push({
+            label: "Sell Signal",
+            data: sellSignalPts,
+            type: "scatter",
+            yAxisID: "y",
+            backgroundColor: "#EF4444",
+            borderColor: "#EF4444",
+            pointRadius: 5,
+            pointStyle: "triangle",
+            rotation: 180,
+            order: 2,
+        });
+    }
+    if (buyFillPts.length) {
+        datasets.push({
+            label: "Buy Fill",
+            data: buyFillPts,
+            type: "scatter",
+            yAxisID: "y",
+            backgroundColor: "#34D399",
+            borderColor: "#34D399",
+            pointRadius: 4,
+            pointStyle: "circle",
+            order: 1,
+        });
+    }
+    if (sellFillPts.length) {
+        datasets.push({
+            label: "Sell Fill",
+            data: sellFillPts,
+            type: "scatter",
+            yAxisID: "y",
+            backgroundColor: "#FB7185",
+            borderColor: "#FB7185",
+            pointRadius: 4,
+            pointStyle: "circle",
+            order: 1,
+        });
+    }
+    if (marketTopSeries.some((v) => v !== null)) {
+        datasets.push({
+            label: "Market Top1 Prob",
+            data: marketTopSeries,
+            yAxisID: "yProb",
+            borderColor: "#A78BFA",
+            borderWidth: 1.25,
+            borderDash: [3, 3],
+            pointRadius: 0,
+            tension: 0.2,
+            fill: false,
+            order: 3,
+        });
+    }
+
+    const ctx = canvas.getContext("2d");
+    live.intradayChart = new Chart(ctx, {
+        type: "line",
+        data: { labels, datasets },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: "index", intersect: false },
+            plugins: {
+                legend: {
+                    labels: {
+                        color: "#94a3b8",
+                        font: { size: 11, family: "JetBrains Mono" },
+                    },
+                },
+            },
+            scales: {
+                x: {
+                    grid: { color: "rgba(148,163,184,0.12)" },
+                    ticks: { color: "#94a3b8", maxRotation: 0, autoSkip: true, maxTicksLimit: 10 },
+                },
+                y: {
+                    grid: { color: "rgba(148,163,184,0.12)" },
+                    ticks: { color: "#94a3b8" },
+                    title: { display: true, text: "Tmax (F)", color: "#94a3b8" },
+                },
+                yProb: {
+                    position: "right",
+                    min: 0,
+                    max: 1,
+                    grid: { drawOnChartArea: false },
+                    ticks: {
+                        color: "#a78bfa",
+                        callback: (v) => `${Math.round(Number(v) * 100)}%`,
+                    },
+                    title: { display: true, text: "Top1 Prob", color: "#a78bfa" },
+                },
+            },
+        },
+    });
+
+    meta.textContent = `${payload?.window?.target_date || "--"} | decisions ${timeline.length} | orders ${payload?.counts?.orders || 0} | fills ${fills.length}`;
+    const marketPts = marketSeries.length;
+    submeta.textContent =
+        `signals/fills mapped to intraday tmax timeline | observed max ${Number.isNaN(observed) ? "--" : `${observed.toFixed(1)}F`} | market points ${marketPts}`;
+}
+
 async function refreshFast() {
     const [statusR, decisionsR, positionsR, strategiesR, ordersR, fillsR] = await Promise.allSettled([
         j("/api/v6/autotrader/status"),
@@ -1112,12 +1410,14 @@ async function refreshFast() {
 
 async function refreshSlow() {
     const s = live.stationId || "KLGA";
-    const [n, m] = await Promise.allSettled([
-        j(`/api/v3/nowcast/${s}`),
+    const [n, m, intraday] = await Promise.allSettled([
+        j(`/api/v6/autotrader/nowcast?target_day=${live.targetDay}`),
         j(`/api/polymarket/${s}?target_day=${live.targetDay}&depth=5`),
+        j(`/api/v6/autotrader/intraday?target_day=${live.targetDay}&limit=2000`),
     ]);
     renderNowcast(n.status === "fulfilled" ? n.value : { error: n.reason?.message || "error" });
     renderMarket(m.status === "fulfilled" ? m.value : { error: m.reason?.message || "error" });
+    renderIntraday(intraday.status === "fulfilled" ? intraday.value : { error: intraday.reason?.message || "error" });
 }
 
 async function manualRefresh() {

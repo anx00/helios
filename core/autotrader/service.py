@@ -8,7 +8,7 @@ import asyncio
 import logging
 from collections import deque
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, time as dt_time, timedelta
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
@@ -486,8 +486,133 @@ class AutoTraderService:
         cfg = LearningConfig(station_id=self.config.station_id)
         return self.learning.run_once(cfg)
 
+    def _station_timezone(self) -> ZoneInfo:
+        try:
+            from config import STATIONS
+            station = STATIONS.get(self.config.station_id)
+            if station and station.timezone:
+                return ZoneInfo(station.timezone)
+        except Exception:
+            pass
+        return NYC
+
+    def _target_day_window(self, target_day: int = 0) -> Dict[str, str]:
+        station_tz = self._station_timezone()
+        day_offset = int(target_day)
+        target_date_local = (datetime.now(station_tz) + timedelta(days=day_offset)).date()
+        start_local = datetime.combine(target_date_local, dt_time.min, tzinfo=station_tz)
+        end_local = start_local + timedelta(days=1)
+        return {
+            "station_tz": station_tz.key,
+            "target_day": day_offset,
+            "target_date": target_date_local.isoformat(),
+            "start_utc": start_local.astimezone(UTC).isoformat(),
+            "end_utc": end_local.astimezone(UTC).isoformat(),
+        }
+
+    def _day_metrics(self, target_day: int = 0) -> Dict[str, Any]:
+        window = self._target_day_window(target_day)
+        start_utc = window["start_utc"]
+        end_utc = window["end_utc"]
+        station_id = self.config.station_id
+
+        return {
+            **window,
+            "selected_decisions": self.storage.count_decisions(
+                station_id=station_id,
+                start_ts_utc=start_utc,
+                end_ts_utc=end_utc,
+                selected_only=True,
+            ),
+            "orders_count": self.storage.count_orders(
+                station_id=station_id,
+                start_ts_utc=start_utc,
+                end_ts_utc=end_utc,
+            ),
+            "fills_count": self.storage.count_fills(
+                station_id=station_id,
+                start_ts_utc=start_utc,
+                end_ts_utc=end_utc,
+            ),
+        }
+
+    def get_intraday_timeline(self, target_day: int = 0, limit: int = 2000) -> Dict[str, Any]:
+        window = self._target_day_window(target_day)
+        start_utc = window["start_utc"]
+        end_utc = window["end_utc"]
+        station_id = self.config.station_id
+
+        decisions = self.storage.get_decisions_between(
+            start_ts_utc=start_utc,
+            end_ts_utc=end_utc,
+            station_id=station_id,
+            selected_only=True,
+            include_context=True,
+            limit=limit,
+        )
+        orders = self.storage.get_orders_between(
+            start_ts_utc=start_utc,
+            end_ts_utc=end_utc,
+            station_id=station_id,
+            limit=limit,
+        )
+        fills = self.storage.get_fills_between(
+            start_ts_utc=start_utc,
+            end_ts_utc=end_utc,
+            station_id=station_id,
+            limit=limit,
+        )
+
+        timeline: List[Dict[str, Any]] = []
+        for row in decisions:
+            ctx = row.get("context") if isinstance(row.get("context"), dict) else {}
+            nowcast = ctx.get("nowcast") if isinstance(ctx.get("nowcast"), dict) else {}
+            p_bucket = nowcast.get("p_bucket") if isinstance(nowcast.get("p_bucket"), list) else []
+            top_label = ""
+            top_prob = 0.0
+            for b in p_bucket:
+                if not isinstance(b, dict):
+                    continue
+                prob = float(b.get("probability", b.get("prob", 0.0)) or 0.0)
+                if prob > top_prob:
+                    top_prob = prob
+                    top_label = normalize_label(str(b.get("label", b.get("bucket", ""))))
+
+            timeline.append(
+                {
+                    "ts_utc": row.get("ts_utc"),
+                    "ts_nyc": ctx.get("ts_nyc"),
+                    "strategy_name": row.get("strategy_name"),
+                    "actions": row.get("actions") if isinstance(row.get("actions"), list) else [],
+                    "fills_count": int(row.get("fills_count") or 0),
+                    "risk_blocked": bool(row.get("risk_blocked", False)),
+                    "reward": row.get("reward"),
+                    "tmax_mean_f": nowcast.get("tmax_mean_f"),
+                    "tmax_sigma_f": nowcast.get("tmax_sigma_f", nowcast.get("tmax_sigma")),
+                    "confidence": nowcast.get("confidence"),
+                    "nowcast_target_date": nowcast.get("target_date"),
+                    "top_bucket": top_label,
+                    "top_prob": top_prob,
+                    "p_bucket": p_bucket,
+                }
+            )
+
+        return {
+            "station_id": station_id,
+            "window": window,
+            "counts": {
+                "decisions": len(timeline),
+                "orders": len(orders),
+                "fills": len(fills),
+            },
+            "timeline": timeline,
+            "orders": orders,
+            "fills": fills,
+        }
+
     def get_status(self) -> Dict[str, Any]:
         perf = self.broker.get_performance(mark_to_market_pnl=self._last_mark_to_market)
+        day_perf = self._day_metrics(target_day=0)
         return {
             "running": self._running,
             "paused": self._paused,
@@ -498,6 +623,7 @@ class AutoTraderService:
             "decision_interval_seconds": self.config.decision_interval_seconds,
             "strategies": list(self.strategies.keys()),
             "performance": perf,
+            "performance_day": day_perf,
             "max_drawdown_abs": self._max_drawdown,
             "strategy_selection_counts": self._selected_strategy_counts,
             "strategy_rewards": self._strategy_rewards,
