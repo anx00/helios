@@ -3,6 +3,8 @@ Helios Weather Lab - Wunderground Fetcher
 Scrapes current day's maximum temperature from Weather Underground.
 """
 
+from __future__ import annotations
+
 import httpx
 from bs4 import BeautifulSoup
 from dataclasses import dataclass

@@ -3,6 +3,8 @@ Helios Weather Lab - METAR Fetcher
 Fetches and parses METAR data from NOAA Aviation Weather Center.
 """
 
+from __future__ import annotations
+
 import httpx
 import math
 import asyncio

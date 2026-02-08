@@ -6,6 +6,8 @@ Implements Orderbook Mirroring for ultra-low latency data access.
 Connects to: wss://ws-subscriptions-clob.polymarket.com/ws/market
 """
 
+from __future__ import annotations
+
 import asyncio
 import json
 import logging

@@ -1,6 +1,8 @@
 # Helios Weather Lab - Main Orchestrator (Physics Engine)
 # Scheduler for data collection and deterministic physics predictions.
 
+from __future__ import annotations
+
 # Load environment variables FIRST (before any other imports)
 from dotenv import load_dotenv
 load_dotenv()

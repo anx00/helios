@@ -11,6 +11,8 @@ Handles the end-to-end chat flow:
 7. Return formatted response
 """
 
+from __future__ import annotations
+
 import os
 import re
 import logging

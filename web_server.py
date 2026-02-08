@@ -1,4 +1,6 @@
 # Load environment variables FIRST (before any other imports)
+from __future__ import annotations
+
 from dotenv import load_dotenv
 load_dotenv()
 

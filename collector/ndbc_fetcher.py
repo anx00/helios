@@ -6,6 +6,8 @@ to correct sea breeze temperature calculations.
 
 Impact: ±2°F for coastal stations
 """
+from __future__ import annotations
+
 import httpx
 from dataclasses import dataclass
 from datetime import datetime, timezone

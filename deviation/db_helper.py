@@ -1,6 +1,8 @@
 """
 Get prediction errors from database for historical trend analysis
 """
+from __future__ import annotations
+
 import sqlite3
 from pathlib import Path
 

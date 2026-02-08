@@ -6,6 +6,8 @@ v11.0: Physical Ceiling, Range Squeeze, WU Alignment, Bet Zones.
 v11.1: Sniper Mode - Hard Floor, WU Anchor, 3-tier zone classification.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Tuple, List
 from datetime import datetime, timezone
