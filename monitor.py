@@ -4,7 +4,6 @@ Background worker for logging real-time performance and reconciling historical d
 """
 
 import asyncio
-import os
 from datetime import datetime, timedelta
 import logging
 from typing import Optional
@@ -25,31 +24,6 @@ _state_cache = {
     "EGLC": {"history": None, "wu_obs": None, "market_today": None, "market_tmr": None}
 }
 _weather_cache_time = {}  # station_id -> datetime (for TTL tracking)
-_slow_refresh_tasks = {}  # station_id -> asyncio.Task
-SLOW_REFRESH_TIMEOUT_SECONDS = float(os.getenv("HELIOS_MONITOR_SLOW_REFRESH_TIMEOUT_S", "25"))
-
-
-def _schedule_background_refresh(station_id, today_local, tomorrow_local):
-    """
-    Run at most one slow refresh task per station at a time.
-    Prevents unbounded task accumulation when slow providers lag.
-    """
-    existing = _slow_refresh_tasks.get(station_id)
-    if existing and not existing.done():
-        return
-
-    async def _runner():
-        try:
-            await asyncio.wait_for(
-                background_slow_refresh(station_id, today_local, tomorrow_local),
-                timeout=SLOW_REFRESH_TIMEOUT_SECONDS,
-            )
-        except asyncio.TimeoutError:
-            logger.warning("Background refresh timeout for %s", station_id)
-        except Exception as e:
-            logger.error("Background refresh runner error for %s: %s", station_id, e)
-
-    _slow_refresh_tasks[station_id] = asyncio.create_task(_runner())
 
 async def background_slow_refresh(station_id, today_local, tomorrow_local):
     """Refreshes slow data sources in the background without blocking the fast METAR line."""
@@ -97,8 +71,8 @@ async def snapshot_current_state():
             station_cache_time = _weather_cache_time.get(station_id)
             if station_cache_time is None or (now - station_cache_time).total_seconds() > 30: # 30s TTL
                 _weather_cache_time[station_id] = now
-                # Background refresh with per-station in-flight guard
-                _schedule_background_refresh(station_id, today_local, tomorrow_local)
+                # Fire and forget slow refresh
+                asyncio.create_task(background_slow_refresh(station_id, today_local, tomorrow_local))
             
             # 2. FAST PATH: Fetch Live METAR Racing Data ONLY
             # This is what drives the chart line responsiveness

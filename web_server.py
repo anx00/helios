@@ -10,7 +10,6 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 import asyncio
 import logging
-import time
 from typing import Any, Dict, List, Optional, Tuple
 
 # Silence verbose loggers
@@ -66,105 +65,6 @@ templates.env.globals.update(get_template_context())
 
 # Cache last-known token lists to survive intermittent Gamma API hiccups
 _WS_TOKEN_CACHE: Dict[str, List[Tuple[str, str, str]]] = {}
-
-
-def _env_int(name: str, default: int) -> int:
-    try:
-        return int(os.getenv(name, str(default)))
-    except (TypeError, ValueError):
-        return default
-
-
-# Memory safety knobs (code-level, infra-independent)
-WS_MAX_TRACKED_TOKENS = _env_int("HELIOS_WS_MAX_TRACKED_TOKENS", 400)
-WS_TOKEN_TTL_SECONDS = _env_int("HELIOS_WS_TOKEN_TTL_SECONDS", 6 * 60 * 60)
-MAX_BG_TASKS = _env_int("HELIOS_MAX_BG_TASKS", 600)
-MAX_BG_TASKS_HARD = _env_int("HELIOS_MAX_BG_TASKS_HARD", 1200)
-BG_TASK_WARN_EVERY_S = _env_int("HELIOS_BG_TASK_WARN_EVERY_S", 30)
-ANALYTICS_MAX_RAW_POINTS = _env_int("HELIOS_ANALYTICS_MAX_RAW_POINTS", 5000)
-ANALYTICS_QUERY_MAX_ROWS = _env_int("HELIOS_ANALYTICS_QUERY_MAX_ROWS", max(ANALYTICS_MAX_RAW_POINTS * 3, 15000))
-MEM_LOG_INTERVAL_S = _env_int("HELIOS_MEM_LOG_INTERVAL_S", 60)
-MEM_WARN_MB = _env_int("HELIOS_MEM_WARN_MB", 900)
-
-_bg_tasks: set[asyncio.Task] = set()
-_last_bg_overflow_log_ts = 0.0
-
-
-def _get_rss_mb() -> Optional[float]:
-    """Best-effort current RSS in MB without external deps."""
-    try:
-        with open("/proc/self/status", "r", encoding="utf-8") as f:
-            for line in f:
-                if line.startswith("VmRSS:"):
-                    parts = line.split()
-                    if len(parts) >= 2:
-                        kb = int(parts[1])
-                        return round(kb / 1024.0, 1)
-    except Exception:
-        pass
-    return None
-
-
-def _on_bg_task_done(task: asyncio.Task):
-    _bg_tasks.discard(task)
-    try:
-        task.result()
-    except asyncio.CancelledError:
-        pass
-    except Exception as exc:
-        logger.debug("Background task failed: %s", exc)
-
-
-def spawn_bg(coro, *, kind: str = "general", critical: bool = False) -> bool:
-    """
-    Schedule a bounded background task.
-    Returns False when dropped due to backlog pressure.
-    """
-    global _last_bg_overflow_log_ts
-    backlog = len(_bg_tasks)
-    soft_limit = MAX_BG_TASKS if MAX_BG_TASKS > 0 else 0
-    hard_limit = MAX_BG_TASKS_HARD if MAX_BG_TASKS_HARD > 0 else soft_limit
-    # Critical tasks (recorder ground truth + window state) must never be dropped
-    # to preserve backtest/replay integrity.
-    should_drop = False
-    if not critical:
-        if hard_limit and backlog >= hard_limit:
-            should_drop = True
-        elif soft_limit and backlog >= soft_limit:
-            should_drop = True
-    elif hard_limit and backlog >= hard_limit:
-        now_ts = time.time()
-        if now_ts - _last_bg_overflow_log_ts >= BG_TASK_WARN_EVERY_S:
-            logger.warning(
-                "Critical backlog high kind=%s backlog=%s soft=%s hard=%s (not dropped)",
-                kind,
-                backlog,
-                soft_limit,
-                hard_limit,
-            )
-            _last_bg_overflow_log_ts = now_ts
-
-    if should_drop:
-        now_ts = time.time()
-        if now_ts - _last_bg_overflow_log_ts >= BG_TASK_WARN_EVERY_S:
-            logger.warning(
-                "Dropping background task kind=%s critical=%s backlog=%s soft=%s hard=%s",
-                kind,
-                critical,
-                backlog,
-                soft_limit,
-                hard_limit,
-            )
-            _last_bg_overflow_log_ts = now_ts
-        try:
-            coro.close()
-        except Exception:
-            pass
-        return False
-    task = asyncio.create_task(coro)
-    _bg_tasks.add(task)
-    task.add_done_callback(_on_bg_task_done)
-    return True
 
 # Models source of truth
 class StationConfig(BaseModel):
@@ -332,49 +232,6 @@ async def get_market_data(station_id: str, target_day: int = 0):
     outcomes.sort(key=lambda x: x["probability"], reverse=True)
     return {"station_id": station_id, "target_date": target_date.isoformat(), "target_day": target_day, "event_title": event_title, "event_slug": event_slug, "total_volume": total_volume, "outcomes": outcomes}
 
-
-async def memory_observer_loop():
-    """Periodic runtime counters for OOM diagnostics."""
-    from market.polymarket_ws import get_ws_client_sync
-    logger = logging.getLogger("memory_observer")
-    interval_s = max(10, MEM_LOG_INTERVAL_S)
-
-    while True:
-        try:
-            rss_mb = _get_rss_mb()
-            ws_books = None
-            ws_prices = None
-            ws_info = None
-            client = get_ws_client_sync()
-            if client:
-                stats = client.get_tracking_stats()
-                ws_books = stats.get("orderbooks")
-                ws_prices = stats.get("prices")
-                ws_info = stats.get("market_info")
-
-            if rss_mb is not None:
-                logger.info(
-                    "mem rss_mb=%.1f bg_tasks=%s ws_books=%s ws_prices=%s ws_info=%s",
-                    rss_mb,
-                    len(_bg_tasks),
-                    ws_books,
-                    ws_prices,
-                    ws_info,
-                )
-                if MEM_WARN_MB > 0 and rss_mb >= MEM_WARN_MB:
-                    logger.warning(
-                        "High RSS rss_mb=%.1f threshold_mb=%s bg_tasks=%s ws_books=%s",
-                        rss_mb,
-                        MEM_WARN_MB,
-                        len(_bg_tasks),
-                        ws_books,
-                    )
-        except Exception as e:
-            logger.debug("memory observer error: %s", e)
-
-        await asyncio.sleep(interval_s)
-
-
 @app.on_event("startup")
 async def startup_event():
     """Start background monitoring tasks."""
@@ -396,8 +253,6 @@ async def startup_event():
     asyncio.create_task(autotrader_loop())
     # Task 7: Nightly offline learning cycle
     asyncio.create_task(learning_nightly_loop())
-    # Task 8: Memory/counter observer for OOM diagnostics
-    asyncio.create_task(memory_observer_loop())
 
 async def _resolve_station_tokens(
     station_id: str,
@@ -484,7 +339,7 @@ async def pws_loop():
                         qc_state = "UNCERTAIN"
                     pws_ids = [r.label for r in consensus.readings]
                     mad_f = round(consensus.mad * 9 / 5, 2)
-                    await recorder.record_pws(
+                    asyncio.create_task(recorder.record_pws(
                         station_id=station_id,
                         median_f=consensus.median_temp_f,
                         mad_f=mad_f,
@@ -492,7 +347,7 @@ async def pws_loop():
                         pws_ids=pws_ids,
                         qc_state=qc_state,
                         obs_time_utc=consensus.obs_time_utc
-                    )
+                    ))
 
             await asyncio.sleep(120)  # Every 2 minutes
         except Exception as e:
@@ -531,29 +386,7 @@ async def websocket_loop():
                     client.set_market_info(tid, f"{station_id}|{bracket}|{outcome}")
             
             if all_token_ids:
-                unique_token_ids = list(dict.fromkeys(all_token_ids))
-                client.mark_tokens_requested(unique_token_ids)
-                await client.subscribe_to_markets(unique_token_ids)
-                pruned = client.prune_stale_books(
-                    keep_token_ids=set(unique_token_ids),
-                    max_books=WS_MAX_TRACKED_TOKENS,
-                    max_age_seconds=WS_TOKEN_TTL_SECONDS,
-                )
-                if pruned:
-                    stats = client.get_tracking_stats()
-                    logger.info(
-                        "WS prune removed=%s orderbooks=%s market_info=%s",
-                        pruned,
-                        stats.get("orderbooks"),
-                        stats.get("market_info"),
-                    )
-            else:
-                # No active tokens found -> still prune old local mirrors.
-                client.prune_stale_books(
-                    keep_token_ids=set(),
-                    max_books=WS_MAX_TRACKED_TOKENS,
-                    max_age_seconds=WS_TOKEN_TTL_SECONDS,
-                )
+                await client.subscribe_to_markets(all_token_ids)
                 
             await asyncio.sleep(300) # Refresh every 5 mins
         except Exception as e:
@@ -597,7 +430,8 @@ async def recorder_loop():
         # Register callback to record nowcast outputs
         def on_nowcast_update(station_id: str, distribution):
             if distribution:
-                spawn_bg(recorder.record_nowcast(
+                import asyncio
+                asyncio.create_task(recorder.record_nowcast(
                     station_id=station_id,
                     tmax_mean_f=distribution.tmax_mean_f,
                     tmax_sigma_f=distribution.tmax_sigma_f,
@@ -606,14 +440,15 @@ async def recorder_loop():
                     confidence=distribution.confidence,
                     qc_state="OK",
                     bias_f=distribution.bias_applied_f
-                ), kind="record_nowcast", critical=True)
+                ))
 
         integration.register_callback(on_nowcast_update)
 
         # Register callback to record METAR observations (for backtest ground truth)
         def on_metar_observation(obs):
             if obs:
-                spawn_bg(recorder.record_metar(
+                import asyncio
+                asyncio.create_task(recorder.record_metar(
                     station_id=obs.station_id,
                     raw=getattr(obs, 'raw', ''),
                     temp_c=obs.temp_c,
@@ -623,19 +458,19 @@ async def recorder_loop():
                     dewpoint_c=obs.dewpoint_c,
                     wind_dir=obs.wind_dir,
                     wind_speed=obs.wind_speed
-                ), kind="record_metar", critical=True)
+                ))
                 try:
-                    spawn_bg(window_manager.on_metar(
+                    asyncio.create_task(window_manager.on_metar(
                         station_id=obs.station_id,
                         temp_f=obs.temp_f,
                         source=getattr(obs, 'source', 'METAR')
-                    ), kind="window_on_metar", critical=True)
+                    ))
                     qc_flags = getattr(obs, 'qc_flags', []) or []
                     if qc_flags or not getattr(obs, 'qc_passed', True):
-                        spawn_bg(window_manager.on_qc_outlier(
+                        asyncio.create_task(window_manager.on_qc_outlier(
                             station_id=obs.station_id,
                             flags=qc_flags
-                        ), kind="window_qc_outlier", critical=True)
+                        ))
                 except Exception:
                     pass
 
@@ -643,20 +478,22 @@ async def recorder_loop():
 
         # Register window open callback to record
         def on_window_open(window):
-            spawn_bg(recorder.record_event_window(
+            import asyncio
+            asyncio.create_task(recorder.record_event_window(
                 window_id=window.window_id,
                 action="START",
                 reason=window.reason,
                 station_id=window.station_id
-            ), kind="record_window_open", critical=True)
+            ))
 
         def on_window_close(window):
-            spawn_bg(recorder.record_event_window(
+            import asyncio
+            asyncio.create_task(recorder.record_event_window(
                 window_id=window.window_id,
                 action="END",
                 reason=f"Duration: {window.duration_seconds:.1f}s",
                 station_id=window.station_id
-            ), kind="record_window_close", critical=True)
+            ))
 
         window_manager.on_window_open(on_window_open)
         window_manager.on_window_close(on_window_close)
@@ -729,10 +566,10 @@ async def recorder_loop():
                         }
 
                         buckets["__meta__"] = meta
-                        await recorder.record_l2_snap(
+                        asyncio.create_task(recorder.record_l2_snap(
                             station_id=station_id,
                             market_state=buckets
-                        )
+                        ))
 
                     await asyncio.sleep(1)
 
@@ -790,22 +627,22 @@ async def recorder_loop():
                         latencies["ws_publisher_lag_ms"] = metrics.get("publisher_lag_ms") if metrics else None
                         sources_status["ws_connected"] = "OK" if ws_connected else "DISCONNECTED"
 
-                        await recorder.record_features(
+                        asyncio.create_task(recorder.record_features(
                             station_id=station_id,
                             features={
                                 "env": env_features,
                                 "qc": snapshot.get("qc", {}).get(station_id)
                             },
                             staleness=staleness
-                        )
+                        ))
 
-                        await recorder.record_health(
+                        asyncio.create_task(recorder.record_health(
                             station_id=station_id,
                             latencies=latencies,
                             sources_status=sources_status,
                             reconnects=metrics.get("reconnect_count", 0),
                             gaps=metrics.get("resync_count", 0)
-                        )
+                        ))
 
                     await asyncio.sleep(60)
 
@@ -1357,18 +1194,7 @@ async def get_realtime_market(station_id: str, depth: int = 10):
                 logger = logging.getLogger("ws_loop")
                 tokens = await _resolve_station_tokens(station_id, target_date, now, logger)
                 if tokens:
-                    token_ids = [t[0] for t in tokens if t and t[0]]
-                    client.mark_tokens_requested(token_ids)
-                    if client.state and hasattr(client.state, "orderbooks"):
-                        missing_ids = [tid for tid in token_ids if tid not in client.state.orderbooks]
-                        if missing_ids:
-                            if WS_MAX_TRACKED_TOKENS > 0:
-                                room = max(0, WS_MAX_TRACKED_TOKENS - len(client.state.orderbooks))
-                                to_subscribe = missing_ids[:room]
-                            else:
-                                to_subscribe = missing_ids
-                            if to_subscribe:
-                                await client.subscribe_to_markets(to_subscribe)
+                    await client.subscribe_to_markets([t[0] for t in tokens])
                     for tid, bracket, outcome in tokens:
                         client.set_market_info(tid, f"{station_id}|{bracket}|{outcome}")
                     # Rebuild view after warm-up subscription
@@ -1487,28 +1313,17 @@ async def get_polymarket_dashboard_data(station_id: str, target_day: int = 0, de
 
         # Ensure both YES and NO token books are subscribed for the requested market.
         missing_tokens: list[str] = []
-        requested_tokens: list[str] = []
         if client.state and hasattr(client.state, "orderbooks"):
             for b in brackets:
                 for token_key in ("yes_token_id", "no_token_id"):
                     token_id = b.get(token_key)
-                    if token_id:
-                        requested_tokens.append(token_id)
                     if token_id and token_id not in client.state.orderbooks:
                         missing_tokens.append(token_id)
                         outcome = "yes" if token_key == "yes_token_id" else "no"
                         client.set_market_info(token_id, f"{station_id}|{b.get('name', 'Unknown')}|{outcome}")
-            if requested_tokens:
-                client.mark_tokens_requested(list(dict.fromkeys(requested_tokens)))
             if missing_tokens:
                 unique_missing = list(dict.fromkeys(missing_tokens))
-                if WS_MAX_TRACKED_TOKENS > 0:
-                    room = max(0, WS_MAX_TRACKED_TOKENS - len(client.state.orderbooks))
-                    to_subscribe = unique_missing[:room]
-                else:
-                    to_subscribe = unique_missing
-                if to_subscribe:
-                    await client.subscribe_to_markets(to_subscribe)
+                await client.subscribe_to_markets(unique_missing)
 
         if client.state and hasattr(client.state, 'orderbooks'):
             for b in brackets:
@@ -1671,7 +1486,7 @@ async def get_v12_debug(station_id: str):
     from collector.nbm_fetcher import fetch_nbm
     from collector.lamp_fetcher import fetch_lamp
     from synthesizer.ensemble import calculate_ensemble_v11
-    from database import get_latest_prediction_for_date, get_observed_max_for_target_date
+    from database import get_latest_prediction_for_date, get_performance_history_by_target_date
     from synthesizer.advection import calculate_advection
     from collector.advection_fetcher import fetch_upstream_weather
     
@@ -1711,8 +1526,13 @@ async def get_v12_debug(station_id: str):
             )
             upstream_temp_c = upstream_data.temperature_c
     
-    # Get observed max via SQL aggregate (avoids loading full day logs in memory)
-    observed_max = get_observed_max_for_target_date(station_id, today_str)
+    # Get observed max from today's logs
+    logs = get_performance_history_by_target_date(station_id, today_str)
+    observed_max = None
+    if logs:
+        temps = [l.get("cumulative_max_f") or l.get("metar_actual") for l in logs if l.get("cumulative_max_f") or l.get("metar_actual")]
+        if temps:
+            observed_max = max([t for t in temps if t])
     
     # Get prediction
     pred = get_latest_prediction_for_date(station_id, today_str)
@@ -1797,17 +1617,13 @@ async def get_v12_debug(station_id: str):
 @app.get("/api/analytics")
 def get_analytics_api(station_id: str = DEFAULT_STATION, date: str = None):
     """Get performance data for the dashboard, filtered by TARGET DATE."""
-    from database import get_analytics_rows_by_target_date
+    from database import get_performance_history_by_target_date
     from zoneinfo import ZoneInfo
     if date: target_date = date
     else:
         nyc_tz = ZoneInfo("America/New_York")
         target_date = datetime.now(nyc_tz).date().isoformat()
-    logs = get_analytics_rows_by_target_date(
-        station_id,
-        target_date,
-        max_rows=ANALYTICS_QUERY_MAX_ROWS if ANALYTICS_QUERY_MAX_ROWS > 0 else None,
-    )
+    logs = get_performance_history_by_target_date(station_id, target_date)
     
     # Filter logs to only include data starting from 00:00 of the target_date
     # This prevents the chart from showing data from the previous day
@@ -1825,15 +1641,6 @@ def get_analytics_api(station_id: str = DEFAULT_STATION, date: str = None):
             filtered_logs.append(log)
             
     logs = filtered_logs
-
-    # Bound raw points early to avoid large transient allocations.
-    if ANALYTICS_MAX_RAW_POINTS > 0 and len(logs) > ANALYTICS_MAX_RAW_POINTS:
-        step = max(1, len(logs) // ANALYTICS_MAX_RAW_POINTS)
-        sampled = logs[::step]
-        if sampled and sampled[-1] != logs[-1]:
-            sampled.append(logs[-1])
-        logs = sampled
-
     chronological_logs = logs[::-1]
     
     labels = []
@@ -2340,7 +2147,7 @@ def export_csv_api(station_id: str = DEFAULT_STATION, window: str = "1h", date: 
       - 6h: Last 6 hours
       - day: Full day (uses date param)
     """
-    from database import iter_performance_history_by_target_date
+    from database import get_performance_history_by_target_date
     
     # Determine time window
     nyc_tz = ZoneInfo("America/New_York")
@@ -2361,10 +2168,20 @@ def export_csv_api(station_id: str = DEFAULT_STATION, window: str = "1h", date: 
     else:
         target_date = now_nyc.date().isoformat()
     
-    cutoff_iso = None
+    logs = get_performance_history_by_target_date(station_id, target_date)
+    
+    # Filter by time window (except for 'day' which gets all)
     if window != "day":
         cutoff = datetime.now(ZoneInfo("UTC")) - timedelta(minutes=window_minutes)
-        cutoff_iso = cutoff.isoformat()
+        filtered_logs = []
+        for log in logs:
+            ts = datetime.fromisoformat(log["timestamp"]).replace(tzinfo=ZoneInfo("UTC"))
+            if ts >= cutoff:
+                filtered_logs.append(log)
+        logs = filtered_logs
+    
+    # Chronological order for CSV
+    logs = logs[::-1]
     
     # Define CSV columns with clear labels
     columns = [
@@ -2414,46 +2231,39 @@ def export_csv_api(station_id: str = DEFAULT_STATION, window: str = "1h", date: 
         ("market_all_brackets_json", "All Polymarket Options (JSON)"),
     ]
     
-    def _csv_iter():
-        output = io.StringIO()
-        writer = csv.writer(output)
-        # Header
-        writer.writerow([col[1] for col in columns])
-        yield output.getvalue()
-        output.seek(0)
-        output.truncate(0)
-
-        # Rows (streamed directly from DB to keep memory flat)
-        for log in iter_performance_history_by_target_date(
-            station_id=station_id,
-            target_date=target_date,
-            since_utc=cutoff_iso,
-            ascending=True,
-        ):
-            ts_utc = datetime.fromisoformat(log["timestamp"]).replace(tzinfo=ZoneInfo("UTC"))
-            ts_nyc = ts_utc.astimezone(nyc_tz)
-
-            row = []
-            for col_key, col_label in columns:
-                if col_key == "timestamp_utc":
-                    row.append(ts_utc.isoformat())
-                elif col_key == "timestamp_nyc":
-                    row.append(ts_nyc.strftime("%Y-%m-%d %H:%M:%S"))
+    # Build CSV in memory
+    output = io.StringIO()
+    writer = csv.writer(output)
+    
+    # Write header
+    writer.writerow([col[1] for col in columns])
+    
+    # Write data rows
+    for log in logs:
+        ts_utc = datetime.fromisoformat(log["timestamp"]).replace(tzinfo=ZoneInfo("UTC"))
+        ts_nyc = ts_utc.astimezone(nyc_tz)
+        
+        row = []
+        for col_key, col_label in columns:
+            if col_key == "timestamp_utc":
+                row.append(ts_utc.isoformat())
+            elif col_key == "timestamp_nyc":
+                row.append(ts_nyc.strftime("%Y-%m-%d %H:%M:%S"))
+            else:
+                value = log.get(col_key, "")
+                # Format floats to 2 decimal places
+                if isinstance(value, float):
+                    row.append(f"{value:.4f}" if "prob" in col_key else f"{value:.2f}")
                 else:
-                    value = log.get(col_key, "")
-                    if isinstance(value, float):
-                        row.append(f"{value:.4f}" if "prob" in col_key else f"{value:.2f}")
-                    else:
-                        row.append(value if value is not None else "")
-            writer.writerow(row)
-            yield output.getvalue()
-            output.seek(0)
-            output.truncate(0)
-
+                    row.append(value if value is not None else "")
+        writer.writerow(row)
+    
+    # Prepare response
+    output.seek(0)
     filename = f"helios_{station_id}_{target_date}_{window}.csv"
     
     return StreamingResponse(
-        _csv_iter(),
+        iter([output.getvalue()]),
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )

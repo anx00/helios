@@ -172,10 +172,6 @@ class AteneaChat:
 
         # Conversation history (per session)
         self.history: List[ChatMessage] = []
-        try:
-            self._max_history_messages = int(os.environ.get("ATENEA_MAX_HISTORY_MESSAGES", "100"))
-        except (TypeError, ValueError):
-            self._max_history_messages = 100
 
     def set_live_state(
         self,
@@ -250,8 +246,6 @@ class AteneaChat:
             context=screen_context
         ))
         self.history.append(message)
-        if self._max_history_messages > 0 and len(self.history) > self._max_history_messages:
-            self.history = self.history[-self._max_history_messages:]
 
         # Calculate processing time
         processing_time = (datetime.utcnow() - start_time).total_seconds() * 1000

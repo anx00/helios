@@ -1950,16 +1950,11 @@
         loadData();
 
         // Auto refresh every 5 seconds for live updates (charts, KPIs)
-        // Skip while tab is hidden to reduce backend pressure.
-        setInterval(() => {
-            if (!document.hidden) loadData();
-        }, 5000);
+        setInterval(loadData, 5000);
 
         // v8.0: FAST ALERT POLLING (2-second cycle for minimum latency)
         // This runs independently of chart refresh for instant alerts
-        setInterval(() => {
-            if (!document.hidden) checkFastAlerts();
-        }, 2000);
+        setInterval(checkFastAlerts, 2000);
     });
 
     // v8.0: Fast Alert Checker using /api/realtime endpoint

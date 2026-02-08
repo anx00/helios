@@ -5,7 +5,7 @@ SQLite database for physics-based weather predictions.
 
 import sqlite3
 from datetime import datetime
-from typing import Optional, Dict, Any, Iterator, List
+from typing import Optional, Dict, Any, List
 from contextlib import contextmanager
 
 from config import DATABASE_PATH
@@ -639,114 +639,6 @@ def get_performance_history_by_target_date(station_id: str, target_date: str) ->
             (station_id, target_date)
         )
         return [dict(row) for row in cursor.fetchall()]
-
-
-def iter_performance_history_by_target_date(
-    station_id: str,
-    target_date: str,
-    since_utc: Optional[str] = None,
-    ascending: bool = True,
-) -> Iterator[Dict]:
-    """
-    Stream performance logs for a station/date in DESC timestamp order.
-    Use this for large exports to avoid loading all rows in memory.
-    """
-    query = """
-        SELECT * FROM performance_logs
-        WHERE station_id = ?
-        AND target_date = ?
-    """
-    params: tuple = (station_id, target_date)
-    if since_utc:
-        query += " AND timestamp >= ?"
-        params = (station_id, target_date, since_utc)
-    query += " ORDER BY timestamp ASC" if ascending else " ORDER BY timestamp DESC"
-
-    conn = get_connection()
-    try:
-        cursor = conn.execute(query, params)
-        for row in cursor:
-            yield dict(row)
-    finally:
-        conn.close()
-
-
-def get_analytics_rows_by_target_date(
-    station_id: str,
-    target_date: str,
-    max_rows: Optional[int] = None,
-) -> List[Dict]:
-    """
-    Get only the columns needed by /api/analytics to reduce memory footprint.
-    """
-    query = """
-        SELECT
-            timestamp,
-            helios_pred,
-            metar_actual,
-            cumulative_max_f,
-            wu_forecast_high,
-            wu_preliminary,
-            hrrr_max_raw_f,
-            current_deviation_f,
-            physics_adjustment_f,
-            soil_moisture,
-            radiation,
-            sky_condition,
-            wind_dir,
-            market_all_brackets_json,
-            market_top1_bracket,
-            market_top1_prob,
-            market_top2_bracket,
-            market_top2_prob,
-            market_top3_bracket,
-            market_top3_prob,
-            metar_json_api_f,
-            metar_tds_xml_f,
-            metar_tgftp_txt_f,
-            nbm_max_f,
-            lamp_max_f,
-            lamp_confidence,
-            ensemble_base_f,
-            ensemble_floor_f,
-            ensemble_ceiling_f,
-            ensemble_spread_f,
-            ensemble_confidence,
-            hrrr_outlier_detected
-        FROM performance_logs
-        WHERE station_id = ?
-          AND target_date = ?
-        ORDER BY timestamp DESC
-    """
-    params: tuple = (station_id, target_date)
-    if max_rows is not None and max_rows > 0:
-        query += " LIMIT ?"
-        params = (station_id, target_date, max_rows)
-
-    with get_connection() as conn:
-        cursor = conn.execute(query, params)
-        return [dict(row) for row in cursor.fetchall()]
-
-
-def get_observed_max_for_target_date(station_id: str, target_date: str) -> Optional[float]:
-    """
-    Return max observed temperature for a station/date without loading full logs.
-    """
-    with get_connection() as conn:
-        cursor = conn.execute(
-            """
-            SELECT MAX(COALESCE(cumulative_max_f, metar_actual)) AS observed_max
-            FROM performance_logs
-            WHERE station_id = ?
-              AND target_date = ?
-            """,
-            (station_id, target_date),
-        )
-        row = cursor.fetchone()
-        if not row:
-            return None
-        value = row["observed_max"]
-        return float(value) if value is not None else None
 
 
 def get_latest_performance_log(station_id: str) -> Optional[Dict]:
