@@ -16,6 +16,8 @@
         border-radius: 14px;
         padding: 22px;
         transition: border-color 0.3s;
+        min-height: 180px;
+        overflow: hidden;
     }
 
     .world-panel:hover {
@@ -296,6 +298,7 @@
     .health-table {
         width: 100%;
         border-collapse: collapse;
+        table-layout: fixed;
     }
 
     .health-table th {
@@ -701,13 +704,13 @@
             <table class="health-table" id="health-table">
                 <thead>
                     <tr>
-                        <th>Source</th>
-                        <th>Status</th>
-                        <th>Staleness</th>
-                        <th>Source Age</th>
-                        <th>Updates</th>
-                        <th>Errors</th>
-                        <th>Last Seen (UTC)</th>
+                        <th style="width:22%">Source</th>
+                        <th style="width:12%">Status</th>
+                        <th style="width:12%">Staleness</th>
+                        <th style="width:12%">Source Age</th>
+                        <th style="width:10%">Updates</th>
+                        <th style="width:18%">Errors</th>
+                        <th style="width:14%">Last Seen (UTC)</th>
                     </tr>
                 </thead>
                 <tbody id="health-tbody">
@@ -727,6 +730,8 @@
     // State
     let evtSource = null;
     let lastSnapshot = null;
+    let lastSnapshotHash = '';  // Fingerprint to skip redundant re-renders
+    let sseConnected = false;
     let metarObsTimeUtc = null;  // Store obs time for live age calculation
     let currentStation = 'KLGA';  // Default station
 
@@ -849,12 +854,14 @@
         });
 
         evtSource.onopen = () => {
+            sseConnected = true;
             sseDot.classList.add('connected');
             sseLabel.textContent = 'SSE Live';
             document.getElementById('system-status-text').textContent = 'Connected';
         };
 
         evtSource.onerror = () => {
+            sseConnected = false;
             sseDot.classList.remove('connected');
             sseLabel.textContent = 'SSE Reconnecting...';
             document.getElementById('system-status-text').textContent = 'Reconnecting...';
@@ -887,7 +894,14 @@
     async function fetchSnapshot() {
         try {
             const resp = await fetch('/api/v2/world/snapshot', { cache: 'no-store' });
-            const data = await resp.json();
+            const raw = await resp.text();
+
+            // Skip re-render if data hasn't changed
+            const hash = raw.length + ':' + raw.substring(0, 200);
+            if (hash === lastSnapshotHash) return;
+            lastSnapshotHash = hash;
+
+            const data = JSON.parse(raw);
             lastSnapshot = data;
             renderAll(data);
         } catch(err) {
@@ -1237,6 +1251,8 @@
         }
     };
 
+    let lastPWSFingerprint = '';
+
     function renderPWS(aux, pwsDetails) {
         const container = document.getElementById('pws-content');
         const badge = document.getElementById('pws-badge');
@@ -1251,11 +1267,19 @@
         );
 
         if (pwsEntries.length === 0) {
-            container.innerHTML = '<p style="color: var(--text-muted); font-size: 13px;">No PWS cluster data for ' + currentStation + ' yet.</p>';
-            badge.textContent = 'NO DATA';
-            badge.className = 'panel-badge badge-no-data';
+            if (badge.textContent !== 'NO DATA') {
+                container.innerHTML = '<p style="color: var(--text-muted); font-size: 13px;">No PWS cluster data for ' + currentStation + ' yet.</p>';
+                badge.textContent = 'NO DATA';
+                badge.className = 'panel-badge badge-no-data';
+            }
             return;
         }
+
+        // Build fingerprint from consensus values to skip re-render if unchanged
+        const p = pwsEntries[0][1];
+        const fp = `${currentStation}:${p.temp_f}:${p.support}:${p.drift}`;
+        if (fp === lastPWSFingerprint) return;  // Skip re-render
+        lastPWSFingerprint = fp;
 
         badge.textContent = 'ACTIVE';
         badge.className = 'panel-badge badge-ok';
@@ -1434,16 +1458,23 @@
     function formatAge(seconds) {
         if (seconds == null || seconds === Infinity) return 'N/A';
         if (seconds < 60) return Math.round(seconds) + 's';
-        if (seconds < 3600) return Math.round(seconds / 60) + 'm';
-        return (seconds / 3600).toFixed(1) + 'h';
+        if (seconds < 7200) return Math.round(seconds / 60) + 'm';
+        const h = Math.floor(seconds / 3600);
+        const m = Math.round((seconds % 3600) / 60);
+        return m > 0 ? h + 'h ' + m + 'm' : h + 'h';
     }
 
     function formatAgeFriendly(seconds) {
         if (seconds == null || seconds === Infinity) return '';
         if (seconds < 60) return Math.round(seconds) + 's ago';
-        const m = Math.floor(seconds / 60);
-        const s = Math.round(seconds % 60);
-        return m + 'min ' + (s > 0 ? s + 's' : '') + ' ago';
+        if (seconds < 7200) {
+            const m = Math.floor(seconds / 60);
+            const s = Math.round(seconds % 60);
+            return m + 'min ' + (s > 0 ? s + 's' : '') + ' ago';
+        }
+        const h = Math.floor(seconds / 3600);
+        const m = Math.round((seconds % 3600) / 60);
+        return h + 'h ' + (m > 0 ? m + 'm ' : '') + 'ago';
     }
 
     function updateMetarLiveAge() {
@@ -1498,8 +1529,13 @@
         // Also do an immediate fetch
         fetchSnapshot();
 
-        // Polling fallback every 3s (complements SSE)
-        setInterval(fetchSnapshot, 3000);
+        // Polling fallback: 15s when SSE active, 3s when disconnected
+        setInterval(() => {
+            if (sseConnected) return;  // SSE handles updates, skip poll
+            fetchSnapshot();
+        }, 3000);
+        // Slow backup poll even when SSE is active (catch stale state)
+        setInterval(fetchSnapshot, 15000);
 
         // Live age ticker - update every second
         setInterval(updateMetarLiveAge, 1000);
