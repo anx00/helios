@@ -189,10 +189,46 @@ def get_connection():
         conn.close()
 
 
+def _auto_migrate(conn):
+    """Auto-migrate: add any columns defined in SCHEMA but missing from the real DB."""
+    # Build expected schema in a temporary in-memory DB
+    tmp = sqlite3.connect(":memory:")
+    tmp.executescript(SCHEMA)
+
+    # Get all tables from the expected schema
+    tmp_tables = {row[0] for row in tmp.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+    ).fetchall()}
+
+    migrated = 0
+    for table in tmp_tables:
+        # Expected columns with types from temp DB
+        expected = {row[1]: row[2] for row in tmp.execute(
+            f"PRAGMA table_info({table})"
+        ).fetchall()}
+
+        # Actual columns in real DB
+        actual = {row[1] for row in conn.execute(
+            f"PRAGMA table_info({table})"
+        ).fetchall()}
+
+        # Add missing columns
+        for col_name, col_type in expected.items():
+            if col_name not in actual:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {col_name} {col_type}")
+                print(f"  [MIGRATE] {table}.{col_name} ({col_type})")
+                migrated += 1
+
+    tmp.close()
+    if migrated:
+        print(f"  [MIGRATE] Added {migrated} missing column(s)")
+
+
 def init_database():
-    """Initialize the database schema."""
+    """Initialize the database schema and auto-migrate missing columns."""
     with get_connection() as conn:
         conn.executescript(SCHEMA)
+        _auto_migrate(conn)
     print(f"[OK] Database initialized: {DATABASE_PATH}")
 
 
