@@ -610,14 +610,11 @@ function formatActionReason(reason) {
     return `edge ${signed(edge, 3)} | model ${(model * 100).toFixed(1)}c | market ${(market * 100).toFixed(1)}c`;
 }
 function calcCost(action) {
-    const txt = String(action.reason || "");
-    const m = txt.match(/Market=([+-]?[0-9]*\\.?[0-9]+)/i);
-    if (!m) return null;
-    const marketYesPrice = Number(m[1]);
     const qty = Number(action.target_size ?? action.size ?? 0);
-    if (!qty || Number.isNaN(marketYesPrice)) return null;
-    const outcome = String(action.outcome || "yes").toLowerCase();
-    const price = outcome === "no" ? (1 - marketYesPrice) : marketYesPrice;
+    if (!qty) return null;
+    // max_price is the per-share limit price for the specific token (YES or NO)
+    const price = Number(action.max_price);
+    if (!price || price <= 0 || Number.isNaN(price)) return null;
     return qty * price;
 }
 function ago(v) {

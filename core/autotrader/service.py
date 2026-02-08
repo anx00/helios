@@ -108,7 +108,7 @@ class AutoTraderService:
     def _reload_recent_decisions(self) -> None:
         """Reload recent decisions from DB so they survive restarts."""
         try:
-            rows = self.storage.get_recent_decisions(limit=500)
+            rows = self.storage.get_recent_decisions(limit=500, station_id=self.config.station_id)
             # Rows come newest-first from DB; reverse so deque is chronological
             for row in reversed(rows):
                 self._recent_decisions.append(row)
@@ -168,6 +168,7 @@ class AutoTraderService:
         self._selected_strategy_counts = {k: 0 for k in self.strategies}
         self._strategy_rewards = {k: 0.0 for k in self.strategies}
         self._last_context_summary = {}
+        self.broker.reset()
         self._reload_recent_decisions()
         logger.info("Switched to station %s", station_id)
 
@@ -528,10 +529,10 @@ class AutoTraderService:
         return {"decisions": list(self._recent_decisions)[-limit:]}
 
     def get_orders(self, limit: int = 200) -> Dict[str, Any]:
-        return {"orders": self.broker.get_orders(limit)}
+        return {"orders": self.storage.get_recent_orders(limit, station_id=self.config.station_id)}
 
     def get_fills(self, limit: int = 200) -> Dict[str, Any]:
-        return {"fills": self.broker.get_fills(limit)}
+        return {"fills": self.storage.get_recent_fills(limit, station_id=self.config.station_id)}
 
     def get_learning_runs(self, limit: int = 20) -> Dict[str, Any]:
         return {"runs": self.storage.list_learning_runs(limit)}

@@ -364,17 +364,29 @@ class AutoTraderStorage:
             )
             conn.commit()
 
-    def get_recent_decisions(self, limit: int = 200) -> List[Dict[str, Any]]:
+    def get_recent_decisions(self, limit: int = 200, station_id: Optional[str] = None) -> List[Dict[str, Any]]:
         with self._lock, self._connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT ts_utc, station_id, strategy_name, selected, decision_json, reward
-                FROM autotrader_decisions
-                ORDER BY id DESC
-                LIMIT ?
-                """,
-                (limit,),
-            ).fetchall()
+            if station_id:
+                rows = conn.execute(
+                    """
+                    SELECT ts_utc, station_id, strategy_name, selected, decision_json, reward
+                    FROM autotrader_decisions
+                    WHERE station_id = ?
+                    ORDER BY id DESC
+                    LIMIT ?
+                    """,
+                    (station_id, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT ts_utc, station_id, strategy_name, selected, decision_json, reward
+                    FROM autotrader_decisions
+                    ORDER BY id DESC
+                    LIMIT ?
+                    """,
+                    (limit,),
+                ).fetchall()
         out = []
         for row in rows:
             payload = json.loads(row["decision_json"])
@@ -386,30 +398,54 @@ class AutoTraderStorage:
             out.append(payload)
         return out
 
-    def get_recent_orders(self, limit: int = 200) -> List[Dict[str, Any]]:
+    def get_recent_orders(self, limit: int = 200, station_id: Optional[str] = None) -> List[Dict[str, Any]]:
         with self._lock, self._connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT ts_utc, station_id, order_id, strategy_name, bucket, side, size, limit_price, order_type, status
-                FROM autotrader_orders
-                ORDER BY id DESC
-                LIMIT ?
-                """,
-                (limit,),
-            ).fetchall()
+            if station_id:
+                rows = conn.execute(
+                    """
+                    SELECT ts_utc, station_id, order_id, strategy_name, bucket, side, size, limit_price, order_type, status
+                    FROM autotrader_orders
+                    WHERE station_id = ?
+                    ORDER BY id DESC
+                    LIMIT ?
+                    """,
+                    (station_id, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT ts_utc, station_id, order_id, strategy_name, bucket, side, size, limit_price, order_type, status
+                    FROM autotrader_orders
+                    ORDER BY id DESC
+                    LIMIT ?
+                    """,
+                    (limit,),
+                ).fetchall()
         return [dict(row) for row in rows]
 
-    def get_recent_fills(self, limit: int = 200) -> List[Dict[str, Any]]:
+    def get_recent_fills(self, limit: int = 200, station_id: Optional[str] = None) -> List[Dict[str, Any]]:
         with self._lock, self._connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT ts_utc, station_id, strategy_name, order_id, bucket, side, size, price, fill_type, fees, slippage
-                FROM autotrader_fills
-                ORDER BY id DESC
-                LIMIT ?
-                """,
-                (limit,),
-            ).fetchall()
+            if station_id:
+                rows = conn.execute(
+                    """
+                    SELECT ts_utc, station_id, strategy_name, order_id, bucket, side, size, price, fill_type, fees, slippage
+                    FROM autotrader_fills
+                    WHERE station_id = ?
+                    ORDER BY id DESC
+                    LIMIT ?
+                    """,
+                    (station_id, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT ts_utc, station_id, strategy_name, order_id, bucket, side, size, price, fill_type, fees, slippage
+                    FROM autotrader_fills
+                    ORDER BY id DESC
+                    LIMIT ?
+                    """,
+                    (limit,),
+                ).fetchall()
         return [dict(row) for row in rows]
 
     def get_latest_positions(self, station_id: str) -> Dict[str, Dict[str, float]]:
