@@ -1290,10 +1290,12 @@ function renderIntraday(payload) {
             data: buyFillPts,
             type: "scatter",
             yAxisID: "y",
-            backgroundColor: "#34D399",
-            borderColor: "#34D399",
-            pointRadius: 4,
-            pointStyle: "circle",
+            backgroundColor: "#00E676",
+            borderColor: "#F8FAFC",
+            pointBorderWidth: 1.8,
+            pointRadius: 6.5,
+            pointHoverRadius: 8,
+            pointStyle: "rectRot",
             order: 1,
         });
     }
@@ -1303,10 +1305,12 @@ function renderIntraday(payload) {
             data: sellFillPts,
             type: "scatter",
             yAxisID: "y",
-            backgroundColor: "#FB7185",
-            borderColor: "#FB7185",
-            pointRadius: 4,
-            pointStyle: "circle",
+            backgroundColor: "#FF1744",
+            borderColor: "#F8FAFC",
+            pointBorderWidth: 1.8,
+            pointRadius: 6.5,
+            pointHoverRadius: 8,
+            pointStyle: "rectRot",
             order: 1,
         });
     }

@@ -948,20 +948,14 @@
         document.getElementById('progress-container').style.display = 'block';
         document.getElementById('progress-fill').style.width = '0%';
         document.getElementById('progress-text').textContent = uiMode === 'simple'
-            ? 'Running strategy auto-compare suite...'
+            ? 'Preparing strategy suite...'
             : 'Starting backtest...';
         document.getElementById('run-btn').disabled = true;
 
         try {
-            // Simulate progress
-            let progress = 0;
-            const progressInterval = setInterval(() => {
-                progress = Math.min(progress + 5, 90);
-                document.getElementById('progress-fill').style.width = progress + '%';
-            }, 500);
-
-            let resp, result;
+            let result;
             if (uiMode === 'simple') {
+                // Stream NDJSON with real progress
                 const params = new URLSearchParams({
                     station_id: station,
                     start_date: start,
@@ -969,11 +963,47 @@
                     suite_name: 'default_auto_compare_v1',
                     report_level: 'summary'
                 });
-                resp = await fetch(`/api/v5/backtest/run_suite?${params}`, {
+                const resp = await fetch(`/api/v5/backtest/run_suite?${params}`, {
                     method: 'POST'
                 });
-                result = await resp.json();
+                if (!resp.ok) throw new Error(`Server error: ${resp.status}`);
+
+                const reader = resp.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+
+                    // Process complete NDJSON lines
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop(); // keep incomplete line in buffer
+                    for (const line of lines) {
+                        if (!line.trim()) continue;
+                        const msg = JSON.parse(line);
+                        if (msg.type === 'progress') {
+                            const pct = Math.round(((msg.index + 1) / msg.total) * 90);
+                            document.getElementById('progress-fill').style.width = pct + '%';
+                            document.getElementById('progress-text').textContent =
+                                `Running ${msg.label}... (${msg.index + 1}/${msg.total})`;
+                        } else if (msg.type === 'result') {
+                            result = msg.data;
+                        }
+                    }
+                }
+
+                if (!result) throw new Error('No result received from server');
+                if (result.error) throw new Error(result.error);
             } else {
+                // Advanced mode: single request with simulated progress
+                let progress = 0;
+                const progressInterval = setInterval(() => {
+                    progress = Math.min(progress + 5, 90);
+                    document.getElementById('progress-fill').style.width = progress + '%';
+                }, 500);
+
                 const params = new URLSearchParams({
                     station_id: station,
                     start_date: start,
@@ -984,18 +1014,17 @@
                     risk_profile: riskProfile,
                     report_level: reportLevel
                 });
-                resp = await fetch(`/api/v5/backtest/run?${params}`, {
+                const resp = await fetch(`/api/v5/backtest/run?${params}`, {
                     method: 'POST'
                 });
                 result = await resp.json();
+                clearInterval(progressInterval);
+
+                if (!resp.ok || result.error) {
+                    throw new Error(result.error || `Server error: ${resp.status}`);
+                }
             }
 
-            // Check for error response
-            if (!resp.ok || result.error) {
-                throw new Error(result.error || `Server error: ${resp.status}`);
-            }
-
-            clearInterval(progressInterval);
             document.getElementById('progress-fill').style.width = '100%';
             document.getElementById('progress-text').textContent = 'Complete!';
 

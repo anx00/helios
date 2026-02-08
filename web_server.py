@@ -2839,70 +2839,82 @@ async def run_backtest_suite(
     report_level: str = "summary",
 ):
     """
-    Run curated strategy suite and return auto-compare ranking + recommendation.
+    Run curated strategy suite with streaming progress.
 
+    Streams NDJSON: progress events then final result.
     This endpoint powers Simple mode in /backtest.
     """
-    from fastapi.responses import JSONResponse
+    import json as _json
 
-    try:
-        suite_runs = [
-            {
-                "run_id": "conservative_exec",
-                "label": "Conservative (Execution)",
-                "mode": "execution",
-                "policy": "conservative",
-                "selection_mode": "static",
-                "risk_profile": "risk_first",
-            },
-            {
-                "run_id": "aggressive_exec",
-                "label": "Aggressive (Execution)",
-                "mode": "execution",
-                "policy": "aggressive",
-                "selection_mode": "static",
-                "risk_profile": "pnl_first",
-            },
-            {
-                "run_id": "fade_exec",
-                "label": "Fade Event QC (Execution)",
-                "mode": "execution",
-                "policy": "fade",
-                "selection_mode": "static",
-                "risk_profile": "risk_first",
-            },
-            {
-                "run_id": "maker_passive_exec",
-                "label": "Maker Passive (Execution)",
-                "mode": "execution",
-                "policy": "maker_passive",
-                "selection_mode": "static",
-                "risk_profile": "risk_first",
-            },
-            {
-                "run_id": "multi_bandit_risk",
-                "label": "Multi-Bandit LinUCB (Risk First)",
-                "mode": "execution",
-                "policy": "multi_bandit",
-                "selection_mode": "linucb",
-                "risk_profile": "risk_first",
-            },
-            {
-                "run_id": "multi_bandit_pnl",
-                "label": "Multi-Bandit LinUCB (PnL First)",
-                "mode": "execution",
-                "policy": "multi_bandit",
-                "selection_mode": "linucb",
-                "risk_profile": "pnl_first",
-            },
-        ]
+    suite_runs = [
+        {
+            "run_id": "conservative_exec",
+            "label": "Conservative (Execution)",
+            "mode": "execution",
+            "policy": "conservative",
+            "selection_mode": "static",
+            "risk_profile": "risk_first",
+        },
+        {
+            "run_id": "aggressive_exec",
+            "label": "Aggressive (Execution)",
+            "mode": "execution",
+            "policy": "aggressive",
+            "selection_mode": "static",
+            "risk_profile": "pnl_first",
+        },
+        {
+            "run_id": "fade_exec",
+            "label": "Fade Event QC (Execution)",
+            "mode": "execution",
+            "policy": "fade",
+            "selection_mode": "static",
+            "risk_profile": "risk_first",
+        },
+        {
+            "run_id": "maker_passive_exec",
+            "label": "Maker Passive (Execution)",
+            "mode": "execution",
+            "policy": "maker_passive",
+            "selection_mode": "static",
+            "risk_profile": "risk_first",
+        },
+        {
+            "run_id": "multi_bandit_risk",
+            "label": "Multi-Bandit LinUCB (Risk First)",
+            "mode": "execution",
+            "policy": "multi_bandit",
+            "selection_mode": "linucb",
+            "risk_profile": "risk_first",
+        },
+        {
+            "run_id": "multi_bandit_pnl",
+            "label": "Multi-Bandit LinUCB (PnL First)",
+            "mode": "execution",
+            "policy": "multi_bandit",
+            "selection_mode": "linucb",
+            "risk_profile": "pnl_first",
+        },
+    ]
 
+    total = len(suite_runs)
+
+    async def generate():
         run_summaries = []
         successful_runs = []
         first_error = None
 
-        for run_cfg in suite_runs:
-            payload, err, status = _run_backtest_core(
+        for i, run_cfg in enumerate(suite_runs):
+            # Stream progress: which strategy is running now
+            yield _json.dumps({
+                "type": "progress",
+                "index": i,
+                "total": total,
+                "label": run_cfg["label"],
+            }) + "\n"
+
+            payload, err, status = await asyncio.to_thread(
+                _run_backtest_core,
                 station_id=station_id,
                 start_date=start_date,
                 end_date=end_date,
@@ -2964,16 +2976,18 @@ async def run_backtest_suite(
             run_summaries.append(summary)
             successful_runs.append((summary, payload))
 
+        # Build final result
         if not successful_runs:
-            return JSONResponse(
-                status_code=422,
-                content={
+            yield _json.dumps({
+                "type": "result",
+                "data": {
                     "error": "No successful runs in strategy suite",
                     "suite_name": suite_name,
                     "first_error": first_error,
                     "runs": run_summaries,
                 },
-            )
+            }) + "\n"
+            return
 
         successful_runs.sort(key=lambda x: x[0]["score"], reverse=True)
         recommended_summary, recommended_payload = successful_runs[0]
@@ -2985,29 +2999,33 @@ async def run_backtest_suite(
             f"Max DD {(recommended_summary['trading']['max_drawdown'] * 100):.1f}%."
         )
 
-        # Re-sort output list by score desc while keeping errored runs at bottom.
         ok_runs = [r for r in run_summaries if r.get("status") == "ok"]
         err_runs = [r for r in run_summaries if r.get("status") != "ok"]
         ok_runs.sort(key=lambda x: x.get("score", -999999), reverse=True)
 
-        return {
-            "kind": "suite",
-            "suite_name": suite_name,
-            "station_id": station_id,
-            "start_date": start_date,
-            "end_date": end_date,
-            "runs": ok_runs + err_runs,
-            "recommendation": {
-                "run_id": recommended_summary["run_id"],
-                "label": recommended_summary["label"],
-                "reason": recommendation_reason,
+        yield _json.dumps({
+            "type": "result",
+            "data": {
+                "kind": "suite",
+                "suite_name": suite_name,
+                "station_id": station_id,
+                "start_date": start_date,
+                "end_date": end_date,
+                "runs": ok_runs + err_runs,
+                "recommendation": {
+                    "run_id": recommended_summary["run_id"],
+                    "label": recommended_summary["label"],
+                    "reason": recommendation_reason,
+                },
+                "recommended_result": recommended_payload,
+                "guide": {
+                    "mode": "simple_auto_compare",
+                    "note": "Use Advanced mode to tune one strategy manually after selecting a baseline from this ranking.",
+                },
             },
-            "recommended_result": recommended_payload,
-            "guide": {
-                "mode": "simple_auto_compare",
-                "note": "Use Advanced mode to tune one strategy manually after selecting a baseline from this ranking.",
-            },
-        }
+        }) + "\n"
+
+    return StreamingResponse(generate(), media_type="application/x-ndjson")
 
     except Exception as e:
         import traceback
