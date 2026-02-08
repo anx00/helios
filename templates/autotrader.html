@@ -900,9 +900,14 @@ function renderMini(items, id, type) {
     const box = document.getElementById(id);
     if (!items.length) { box.innerHTML = `<div class="empty">No ${type} yet.</div>`; return; }
     box.innerHTML = items.map((x) => {
-        const px = type === "fills" ? num(x.price, 3) : num(x.limit_price, 3);
+        const rawPx = type === "fills" ? x.price : x.limit_price;
+        const price = Number(rawPx);
+        const qtyVal = Number(x.size);
+        const hasQty = !Number.isNaN(qtyVal);
+        const hasPrice = !Number.isNaN(price);
+        const notional = hasQty && hasPrice ? Math.abs(qtyVal * price) : null;
         const extra = type === "fills"
-            ? `fees ${num(x.fees, 4)} | slip ${num(x.slippage, 4)} | ${esc(x.fill_type || "--")}`
+            ? `fees $${num(x.fees, 4)} | slip $${num(x.slippage, 4)} | ${esc(x.fill_type || "--")}`
             : `${esc(x.order_type || "--")} | ${esc(x.status || "--")}`;
         return `
             <div class="mini-item">
@@ -914,7 +919,14 @@ function renderMini(items, id, type) {
                         return `<span class="side ${intent.css}">${intent.primary}</span>${note}`;
                     })()}
                     <span class="mono">${esc(x.bucket || "--")}</span>
-                    <span class="mono">qty ${num(x.size, 3)} @ ${px}</span>
+                    ${(() => {
+                        const qty = num(x.size, 3);
+                        const priceC = hasPrice ? `${(price * 100).toFixed(1)}c` : "--";
+                        if (notional !== null) {
+                            return `<span class="mono cost-highlight">$${notional.toFixed(2)}</span><span class="muted mono">( ${qty} sh @ ${priceC} )</span>`;
+                        }
+                        return `<span class="mono">qty ${qty} @ ${priceC}</span>`;
+                    })()}
                 </div>
                 <div class="muted mono">${extra}</div>
             </div>`;

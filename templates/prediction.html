@@ -513,7 +513,9 @@
     // Initial load
     loadPredictionData();
 
-    // Auto-refresh every 10 seconds
-    setInterval(loadPredictionData, 10000);
+    // Auto-refresh every 10 seconds (only when visible)
+    setInterval(() => {
+        if (!document.hidden) loadPredictionData();
+    }, 10000);
 </script>
 {% endblock %}

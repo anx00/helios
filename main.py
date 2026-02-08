@@ -182,7 +182,7 @@ async def collect_and_predict(station_id: str, target_days: List[int] = None) ->
                         from collector.nbm_fetcher import fetch_nbm
                         from collector.lamp_fetcher import fetch_lamp
                         from synthesizer.ensemble import calculate_ensemble_v11
-                        from database import get_performance_history_by_target_date
+                        from database import get_observed_max_for_target_date
                         
                         nbm_data = await fetch_nbm(station_id, prediction_date)
                         lamp_data = await fetch_lamp(station_id)
@@ -191,12 +191,7 @@ async def collect_and_predict(station_id: str, target_days: List[int] = None) ->
                         observed_max_f = None
                         if day_offset == 0:
                             today_str = prediction_date.isoformat()
-                            logs = get_performance_history_by_target_date(station_id, today_str)
-                            if logs:
-                                temps = [l.get("cumulative_max_f") or l.get("metar_actual") for l in logs 
-                                        if l.get("cumulative_max_f") or l.get("metar_actual")]
-                                if temps:
-                                    observed_max_f = max([t for t in temps if t])
+                            observed_max_f = get_observed_max_for_target_date(station_id, today_str)
                         
                         # v12.0: Use full ensemble calculation with protections
                         ensemble_result = calculate_ensemble_v11(

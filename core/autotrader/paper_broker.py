@@ -9,9 +9,10 @@ This provides:
 
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Deque, Dict, List, Optional, Tuple
 
 from core.backtest.policy import OrderType, PolicySignal, PolicyState, Side
 from core.backtest.simulator import ExecutionSimulator, Fill, Order
@@ -45,8 +46,9 @@ class PaperBroker:
         self.total_orders: int = 0
         self._known_order_ids: set[str] = set()
         self._order_strategy: Dict[str, str] = {}
-        self._fills: List[PaperFill] = []
-        self._orders: List[PaperOrder] = []
+        # Keep runtime memory bounded; full audit trail is persisted in storage layer.
+        self._fills: Deque[PaperFill] = deque(maxlen=5000)
+        self._orders: Deque[PaperOrder] = deque(maxlen=5000)
 
     def reset(self) -> None:
         self.simulator.reset()
@@ -57,8 +59,8 @@ class PaperBroker:
         self.total_orders = 0
         self._known_order_ids = set()
         self._order_strategy = {}
-        self._fills = []
-        self._orders = []
+        self._fills = deque(maxlen=5000)
+        self._orders = deque(maxlen=5000)
 
     def execute_actions(
         self,
@@ -340,10 +342,10 @@ class PaperBroker:
         return result
 
     def get_orders(self, limit: int = 200) -> List[Dict[str, Any]]:
-        return [o.to_dict() for o in self._orders[-limit:]]
+        return [o.to_dict() for o in list(self._orders)[-limit:]]
 
     def get_fills(self, limit: int = 200) -> List[Dict[str, Any]]:
-        return [f.to_dict() for f in self._fills[-limit:]]
+        return [f.to_dict() for f in list(self._fills)[-limit:]]
 
     def get_performance(self, mark_to_market_pnl: float = 0.0) -> Dict[str, float]:
         return {

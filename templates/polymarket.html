@@ -1059,7 +1059,9 @@
     // ========================
     document.addEventListener('DOMContentLoaded', () => {
         fetchData();
-        setInterval(fetchData, REFRESH_MS);
+        setInterval(() => {
+            if (!document.hidden) fetchData();
+        }, REFRESH_MS);
         lucide.createIcons();
     });
 

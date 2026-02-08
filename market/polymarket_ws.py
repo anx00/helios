@@ -85,6 +85,8 @@ class PolymarketWebSocketClient:
         self._heartbeat_task: Optional[asyncio.Task] = None
         self._subscribed_assets: set[str] = set()
         self._subscription_initialized: bool = False
+        # token_id -> last time it was actively requested by app code
+        self._token_last_request_ts: Dict[str, float] = {}
         self._debug_ws = os.environ.get("POLYMARKET_WS_DEBUG", "").strip().lower() in {"1", "true", "yes"}
         try:
             self._debug_max_messages = int(os.environ.get("POLYMARKET_WS_DEBUG_MAX", "20"))
@@ -160,7 +162,9 @@ class PolymarketWebSocketClient:
 
         # Initialize orderbooks for new markets
         new_ids = []
+        now_ts = time.time()
         for mid in market_ids:
+            self._token_last_request_ts[mid] = now_ts
             if mid not in self._subscribed_assets:
                 new_ids.append(mid)
             if mid not in self.state.orderbooks:
@@ -190,6 +194,76 @@ class PolymarketWebSocketClient:
             self._subscribed_assets.add(mid)
         logger.info(f"✓ Subscribed to {len(new_ids)} markets (CLOB market channel)")
         return True
+
+    def mark_tokens_requested(self, token_ids: List[str]) -> None:
+        """Mark tokens as actively needed so stale-pruning won't evict them."""
+        now_ts = time.time()
+        for token_id in token_ids:
+            if token_id:
+                self._token_last_request_ts[token_id] = now_ts
+
+    def prune_stale_books(
+        self,
+        keep_token_ids: Optional[set[str]] = None,
+        max_books: int = 400,
+        max_age_seconds: int = 6 * 60 * 60,
+    ) -> int:
+        """
+        Drop stale token state to cap memory.
+
+        Notes:
+        - We only prune local mirrors. If provider keeps streaming removed tokens,
+          handlers ignore them because we no longer keep local orderbooks for them.
+        - keep_token_ids are never removed in this pass.
+        """
+        keep = keep_token_ids or set()
+        now_ts = time.time()
+        removed = 0
+
+        # 1) Age-based pruning
+        for token_id in list(self.state.orderbooks.keys()):
+            if token_id in keep:
+                continue
+            last_seen = self._token_last_request_ts.get(token_id, 0.0)
+            age_seconds = (now_ts - last_seen) if last_seen > 0 else float("inf")
+            if age_seconds <= max_age_seconds:
+                continue
+            self.state.orderbooks.pop(token_id, None)
+            self.state.prices.pop(token_id, None)
+            self.market_info.pop(token_id, None)
+            self._subscribed_assets.discard(token_id)
+            self._token_last_request_ts.pop(token_id, None)
+            removed += 1
+
+        # 2) Hard cap pruning (oldest first) if still over limit
+        total_books = len(self.state.orderbooks)
+        if max_books > 0 and total_books > max_books:
+            candidates = []
+            for token_id in self.state.orderbooks.keys():
+                if token_id in keep:
+                    continue
+                candidates.append((self._token_last_request_ts.get(token_id, 0.0), token_id))
+
+            candidates.sort(key=lambda x: x[0])  # oldest first
+            to_remove = min(len(candidates), total_books - max_books)
+            for _, token_id in candidates[:to_remove]:
+                self.state.orderbooks.pop(token_id, None)
+                self.state.prices.pop(token_id, None)
+                self.market_info.pop(token_id, None)
+                self._subscribed_assets.discard(token_id)
+                self._token_last_request_ts.pop(token_id, None)
+                removed += 1
+
+        return removed
+
+    def get_tracking_stats(self) -> Dict[str, int]:
+        """Lightweight stats for observability."""
+        return {
+            "orderbooks": len(self.state.orderbooks),
+            "market_info": len(self.market_info),
+            "prices": len(self.state.prices),
+            "subscribed_assets": len(self._subscribed_assets),
+        }
 
     async def _publisher_loop(self):
         """
