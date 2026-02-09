@@ -1457,16 +1457,6 @@
             const headerSupport = stats.support;
             const headerAge = stats.source_age_s != null ? stats.source_age_s : pEntry.source_age_s;
 
-            const stationMetric = (pwsMetrics && pwsMetrics[stationName]) ? pwsMetrics[stationName] : {};
-            const allMetric = stationMetric.all_sources_qc || computeFilteredPWSStats(rawDetails, officialTempC);
-            const synMetric = stationMetric.synoptic_only_qc || computeFilteredPWSStats(rawDetails.filter(r => sourceGroup(r.source) === 'SYNOPTIC'), officialTempC);
-            const formatMetric = (m) => {
-                if (!m || m.median_temp_f == null && m.median_f == null) return '--';
-                const tempF = m.median_temp_f != null ? m.median_temp_f : m.median_f;
-                const support = m.support != null ? Math.round(m.support) : 0;
-                return `${tempF.toFixed(1)}F (n=${support})`;
-            };
-
             html += `
                 <div style="margin-bottom: 16px;">
                     <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
@@ -1503,16 +1493,7 @@
                             <span class="detail-value">${formatAge(headerAge)}</span>
                         </div>
                     </div>
-                    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:12px; margin-bottom:14px;">
-                        <div class="detail-item" style="padding:8px 10px; border:1px solid rgba(255,255,255,0.08); border-radius:8px;">
-                            <span class="detail-label">HELIOS PWS (Synoptic-only QC)</span>
-                            <span class="detail-value" style="color:#10B981;">${formatMetric(synMetric)}</span>
-                        </div>
-                        <div class="detail-item" style="padding:8px 10px; border:1px solid rgba(255,255,255,0.08); border-radius:8px;">
-                            <span class="detail-label">HELIOS PWS (All-sources QC)</span>
-                            <span class="detail-value" style="color:#8B5CF6;">${formatMetric(allMetric)}</span>
-                        </div>
-                    </div>`;
+                    `;
 
             if (filteredDetails.length > 0) {
                 pwsTableData[stationName] = filteredDetails;
