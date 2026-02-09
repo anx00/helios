@@ -5,7 +5,12 @@ from datetime import datetime, timedelta, timezone
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from collector.pws_fetcher import _build_madis_query_params, _parse_madis_xml_records
+from collector.pws_fetcher import (
+    _build_madis_query_params,
+    _normalize_open_meteo_payload,
+    _parse_madis_xml_records,
+    _parse_open_meteo_obs_time,
+)
 
 
 class TestMadisPwsParser(unittest.TestCase):
@@ -63,6 +68,36 @@ class TestMadisPwsParser(unittest.TestCase):
         self.assertIn(("qcsel", "2"), params)
         self.assertIn(("pvd", "APRSWXNET"), params)
         self.assertIn(("pvd", "MesoWest"), params)
+
+    def test_normalize_open_meteo_payload(self):
+        dict_payload = {"current": {"temperature_2m": 7.5}}
+        dict_out = _normalize_open_meteo_payload(dict_payload)
+        self.assertEqual(len(dict_out), 1)
+        self.assertEqual(dict_out[0]["current"]["temperature_2m"], 7.5)
+
+        list_payload = [
+            {"current": {"temperature_2m": 5.0}},
+            "bad",
+            None,
+            {"current": {"temperature_2m": 6.0}},
+        ]
+        list_out = _normalize_open_meteo_payload(list_payload)
+        self.assertEqual(len(list_out), 2)
+        self.assertEqual(list_out[0]["current"]["temperature_2m"], 5.0)
+        self.assertEqual(list_out[1]["current"]["temperature_2m"], 6.0)
+
+    def test_parse_open_meteo_obs_time(self):
+        zulu = _parse_open_meteo_obs_time("2026-02-09T19:00Z")
+        self.assertIsNotNone(zulu)
+        self.assertIsNotNone(zulu.tzinfo)
+        self.assertEqual(zulu.utcoffset(), timezone.utc.utcoffset(None))
+
+        naive = _parse_open_meteo_obs_time("2026-02-09T19:00")
+        self.assertIsNotNone(naive)
+        self.assertIsNotNone(naive.tzinfo)
+        self.assertEqual(naive.utcoffset(), timezone.utc.utcoffset(None))
+
+        self.assertIsNone(_parse_open_meteo_obs_time("invalid"))
 
 
 if __name__ == "__main__":

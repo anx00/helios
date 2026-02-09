@@ -493,8 +493,86 @@ def _bearing_label(dlat: float, dlon: float) -> str:
     return ns + ew or "C"
 
 
+def _parse_open_meteo_obs_time(value: Any) -> Optional[datetime]:
+    """Parse Open-Meteo current.time into UTC-aware datetime."""
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except Exception:
+        return None
+
+
+def _normalize_open_meteo_payload(payload: Any) -> List[Dict[str, Any]]:
+    """Normalize Open-Meteo response to a list of point payload dictionaries."""
+    if isinstance(payload, dict):
+        return [payload]
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+    return []
+
+
+def _build_open_meteo_grid_points(station_id: str) -> Optional[Tuple[float, float, List[Tuple[float, float, str]]]]:
+    """Build absolute grid points for Open-Meteo pseudo-stations."""
+    cfg = _GRID_OFFSETS.get(station_id)
+    if not cfg:
+        return None
+
+    base_lat = float(cfg["lat"])
+    base_lon = float(cfg["lon"])
+    offsets: List[Tuple[float, float]] = list(cfg["offsets"])
+
+    points: List[Tuple[float, float, str]] = []
+    for dlat, dlon in offsets:
+        lat = base_lat + dlat
+        lon = base_lon + dlon
+        dist_km = ((dlat * 111) ** 2 + (dlon * 85) ** 2) ** 0.5
+        direction = _bearing_label(dlat, dlon)
+        label = f"{direction}_{dist_km:.0f}km"
+        points.append((lat, lon, label))
+
+    return base_lat, base_lon, points
+
+
+def _build_open_meteo_reading(
+    *,
+    base_lat: float,
+    base_lon: float,
+    lat: float,
+    lon: float,
+    label: str,
+    payload: Dict[str, Any],
+) -> Optional[PWSReading]:
+    """Build PWSReading from one Open-Meteo point payload."""
+    current = payload.get("current") or {}
+    temp = current.get("temperature_2m")
+    if temp is None:
+        return None
+
+    now_utc = datetime.now(timezone.utc)
+    obs_time_utc = _parse_open_meteo_obs_time(current.get("time")) or now_utc
+    age_minutes = max(0.0, (now_utc - obs_time_utc).total_seconds() / 60.0)
+
+    return PWSReading(
+        lat=lat,
+        lon=lon,
+        temp_c=float(temp),
+        label=label,
+        source="OPEN_METEO",
+        station_name=f"Grid {label}",
+        distance_km=round(_haversine_km(base_lat, base_lon, lat, lon), 1),
+        obs_time_utc=obs_time_utc,
+        age_minutes=round(age_minutes, 1),
+    )
+
+
 async def _fetch_open_meteo_point(
     client: httpx.AsyncClient,
+    base_lat: float,
+    base_lon: float,
     lat: float,
     lon: float,
     label: str,
@@ -507,23 +585,19 @@ async def _fetch_open_meteo_point(
                 "longitude": round(lon, 4),
                 "current": "temperature_2m",
                 "temperature_unit": "celsius",
+                "timezone": "UTC",
             },
             timeout=5.0,
         )
         resp.raise_for_status()
         data = resp.json()
-        temp = data.get("current", {}).get("temperature_2m")
-        if temp is None:
-            return None
-        return PWSReading(
+        return _build_open_meteo_reading(
+            base_lat=base_lat,
+            base_lon=base_lon,
             lat=lat,
             lon=lon,
-            temp_c=float(temp),
             label=label,
-            source="OPEN_METEO",
-            station_name=f"Grid {label}",
-            obs_time_utc=datetime.now(timezone.utc),
-            age_minutes=0.0,
+            payload=data if isinstance(data, dict) else {},
         )
     except Exception as e:
         logger.debug(f"Open-Meteo point {label} failed: {e}")
@@ -531,30 +605,71 @@ async def _fetch_open_meteo_point(
 
 
 async def _fetch_open_meteo_cluster(station_id: str) -> Optional[List[PWSReading]]:
-    cfg = _GRID_OFFSETS.get(station_id)
-    if not cfg:
+    grid = _build_open_meteo_grid_points(station_id)
+    if not grid:
         return None
 
-    base_lat = float(cfg["lat"])
-    base_lon = float(cfg["lon"])
-    offsets: List[Tuple[float, float]] = list(cfg["offsets"])
+    base_lat, base_lon, points = grid
+    if not points:
+        return None
 
-    async with httpx.AsyncClient() as client:
-        tasks = []
-        for dlat, dlon in offsets:
-            lat = base_lat + dlat
-            lon = base_lon + dlon
-            dist_km = ((dlat * 111) ** 2 + (dlon * 85) ** 2) ** 0.5
-            direction = _bearing_label(dlat, dlon)
-            label = f"{direction}_{dist_km:.0f}km"
-            tasks.append(_fetch_open_meteo_point(client, lat, lon, label))
-        results = await asyncio.gather(*tasks)
+    readings: List[PWSReading] = []
 
-    readings = [r for r in results if r is not None]
-    for r in readings:
-        r.distance_km = round(((r.lat - base_lat) ** 2 * 111 ** 2 + (r.lon - base_lon) ** 2 * 85 ** 2) ** 0.5, 1)
+    # Prefer single multi-point call (more robust than N concurrent point calls).
+    try:
+        latitudes = ",".join(f"{lat:.4f}" for lat, _, _ in points)
+        longitudes = ",".join(f"{lon:.4f}" for _, lon, _ in points)
+        async with httpx.AsyncClient(timeout=12.0) as client:
+            resp = await client.get(
+                "https://api.open-meteo.com/v1/forecast",
+                params={
+                    "latitude": latitudes,
+                    "longitude": longitudes,
+                    "current": "temperature_2m",
+                    "temperature_unit": "celsius",
+                    "timezone": "UTC",
+                },
+            )
+            resp.raise_for_status()
+            payload = resp.json()
 
-    logger.info(f"Open-Meteo {station_id}: {len(readings)}/{len(offsets)} grid readings")
+        entries = _normalize_open_meteo_payload(payload)
+        if len(entries) != len(points):
+            logger.warning(
+                "Open-Meteo %s: batch returned %s points, expected %s",
+                station_id,
+                len(entries),
+                len(points),
+            )
+
+        for idx, (lat, lon, label) in enumerate(points):
+            if idx >= len(entries):
+                break
+            reading = _build_open_meteo_reading(
+                base_lat=base_lat,
+                base_lon=base_lon,
+                lat=lat,
+                lon=lon,
+                label=label,
+                payload=entries[idx],
+            )
+            if reading:
+                readings.append(reading)
+
+    except Exception as e:
+        logger.warning(f"Open-Meteo batch request failed for {station_id}: {e}")
+
+    # Fallback to point-by-point fetch if batch returns no usable readings.
+    if not readings:
+        async with httpx.AsyncClient() as client:
+            tasks = [
+                _fetch_open_meteo_point(client, base_lat, base_lon, lat, lon, label)
+                for lat, lon, label in points
+            ]
+            results = await asyncio.gather(*tasks)
+        readings = [r for r in results if r is not None]
+
+    logger.info(f"Open-Meteo {station_id}: {len(readings)}/{len(points)} grid readings")
     return readings if readings else None
 
 

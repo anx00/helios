@@ -1095,23 +1095,29 @@
     let pwsExpandedState = {}; // Track expanded state per station
     let pwsSourceFilters = { SYNOPTIC: true, MADIS: true, OPEN_METEO: true };
 
+    function normalizeSource(src) {
+        return String(src || '').trim().toUpperCase().replace(/-/g, '_');
+    }
+
     function sourceLabel(src) {
-        if (!src) return 'Unknown';
-        if (src === 'SYNOPTIC') return 'Synoptic';
-        if (src === 'OPEN_METEO') return 'Open-Meteo';
-        if (src.startsWith('MADIS_')) {
-            const provider = src.replace('MADIS_', '');
+        const norm = normalizeSource(src);
+        if (!norm) return 'Unknown';
+        if (norm === 'SYNOPTIC') return 'Synoptic';
+        if (norm === 'OPEN_METEO') return 'Open-Meteo';
+        if (norm.startsWith('MADIS_')) {
+            const provider = norm.replace('MADIS_', '');
             if (provider === 'APRSWXNET') return 'MADIS CWOP';
             if (provider === 'MesoWest') return 'MADIS MesoWest';
             return `MADIS ${provider}`;
         }
-        return src;
+        return norm;
     }
 
     function sourceGroup(src) {
-        if (src === 'SYNOPTIC') return 'SYNOPTIC';
-        if (src === 'OPEN_METEO') return 'OPEN_METEO';
-        if ((src || '').startsWith('MADIS_')) return 'MADIS';
+        const norm = normalizeSource(src);
+        if (norm === 'SYNOPTIC') return 'SYNOPTIC';
+        if (norm === 'OPEN_METEO') return 'OPEN_METEO';
+        if (norm.startsWith('MADIS_')) return 'MADIS';
         return 'OTHER';
     }
 
@@ -1317,20 +1323,21 @@
             let sourceColor = '#6B7280';
             let sourceBadge = r.source || 'UNK';
             let sourceTitle = sourceLabel(r.source);
+            const srcNorm = normalizeSource(r.source);
 
-            if (r.source === 'SYNOPTIC') {
+            if (srcNorm === 'SYNOPTIC') {
                 sourceColor = '#10B981';
                 sourceBadge = 'SYN';
                 sourceTitle = 'Synoptic Data (Real PWS)';
-            } else if (r.source === 'OPEN_METEO') {
+            } else if (srcNorm === 'OPEN_METEO') {
                 sourceColor = '#F59E0B';
                 sourceBadge = 'OM';
                 sourceTitle = 'Open-Meteo (Grid Point)';
-            } else if ((r.source || '').startsWith('MADIS_APRSWXNET')) {
+            } else if (srcNorm.startsWith('MADIS_APRSWXNET')) {
                 sourceColor = '#22C55E';
                 sourceBadge = 'CWOP';
                 sourceTitle = 'MADIS / CWOP (APRSWXNET)';
-            } else if ((r.source || '').startsWith('MADIS_')) {
+            } else if (srcNorm.startsWith('MADIS_')) {
                 sourceColor = '#06B6D4';
                 sourceBadge = 'MADIS';
                 sourceTitle = sourceLabel(r.source);
@@ -1413,7 +1420,12 @@
         // Build fingerprint from consensus values to skip re-render if unchanged
         const p = pwsEntries[0][1];
         const metricSig = JSON.stringify((pwsMetrics && pwsMetrics[stationName]) ? pwsMetrics[stationName] : {});
-        const fp = `${currentStation}:${p.temp_f}:${p.support}:${p.drift}:${rawDetails.length}:${JSON.stringify(pwsSourceFilters)}:${metricSig}`;
+        const detailSig = (rawDetails || []).map(r => {
+            const tempC = Number(r.temp_c);
+            const tempSig = Number.isFinite(tempC) ? tempC.toFixed(1) : '--';
+            return `${r.station_id || ''}|${normalizeSource(r.source)}|${r.valid ? 1 : 0}|${r.qc_flag || ''}|${tempSig}|${r.obs_time_utc || ''}`;
+        }).join(';');
+        const fp = `${currentStation}:${p.temp_f}:${p.support}:${p.drift}:${detailSig}:${JSON.stringify(pwsSourceFilters)}:${metricSig}`;
         if (fp === lastPWSFingerprint) return;  // Skip re-render
         lastPWSFingerprint = fp;
 
