@@ -442,6 +442,37 @@
         background: rgba(139, 92, 246, 0.1);
     }
 
+    .pws-filter-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 10px;
+    }
+
+    .pws-filter-chip {
+        border: 1px solid rgba(255,255,255,0.15);
+        background: rgba(255,255,255,0.03);
+        color: var(--text-secondary);
+        border-radius: 999px;
+        padding: 4px 10px;
+        font-size: 11px;
+        font-weight: 600;
+        cursor: pointer;
+        user-select: none;
+    }
+
+    .pws-filter-chip.active {
+        border-color: rgba(139,92,246,0.45);
+        background: rgba(139,92,246,0.18);
+        color: #C4B5FD;
+    }
+
+    .pws-filter-help {
+        font-size: 11px;
+        color: var(--text-muted);
+    }
+
     /* Station Selector */
     .station-selector {
         display: flex;
@@ -618,7 +649,7 @@
         <!-- ============================== -->
         <!-- PWS Consensus Panel            -->
         <!-- ============================== -->
-        <div class="world-panel" id="panel-pws">
+        <div class="world-panel full-width" id="panel-pws">
             <div class="panel-header">
                 <span class="panel-title">
                     <i data-lucide="users" style="width:16px;height:16px;"></i>
@@ -626,6 +657,7 @@
                 </span>
                 <span class="panel-badge badge-no-data" id="pws-badge">NO DATA</span>
             </div>
+            <div id="pws-filters" class="pws-filter-row"></div>
             <div id="pws-content">
                 <p style="color: var(--text-muted); font-size: 13px;">No PWS cluster data yet. Appears after first prediction cycle.</p>
             </div>
@@ -879,7 +911,7 @@
             if (!lastSnapshot.aux) lastSnapshot.aux = {};
             lastSnapshot.aux[sid] = event.data;
             renderAux(lastSnapshot.aux);
-            renderPWS(lastSnapshot.aux, lastSnapshot.pws_details);
+            renderPWS(lastSnapshot.aux, lastSnapshot.pws_details, lastSnapshot.official, lastSnapshot.pws_metrics);
         } else if (event.type === 'env' && event.data) {
             const feat = event.data.feature_type;
             if (!lastSnapshot.env) lastSnapshot.env = {};
@@ -914,7 +946,7 @@
         renderSystemBar(snap);
         renderMetar(snap.official);
         renderAux(snap.aux);
-        renderPWS(snap.aux, snap.pws_details);
+        renderPWS(snap.aux, snap.pws_details, snap.official, snap.pws_metrics);
         renderEnv(snap.env);
         renderQC(snap.qc);
         renderHealth(snap.health, snap.tape_size);
@@ -1061,6 +1093,114 @@
     let pwsTableData = {};
     let pwsSortState = { column: 'distance_km', direction: 'asc' };
     let pwsExpandedState = {}; // Track expanded state per station
+    let pwsSourceFilters = { SYNOPTIC: true, MADIS: true, OPEN_METEO: true };
+
+    function sourceLabel(src) {
+        if (!src) return 'Unknown';
+        if (src === 'SYNOPTIC') return 'Synoptic';
+        if (src === 'OPEN_METEO') return 'Open-Meteo';
+        if (src.startsWith('MADIS_')) {
+            const provider = src.replace('MADIS_', '');
+            if (provider === 'APRSWXNET') return 'MADIS CWOP';
+            if (provider === 'MesoWest') return 'MADIS MesoWest';
+            return `MADIS ${provider}`;
+        }
+        return src;
+    }
+
+    function sourceGroup(src) {
+        if (src === 'SYNOPTIC') return 'SYNOPTIC';
+        if (src === 'OPEN_METEO') return 'OPEN_METEO';
+        if ((src || '').startsWith('MADIS_')) return 'MADIS';
+        return 'OTHER';
+    }
+
+    function sourceEnabled(src) {
+        const g = sourceGroup(src);
+        if (g === 'OTHER') return true;
+        return !!pwsSourceFilters[g];
+    }
+
+    function median(values) {
+        if (!values || values.length === 0) return null;
+        const sorted = [...values].sort((a, b) => a - b);
+        const mid = Math.floor(sorted.length / 2);
+        if (sorted.length % 2) return sorted[mid];
+        return (sorted[mid - 1] + sorted[mid]) / 2;
+    }
+
+    function mean(values) {
+        if (!values || values.length === 0) return null;
+        return values.reduce((acc, v) => acc + v, 0) / values.length;
+    }
+
+    function computeFilteredPWSStats(details, officialTempC) {
+        const valid = details.filter(d => d.valid);
+        if (valid.length === 0) {
+            return {
+                median_c: null,
+                median_f: null,
+                mean_c: null,
+                mean_f: null,
+                support: 0,
+                drift_c: null,
+                source_age_s: null,
+            };
+        }
+
+        const tempsC = valid.map(d => Number(d.temp_c)).filter(Number.isFinite);
+        const medC = median(tempsC);
+        const avgC = mean(tempsC);
+        const medF = medC == null ? null : ((medC * 9 / 5) + 32);
+        const avgF = avgC == null ? null : ((avgC * 9 / 5) + 32);
+        const minAgeMinutes = Math.min(...valid.map(d => Number(d.age_minutes ?? Infinity)));
+        const ageSeconds = Number.isFinite(minAgeMinutes) ? minAgeMinutes * 60 : null;
+
+        return {
+            median_c: medC,
+            median_f: medF,
+            mean_c: avgC,
+            mean_f: avgF,
+            support: valid.length,
+            drift_c: (officialTempC != null && medC != null) ? (medC - officialTempC) : null,
+            source_age_s: ageSeconds,
+        };
+    }
+
+    function renderPWSFilters(rawDetails) {
+        const filtersEl = document.getElementById('pws-filters');
+        if (!filtersEl) return;
+
+        const counts = { SYNOPTIC: 0, MADIS: 0, OPEN_METEO: 0 };
+        for (const r of rawDetails || []) {
+            const g = sourceGroup(r.source);
+            if (counts[g] != null) counts[g] += 1;
+        }
+
+        const chips = [
+            { key: 'SYNOPTIC', label: `Synoptic (${counts.SYNOPTIC})` },
+            { key: 'MADIS', label: `MADIS (${counts.MADIS})` },
+            { key: 'OPEN_METEO', label: `Open-Meteo (${counts.OPEN_METEO})` },
+        ];
+
+        filtersEl.innerHTML = chips.map(c => {
+            const active = pwsSourceFilters[c.key] ? 'active' : '';
+            return `<button class="pws-filter-chip ${active}" onclick="togglePWSFilter('${c.key}')">${c.label}</button>`;
+        }).join('') + '<span class="pws-filter-help">Filtros activos recalculan métricas y tabla.</span>';
+    }
+
+    window.togglePWSFilter = function(key) {
+        if (!(key in pwsSourceFilters)) return;
+        pwsSourceFilters[key] = !pwsSourceFilters[key];
+
+        // Keep at least one source active.
+        if (!Object.values(pwsSourceFilters).some(Boolean)) {
+            pwsSourceFilters[key] = true;
+        }
+
+        lastPWSFingerprint = '';
+        if (lastSnapshot) renderAll(lastSnapshot);
+    };
 
     function sortPWSData(data, column, direction) {
         return [...data].sort((a, b) => {
@@ -1094,19 +1234,6 @@
 
         const getSortClass = (col) => pwsSortState.column === col ? 'pws-sort-active' : '';
         const getSortArrow = (col) => pwsSortState.column === col ? arrow : '';
-
-        const sourceLabel = (src) => {
-            if (!src) return 'Unknown';
-            if (src === 'SYNOPTIC') return 'Synoptic';
-            if (src === 'OPEN_METEO') return 'Open-Meteo';
-            if (src.startsWith('MADIS_')) {
-                const provider = src.replace('MADIS_', '');
-                if (provider === 'APRSWXNET') return 'MADIS CWOP';
-                if (provider === 'MesoWest') return 'MADIS MesoWest';
-                return `MADIS ${provider}`;
-            }
-            return src;
-        };
 
         const sourceCounts = {};
         for (const d of details) {
@@ -1253,9 +1380,10 @@
 
     let lastPWSFingerprint = '';
 
-    function renderPWS(aux, pwsDetails) {
+    function renderPWS(aux, pwsDetails, official, pwsMetrics) {
         const container = document.getElementById('pws-content');
         const badge = document.getElementById('pws-badge');
+        const filtersEl = document.getElementById('pws-filters');
 
         if (!aux) {
             return;
@@ -1266,7 +1394,14 @@
             sid === 'PWS_' + currentStation
         );
 
+        const stationName = currentStation;
+        const rawDetails = pwsDetails && pwsDetails[stationName] ? pwsDetails[stationName] : [];
+        renderPWSFilters(rawDetails);
+
         if (pwsEntries.length === 0) {
+            if (filtersEl) {
+                filtersEl.innerHTML = '';
+            }
             if (badge.textContent !== 'NO DATA') {
                 container.innerHTML = '<p style="color: var(--text-muted); font-size: 13px;">No PWS cluster data for ' + currentStation + ' yet.</p>';
                 badge.textContent = 'NO DATA';
@@ -1277,7 +1412,8 @@
 
         // Build fingerprint from consensus values to skip re-render if unchanged
         const p = pwsEntries[0][1];
-        const fp = `${currentStation}:${p.temp_f}:${p.support}:${p.drift}`;
+        const metricSig = JSON.stringify((pwsMetrics && pwsMetrics[stationName]) ? pwsMetrics[stationName] : {});
+        const fp = `${currentStation}:${p.temp_f}:${p.support}:${p.drift}:${rawDetails.length}:${JSON.stringify(pwsSourceFilters)}:${metricSig}`;
         if (fp === lastPWSFingerprint) return;  // Skip re-render
         lastPWSFingerprint = fp;
 
@@ -1285,51 +1421,85 @@
         badge.className = 'panel-badge badge-ok';
 
         let html = '';
-        for (const [sid, p] of pwsEntries) {
-            const stationName = sid.replace('PWS_', '');
-            const driftClass = p.drift > 0.5 ? 'positive' : (p.drift < -0.5 ? 'negative' : 'neutral');
-            const driftSign = p.drift > 0 ? '+' : '';
+        for (const [, pEntry] of pwsEntries) {
+            const filteredDetails = rawDetails.filter(r => sourceEnabled(r.source));
+            const officialTempC = official && official[stationName] && official[stationName].temp_c != null
+                ? Number(official[stationName].temp_c)
+                : null;
+            const stats = computeFilteredPWSStats(filteredDetails, officialTempC);
 
-            // Header with consensus
+            const driftVal = stats.drift_c != null ? stats.drift_c : pEntry.drift;
+            const driftClass = driftVal > 0.5 ? 'positive' : (driftVal < -0.5 ? 'negative' : 'neutral');
+            const driftSign = driftVal > 0 ? '+' : '';
+
+            const headerTempF = stats.median_f != null ? stats.median_f : pEntry.temp_f;
+            const headerMedianC = stats.median_c;
+            const headerMeanC = stats.mean_c;
+            const headerSupport = stats.support;
+            const headerAge = stats.source_age_s != null ? stats.source_age_s : pEntry.source_age_s;
+
+            const stationMetric = (pwsMetrics && pwsMetrics[stationName]) ? pwsMetrics[stationName] : {};
+            const allMetric = stationMetric.all_sources_qc || computeFilteredPWSStats(rawDetails, officialTempC);
+            const synMetric = stationMetric.synoptic_only_qc || computeFilteredPWSStats(rawDetails.filter(r => sourceGroup(r.source) === 'SYNOPTIC'), officialTempC);
+            const formatMetric = (m) => {
+                if (!m || m.median_temp_f == null && m.median_f == null) return '--';
+                const tempF = m.median_temp_f != null ? m.median_temp_f : m.median_f;
+                const support = m.support != null ? Math.round(m.support) : 0;
+                return `${tempF.toFixed(1)}F (n=${support})`;
+            };
+
             html += `
                 <div style="margin-bottom: 16px;">
                     <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
                         <div>
                             <span style="font-weight:700; font-size:15px; font-family:'JetBrains Mono',monospace;">${stationName}</span>
-                            <span style="font-size:11px; color:var(--text-muted); margin-left:8px;">Cluster Consensus (${p.source || 'SYNOPTIC'})</span>
+                            <span style="font-size:11px; color:var(--text-muted); margin-left:8px;">Cluster Consensus (${pEntry.source || 'SYNOPTIC'})</span>
                         </div>
                         <div style="text-align:right;">
                             <span style="font-size:28px; font-weight:700; font-family:'Space Grotesk',sans-serif; color: #8B5CF6;">
-                                ${p.temp_f != null ? p.temp_f.toFixed(1) : '--'}
+                                ${headerTempF != null ? headerTempF.toFixed(1) : '--'}
                             </span>
                             <span style="font-size:14px; color:var(--text-secondary);">F</span>
                         </div>
                     </div>
-                    <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:12px; margin-bottom:16px;">
+                    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap:12px; margin-bottom:10px;">
                         <div class="detail-item">
-                            <span class="detail-label">Median C</span>
-                            <span class="detail-value">${p.temp_c != null ? p.temp_c.toFixed(2) : '--'}</span>
+                            <span class="detail-label">Median C (filtro)</span>
+                            <span class="detail-value">${headerMedianC != null ? headerMedianC.toFixed(2) : '--'}</span>
                         </div>
                         <div class="detail-item">
-                            <span class="detail-label">Support</span>
-                            <span class="detail-value">${p.support || '--'} stations</span>
+                            <span class="detail-label">Media C (filtro)</span>
+                            <span class="detail-value">${headerMeanC != null ? headerMeanC.toFixed(2) : '--'}</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Support (filtro)</span>
+                            <span class="detail-value">${headerSupport || 0} stations</span>
                         </div>
                         <div class="detail-item">
                             <span class="detail-label">Drift vs METAR</span>
-                            <span class="detail-value aux-drift ${driftClass}">${driftSign}${p.drift.toFixed(2)} C</span>
+                            <span class="detail-value aux-drift ${driftClass}">${driftVal != null ? `${driftSign}${driftVal.toFixed(2)} C` : '--'}</span>
                         </div>
                         <div class="detail-item">
                             <span class="detail-label">Source Age</span>
-                            <span class="detail-value">${formatAge(p.source_age_s)}</span>
+                            <span class="detail-value">${formatAge(headerAge)}</span>
+                        </div>
+                    </div>
+                    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:12px; margin-bottom:14px;">
+                        <div class="detail-item" style="padding:8px 10px; border:1px solid rgba(255,255,255,0.08); border-radius:8px;">
+                            <span class="detail-label">HELIOS PWS (Synoptic-only QC)</span>
+                            <span class="detail-value" style="color:#10B981;">${formatMetric(synMetric)}</span>
+                        </div>
+                        <div class="detail-item" style="padding:8px 10px; border:1px solid rgba(255,255,255,0.08); border-radius:8px;">
+                            <span class="detail-label">HELIOS PWS (All-sources QC)</span>
+                            <span class="detail-value" style="color:#8B5CF6;">${formatMetric(allMetric)}</span>
                         </div>
                     </div>`;
 
-            // Individual station breakdown table
-            const details = pwsDetails && pwsDetails[stationName] ? pwsDetails[stationName] : [];
-            if (details.length > 0) {
-                // Store data for sorting
-                pwsTableData[stationName] = details;
-                html += `<div id="pws-table-${stationName}">${renderPWSTable(stationName, details)}</div>`;
+            if (filteredDetails.length > 0) {
+                pwsTableData[stationName] = filteredDetails;
+                html += `<div id="pws-table-${stationName}">${renderPWSTable(stationName, filteredDetails)}</div>`;
+            } else {
+                html += '<p style="color: var(--text-muted); font-size: 13px;">No hay estaciones para los filtros seleccionados.</p>';
             }
 
             html += `</div>`;

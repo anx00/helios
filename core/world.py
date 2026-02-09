@@ -106,6 +106,8 @@ class WorldState:
 
         # PWS individual station details (for UI breakdown)
         self.pws_details: Dict[str, List[Dict]] = {}       # station_id -> list of readings
+        # PWS consensus metrics by source subset (for HELIOS diagnostics).
+        self.pws_metrics: Dict[str, Dict[str, Any]] = {}   # station_id -> metrics dict
 
         # The Tape (Ring Buffer for History/Replay)
         self.tape: Deque[ObservationEvent] = deque(maxlen=1000)
@@ -206,6 +208,10 @@ class WorldState:
         """Store individual PWS station readings for UI breakdown."""
         self.pws_details[station_id] = readings
 
+    def set_pws_metrics(self, station_id: str, metrics: Dict[str, Any]):
+        """Store PWS source-subset metrics (all/synoptic/etc.) for diagnostics."""
+        self.pws_metrics[station_id] = metrics
+
     # --- SSE Support ---
     def subscribe_sse(self) -> asyncio.Queue:
         """Create a new SSE subscriber queue."""
@@ -249,6 +255,7 @@ class WorldState:
             "qc": {k: v.to_dict() for k, v in self.qc_states.items()},
             "health": {k: v.to_dict() for k, v in self.source_health.items()},
             "pws_details": self.pws_details,  # Individual PWS station readings
+            "pws_metrics": self.pws_metrics,  # HELIOS-facing PWS subset metrics
             "tape_size": len(self.tape),
             "sse_subscribers": len(self._sse_queues),
         }

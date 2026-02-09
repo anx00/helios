@@ -14,12 +14,13 @@ Data flow:
 """
 
 import logging
+import asyncio
 import math
 import statistics
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import httpx
 
@@ -77,6 +78,37 @@ _STATION_COORDS: Dict[str, Tuple[float, float]] = {
     "EGLC": (51.5048, 0.0495),
 }
 
+# Open-Meteo pseudo-station grid (for source diversity and diagnostics).
+_GRID_OFFSETS: Dict[str, Dict[str, Any]] = {
+    "KLGA": {
+        "lat": 40.7769,
+        "lon": -73.8740,
+        "offsets": [
+            (0.05, 0.0), (-0.05, 0.0), (0.0, 0.06), (0.0, -0.06),
+            (0.10, 0.0), (-0.10, 0.0), (0.05, 0.06), (-0.05, -0.06),
+            (0.15, 0.0), (0.0, -0.12),
+        ],
+    },
+    "KATL": {
+        "lat": 33.6407,
+        "lon": -84.4277,
+        "offsets": [
+            (0.05, 0.0), (-0.05, 0.0), (0.0, 0.06), (0.0, -0.06),
+            (0.10, 0.0), (-0.10, 0.0), (0.05, 0.06), (-0.05, -0.06),
+            (0.15, 0.0), (0.0, -0.12),
+        ],
+    },
+    "EGLC": {
+        "lat": 51.5048,
+        "lon": 0.0495,
+        "offsets": [
+            (0.04, 0.0), (-0.04, 0.0), (0.0, 0.06), (0.0, -0.06),
+            (0.08, 0.0), (-0.08, 0.0), (0.04, 0.06), (-0.04, -0.06),
+            (0.12, 0.0), (0.0, -0.10),
+        ],
+    },
+}
+
 _STATION_STATE: Dict[str, str] = {
     "KLGA": "NY",
     "KATL": "GA",
@@ -120,6 +152,8 @@ class PWSConsensus:
     drift_c: float = 0.0
     data_source: str = "UNKNOWN"
     station_details: List[str] = field(default_factory=list)
+    # Precomputed QC metrics to feed HELIOS/UX comparisons.
+    source_metrics: Dict[str, Dict[str, float]] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -449,6 +483,82 @@ async def _fetch_synoptic_cluster(
 
 
 # ---------------------------------------------------------------------------
+# Open-Meteo source fetcher (pseudo-stations)
+# ---------------------------------------------------------------------------
+def _bearing_label(dlat: float, dlon: float) -> str:
+    if abs(dlat) < 0.01 and abs(dlon) < 0.01:
+        return "C"
+    ns = "N" if dlat > 0.01 else ("S" if dlat < -0.01 else "")
+    ew = "E" if dlon > 0.01 else ("W" if dlon < -0.01 else "")
+    return ns + ew or "C"
+
+
+async def _fetch_open_meteo_point(
+    client: httpx.AsyncClient,
+    lat: float,
+    lon: float,
+    label: str,
+) -> Optional[PWSReading]:
+    try:
+        resp = await client.get(
+            "https://api.open-meteo.com/v1/forecast",
+            params={
+                "latitude": round(lat, 4),
+                "longitude": round(lon, 4),
+                "current": "temperature_2m",
+                "temperature_unit": "celsius",
+            },
+            timeout=5.0,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        temp = data.get("current", {}).get("temperature_2m")
+        if temp is None:
+            return None
+        return PWSReading(
+            lat=lat,
+            lon=lon,
+            temp_c=float(temp),
+            label=label,
+            source="OPEN_METEO",
+            station_name=f"Grid {label}",
+            obs_time_utc=datetime.now(timezone.utc),
+            age_minutes=0.0,
+        )
+    except Exception as e:
+        logger.debug(f"Open-Meteo point {label} failed: {e}")
+        return None
+
+
+async def _fetch_open_meteo_cluster(station_id: str) -> Optional[List[PWSReading]]:
+    cfg = _GRID_OFFSETS.get(station_id)
+    if not cfg:
+        return None
+
+    base_lat = float(cfg["lat"])
+    base_lon = float(cfg["lon"])
+    offsets: List[Tuple[float, float]] = list(cfg["offsets"])
+
+    async with httpx.AsyncClient() as client:
+        tasks = []
+        for dlat, dlon in offsets:
+            lat = base_lat + dlat
+            lon = base_lon + dlon
+            dist_km = ((dlat * 111) ** 2 + (dlon * 85) ** 2) ** 0.5
+            direction = _bearing_label(dlat, dlon)
+            label = f"{direction}_{dist_km:.0f}km"
+            tasks.append(_fetch_open_meteo_point(client, lat, lon, label))
+        results = await asyncio.gather(*tasks)
+
+    readings = [r for r in results if r is not None]
+    for r in readings:
+        r.distance_km = round(((r.lat - base_lat) ** 2 * 111 ** 2 + (r.lon - base_lon) ** 2 * 85 ** 2) ** 0.5, 1)
+
+    logger.info(f"Open-Meteo {station_id}: {len(readings)}/{len(offsets)} grid readings")
+    return readings if readings else None
+
+
+# ---------------------------------------------------------------------------
 # MADIS source fetcher
 # ---------------------------------------------------------------------------
 async def _fetch_madis_cluster(
@@ -539,25 +649,91 @@ def _build_detail_lines(readings: List[PWSReading]) -> List[str]:
     return lines
 
 
+def _compute_qc_metrics(readings: List[PWSReading], min_support: int = 1) -> Optional[Dict[str, float]]:
+    """
+    Compute consensus metrics for a subset using the same QC policy:
+    hard-rule filter + MAD outlier removal.
+    """
+    if not readings:
+        return None
+
+    from core.qc import QualityControl
+
+    valid = [r for r in readings if QualityControl.check_hard_rules(r.temp_c).is_valid]
+    if len(valid) < min_support:
+        return None
+
+    temps = [r.temp_c for r in valid]
+    median_val = statistics.median(temps)
+    deviations = [abs(t - median_val) for t in temps]
+    mad = statistics.median(deviations)
+
+    final = [r for r in valid if mad == 0 or abs(r.temp_c - median_val) <= 3.0 * mad]
+    if len(final) < min_support:
+        return None
+
+    final_temps = [r.temp_c for r in final]
+    final_median_c = statistics.median(final_temps)
+    final_mad = 0.0
+    if len(final_temps) > 1:
+        final_mad = statistics.median([abs(t - final_median_c) for t in final_temps])
+
+    final_median_f = round((final_median_c * 9 / 5) + 32, 1)
+    return {
+        "median_temp_c": round(final_median_c, 2),
+        "median_temp_f": final_median_f,
+        "mad": round(final_mad, 3),
+        "support": len(final),
+        "total_queried": len(readings),
+    }
+
+
+def _build_source_metrics(readings: List[PWSReading], min_support: int) -> Dict[str, Dict[str, float]]:
+    """
+    Build canonical HELIOS-facing metrics for source subsets.
+    Keys:
+      - all_sources_qc
+      - synoptic_only_qc
+      - madis_only_qc
+      - open_meteo_only_qc
+    """
+    metrics: Dict[str, Dict[str, float]] = {}
+
+    def _put(key: str, subset: List[PWSReading], subset_min_support: int) -> None:
+        data = _compute_qc_metrics(subset, min_support=subset_min_support)
+        if data:
+            metrics[key] = data
+
+    _put("all_sources_qc", readings, min_support)
+    _put("synoptic_only_qc", [r for r in readings if r.source == "SYNOPTIC"], 1)
+    _put("madis_only_qc", [r for r in readings if r.source.startswith("MADIS_")], 1)
+    _put("open_meteo_only_qc", [r for r in readings if r.source == "OPEN_METEO"], 1)
+    return metrics
+
+
 def _resolve_station_source(readings: List[PWSReading]) -> str:
     has_synoptic = any(r.source == "SYNOPTIC" for r in readings)
+    has_open_meteo = any(r.source == "OPEN_METEO" for r in readings)
     providers = sorted({r.source.replace("MADIS_", "", 1) for r in readings if r.source.startswith("MADIS_")})
-    if has_synoptic and not providers:
-        return "SYNOPTIC"
-    if not has_synoptic and not providers:
-        return "UNKNOWN"
-    madis_label = f"MADIS_{providers[0]}" if len(providers) == 1 else "MADIS_MULTI"
+    labels: List[str] = []
     if has_synoptic:
-        return f"SYNOPTIC+{madis_label}"
-    return madis_label
+        labels.append("SYNOPTIC")
+    if providers:
+        labels.append(f"MADIS_{providers[0]}" if len(providers) == 1 else "MADIS_MULTI")
+    if has_open_meteo:
+        labels.append("OPEN_METEO")
+    if not labels:
+        return "UNKNOWN"
+    return "+".join(labels)
 
 
 async def fetch_pws_cluster(station_id: str, min_support: int = PWS_MIN_SUPPORT) -> Optional[PWSConsensus]:
     """
-    Fetch nearby observations from Synoptic + MADIS and compute robust consensus.
+    Fetch nearby observations from Synoptic + MADIS + Open-Meteo and compute robust consensus.
 
     Strategy:
-      1. Pull readings from Synoptic (real stations) and MADIS (CWOP/APRSWXNET + optional providers)
+      1. Pull readings from Synoptic (real stations), MADIS (CWOP/APRSWXNET + optional providers),
+         and Open-Meteo pseudo-stations
       2. Merge source readings
       3. Hard-rule QC filter
       4. Spatial MAD outlier filter
@@ -580,21 +756,30 @@ async def fetch_pws_cluster(station_id: str, min_support: int = PWS_MIN_SUPPORT)
         max_stations=max_stations,
         providers=providers,
     )
+    open_meteo_readings = await _fetch_open_meteo_cluster(station_id)
 
     readings: List[PWSReading] = []
     if synoptic_readings:
         readings.extend(synoptic_readings)
     if madis_readings:
         readings.extend(madis_readings)
+    if open_meteo_readings:
+        readings.extend(open_meteo_readings)
 
     if not readings:
-        logger.warning(f"PWS {station_id}: Synoptic and MADIS returned no data")
+        logger.warning(f"PWS {station_id}: Synoptic, MADIS and Open-Meteo returned no data")
         return None
 
     synoptic_count = len(synoptic_readings) if synoptic_readings else 0
     madis_count = len(madis_readings) if madis_readings else 0
+    open_meteo_count = len(open_meteo_readings) if open_meteo_readings else 0
     logger.info(
-        f"PWS {station_id}: source mix Synoptic={synoptic_count}, MADIS={madis_count}, total={len(readings)}"
+        "PWS %s: source mix Synoptic=%s, MADIS=%s, Open-Meteo=%s, total=%s",
+        station_id,
+        synoptic_count,
+        madis_count,
+        open_meteo_count,
+        len(readings),
     )
 
     total_queried = len(readings)
@@ -659,6 +844,8 @@ async def fetch_pws_cluster(station_id: str, min_support: int = PWS_MIN_SUPPORT)
     if outliers:
         logger.info(f"  >> {len(outliers)} outliers removed by MAD filter")
 
+    source_metrics = _build_source_metrics(readings, min_support=min_support)
+
     return PWSConsensus(
         station_id=station_id,
         median_temp_c=round(median_val, 2),
@@ -671,6 +858,7 @@ async def fetch_pws_cluster(station_id: str, min_support: int = PWS_MIN_SUPPORT)
         obs_time_utc=datetime.now(timezone.utc),
         data_source=data_source,
         station_details=detail_lines,
+        source_metrics=source_metrics,
     )
 
 
@@ -741,6 +929,15 @@ async def fetch_and_publish_pws(station_id: str, official_temp_c: Optional[float
         details.sort(key=lambda x: x["distance_km"])
         world.set_pws_details(station_id, details)
 
+        # Store HELIOS-facing PWS metrics (dual view: Synoptic-only vs all sources QC).
+        metrics_payload: Dict[str, Dict[str, float]] = {}
+        for key, value in (consensus.source_metrics or {}).items():
+            metric = dict(value)
+            if official_temp_c is not None:
+                metric["drift_c"] = round(metric["median_temp_c"] - official_temp_c, 2)
+            metrics_payload[key] = metric
+        world.set_pws_metrics(station_id, metrics_payload)
+
         # Update QC state
         flags = []
         if consensus.outliers:
@@ -752,6 +949,8 @@ async def fetch_and_publish_pws(station_id: str, official_temp_c: Optional[float
         has_madis = any(r.source.startswith("MADIS_") for r in consensus.readings)
         if has_madis and not any(r.source == "MADIS_APRSWXNET" for r in consensus.readings):
             flags.append("PWS_NO_CWOP")
+        if consensus.readings and all(r.source == "OPEN_METEO" for r in consensus.readings):
+            flags.append("PWS_FALLBACK_GRID")
 
         if flags:
             world.set_qc_state(f"PWS_{station_id}", "UNCERTAIN", flags)
@@ -790,7 +989,7 @@ if __name__ == "__main__":
     async def test():
         for station in ["KLGA", "KATL", "EGLC"]:
             print(f"\n{'=' * 60}")
-            print(f"  PWS Cluster (Synoptic + MADIS): {station}")
+            print(f"  PWS Cluster (Synoptic + MADIS + Open-Meteo): {station}")
             print(f"{'=' * 60}")
             c = await fetch_pws_cluster(station)
             if c:

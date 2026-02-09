@@ -142,6 +142,12 @@ class NowcastIntegration:
         engine = self.get_engine(station_id)
         engine.update_aux_observation(aux)
 
+        distribution = None
+        is_pws = (aux.station_id or "").startswith("PWS_") or str(aux.source or "").startswith("PWS_")
+        if is_pws:
+            # PWS is high-frequency and can refine nowcast between METAR cycles.
+            distribution = engine.generate_distribution()
+
         self._record_update("aux", station_id, {
             "aux_station": aux.station_id,
             "temp_f": aux.temp_f,
@@ -149,6 +155,9 @@ class NowcastIntegration:
         })
 
         self._trigger_counts["aux"] += 1
+
+        if distribution:
+            self._notify_callbacks(station_id, distribution)
 
     def on_env_feature(self, feature: EnvFeature):
         """Handle environment feature update (SST, AOD)."""

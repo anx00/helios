@@ -61,6 +61,22 @@ class NowcastConfig:
     min_temp_f: float = -40.0
     max_temp_f: float = 130.0
 
+    # PWS soft-anchor (auxiliary, never judge-resolutive)
+    pws_enabled: bool = True
+    pws_max_age_seconds: float = 30 * 60
+    pws_min_metar_age_seconds: float = 10 * 60
+    pws_age_advantage_scale_seconds: float = 45 * 60
+    pws_min_support: int = 3
+    pws_full_support: int = 12
+    pws_base_blend: float = 0.45
+    pws_delta_clip_f: float = 8.0
+    pws_adjustment_cap_f: float = 2.0
+    pws_max_drift_c_for_full_weight: float = 1.5
+    pws_drift_penalty_span_c: float = 2.5
+    pws_sigma_fresh_bonus_f: float = 0.35
+    pws_sigma_disagreement_threshold_f: float = 3.0
+    pws_sigma_disagreement_penalty_f: float = 0.35
+
 
 class NowcastEngine:
     """
@@ -267,7 +283,167 @@ class NowcastEngine:
         but updates health tracking.
         """
         state = self.get_or_create_daily_state(target_date=self._get_target_date(aux.obs_time_utc))
-        state.sources_health[f"AUX_{aux.station_id}"] = "OK"
+        source_key = f"AUX_{aux.station_id}"
+        state.sources_health[source_key] = "OK"
+
+        # Persist latest PWS aggregate for soft-anchor use.
+        # This never overrides settlement-style METAR constraints.
+        is_pws = (aux.station_id or "").startswith("PWS_") or str(aux.source or "").startswith("PWS_")
+        if not is_pws:
+            return
+
+        if aux.temp_f is None:
+            return
+
+        state.last_pws_temp_f = float(aux.temp_f)
+        state.last_pws_time_utc = aux.obs_time_utc or aux.ingest_time_utc or datetime.now(UTC)
+        state.last_pws_support = max(0, int(aux.support or 0))
+        state.last_pws_drift_c = float(aux.drift) if aux.drift is not None else None
+        state.last_pws_source = aux.source or aux.station_id or "PWS"
+        state.last_update_utc = datetime.now(UTC)
+
+    def _pws_source_score(self, source: str) -> float:
+        """Estimate trust score for a PWS aggregate source mix."""
+        src = str(source or "").upper()
+        has_synoptic = "SYNOPTIC" in src
+        has_madis = "MADIS" in src
+        has_open_meteo = "OPEN_METEO" in src
+
+        score = 0.35
+        if has_synoptic:
+            score += 0.45
+        if has_madis:
+            score += 0.25
+        if has_open_meteo:
+            score += 0.08
+        if not (has_synoptic or has_madis or has_open_meteo):
+            score += 0.15
+
+        # Open-Meteo-only should stay low confidence.
+        if has_open_meteo and not (has_synoptic or has_madis):
+            score = min(score, 0.45)
+
+        return max(0.2, min(1.0, score))
+
+    def _compute_pws_signal(self, state: DailyState, now_utc: datetime) -> Dict:
+        """
+        Compute a bounded soft-anchor signal from latest PWS aggregate.
+        Returns metadata used by both tmax adjustment and sigma calibration.
+        """
+        signal = {
+            "available": False,
+            "usable": False,
+            "source": state.last_pws_source,
+            "source_score": 0.0,
+            "support": int(state.last_pws_support or 0),
+            "support_score": 0.0,
+            "pws_age_s": None,
+            "metar_age_s": None,
+            "freshness": 0.0,
+            "age_advantage": 0.0,
+            "quality": 0.0,
+            "drift_c": state.last_pws_drift_c,
+            "drift_score": 1.0,
+            "anchor_kind": None,
+            "anchor_temp_f": None,
+            "pws_temp_f": state.last_pws_temp_f,
+            "delta_f": 0.0,
+            "weight": 0.0,
+            "adjustment_f": 0.0,
+            "health_key": f"AUX_PWS_{self.station_id}",
+        }
+
+        if not self.config.pws_enabled:
+            return signal
+        if state.last_pws_temp_f is None or state.last_pws_time_utc is None:
+            return signal
+
+        signal["available"] = True
+
+        pws_age_s = max(0.0, (now_utc - state.last_pws_time_utc).total_seconds())
+        signal["pws_age_s"] = pws_age_s
+
+        if state.last_obs_time_utc:
+            metar_age_s = max(0.0, (now_utc - state.last_obs_time_utc).total_seconds())
+        else:
+            metar_age_s = float("inf")
+        signal["metar_age_s"] = metar_age_s
+
+        # Anchor against latest METAR when present, else against model-now estimate.
+        anchor_temp_f = None
+        anchor_kind = None
+        if state.last_obs_time_utc is not None:
+            anchor_temp_f = state.last_obs_temp_f
+            anchor_kind = "METAR"
+        elif self._base_forecast and self._base_forecast.is_valid():
+            anchor_temp_f = self._base_forecast.get_temp_at_time(now_utc)
+            anchor_kind = "MODEL"
+
+        signal["anchor_temp_f"] = anchor_temp_f
+        signal["anchor_kind"] = anchor_kind
+        if anchor_temp_f is None:
+            return signal
+
+        # Component scores
+        source_score = self._pws_source_score(state.last_pws_source)
+        signal["source_score"] = source_score
+
+        support = max(0, int(state.last_pws_support or 0))
+        full_support = max(1, int(self.config.pws_full_support))
+        support_score = max(0.3, min(1.0, support / full_support)) if support > 0 else 0.0
+        if support < int(self.config.pws_min_support):
+            support_score *= 0.5
+        signal["support_score"] = support_score
+
+        drift_score = 1.0
+        drift_c_abs = abs(state.last_pws_drift_c) if state.last_pws_drift_c is not None else None
+        if drift_c_abs is not None and drift_c_abs > self.config.pws_max_drift_c_for_full_weight:
+            drift_over = drift_c_abs - self.config.pws_max_drift_c_for_full_weight
+            drift_span = max(0.1, self.config.pws_drift_penalty_span_c)
+            drift_score = max(0.2, 1.0 - (drift_over / drift_span))
+        signal["drift_score"] = drift_score
+
+        freshness = max(0.0, 1.0 - (pws_age_s / max(1.0, self.config.pws_max_age_seconds)))
+        signal["freshness"] = freshness
+
+        if math.isfinite(metar_age_s):
+            age_advantage = max(
+                0.0,
+                min(
+                    1.0,
+                    (metar_age_s - pws_age_s) / max(1.0, self.config.pws_age_advantage_scale_seconds),
+                ),
+            )
+        else:
+            age_advantage = 1.0
+        signal["age_advantage"] = age_advantage
+
+        quality = 0.45 * freshness + 0.55 * age_advantage
+        signal["quality"] = quality
+
+        # Fresh METAR blocks PWS influence; PWS is only a bridge between METAR updates.
+        metar_fresh_block = (
+            anchor_kind == "METAR"
+            and math.isfinite(metar_age_s)
+            and metar_age_s < self.config.pws_min_metar_age_seconds
+        )
+        if pws_age_s > self.config.pws_max_age_seconds or metar_fresh_block:
+            return signal
+
+        delta_f = float(state.last_pws_temp_f - anchor_temp_f)
+        delta_f_clipped = max(-self.config.pws_delta_clip_f, min(self.config.pws_delta_clip_f, delta_f))
+        signal["delta_f"] = delta_f
+
+        weight = self.config.pws_base_blend * quality * support_score * source_score * drift_score
+        weight = max(0.0, min(1.0, weight))
+        signal["weight"] = weight
+
+        adjustment_f = delta_f_clipped * weight
+        adjustment_f = max(-self.config.pws_adjustment_cap_f, min(self.config.pws_adjustment_cap_f, adjustment_f))
+        signal["adjustment_f"] = adjustment_f
+        signal["usable"] = abs(adjustment_f) >= 0.01
+
+        return signal
 
     def update_env_feature(
         self,
@@ -300,10 +476,10 @@ class NowcastEngine:
         state = self.get_or_create_daily_state()
 
         # Calculate adjusted Tmax mean with breakdown
-        tmax_mean_f, tmax_breakdown = self._calculate_adjusted_tmax(state)
+        tmax_mean_f, tmax_breakdown = self._calculate_adjusted_tmax(state, now_utc=now_utc)
 
         # Calculate uncertainty (sigma)
-        sigma_f = self._calculate_sigma(state)
+        sigma_f = self._calculate_sigma(state, now_utc=now_utc)
 
         # Generate bucket probabilities
         p_bucket = self._calculate_bucket_probabilities(tmax_mean_f, sigma_f, state)
@@ -352,7 +528,7 @@ class NowcastEngine:
 
         return distribution
 
-    def _calculate_adjusted_tmax(self, state: DailyState) -> tuple:
+    def _calculate_adjusted_tmax(self, state: DailyState, now_utc: Optional[datetime] = None) -> tuple:
         """
         Calculate adjusted Tmax estimate with full breakdown.
 
@@ -361,6 +537,7 @@ class NowcastEngine:
         Returns:
             tuple: (final_value, breakdown_dict)
         """
+        now_utc = now_utc or datetime.now(UTC)
         breakdown = {
             "base_max_f": None,
             "peak_hour": None,
@@ -368,6 +545,16 @@ class NowcastEngine:
             "hours_to_peak": None,
             "decayed_bias_f": None,
             "after_bias_f": None,
+            "pws_adjustment_f": None,
+            "pws_weight": None,
+            "pws_age_s": None,
+            "pws_support": None,
+            "pws_source": None,
+            "pws_anchor_kind": None,
+            "pws_anchor_temp_f": None,
+            "pws_temp_f": None,
+            "pws_delta_f": None,
+            "after_pws_f": None,
             "floor_applied": False,
             "floor_value_f": None,
             "post_peak_cap_applied": False,
@@ -393,7 +580,7 @@ class NowcastEngine:
         breakdown["peak_hour"] = peak_hour
 
         # Calculate hours to peak
-        now_local = datetime.now(UTC).astimezone(self.station_tz)
+        now_local = now_utc.astimezone(self.station_tz)
         current_hour = now_local.hour + now_local.minute / 60.0
         hours_to_peak = max(0, peak_hour - current_hour)
 
@@ -406,6 +593,27 @@ class NowcastEngine:
 
         breakdown["decayed_bias_f"] = round(decayed_bias, 2)
         breakdown["after_bias_f"] = round(adjusted, 1)
+
+        # Apply PWS soft-anchor when METAR is stale and PWS is fresher.
+        pws_signal = self._compute_pws_signal(state, now_utc)
+        if pws_signal.get("available"):
+            breakdown["pws_age_s"] = round(float(pws_signal.get("pws_age_s") or 0.0), 1)
+            breakdown["pws_support"] = int(pws_signal.get("support") or 0)
+            breakdown["pws_source"] = pws_signal.get("source")
+            breakdown["pws_anchor_kind"] = pws_signal.get("anchor_kind")
+            anchor_temp = pws_signal.get("anchor_temp_f")
+            breakdown["pws_anchor_temp_f"] = round(anchor_temp, 2) if anchor_temp is not None else None
+            pws_temp = pws_signal.get("pws_temp_f")
+            breakdown["pws_temp_f"] = round(pws_temp, 2) if pws_temp is not None else None
+            breakdown["pws_delta_f"] = round(float(pws_signal.get("delta_f") or 0.0), 2)
+            breakdown["pws_weight"] = round(float(pws_signal.get("weight") or 0.0), 3)
+
+        if pws_signal.get("usable"):
+            pws_adj = float(pws_signal.get("adjustment_f") or 0.0)
+            adjusted += pws_adj
+            breakdown["pws_adjustment_f"] = round(pws_adj, 3)
+
+        breakdown["after_pws_f"] = round(adjusted, 1)
 
         # Apply floor constraint: can't go below observed max
         if state.max_so_far_aligned_f > -900:
@@ -448,7 +656,7 @@ class NowcastEngine:
 
         return adjusted, breakdown
 
-    def _calculate_sigma(self, state: DailyState) -> float:
+    def _calculate_sigma(self, state: DailyState, now_utc: Optional[datetime] = None) -> float:
         """
         Calculate uncertainty (sigma) dynamically.
 
@@ -461,6 +669,7 @@ class NowcastEngine:
         - Consistent observations
         - More data points
         """
+        now_utc = now_utc or datetime.now(UTC)
         sigma = self.config.base_sigma_f
 
         # QC penalty
@@ -472,7 +681,7 @@ class NowcastEngine:
         # METAR staleness penalty
         metar_age_s = None
         if state.last_obs_time_utc:
-            metar_age_s = (datetime.now(UTC) - state.last_obs_time_utc).total_seconds()
+            metar_age_s = (now_utc - state.last_obs_time_utc).total_seconds()
             state.staleness_seconds = metar_age_s
             if metar_age_s > 3600:
                 sigma += 1.0
@@ -489,12 +698,40 @@ class NowcastEngine:
             sigma += 1.0
             state.sources_health["METAR"] = "NO_DATA"
 
+        # PWS freshness/consistency impact.
+        pws_signal = self._compute_pws_signal(state, now_utc)
+        if pws_signal.get("available"):
+            pws_age_s = float(pws_signal.get("pws_age_s") or 0.0)
+            pws_key = pws_signal.get("health_key") or f"AUX_PWS_{self.station_id}"
+            state.sources_health[pws_key] = "OK" if pws_age_s <= self.config.pws_max_age_seconds else "STALE"
+
         # Stale sources penalty
         stale_count = sum(1 for s in state.sources_health.values() if s in ("STALE", "DEAD", "NO_DATA"))
         sigma += stale_count * self.config.sigma_stale_source_penalty
 
+        if pws_signal.get("usable"):
+            quality = float(pws_signal.get("quality") or 0.0)
+            weight = float(pws_signal.get("weight") or 0.0)
+            weight_norm = weight / max(self.config.pws_base_blend, 0.05)
+            freshness_bonus = self.config.pws_sigma_fresh_bonus_f * quality * max(0.2, min(1.0, weight_norm))
+
+            # Reduce sigma when PWS is fresh and METAR is older or missing.
+            if metar_age_s is None or metar_age_s >= self.config.pws_min_metar_age_seconds:
+                sigma -= freshness_bonus
+
+            # Penalize when PWS disagrees too much with latest anchor.
+            delta_abs = abs(float(pws_signal.get("delta_f") or 0.0))
+            threshold = max(0.5, self.config.pws_sigma_disagreement_threshold_f)
+            if delta_abs > threshold:
+                over = delta_abs - threshold
+                penalty = min(
+                    self.config.pws_sigma_disagreement_penalty_f,
+                    (over / threshold) * self.config.pws_sigma_disagreement_penalty_f,
+                )
+                sigma += penalty
+
         # Time-based adjustment: sigma decreases as we approach peak
-        now_local = datetime.now(UTC).astimezone(self.station_tz)
+        now_local = now_utc.astimezone(self.station_tz)
         current_hour = now_local.hour
 
         if current_hour >= 14:
@@ -507,7 +744,8 @@ class NowcastEngine:
         if state.bias_state.observation_count > 10:
             sigma *= 0.9
 
-        return max(0.5, sigma)  # Minimum sigma
+        state.sigma_f = max(0.5, sigma)  # Minimum sigma
+        return state.sigma_f
 
     def _calculate_bucket_probabilities(
         self,
@@ -739,6 +977,13 @@ class NowcastEngine:
                 confidence += 0.1
                 factors.append("Stable bias")
 
+        # Fresh PWS bridge bonus (aux only, never definitive).
+        if state.last_pws_time_utc and state.last_pws_support >= self.config.pws_min_support:
+            pws_age_s = (datetime.now(UTC) - state.last_pws_time_utc).total_seconds()
+            if pws_age_s <= self.config.pws_max_age_seconds:
+                confidence += 0.05
+                factors.append("Fresh PWS bridge")
+
         # No base forecast penalty
         if not self._base_forecast or not self._base_forecast.is_valid():
             confidence -= 0.2
@@ -788,6 +1033,25 @@ class NowcastEngine:
                 factor="2_BIAS",
                 contribution_f=bias,
                 description=f"Bias correction: {sign}{bias:.2f}°F → {after_bias:.1f}°F"
+            ))
+
+        # Step 2B: PWS soft-anchor (only between METAR updates)
+        pws_adj = breakdown.get("pws_adjustment_f")
+        if pws_adj is not None:
+            pws_sign = "+" if pws_adj >= 0 else ""
+            pws_age_s = breakdown.get("pws_age_s")
+            pws_age_min = int((pws_age_s or 0) // 60)
+            pws_support = breakdown.get("pws_support")
+            pws_weight = breakdown.get("pws_weight")
+            pws_delta = breakdown.get("pws_delta_f")
+            anchor_kind = breakdown.get("pws_anchor_kind") or "METAR"
+            explanations.append(NowcastExplanation(
+                factor="2B_PWS",
+                contribution_f=pws_adj,
+                description=(
+                    f"PWS soft-anchor ({anchor_kind}, n={pws_support}, age={pws_age_min}m, "
+                    f"w={pws_weight:.2f}, delta={pws_delta:+.2f}Â°F): {pws_sign}{pws_adj:.2f}Â°F"
+                )
             ))
 
         # Step 3: Peak hour status
@@ -886,6 +1150,12 @@ class NowcastEngine:
             if status == "OK":
                 inputs.append(source)
 
+        if state.last_pws_temp_f is not None and state.last_pws_time_utc:
+            pws_age_min = int(max(0.0, (datetime.now(UTC) - state.last_pws_time_utc).total_seconds()) // 60)
+            inputs.append(
+                f"PWS soft-anchor ({state.last_pws_source or 'PWS'}, n={state.last_pws_support}, age={pws_age_min}m)"
+            )
+
         inputs.append(f"Bias (n={state.bias_state.observation_count})")
 
         return inputs
@@ -914,6 +1184,10 @@ class NowcastEngine:
     def get_state_snapshot(self) -> Dict:
         """Get full state snapshot for debugging."""
         state = self.get_or_create_daily_state()
+        now_utc = datetime.now(UTC)
+        pws_age_s = None
+        if state.last_pws_time_utc:
+            pws_age_s = max(0.0, (now_utc - state.last_pws_time_utc).total_seconds())
 
         return {
             "station_id": self.station_id,
@@ -929,6 +1203,12 @@ class NowcastEngine:
             "qc_state": state.last_qc_state,
             "sources_health": state.sources_health,
             "staleness_seconds": state.staleness_seconds,
+            "last_pws_temp_f": state.last_pws_temp_f,
+            "last_pws_support": state.last_pws_support,
+            "last_pws_drift_c": state.last_pws_drift_c,
+            "last_pws_source": state.last_pws_source,
+            "last_pws_time_utc": state.last_pws_time_utc.isoformat() if state.last_pws_time_utc else None,
+            "last_pws_age_s": round(pws_age_s, 1) if pws_age_s is not None else None,
             "base_forecast": {
                 "source": self._base_forecast.model_source if self._base_forecast else None,
                 "t_max_base_f": self._base_forecast.t_max_base_f if self._base_forecast else None,

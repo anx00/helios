@@ -230,6 +230,14 @@ class DailyState:
     last_qc_state: str = "OK"               # OK, UNCERTAIN, OUTLIER
     staleness_seconds: float = 0.0
 
+    # --- PWS soft-anchor state ---
+    # PWS never overrides settlement logic; it is only a recent auxiliary hint.
+    last_pws_temp_f: Optional[float] = None
+    last_pws_time_utc: Optional[datetime] = None
+    last_pws_support: int = 0
+    last_pws_drift_c: Optional[float] = None
+    last_pws_source: str = ""
+
     # --- Timestamps ---
     created_utc: datetime = field(default_factory=lambda: datetime.now(UTC))
     last_update_utc: datetime = field(default_factory=lambda: datetime.now(UTC))
