@@ -1,0 +1,144 @@
+{
+  "KLGA": {
+    "updated_at_utc": "2026-02-09T19:53:08Z",
+    "geocode": {
+      "lat": 40.7769,
+      "lon": -73.874
+    },
+    "station_ids": [
+      "KNYNEWYO1591",
+      "KNYNEWYO1552",
+      "KNYNEWYO1974",
+      "KNYNEWYO1771",
+      "KNYTHEBR7",
+      "KNYNEWYO1958",
+      "KNYNEWYO1620",
+      "KNYNEWYO1906",
+      "KNYNEWYO1800",
+      "KNYNEWYO1824"
+    ],
+    "stations": [
+      {
+        "station_id": "KNYNEWYO1591",
+        "station_name": "New York City",
+        "qc_status": 1,
+        "latitude": 40.762,
+        "longitude": -73.906,
+        "distance_km": 3.163,
+        "obs_time_utc": "2026-02-09T19:52:58Z",
+        "temp_f": 33.0,
+        "humidity": 50.0,
+        "neighborhood": "Woodside"
+      },
+      {
+        "station_id": "KNYNEWYO1552",
+        "station_name": "New York City",
+        "qc_status": 1,
+        "latitude": 40.78,
+        "longitude": -73.912,
+        "distance_km": 3.218,
+        "obs_time_utc": "2026-02-09T19:52:00Z",
+        "temp_f": 32.0,
+        "humidity": 37.0,
+        "neighborhood": "Astoria"
+      },
+      {
+        "station_id": "KNYNEWYO1974",
+        "station_name": "New York City",
+        "qc_status": 1,
+        "latitude": 40.764,
+        "longitude": -73.835,
+        "distance_km": 3.584,
+        "obs_time_utc": "2026-02-09T19:53:03Z",
+        "temp_f": 31.0,
+        "humidity": 51.0,
+        "neighborhood": "Flushing"
+      },
+      {
+        "station_id": "KNYNEWYO1771",
+        "station_name": "New York City",
+        "qc_status": 1,
+        "latitude": 40.781,
+        "longitude": -73.918,
+        "distance_km": 3.733,
+        "obs_time_utc": "2026-02-09T19:53:09Z",
+        "temp_f": 31.0,
+        "humidity": 41.0,
+        "neighborhood": "Ditmars"
+      },
+      {
+        "station_id": "KNYTHEBR7",
+        "station_name": "The Bronx",
+        "qc_status": 1,
+        "latitude": 40.808,
+        "longitude": -73.856,
+        "distance_km": 3.776,
+        "obs_time_utc": "2026-02-09T19:50:22Z",
+        "temp_f": 35.0,
+        "humidity": 35.0,
+        "neighborhood": "Harding Park"
+      },
+      {
+        "station_id": "KNYNEWYO1958",
+        "station_name": "New York City",
+        "qc_status": 1,
+        "latitude": 40.763,
+        "longitude": -73.917,
+        "distance_km": 3.937,
+        "obs_time_utc": "2026-02-09T19:52:52Z",
+        "temp_f": 32.0,
+        "humidity": 33.0,
+        "neighborhood": "Astoria"
+      },
+      {
+        "station_id": "KNYNEWYO1620",
+        "station_name": "New York City",
+        "qc_status": 1,
+        "latitude": 40.759,
+        "longitude": -73.915,
+        "distance_km": 3.985,
+        "obs_time_utc": "2026-02-09T19:53:10Z",
+        "temp_f": 31.0,
+        "humidity": 44.0,
+        "neighborhood": "Astoria"
+      },
+      {
+        "station_id": "KNYNEWYO1906",
+        "station_name": "New York City",
+        "qc_status": 1,
+        "latitude": 40.788,
+        "longitude": -73.828,
+        "distance_km": 4.065,
+        "obs_time_utc": "2026-02-09T19:52:48Z",
+        "temp_f": 31.0,
+        "humidity": 37.0,
+        "neighborhood": "Malba"
+      },
+      {
+        "station_id": "KNYNEWYO1800",
+        "station_name": "New York City",
+        "qc_status": 1,
+        "latitude": 40.748,
+        "longitude": -73.918,
+        "distance_km": 4.905,
+        "obs_time_utc": "2026-02-09T19:52:56Z",
+        "temp_f": 30.0,
+        "humidity": 40.0,
+        "neighborhood": "Sunnyside"
+      },
+      {
+        "station_id": "KNYNEWYO1824",
+        "station_name": "New York City",
+        "qc_status": 1,
+        "latitude": 40.76429,
+        "longitude": -73.93072,
+        "distance_km": 4.978,
+        "obs_time_utc": "2026-02-09T19:52:00Z",
+        "temp_f": null,
+        "humidity": null,
+        "neighborhood": "Long Island City"
+      }
+    ],
+    "source": "weather.com v3/location/near + v2/pws/observations/current"
+  }
+}

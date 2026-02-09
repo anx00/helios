@@ -2,12 +2,14 @@
 Helios Weather Lab - PWS (Personal Weather Station) Fetcher
 Phase 2, Section 2.4: Cluster + Consensus + QC
 
-This implementation combines two public sources for dense nearby observations:
+This implementation combines multiple public sources for dense nearby observations:
   1. Synoptic Data API (real station observations)
   2. NOAA MADIS Public surface service (CWOP/APRSWXNET + optional providers)
+  3. Open-Meteo pseudo-station grid
+  4. Wunderground PWS stations (weather.com)
 
 Data flow:
-  1. Query Synoptic and MADIS for nearby stations around target ICAO.
+  1. Query all enabled sources around target ICAO.
   2. Parse and normalize temperatures (Synoptic C, MADIS K -> C).
   3. Apply hard QC + spatial MAD outlier filtering.
   4. Publish robust consensus as AuxObs aggregate.
@@ -15,11 +17,13 @@ Data flow:
 
 import logging
 import asyncio
+import json
 import math
 import statistics
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import httpx
@@ -43,6 +47,9 @@ try:
         PWS_SEARCH_CONFIG,
         PWS_MAX_AGE_MINUTES,
         PWS_MIN_SUPPORT,
+        WUNDERGROUND_PWS_ENABLED,
+        WUNDERGROUND_API_KEY,
+        WUNDERGROUND_PWS_REGISTRY_PATH,
     )
 except Exception:
     SYNOPTIC_API_TOKEN = ""
@@ -65,8 +72,30 @@ except Exception:
     }
     PWS_MAX_AGE_MINUTES = 90
     PWS_MIN_SUPPORT = 3
+    WUNDERGROUND_PWS_ENABLED = True
+    WUNDERGROUND_API_KEY = ""
+    WUNDERGROUND_PWS_REGISTRY_PATH = "data/wu_pws_station_registry.json"
 
 SYNOPTIC_TIMEOUT_SECONDS = 15.0
+WUNDERGROUND_TIMEOUT_SECONDS = 8.0
+
+# Public fallback key currently used in collector/wunderground_fetcher.py.
+_WUNDERGROUND_PUBLIC_API_KEY = "e1f10a1e78da46f5b10a1e78da96f525"
+_WUNDERGROUND_CURRENT_URL = "https://api.weather.com/v2/pws/observations/current"
+_DEFAULT_WUNDERGROUND_STATION_IDS: Dict[str, List[str]] = {
+    "KLGA": [
+        "KNYNEWYO1591",
+        "KNYNEWYO1552",
+        "KNYNEWYO1974",
+        "KNYNEWYO1771",
+        "KNYTHEBR7",
+        "KNYNEWYO1958",
+        "KNYNEWYO1620",
+        "KNYNEWYO1906",
+        "KNYNEWYO1800",
+        "KNYNEWYO1824",
+    ],
+}
 
 
 # ---------------------------------------------------------------------------
@@ -674,6 +703,234 @@ async def _fetch_open_meteo_cluster(station_id: str) -> Optional[List[PWSReading
 
 
 # ---------------------------------------------------------------------------
+# Wunderground source fetcher (real PWS stations)
+# ---------------------------------------------------------------------------
+def _float_or_none(value: Any) -> Optional[float]:
+    try:
+        if value is None:
+            return None
+        return float(value)
+    except Exception:
+        return None
+
+
+def _station_distance_km(
+    center_lat: float,
+    center_lon: float,
+    lat: Optional[float],
+    lon: Optional[float],
+    fallback: Optional[float] = None,
+) -> float:
+    if fallback is not None:
+        return round(float(fallback), 1)
+    if lat is None or lon is None:
+        return 0.0
+    return round(_haversine_km(center_lat, center_lon, lat, lon), 1)
+
+
+def _dedupe_wunderground_candidates(candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    dedupe: Dict[str, Dict[str, Any]] = {}
+    for row in candidates:
+        sid = str(row.get("station_id") or "").strip().upper()
+        if not sid:
+            continue
+        prev = dedupe.get(sid)
+        if prev is None:
+            dedupe[sid] = row
+            continue
+        prev_dist = _float_or_none(prev.get("distance_km"))
+        curr_dist = _float_or_none(row.get("distance_km"))
+        if prev_dist is None and curr_dist is not None:
+            dedupe[sid] = row
+        elif prev_dist is not None and curr_dist is not None and curr_dist < prev_dist:
+            dedupe[sid] = row
+    return list(dedupe.values())
+
+
+def _load_wunderground_candidates(station_id: str, max_stations: int) -> List[Dict[str, Any]]:
+    station_id = station_id.upper()
+    candidates: List[Dict[str, Any]] = []
+    registry_path = Path(str(WUNDERGROUND_PWS_REGISTRY_PATH or "").strip() or "data/wu_pws_station_registry.json")
+
+    if registry_path.exists():
+        try:
+            payload = json.loads(registry_path.read_text(encoding="utf-8"))
+            station_payload = payload.get(station_id, {}) if isinstance(payload, dict) else {}
+            stations = station_payload.get("stations") if isinstance(station_payload, dict) else None
+            if isinstance(stations, list):
+                for item in stations:
+                    if not isinstance(item, dict):
+                        continue
+                    sid = str(item.get("station_id") or "").strip().upper()
+                    if not sid:
+                        continue
+                    candidates.append(
+                        {
+                            "station_id": sid,
+                            "station_name": str(item.get("station_name") or ""),
+                            "neighborhood": str(item.get("neighborhood") or ""),
+                            "lat": _float_or_none(item.get("latitude")),
+                            "lon": _float_or_none(item.get("longitude")),
+                            "distance_km": _float_or_none(item.get("distance_km")),
+                        }
+                    )
+            station_ids = station_payload.get("station_ids") if isinstance(station_payload, dict) else None
+            if isinstance(station_ids, list):
+                for sid in station_ids:
+                    sid_str = str(sid or "").strip().upper()
+                    if not sid_str:
+                        continue
+                    candidates.append({"station_id": sid_str})
+        except Exception as e:
+            logger.warning(f"Wunderground registry read failed ({registry_path}): {e}")
+
+    if not candidates:
+        for sid in _DEFAULT_WUNDERGROUND_STATION_IDS.get(station_id, []):
+            candidates.append({"station_id": sid})
+
+    deduped = _dedupe_wunderground_candidates(candidates)
+    if max_stations > 0:
+        deduped = deduped[:max_stations]
+    return deduped
+
+
+def _get_wunderground_api_key() -> str:
+    key = str(WUNDERGROUND_API_KEY or "").strip()
+    if key:
+        return key
+    return _WUNDERGROUND_PUBLIC_API_KEY
+
+
+async def _fetch_wunderground_point(
+    client: httpx.AsyncClient,
+    *,
+    center_lat: float,
+    center_lon: float,
+    api_key: str,
+    candidate: Dict[str, Any],
+) -> Optional[PWSReading]:
+    station_id = str(candidate.get("station_id") or "").strip().upper()
+    if not station_id:
+        return None
+
+    try:
+        resp = await client.get(
+            _WUNDERGROUND_CURRENT_URL,
+            params={
+                "stationId": station_id,
+                "format": "json",
+                "units": "e",
+                "apiKey": api_key,
+            },
+            timeout=WUNDERGROUND_TIMEOUT_SECONDS,
+        )
+        if resp.status_code == 204:
+            return None
+        if resp.status_code != 200:
+            logger.debug(f"Wunderground station {station_id} returned {resp.status_code}")
+            return None
+
+        payload = resp.json()
+        observations = payload.get("observations") or []
+        if not observations:
+            return None
+        obs = observations[0]
+        imperial = obs.get("imperial") or {}
+
+        temp_f = _float_or_none(imperial.get("temp"))
+        if temp_f is None:
+            temp_f = _float_or_none(obs.get("temp"))
+        if temp_f is None:
+            return None
+        temp_c = (temp_f - 32.0) * 5.0 / 9.0
+
+        obs_time = _parse_obs_time_utc(str(obs.get("obsTimeUtc") or ""))
+        now_utc = datetime.now(timezone.utc)
+        age_min = 0.0
+        if obs_time:
+            age_min = (now_utc - obs_time).total_seconds() / 60.0
+            if age_min < -5 or age_min > PWS_MAX_AGE_MINUTES:
+                return None
+        else:
+            obs_time = now_utc
+
+        lat = _float_or_none(obs.get("lat"))
+        lon = _float_or_none(obs.get("lon"))
+        if lat is None:
+            lat = _float_or_none(candidate.get("lat"))
+        if lon is None:
+            lon = _float_or_none(candidate.get("lon"))
+        if lat is None:
+            lat = center_lat
+        if lon is None:
+            lon = center_lon
+
+        distance_km = _station_distance_km(
+            center_lat,
+            center_lon,
+            lat,
+            lon,
+            fallback=_float_or_none(candidate.get("distance_km")),
+        )
+        neighborhood = str(obs.get("neighborhood") or "").strip()
+        station_name = neighborhood or str(candidate.get("station_name") or "") or f"WU {station_id}"
+
+        return PWSReading(
+            lat=lat,
+            lon=lon,
+            temp_c=temp_c,
+            label=station_id,
+            source="WUNDERGROUND",
+            station_name=station_name,
+            distance_km=distance_km,
+            obs_time_utc=obs_time,
+            age_minutes=round(max(0.0, age_min), 1),
+        )
+    except Exception as e:
+        logger.debug(f"Wunderground station {station_id} failed: {e}")
+        return None
+
+
+async def _fetch_wunderground_cluster(station_id: str, max_stations: int) -> Optional[List[PWSReading]]:
+    if not WUNDERGROUND_PWS_ENABLED:
+        return None
+
+    coords = _STATION_COORDS.get(station_id)
+    if not coords:
+        return None
+    center_lat, center_lon = coords
+
+    candidates = _load_wunderground_candidates(station_id, max_stations=max_stations)
+    if not candidates:
+        logger.info(f"Wunderground {station_id}: no station candidates configured")
+        return None
+
+    api_key = _get_wunderground_api_key()
+    if not api_key:
+        logger.info(f"Wunderground {station_id}: API key not configured")
+        return None
+
+    limits = httpx.Limits(max_connections=max(16, len(candidates) * 2), max_keepalive_connections=8)
+    async with httpx.AsyncClient(limits=limits) as client:
+        tasks = [
+            _fetch_wunderground_point(
+                client,
+                center_lat=center_lat,
+                center_lon=center_lon,
+                api_key=api_key,
+                candidate=candidate,
+            )
+            for candidate in candidates
+        ]
+        results = await asyncio.gather(*tasks)
+
+    readings = [r for r in results if r is not None]
+    readings.sort(key=lambda r: (r.distance_km, r.age_minutes))
+    logger.info(f"Wunderground {station_id}: {len(readings)}/{len(candidates)} readings")
+    return readings if readings else None
+
+
+# ---------------------------------------------------------------------------
 # MADIS source fetcher
 # ---------------------------------------------------------------------------
 async def _fetch_madis_cluster(
@@ -811,6 +1068,7 @@ def _build_source_metrics(readings: List[PWSReading], min_support: int) -> Dict[
       - synoptic_only_qc
       - madis_only_qc
       - open_meteo_only_qc
+      - wunderground_only_qc
     """
     metrics: Dict[str, Dict[str, float]] = {}
 
@@ -823,12 +1081,14 @@ def _build_source_metrics(readings: List[PWSReading], min_support: int) -> Dict[
     _put("synoptic_only_qc", [r for r in readings if r.source == "SYNOPTIC"], 1)
     _put("madis_only_qc", [r for r in readings if r.source.startswith("MADIS_")], 1)
     _put("open_meteo_only_qc", [r for r in readings if r.source == "OPEN_METEO"], 1)
+    _put("wunderground_only_qc", [r for r in readings if r.source == "WUNDERGROUND"], 1)
     return metrics
 
 
 def _resolve_station_source(readings: List[PWSReading]) -> str:
     has_synoptic = any(r.source == "SYNOPTIC" for r in readings)
     has_open_meteo = any(r.source == "OPEN_METEO" for r in readings)
+    has_wunderground = any(r.source == "WUNDERGROUND" for r in readings)
     providers = sorted({r.source.replace("MADIS_", "", 1) for r in readings if r.source.startswith("MADIS_")})
     labels: List[str] = []
     if has_synoptic:
@@ -837,6 +1097,8 @@ def _resolve_station_source(readings: List[PWSReading]) -> str:
         labels.append(f"MADIS_{providers[0]}" if len(providers) == 1 else "MADIS_MULTI")
     if has_open_meteo:
         labels.append("OPEN_METEO")
+    if has_wunderground:
+        labels.append("WUNDERGROUND")
     if not labels:
         return "UNKNOWN"
     return "+".join(labels)
@@ -844,11 +1106,11 @@ def _resolve_station_source(readings: List[PWSReading]) -> str:
 
 async def fetch_pws_cluster(station_id: str, min_support: int = PWS_MIN_SUPPORT) -> Optional[PWSConsensus]:
     """
-    Fetch nearby observations from Synoptic + MADIS + Open-Meteo and compute robust consensus.
+    Fetch nearby observations from Synoptic + MADIS + Open-Meteo + Wunderground and compute robust consensus.
 
     Strategy:
       1. Pull readings from Synoptic (real stations), MADIS (CWOP/APRSWXNET + optional providers),
-         and Open-Meteo pseudo-stations
+         Open-Meteo pseudo-stations, and Wunderground PWS stations
       2. Merge source readings
       3. Hard-rule QC filter
       4. Spatial MAD outlier filter
@@ -872,6 +1134,7 @@ async def fetch_pws_cluster(station_id: str, min_support: int = PWS_MIN_SUPPORT)
         providers=providers,
     )
     open_meteo_readings = await _fetch_open_meteo_cluster(station_id)
+    wunderground_readings = await _fetch_wunderground_cluster(station_id, max_stations=max_stations)
 
     readings: List[PWSReading] = []
     if synoptic_readings:
@@ -880,20 +1143,24 @@ async def fetch_pws_cluster(station_id: str, min_support: int = PWS_MIN_SUPPORT)
         readings.extend(madis_readings)
     if open_meteo_readings:
         readings.extend(open_meteo_readings)
+    if wunderground_readings:
+        readings.extend(wunderground_readings)
 
     if not readings:
-        logger.warning(f"PWS {station_id}: Synoptic, MADIS and Open-Meteo returned no data")
+        logger.warning(f"PWS {station_id}: Synoptic, MADIS, Open-Meteo and Wunderground returned no data")
         return None
 
     synoptic_count = len(synoptic_readings) if synoptic_readings else 0
     madis_count = len(madis_readings) if madis_readings else 0
     open_meteo_count = len(open_meteo_readings) if open_meteo_readings else 0
+    wunderground_count = len(wunderground_readings) if wunderground_readings else 0
     logger.info(
-        "PWS %s: source mix Synoptic=%s, MADIS=%s, Open-Meteo=%s, total=%s",
+        "PWS %s: source mix Synoptic=%s, MADIS=%s, Open-Meteo=%s, Wunderground=%s, total=%s",
         station_id,
         synoptic_count,
         madis_count,
         open_meteo_count,
+        wunderground_count,
         len(readings),
     )
 
@@ -1066,6 +1333,8 @@ async def fetch_and_publish_pws(station_id: str, official_temp_c: Optional[float
             flags.append("PWS_NO_CWOP")
         if consensus.readings and all(r.source == "OPEN_METEO" for r in consensus.readings):
             flags.append("PWS_FALLBACK_GRID")
+        if consensus.readings and all(r.source == "WUNDERGROUND" for r in consensus.readings):
+            flags.append("PWS_WUNDERGROUND_ONLY")
 
         if flags:
             world.set_qc_state(f"PWS_{station_id}", "UNCERTAIN", flags)
@@ -1104,7 +1373,7 @@ if __name__ == "__main__":
     async def test():
         for station in ["KLGA", "KATL", "EGLC"]:
             print(f"\n{'=' * 60}")
-            print(f"  PWS Cluster (Synoptic + MADIS + Open-Meteo): {station}")
+            print(f"  PWS Cluster (Synoptic + MADIS + Open-Meteo + Wunderground): {station}")
             print(f"{'=' * 60}")
             c = await fetch_pws_cluster(station)
             if c:

@@ -217,6 +217,18 @@ MADIS_QC_TYPE = 0   # 0 = MADIS QC
 MADIS_ACCEPT_QCD = {"C", "S", "V"}
 MADIS_RECWIN = 3
 
+# Weather.com / Wunderground PWS (optional source)
+WUNDERGROUND_PWS_ENABLED = _env_bool("WUNDERGROUND_PWS_ENABLED", True)
+WUNDERGROUND_API_KEY = (
+    _os.environ.get("WUNDERGROUND_API_KEY")
+    or _os.environ.get("WU_API_KEY")
+    or ""
+)
+WUNDERGROUND_PWS_REGISTRY_PATH = _os.environ.get(
+    "WUNDERGROUND_PWS_REGISTRY_PATH",
+    "data/wu_pws_station_registry.json",
+)
+
 # Provider selection by station.
 # APRSWXNET = CWOP (Citizen Weather Observer Program)
 MADIS_PROVIDER_CONFIG = {

@@ -309,6 +309,7 @@ class NowcastEngine:
         has_synoptic = "SYNOPTIC" in src
         has_madis = "MADIS" in src
         has_open_meteo = "OPEN_METEO" in src
+        has_wunderground = "WUNDERGROUND" in src
 
         score = 0.35
         if has_synoptic:
@@ -317,7 +318,9 @@ class NowcastEngine:
             score += 0.25
         if has_open_meteo:
             score += 0.08
-        if not (has_synoptic or has_madis or has_open_meteo):
+        if has_wunderground:
+            score += 0.18
+        if not (has_synoptic or has_madis or has_open_meteo or has_wunderground):
             score += 0.15
 
         # Open-Meteo-only should stay low confidence.

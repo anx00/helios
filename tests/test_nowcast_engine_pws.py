@@ -160,6 +160,15 @@ class TestNowcastPwsSoftAnchor(unittest.TestCase):
         syn_shift = syn_dist.tmax_mean_f - base_syn.tmax_mean_f
         self.assertGreater(syn_shift, open_shift)
 
+    def test_wunderground_source_score_between_open_meteo_and_synoptic_mix(self):
+        engine = _build_engine("KLGA")
+        open_score = engine._pws_source_score("PWS_OPEN_METEO")
+        wu_score = engine._pws_source_score("PWS_WUNDERGROUND")
+        syn_score = engine._pws_source_score("PWS_SYNOPTIC+MADIS_MULTI")
+
+        self.assertGreater(wu_score, open_score)
+        self.assertLess(wu_score, syn_score)
+
     def test_pws_switch_off_disables_adjustment(self):
         now_utc = datetime.now(UTC)
         cfg = NowcastConfig(

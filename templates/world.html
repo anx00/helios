@@ -1093,7 +1093,7 @@
     let pwsTableData = {};
     let pwsSortState = { column: 'distance_km', direction: 'asc' };
     let pwsExpandedState = {}; // Track expanded state per station
-    let pwsSourceFilters = { SYNOPTIC: true, MADIS: true, OPEN_METEO: true };
+    let pwsSourceFilters = { SYNOPTIC: true, MADIS: true, OPEN_METEO: true, WUNDERGROUND: true };
 
     function normalizeSource(src) {
         return String(src || '').trim().toUpperCase().replace(/-/g, '_');
@@ -1104,6 +1104,7 @@
         if (!norm) return 'Unknown';
         if (norm === 'SYNOPTIC') return 'Synoptic';
         if (norm === 'OPEN_METEO') return 'Open-Meteo';
+        if (norm === 'WUNDERGROUND') return 'Wunderground';
         if (norm.startsWith('MADIS_')) {
             const provider = norm.replace('MADIS_', '');
             if (provider === 'APRSWXNET') return 'MADIS CWOP';
@@ -1117,6 +1118,7 @@
         const norm = normalizeSource(src);
         if (norm === 'SYNOPTIC') return 'SYNOPTIC';
         if (norm === 'OPEN_METEO') return 'OPEN_METEO';
+        if (norm === 'WUNDERGROUND') return 'WUNDERGROUND';
         if (norm.startsWith('MADIS_')) return 'MADIS';
         return 'OTHER';
     }
@@ -1177,7 +1179,7 @@
         const filtersEl = document.getElementById('pws-filters');
         if (!filtersEl) return;
 
-        const counts = { SYNOPTIC: 0, MADIS: 0, OPEN_METEO: 0 };
+        const counts = { SYNOPTIC: 0, MADIS: 0, OPEN_METEO: 0, WUNDERGROUND: 0 };
         for (const r of rawDetails || []) {
             const g = sourceGroup(r.source);
             if (counts[g] != null) counts[g] += 1;
@@ -1187,6 +1189,7 @@
             { key: 'SYNOPTIC', label: `Synoptic (${counts.SYNOPTIC})` },
             { key: 'MADIS', label: `MADIS (${counts.MADIS})` },
             { key: 'OPEN_METEO', label: `Open-Meteo (${counts.OPEN_METEO})` },
+            { key: 'WUNDERGROUND', label: `Wunderground (${counts.WUNDERGROUND})` },
         ];
 
         filtersEl.innerHTML = chips.map(c => {
@@ -1333,6 +1336,10 @@
                 sourceColor = '#F59E0B';
                 sourceBadge = 'OM';
                 sourceTitle = 'Open-Meteo (Grid Point)';
+            } else if (srcNorm === 'WUNDERGROUND') {
+                sourceColor = '#F97316';
+                sourceBadge = 'WU';
+                sourceTitle = 'Wunderground PWS';
             } else if (srcNorm.startsWith('MADIS_APRSWXNET')) {
                 sourceColor = '#22C55E';
                 sourceBadge = 'CWOP';
