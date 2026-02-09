@@ -1,0 +1,13 @@
+[Unit]
+Description=Run Helios Wunderground PWS discovery periodically
+
+[Timer]
+# Run shortly after boot, then every 6 hours.
+OnBootSec=5min
+OnUnitActiveSec=6h
+Persistent=true
+
+Unit=helios-wu-discover.service
+
+[Install]
+WantedBy=timers.target

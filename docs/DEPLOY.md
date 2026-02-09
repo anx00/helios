@@ -131,6 +131,32 @@ tail -f /opt/helios/logs/helios.log
 tail -f /opt/helios/logs/helios-error.log
 ```
 
+## 7.1 (Opcional) Auto-refresco WU PWS (systemd timer)
+
+Si usas Wunderground PWS como fuente adicional (para `WUNDERGROUND` en el panel PWS), conviene refrescar
+periodicamente la lista de estaciones cercanas validas (KLGA/KATL).
+
+En el repo hay templates en `deploy/systemd/`:
+
+```bash
+sudo cp /opt/helios/deploy/systemd/helios-wu-discover.service /etc/systemd/system/
+sudo cp /opt/helios/deploy/systemd/helios-wu-discover.timer /etc/systemd/system/
+
+sudo systemctl daemon-reload
+
+# Ejecutar una vez ahora (opcional)
+sudo systemctl start helios-wu-discover.service
+
+# Habilitar timer en boot
+sudo systemctl enable --now helios-wu-discover.timer
+
+sudo systemctl status helios-wu-discover.timer --no-pager
+sudo systemctl list-timers --all | grep wu || true
+
+tail -f /opt/helios/logs/wu_discover.log
+tail -f /opt/helios/logs/wu_discover_error.log
+```
+
 ## 8. Nginx reverse proxy
 
 Crear `/etc/nginx/sites-available/helios`:

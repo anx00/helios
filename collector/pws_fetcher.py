@@ -95,6 +95,18 @@ _DEFAULT_WUNDERGROUND_STATION_IDS: Dict[str, List[str]] = {
         "KNYNEWYO1800",
         "KNYNEWYO1824",
     ],
+    "KATL": [
+        "KGAATLAN557",
+        "KGAHAPEV1",
+        "KGAEASTP2",
+        "KGAFORES13",
+        "KGAATLAN378",
+        "KGARIVER19",
+        "KGAATLAN1046",
+        "KGAFORES15",
+        "KGAATLAN972",
+        "KGACONLE4",
+    ],
 }
 
 

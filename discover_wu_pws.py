@@ -8,6 +8,7 @@ Flow:
 
 Example:
   python discover_wu_pws.py --station KLGA
+  python discover_wu_pws.py --stations KLGA,KATL
 """
 
 from __future__ import annotations
@@ -296,48 +297,68 @@ def update_registry(
 
 
 async def run(args: argparse.Namespace) -> int:
-    station_id = args.station.upper().strip()
-    lat, lon = _resolve_target(station_id, args.lat, args.lon)
+    if args.stations:
+        station_ids = [s.strip().upper() for s in str(args.stations).split(",") if s.strip()]
+    else:
+        station_ids = [args.station.upper().strip()]
+
+    if not station_ids:
+        raise ValueError("No stations provided. Use --station or --stations.")
+
     api_key = _resolve_api_key(args.api_key)
     out_path = Path(args.out)
 
     timeout = httpx.Timeout(args.timeout)
     limits = httpx.Limits(max_connections=max(16, args.concurrency * 2), max_keepalive_connections=8)
-    async with httpx.AsyncClient(timeout=timeout, limits=limits) as client:
-        candidates = await discover_candidates(
-            client,
-            api_key=api_key,
-            lat=lat,
-            lon=lon,
-            limit=args.limit,
-        )
-        valid = await validate_candidates(
-            client,
-            api_key=api_key,
-            candidates=candidates,
-            concurrency=args.concurrency,
-        )
 
     registry = load_registry(out_path)
-    registry = update_registry(registry, station_id=station_id, lat=lat, lon=lon, valid_stations=valid)
-    save_registry(out_path, registry)
+    async with httpx.AsyncClient(timeout=timeout, limits=limits) as client:
+        for station_id in station_ids:
+            if args.stations:
+                lat, lon = _resolve_target(station_id, None, None)
+            else:
+                lat, lon = _resolve_target(station_id, args.lat, args.lon)
 
-    print(f"Station: {station_id} ({lat:.4f}, {lon:.4f})")
-    print(f"Candidates discovered: {len(candidates)}")
-    print(f"Valid current PWS: {len(valid)}")
+            candidates = await discover_candidates(
+                client,
+                api_key=api_key,
+                lat=lat,
+                lon=lon,
+                limit=args.limit,
+            )
+            valid = await validate_candidates(
+                client,
+                api_key=api_key,
+                candidates=candidates,
+                concurrency=args.concurrency,
+            )
+
+            registry = update_registry(registry, station_id=station_id, lat=lat, lon=lon, valid_stations=valid)
+
+            print(f"Station: {station_id} ({lat:.4f}, {lon:.4f})")
+            print(f"Candidates discovered: {len(candidates)}")
+            print(f"Valid current PWS: {len(valid)}")
+            if valid:
+                print("Top valid stations:")
+                for st in valid[: min(10, len(valid))]:
+                    dist = f"{st.distance_km:.1f}km" if st.distance_km is not None else "--"
+                    temp = f"{st.temp_f:.1f}F" if st.temp_f is not None else "--"
+                    print(f"  - {st.station_id:14s} {dist:>8s} {temp:>8s} {st.neighborhood}")
+            print("-" * 60)
+
+    save_registry(out_path, registry)
     print(f"Registry updated: {out_path}")
-    if valid:
-        print("Top valid stations:")
-        for st in valid[: min(10, len(valid))]:
-            dist = f"{st.distance_km:.1f}km" if st.distance_km is not None else "--"
-            temp = f"{st.temp_f:.1f}F" if st.temp_f is not None else "--"
-            print(f"  - {st.station_id:14s} {dist:>8s} {temp:>8s} {st.neighborhood}")
     return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Discover and validate WU PWS stations near target station.")
     parser.add_argument("--station", default="KLGA", help="Target station (default: KLGA)")
+    parser.add_argument(
+        "--stations",
+        default=None,
+        help="Comma-separated station list (e.g. KLGA,KATL). Overrides --station.",
+    )
     parser.add_argument("--lat", type=float, default=None, help="Override latitude")
     parser.add_argument("--lon", type=float, default=None, help="Override longitude")
     parser.add_argument("--limit", type=int, default=50, help="Max discovered stations to validate")

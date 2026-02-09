@@ -28,6 +28,7 @@ data/labels/
 data/backtest_results/
 data/reports/
 data/test_labels/
+data/wu_pws_station_registry.json
 export_full.json
 
 # Debug/test output
