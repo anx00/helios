@@ -160,7 +160,33 @@ class TestNowcastPwsSoftAnchor(unittest.TestCase):
         syn_shift = syn_dist.tmax_mean_f - base_syn.tmax_mean_f
         self.assertGreater(syn_shift, open_shift)
 
+    def test_pws_switch_off_disables_adjustment(self):
+        now_utc = datetime.now(UTC)
+        cfg = NowcastConfig(
+            pws_enabled=False,
+            pws_min_metar_age_seconds=10 * 60,
+            pws_max_age_seconds=30 * 60,
+            pws_base_blend=0.45,
+            pws_adjustment_cap_f=2.0,
+        )
+        engine = NowcastEngine(station_id="KLGA", config=cfg)
+        _install_base_forecast(engine, now_utc)
+        _seed_metar(engine, now_utc, age_minutes=45, temp_f=55.0)
+
+        base = engine.generate_distribution()
+        _push_pws(
+            engine,
+            now_utc,
+            temp_f=60.0,
+            support=20,
+            source="PWS_SYNOPTIC+MADIS_MULTI",
+            drift_c=1.2,
+            age_minutes=1,
+        )
+        with_pws = engine.generate_distribution()
+
+        self.assertAlmostEqual(with_pws.tmax_mean_f, base.tmax_mean_f, places=2)
+
 
 if __name__ == "__main__":
     unittest.main()
-

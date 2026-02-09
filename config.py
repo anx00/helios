@@ -195,6 +195,14 @@ import os as _os
 SYNOPTIC_API_TOKEN = _os.environ.get("SYNOPTIC_API_TOKEN", "")
 SYNOPTIC_BASE_URL = "https://api.synopticdata.com/v2"
 
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    """Parse boolean environment variables safely."""
+    raw = _os.environ.get(name)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
 # ============================================================================
 # MADIS PUBLIC API (PWS / CWOP via NOAA)
 # ============================================================================
@@ -229,3 +237,6 @@ PWS_MAX_AGE_MINUTES = 90
 
 # Minimum stations for valid consensus
 PWS_MIN_SUPPORT = 3
+
+# Enable/disable PWS influence on nowcast (soft-anchor only).
+NOWCAST_PWS_ENABLED = _env_bool("NOWCAST_PWS_ENABLED", True)

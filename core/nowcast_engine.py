@@ -23,9 +23,10 @@ from core.nowcast_models import (
 from core.judge import JudgeAlignment
 from core.models import OfficialObs, AuxObs, EnvFeature
 try:
-    from config import STATIONS
+    from config import STATIONS, NOWCAST_PWS_ENABLED
 except Exception:
     STATIONS = {}
+    NOWCAST_PWS_ENABLED = True
 
 # Timezones
 NYC = ZoneInfo("America/New_York")
@@ -62,7 +63,7 @@ class NowcastConfig:
     max_temp_f: float = 130.0
 
     # PWS soft-anchor (auxiliary, never judge-resolutive)
-    pws_enabled: bool = True
+    pws_enabled: bool = NOWCAST_PWS_ENABLED
     pws_max_age_seconds: float = 30 * 60
     pws_min_metar_age_seconds: float = 10 * 60
     pws_age_advantage_scale_seconds: float = 45 * 60
