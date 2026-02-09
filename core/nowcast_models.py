@@ -381,6 +381,7 @@ class NowcastDistribution:
     # --- Confidence & quality ---
     confidence: float = 0.5                 # 0-1 confidence score
     confidence_factors: List[str] = field(default_factory=list)
+    qc_state: str = "UNKNOWN"               # QC state (OK/UNCERTAIN/OUTLIER/...)
 
     # --- Explanations ---
     explanations: List[NowcastExplanation] = field(default_factory=list)
@@ -416,6 +417,7 @@ class NowcastDistribution:
             "target_date": self.target_date.isoformat(),
             "tmax_mean_f": round(self.tmax_mean_f, 1),
             "tmax_sigma_f": round(self.tmax_sigma_f, 2),
+            "qc_state": self.qc_state,
             "p_bucket": [
                 {
                     "label": b.label,

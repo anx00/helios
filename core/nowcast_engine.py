@@ -519,6 +519,7 @@ class NowcastEngine:
             t_peak_expected_hour=t_peak_expected,
             confidence=confidence,
             confidence_factors=factors,
+            qc_state=str(state.last_qc_state or "UNKNOWN"),
             explanations=explanations,
             valid_until_utc=now_utc + timedelta(minutes=5),
             bias_applied_f=round(state.bias_state.current_bias_f, 2),

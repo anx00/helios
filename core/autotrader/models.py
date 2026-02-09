@@ -25,6 +25,10 @@ class DecisionContext:
     station_id: str
     nowcast: Dict[str, Any]
     market_state: Dict[str, Any]
+    nowcast_target_date: str = ""
+    market_target_date: str = ""
+    target_mismatch: bool = False
+    market_mature: bool = False
     health_state: Dict[str, Any] = field(default_factory=dict)
     confidence: float = 0.0
     tmax_sigma_f: float = 0.0

@@ -64,6 +64,13 @@ class RiskGate:
         if context.market_age_seconds > self.config.max_market_age_seconds:
             reasons.append("stale_market")
 
+        # If Polymarket is already targeting a different settlement day (e.g., today's market is mature/resolved),
+        # block trading until we have a day+1 compatible model distribution.
+        if getattr(context, "target_mismatch", False):
+            reasons.append("target_mismatch")
+        if getattr(context, "market_mature", False):
+            reasons.append("market_mature")
+
         qc = (context.qc_state or "").upper()
         if qc and qc in self.config.blocked_qc_states:
             reasons.append("qc_blocked")

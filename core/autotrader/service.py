@@ -192,6 +192,7 @@ class AutoTraderService:
 
         now_utc = datetime.now(UTC)
         now_nyc = now_utc.astimezone(NYC)
+        now_local = now_utc.astimezone(self._station_timezone())
         station = self.config.station_id
 
         integration = get_nowcast_integration()
@@ -236,6 +237,22 @@ class AutoTraderService:
                 if staleness_ms is not None:
                     age = float(staleness_ms) / 1000.0
                     market_age_seconds = min(market_age_seconds, age)
+
+        nowcast_target_date = str(nowcast.get("target_date") or "")
+        market_target_date = ""
+        market_mature = False
+        target_mismatch = False
+        try:
+            from market.polymarket_checker import get_target_date
+
+            trade_date = await get_target_date(station, now_local)
+            market_target_date = trade_date.isoformat()
+            market_mature = trade_date != now_local.date()
+            if nowcast_target_date and market_target_date and nowcast_target_date != market_target_date:
+                target_mismatch = True
+        except Exception:
+            # Best-effort only; don't block context construction if Gamma API is flaky.
+            pass
 
         p_bucket = nowcast.get("p_bucket", [])
         confidence = float(nowcast.get("confidence", 0.0))
@@ -295,6 +312,14 @@ class AutoTraderService:
             station_id=station,
             nowcast=nowcast,
             market_state=market_state,
+            nowcast_target_date=nowcast_target_date,
+            market_target_date=market_target_date,
+            target_mismatch=target_mismatch,
+            market_mature=market_mature,
+            health_state={
+                "target_mismatch": target_mismatch,
+                "market_mature": market_mature,
+            },
             confidence=confidence,
             tmax_sigma_f=tmax_sigma_f,
             nowcast_age_seconds=nowcast_age_seconds,
@@ -475,6 +500,10 @@ class AutoTraderService:
             "prediction_churn_short": ctx.prediction_churn_short,
             "event_window_active": ctx.event_window_active,
             "qc_state": ctx.qc_state,
+            "nowcast_target_date": ctx.nowcast_target_date,
+            "market_target_date": ctx.market_target_date,
+            "target_mismatch": ctx.target_mismatch,
+            "market_mature": ctx.market_mature,
             "market_bucket_count": len(ctx.market_state),
             "nowcast_bucket_count": len(nowcast_labels),
             "market_overlap_count": overlap_count,

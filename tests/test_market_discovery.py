@@ -17,10 +17,10 @@ def test_extract_market_token_ids_includes_yes_and_no():
 
     parsed = _extract_market_token_ids(markets)
     assert parsed == [
-        ("yes_a", "30-31°F"),
-        ("no_a", "30-31°F"),
-        ("yes_b", "32-33°F"),
-        ("no_b", "32-33°F"),
+        ("yes_a", "30-31°F", "yes"),
+        ("no_a", "30-31°F", "no"),
+        ("yes_b", "32-33°F", "yes"),
+        ("no_b", "32-33°F", "no"),
     ]
 
 
@@ -37,4 +37,4 @@ def test_extract_market_token_ids_handles_json_and_dedupes():
     ]
 
     parsed = _extract_market_token_ids(markets)
-    assert parsed == [("yes_c", "28-29°F"), ("no_c", "28-29°F")]
+    assert parsed == [("yes_c", "28-29°F", "yes"), ("no_c", "28-29°F", "no")]

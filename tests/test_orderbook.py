@@ -15,10 +15,11 @@ class TestLocalOrderBook(unittest.TestCase):
         bids = [("100.0", "10"), ("99.0", "5")]
         asks = [("101.0", "10"), ("102.0", "5")]
         self.book.apply_snapshot(bids, asks)
-        
-        self.assertEqual(self.book.best_bid, 100.0)
-        self.assertEqual(self.book.best_ask, 101.0)
-        self.assertEqual(self.book.spread, 1.0)
+
+        snap = self.book.get_snapshot()
+        self.assertEqual(snap.get("best_bid"), 100.0)
+        self.assertEqual(snap.get("best_ask"), 101.0)
+        self.assertEqual(snap.get("spread"), 1.0)
         self.assertEqual(self.book.bids["100.0"], 10.0)
 
     def test_apply_delta_add(self):
@@ -28,8 +29,10 @@ class TestLocalOrderBook(unittest.TestCase):
         # Add a bid
         changes = [{"side": "BUY", "price": "100.0", "size": "10"}]
         self.book.apply_delta(changes)
-        
-        self.assertEqual(self.book.best_bid, 100.0)
+        self.book.commit_snapshot()
+
+        snap = self.book.get_snapshot()
+        self.assertEqual(snap.get("best_bid"), 100.0)
         self.assertEqual(self.book.bids["100.0"], 10.0)
 
     def test_apply_delta_update(self):
@@ -49,18 +52,24 @@ class TestLocalOrderBook(unittest.TestCase):
         # Remove level (size 0)
         changes = [{"side": "BUY", "price": "100.0", "size": "0"}]
         self.book.apply_delta(changes)
-        
-        self.assertIsNone(self.book.best_bid)
+        self.book.commit_snapshot()
+
+        snap = self.book.get_snapshot()
+        self.assertIsNone(snap.get("best_bid"))
         self.assertNotIn("100.0", self.book.bids)
 
     def test_spread_calculation(self):
         self.book.apply_snapshot([("99.5", "10")], [("100.5", "10")])
-        self.assertEqual(self.book.spread, 1.0)
+        snap = self.book.get_snapshot()
+        self.assertEqual(snap.get("spread"), 1.0)
         
         # Tighten spread
         changes = [{"side": "BUY", "price": "100.0", "size": "5"}]
         self.book.apply_delta(changes)
-        self.assertEqual(self.book.spread, 0.5)
+        self.book.commit_snapshot()
+
+        snap = self.book.get_snapshot()
+        self.assertEqual(snap.get("spread"), 0.5)
 
 if __name__ == '__main__':
     unittest.main()

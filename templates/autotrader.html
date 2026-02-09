@@ -387,6 +387,18 @@
         font-family: 'JetBrains Mono', monospace;
     }
 
+    .edge-table col.bracket { width: 28%; }
+    .edge-table col.model-col { width: 12%; }
+    .edge-table col.market-col { width: 12%; }
+    .edge-table col.ob-col { width: 18%; }
+    .edge-table col.edge-col { width: 10%; }
+    .edge-table col.action-col { width: 12%; }
+    .edge-table col.ev-col { width: 8%; }
+    .edge-action { font-weight: 800; font-size: 11px; text-transform: uppercase; }
+    .edge-action.buy { color: #10B981; }
+    .edge-action.sell { color: #EF4444; }
+    .edge-action.hold { color: var(--text-secondary); font-weight: 700; }
+
     @media (max-width: 1300px) { .kpi-grid { grid-template-columns: repeat(2, minmax(0,1fr)); } }
     @media (max-width: 1100px) { .layout { grid-template-columns: 1fr; } }
     @media (max-width: 760px) {
@@ -576,6 +588,11 @@
         <div class="panel">
             <div class="panel-header"><div class="panel-title">Helios Top Buckets</div><div id="nowcast-meta" class="panel-meta">loading...</div></div>
             <div id="nowcast-box"><div class="empty">No nowcast data.</div></div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header"><div class="panel-title">Fair vs Market (Edge)</div><div id="edge-meta" class="panel-meta">loading...</div></div>
+            <div id="edge-box"><div class="empty">No edge table.</div></div>
         </div>
 
         <div class="panel">
@@ -1104,6 +1121,226 @@ function renderMarket(m) {
         </div>`;
 }
 
+function normLabel(label) {
+    if (!label) return "";
+    let s = String(label).trim();
+    s = s.replaceAll("Â°", "°");
+    s = s.replace(/\s+/g, " ");
+    const lower = s.toLowerCase();
+
+    const num = (() => {
+        const m = s.match(/-?\d+/);
+        return m ? parseInt(m[0], 10) : null;
+    })();
+
+    if (lower.includes("or below") && num !== null) return `${num}°F or below`;
+    if ((lower.includes("or higher") || lower.includes("or above")) && num !== null) return `${num}°F or higher`;
+    if (lower.startsWith("<") && num !== null) return `${num}°F or below`;
+    if ((lower.startsWith(">") || lower.startsWith("≥")) && num !== null) return `${num}°F or higher`;
+
+    const range = s.match(/(-?\d+)\s*-\s*(-?\d+)/);
+    if (range) {
+        const lo = parseInt(range[1], 10);
+        const hi = parseInt(range[2], 10);
+        if (!Number.isNaN(lo) && !Number.isNaN(hi)) return `${lo}-${hi}°F`;
+    }
+
+    if (num !== null && !Number.isNaN(num)) return `${num}°F`;
+    return s;
+}
+
+function parseLabel(label) {
+    const s = normLabel(label);
+    const lower = s.toLowerCase();
+    const m = s.match(/-?\d+/);
+    const n = m ? parseInt(m[0], 10) : null;
+
+    if (lower.includes("or below") && n !== null) return { kind: "below", low: null, high: n };
+    if ((lower.includes("or higher") || lower.includes("or above")) && n !== null) return { kind: "above", low: n, high: null };
+
+    const range = s.match(/(-?\d+)\s*-\s*(-?\d+)/);
+    if (range) {
+        const lo = parseInt(range[1], 10);
+        const hi = parseInt(range[2], 10);
+        if (!Number.isNaN(lo) && !Number.isNaN(hi)) return { kind: "range", low: lo, high: hi };
+    }
+
+    if (n !== null && !Number.isNaN(n)) return { kind: "single", low: n, high: n };
+    return { kind: "unknown", low: null, high: null };
+}
+
+function sortLabels(labels) {
+    const key = (label) => {
+        const p = parseLabel(label);
+        if (p.kind === "below") return [0, p.high ?? -999];
+        if (p.kind === "range" || p.kind === "single") return [1, p.low ?? 0];
+        if (p.kind === "above") return [2, p.low ?? 999];
+        return [3, 0];
+    };
+    return [...labels].sort((a, b) => {
+        const ka = key(a);
+        const kb = key(b);
+        if (ka[0] !== kb[0]) return ka[0] - kb[0];
+        return ka[1] - kb[1];
+    });
+}
+
+function resolveBooks(bracket) {
+    const yesBid = firstNum(bracket?.ws_yes_best_bid, bracket?.ws_best_bid);
+    const yesAsk = firstNum(bracket?.ws_yes_best_ask, bracket?.ws_best_ask);
+    const yesMidFromBook = (yesBid !== null && yesAsk !== null) ? ((yesBid + yesAsk) / 2) : null;
+    const yesMidRaw = firstNum(bracket?.ws_yes_mid, bracket?.ws_mid, yesMidFromBook, bracket?.yes_price);
+    const yesMid = yesMidRaw === null ? null : Math.max(0, Math.min(1, Number(yesMidRaw)));
+
+    const noBidRaw = firstNum(bracket?.ws_no_best_bid);
+    const noAskRaw = firstNum(bracket?.ws_no_best_ask);
+    const noBid = firstNum(noBidRaw, yesAsk !== null ? (1.0 - yesAsk) : null);
+    const noAsk = firstNum(noAskRaw, yesBid !== null ? (1.0 - yesBid) : null);
+    const noMidFromBook = (noBid !== null && noAsk !== null) ? ((noBid + noAsk) / 2) : null;
+    const noMidRaw = firstNum(bracket?.ws_no_mid, noMidFromBook, yesMid !== null ? (1.0 - yesMid) : null, bracket?.no_price);
+    const noMid = noMidRaw === null ? null : Math.max(0, Math.min(1, Number(noMidRaw)));
+
+    return {
+        yesBid, yesAsk, yesMid,
+        noBid, noAsk, noMid,
+    };
+}
+
+function renderEdge(n, m) {
+    const meta = document.getElementById("edge-meta");
+    const box = document.getElementById("edge-box");
+    if (!n || n.error) {
+        meta.textContent = "no nowcast";
+        box.innerHTML = `<div class="empty">${esc(n?.error || "No nowcast data.")}</div>`;
+        return;
+    }
+    if (!m || m.error) {
+        meta.textContent = "no market";
+        box.innerHTML = `<div class="empty">${esc(m?.error || "No market data.")}</div>`;
+        return;
+    }
+
+    const rawBucket = Array.isArray(n?.p_bucket) ? n.p_bucket : [];
+    const calBucket = Array.isArray(n?.calibrated?.p_bucket) ? n.calibrated.p_bucket : [];
+    if (!rawBucket.length) {
+        meta.textContent = `${n.station_id || live.stationId} | no buckets`;
+        box.innerHTML = `<div class="empty">No nowcast buckets to price.</div>`;
+        return;
+    }
+
+    const rawMap = {};
+    for (const b of rawBucket) {
+        const label = normLabel(b?.label);
+        const prob = Number(b?.probability ?? b?.prob ?? 0);
+        if (!label || Number.isNaN(prob)) continue;
+        rawMap[label] = prob;
+    }
+
+    const calMap = {};
+    for (const b of calBucket) {
+        const label = normLabel(b?.label);
+        const prob = Number(b?.probability ?? b?.prob ?? 0);
+        if (!label || Number.isNaN(prob)) continue;
+        calMap[label] = prob;
+    }
+
+    const brackets = Array.isArray(m?.brackets) ? m.brackets : [];
+    const marketByLabel = {};
+    let maxYes = 0.0;
+    for (const b of brackets) {
+        const label = normLabel(b?.name);
+        if (!label) continue;
+        marketByLabel[label] = b;
+        const book = resolveBooks(b);
+        if (book.yesMid !== null) maxYes = Math.max(maxYes, Number(book.yesMid));
+    }
+    const resolved = maxYes >= 0.98;
+
+    const labels = sortLabels(Object.keys(rawMap));
+    const MIN_EDGE = 0.05;
+    meta.textContent =
+        `${n.station_id || live.stationId} | nowcast ${n.target_date || "--"} | market ${m.target_date || "--"} | conf ${pct(n.confidence, 1)} | resolved ${resolved ? "yes" : "no"}`;
+
+    box.innerHTML = `
+        <div class="table-wrap">
+            <table class="table edge-table">
+                <colgroup>
+                    <col class="bracket">
+                    <col class="model-col">
+                    <col class="market-col">
+                    <col class="ob-col">
+                    <col class="edge-col">
+                    <col class="action-col">
+                    <col class="ev-col">
+                </colgroup>
+                <thead>
+                    <tr>
+                        <th>Bracket</th>
+                        <th>Model</th>
+                        <th>Market</th>
+                        <th>OB YES</th>
+                        <th>Edge</th>
+                        <th>Action</th>
+                        <th>EV</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${labels.map((label) => {
+                        const model = Number(rawMap[label] ?? NaN);
+                        const modelCal = Number(calMap[label] ?? NaN);
+                        const bracket = marketByLabel[label];
+                        const book = bracket ? resolveBooks(bracket) : { yesBid: null, yesAsk: null, yesMid: null, noAsk: null, noMid: null };
+
+                        const market = book.yesMid !== null ? Number(book.yesMid) : null;
+                        const edge = (market !== null && !Number.isNaN(model)) ? (model - market) : null;
+
+                        let action = "--";
+                        let actionCls = "hold";
+                        if (resolved) {
+                            action = "RESOLVED";
+                            actionCls = "hold";
+                        } else if (edge !== null) {
+                            if (edge >= MIN_EDGE) { action = "BUY YES"; actionCls = "buy"; }
+                            else if (edge <= -MIN_EDGE) { action = "BUY NO"; actionCls = "sell"; }
+                            else { action = "HOLD"; actionCls = "hold"; }
+                        }
+
+                        let ev = null;
+                        if (!resolved && edge !== null) {
+                            if (action === "BUY YES") {
+                                const px = book.yesAsk !== null ? Number(book.yesAsk) : (market !== null ? market : null);
+                                if (px !== null) ev = model - px;
+                            } else if (action === "BUY NO") {
+                                const modelNo = 1.0 - model;
+                                const px = book.noAsk !== null ? Number(book.noAsk) : (book.noMid !== null ? Number(book.noMid) : (market !== null ? (1.0 - market) : null));
+                                if (px !== null) ev = modelNo - px;
+                            }
+                        }
+
+                        const edgeTxt = edge === null ? "--" : `${(edge * 100).toFixed(1)}c`;
+                        const edgeCls = edge === null ? "" : (edge > 0 ? "pos" : (edge < 0 ? "neg" : ""));
+                        const modelTxt = Number.isNaN(model) ? "--" : `${(model * 100).toFixed(1)}c`;
+                        const marketTxt = market === null ? "--" : `${(market * 100).toFixed(1)}c`;
+                        const obYes = fmtBookPair(book.yesBid, book.yesAsk);
+                        const evTxt = ev === null ? "--" : `${(ev * 100).toFixed(1)}c`;
+                        const titleBits = [];
+                        if (!Number.isNaN(modelCal)) titleBits.push(`cal ${(modelCal * 100).toFixed(1)}c`);
+                        if (titleBits.length) titleBits.push(`minEdge ${(MIN_EDGE * 100).toFixed(0)}c`);
+                        return `<tr title="${esc(titleBits.join(" | "))}">
+                            <td class="mono">${esc(label)}</td>
+                            <td class="mono">${modelTxt}</td>
+                            <td class="mono">${marketTxt}</td>
+                            <td class="mono">${obYes}</td>
+                            <td class="mono ${edgeCls}">${edgeTxt}</td>
+                            <td class="edge-action ${actionCls}">${esc(action)}</td>
+                            <td class="mono">${evTxt}</td>
+                        </tr>`;
+                    }).join("")}
+                </tbody>
+            </table>
+        </div>`;
+}
+
 function renderIntraday(payload) {
     const meta = document.getElementById("intraday-meta");
     const submeta = document.getElementById("intraday-submeta");
@@ -1413,8 +1650,11 @@ async function refreshSlow() {
         j(`/api/polymarket/${s}?target_day=${live.targetDay}&depth=5`),
         j(`/api/v6/autotrader/intraday?target_day=${live.targetDay}&limit=1000`),
     ]);
-    renderNowcast(n.status === "fulfilled" ? n.value : { error: n.reason?.message || "error" });
-    renderMarket(m.status === "fulfilled" ? m.value : { error: m.reason?.message || "error" });
+    const nowcastPayload = n.status === "fulfilled" ? n.value : { error: n.reason?.message || "error" };
+    const marketPayload = m.status === "fulfilled" ? m.value : { error: m.reason?.message || "error" };
+    renderNowcast(nowcastPayload);
+    renderMarket(marketPayload);
+    renderEdge(nowcastPayload, marketPayload);
     renderIntraday(intraday.status === "fulfilled" ? intraday.value : { error: intraday.reason?.message || "error" });
 }
 
