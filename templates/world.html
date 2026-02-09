@@ -1451,7 +1451,8 @@
             const driftClass = driftVal > 0.5 ? 'positive' : (driftVal < -0.5 ? 'negative' : 'neutral');
             const driftSign = driftVal > 0 ? '+' : '';
 
-            const headerTempF = stats.median_f != null ? stats.median_f : pEntry.temp_f;
+            // Main headline number should reflect the active source filters (mean across filtered, valid stations).
+            const headerTempF = stats.mean_f != null ? stats.mean_f : (stats.median_f != null ? stats.median_f : pEntry.temp_f);
             const headerMedianC = stats.median_c;
             const headerMeanC = stats.mean_c;
             const headerSupport = stats.support;
@@ -1462,7 +1463,7 @@
                     <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
                         <div>
                             <span style="font-weight:700; font-size:15px; font-family:'JetBrains Mono',monospace;">${stationName}</span>
-                            <span style="font-size:11px; color:var(--text-muted); margin-left:8px;">Cluster Consensus (${pEntry.source || 'SYNOPTIC'})</span>
+                            <span style="font-size:11px; color:var(--text-muted); margin-left:8px;">Filtered Mean (selected sources)</span>
                         </div>
                         <div style="text-align:right;">
                             <span style="font-size:28px; font-weight:700; font-family:'Space Grotesk',sans-serif; color: #8B5CF6;">
