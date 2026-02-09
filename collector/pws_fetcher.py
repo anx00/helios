@@ -78,9 +78,6 @@ except Exception:
 
 SYNOPTIC_TIMEOUT_SECONDS = 15.0
 WUNDERGROUND_TIMEOUT_SECONDS = 8.0
-
-# Public fallback key currently used in collector/wunderground_fetcher.py.
-_WUNDERGROUND_PUBLIC_API_KEY = "e1f10a1e78da46f5b10a1e78da96f525"
 _WUNDERGROUND_CURRENT_URL = "https://api.weather.com/v2/pws/observations/current"
 _DEFAULT_WUNDERGROUND_STATION_IDS: Dict[str, List[str]] = {
     "KLGA": [
@@ -807,10 +804,7 @@ def _load_wunderground_candidates(station_id: str, max_stations: int) -> List[Di
 
 
 def _get_wunderground_api_key() -> str:
-    key = str(WUNDERGROUND_API_KEY or "").strip()
-    if key:
-        return key
-    return _WUNDERGROUND_PUBLIC_API_KEY
+    return str(WUNDERGROUND_API_KEY or "").strip()
 
 
 async def _fetch_wunderground_point(

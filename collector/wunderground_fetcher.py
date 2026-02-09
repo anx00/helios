@@ -12,7 +12,7 @@ from datetime import datetime, date, timezone
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-from config import STATIONS
+from config import STATIONS, WUNDERGROUND_API_KEY
 from synthesizer.reality_validator import validate_reality_floor
 
 
@@ -126,7 +126,7 @@ async def fetch_wunderground_max(
 
             # Method 1: Use the Weather.com API directly (Most robust)
             # URL format: api.weather.com/v1/location/{station}:9:{country}/observations/historical.json
-            api_key = "e1f10a1e78da46f5b10a1e78da96f525" # Public WU key
+            api_key = (WUNDERGROUND_API_KEY or "").strip()
             date_str = target_date.strftime("%Y%m%d")
             country_code = "GB" if country == "gb" else "US"
             
@@ -134,46 +134,47 @@ async def fetch_wunderground_max(
             api_units = wu_config.get("units", "e")  # 'e' = imperial (F), 'm' = metric (C)
             use_metric = (api_units == "m")
             
-            api_url = f"https://api.weather.com/v1/location/{station_id}:9:{country_code}/observations/historical.json?apiKey={api_key}&units={api_units}&startDate={date_str}&endDate={date_str}"
-            
-            try:
-                api_response = await client.get(api_url, headers=headers, timeout=10.0)
-                if api_response.status_code == 200:
-                    api_data = api_response.json()
-                    obs_list = api_data.get("observations", [])
-                    for obs in obs_list:
-                        temp = obs.get("temp")
-                        if temp is not None:
-                            # Time processing (v1 API uses valid_time_gmt)
-                            obs_time = "Unknown"
-                            valid_time = obs.get("valid_time_gmt")
-                            if valid_time:
-                                try:
-                                    dt_obs = datetime.fromtimestamp(valid_time, tz=local_tz)
-                                    obs_time = dt_obs.strftime("%I:%M %p")
-                                except: pass
-                            
-                            cond = obs.get("wx_phrase", "")
-                            
-                            # v7.0: Convert Celsius to Fahrenheit if using metric units
-                            temp_f = float(temp)
-                            if use_metric:
-                                temp_f = (float(temp) * 9/5) + 32
-                            
-                            hourly_history.append(WundergroundHourlyEntry(
-                                time=obs_time,
-                                temp_f=temp_f,
-                                conditions=cond
-                            ))
-                            
-                            if high_temp_f is None or temp_f > high_temp_f:
-                                high_temp_f = temp_f
-                                high_temp_time = obs_time
+            if api_key:
+                api_url = f"https://api.weather.com/v1/location/{station_id}:9:{country_code}/observations/historical.json?apiKey={api_key}&units={api_units}&startDate={date_str}&endDate={date_str}"
+                
+                try:
+                    api_response = await client.get(api_url, headers=headers, timeout=10.0)
+                    if api_response.status_code == 200:
+                        api_data = api_response.json()
+                        obs_list = api_data.get("observations", [])
+                        for obs in obs_list:
+                            temp = obs.get("temp")
+                            if temp is not None:
+                                # Time processing (v1 API uses valid_time_gmt)
+                                obs_time = "Unknown"
+                                valid_time = obs.get("valid_time_gmt")
+                                if valid_time:
+                                    try:
+                                        dt_obs = datetime.fromtimestamp(valid_time, tz=local_tz)
+                                        obs_time = dt_obs.strftime("%I:%M %p")
+                                    except: pass
+                                
+                                cond = obs.get("wx_phrase", "")
+                                
+                                # v7.0: Convert Celsius to Fahrenheit if using metric units
+                                temp_f = float(temp)
+                                if use_metric:
+                                    temp_f = (float(temp) * 9/5) + 32
+                                
+                                hourly_history.append(WundergroundHourlyEntry(
+                                    time=obs_time,
+                                    temp_f=temp_f,
+                                    conditions=cond
+                                ))
+                                
+                                if high_temp_f is None or temp_f > high_temp_f:
+                                    high_temp_f = temp_f
+                                    high_temp_time = obs_time
 
-                else:
-                    pass  # API error - will fallback to scraping
-            except Exception as e:
-                pass  # API failed - will fallback to scraping
+                    else:
+                        pass  # API error - will fallback to scraping
+                except Exception as e:
+                    pass  # API failed - will fallback to scraping
 
             # Method 2: FALLBACK - Scraping & Script Parsing (If API failed or returned nothing)
             if not hourly_history:
@@ -227,61 +228,63 @@ async def fetch_wunderground_max(
 
             # Method 4: Optimized Dynamic Forecast Logic (v5.9)
             try:
-                # 4.1: Fetch Daily Forecast for the baseline
-                # v7.0: Use correct units for station
-                forecast_api = f"https://api.weather.com/v3/wx/forecast/daily/5day?icaoCode={station_id}&units={api_units}&language=en-US&format=json&apiKey={api_key}"
-                f_response = await client.get(forecast_api, headers=headers, timeout=10.0)
-                
                 daily_max = None
-                if f_response.status_code == 200:
-                    f_data = f_response.json()
-                    # Find the index for target_date
-                    target_iso = target_date.isoformat()
-                    for i, dt_str in enumerate(f_data.get("validTimeLocal", [])):
-                        if dt_str.startswith(target_iso):
-                            max_list = f_data.get("calendarDayTemperatureMax", [])
-                            if len(max_list) > i:
-                                daily_max = float(max_list[i])
-                                # v7.0: Convert C to F if using metric
-                                if use_metric:
-                                    daily_max = (daily_max * 9/5) + 32
-                                break
-                
-                # 4.2: Fetch Hourly Forecast for "Live Adjustment"
-                # Logic: Today's Dynamic Max = max(Observed so far, Predicted for rest of day)
-                hourly_api = f"https://api.weather.com/v3/wx/forecast/hourly/2day?icaoCode={station_id}&units={api_units}&language=en-US&format=json&apiKey={api_key}"
-                h_response = await client.get(hourly_api, headers=headers, timeout=10.0)
-                
                 upcoming_max = -999.0
-                if h_response.status_code == 200:
-                    h_data = h_response.json()
-                    target_iso = target_date.isoformat()
-                    upcoming_temps = [
-                        t for j, t in enumerate(h_data.get("temperature", []))
-                        if h_data.get("validTimeLocal", [])[j].startswith(target_iso)
-                    ]
-                    if upcoming_temps:
-                        upcoming_max = max(upcoming_temps)
-                        # v7.0: Convert C to F if using metric
-                        if use_metric:
-                            upcoming_max = (upcoming_max * 9/5) + 32
-                
-                # Final Forecast Calculation:
-                # If it's today, we take the max of what happened vs what is predicted to happen
-                # This makes the line "descend" or "adjust" as peak hours pass.
-                today_local = datetime.now(local_tz).date()
-                if target_date == today_local:
-                    # Current observed max (from Method 1/2 or current)
-                    current_highest = high_temp_f if high_temp_f is not None else -999.0
-                    forecast_high_f = max(current_highest, upcoming_max)
-                    if forecast_high_f < -900: # Fallback to daily
-                        forecast_high_f = daily_max
-                else:
-                    # For future dates, use the higher of upcoming(hourly) or daily
-                    forecast_high_f = max(daily_max if daily_max else -999.0, upcoming_max)
-                
-                if forecast_high_f is not None and forecast_high_f < -900:
-                    forecast_high_f = daily_max if daily_max else None
+
+                if api_key:
+                    # 4.1: Fetch Daily Forecast for the baseline
+                    # v7.0: Use correct units for station
+                    forecast_api = f"https://api.weather.com/v3/wx/forecast/daily/5day?icaoCode={station_id}&units={api_units}&language=en-US&format=json&apiKey={api_key}"
+                    f_response = await client.get(forecast_api, headers=headers, timeout=10.0)
+                    
+                    if f_response.status_code == 200:
+                        f_data = f_response.json()
+                        # Find the index for target_date
+                        target_iso = target_date.isoformat()
+                        for i, dt_str in enumerate(f_data.get("validTimeLocal", [])):
+                            if dt_str.startswith(target_iso):
+                                max_list = f_data.get("calendarDayTemperatureMax", [])
+                                if len(max_list) > i:
+                                    daily_max = float(max_list[i])
+                                    # v7.0: Convert C to F if using metric
+                                    if use_metric:
+                                        daily_max = (daily_max * 9/5) + 32
+                                    break
+                    
+                    # 4.2: Fetch Hourly Forecast for "Live Adjustment"
+                    # Logic: Today's Dynamic Max = max(Observed so far, Predicted for rest of day)
+                    hourly_api = f"https://api.weather.com/v3/wx/forecast/hourly/2day?icaoCode={station_id}&units={api_units}&language=en-US&format=json&apiKey={api_key}"
+                    h_response = await client.get(hourly_api, headers=headers, timeout=10.0)
+                    
+                    if h_response.status_code == 200:
+                        h_data = h_response.json()
+                        target_iso = target_date.isoformat()
+                        upcoming_temps = [
+                            t for j, t in enumerate(h_data.get("temperature", []))
+                            if h_data.get("validTimeLocal", [])[j].startswith(target_iso)
+                        ]
+                        if upcoming_temps:
+                            upcoming_max = max(upcoming_temps)
+                            # v7.0: Convert C to F if using metric
+                            if use_metric:
+                                upcoming_max = (upcoming_max * 9/5) + 32
+                    
+                    # Final Forecast Calculation:
+                    # If it's today, we take the max of what happened vs what is predicted to happen
+                    # This makes the line "descend" or "adjust" as peak hours pass.
+                    today_local = datetime.now(local_tz).date()
+                    if target_date == today_local:
+                        # Current observed max (from Method 1/2 or current)
+                        current_highest = high_temp_f if high_temp_f is not None else -999.0
+                        forecast_high_f = max(current_highest, upcoming_max)
+                        if forecast_high_f < -900: # Fallback to daily
+                            forecast_high_f = daily_max
+                    else:
+                        # For future dates, use the higher of upcoming(hourly) or daily
+                        forecast_high_f = max(daily_max if daily_max else -999.0, upcoming_max)
+                    
+                    if forecast_high_f is not None and forecast_high_f < -900:
+                        forecast_high_f = daily_max if daily_max else None
                 
                 # Still get current real-time temp from the weather page
                 # v7.0: Fix URL for non-US stations

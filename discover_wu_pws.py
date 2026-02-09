@@ -32,10 +32,6 @@ DISCOVERY_URL = "https://api.weather.com/v3/location/near"
 PWS_CURRENT_URL = "https://api.weather.com/v2/pws/observations/current"
 DEFAULT_REGISTRY_PATH = Path("data/wu_pws_station_registry.json")
 
-# Existing key currently used in collector/wunderground_fetcher.py.
-# Override with --api-key or env var for cleaner operation.
-DEFAULT_PUBLIC_API_KEY = "e1f10a1e78da46f5b10a1e78da96f525"
-
 
 @dataclass
 class CandidateStation:
@@ -124,7 +120,10 @@ def _resolve_api_key(cli_key: Optional[str]) -> str:
         val = _load_env_value_from_dotenv(name)
         if val:
             return val
-    return DEFAULT_PUBLIC_API_KEY
+    raise ValueError(
+        "Missing WU API key. Set WUNDERGROUND_API_KEY (or WU_API_KEY) in environment or .env, "
+        "or pass --api-key."
+    )
 
 
 def _resolve_target(station_id: str, lat: Optional[float], lon: Optional[float]) -> Tuple[float, float]:

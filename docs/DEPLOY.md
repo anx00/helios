@@ -52,6 +52,11 @@ GOOGLE_API_KEY=<tu_clave_gemini>
 # Synoptic Data API - Personal Weather Stations (obligatorio)
 SYNOPTIC_API_TOKEN=<tu_token_synoptic>
 
+# Weather.com / Wunderground (opcional, recomendado si usas WU como fuente PWS)
+WUNDERGROUND_API_KEY=<tu_api_key_weather_com>
+WUNDERGROUND_PWS_ENABLED=true
+WUNDERGROUND_PWS_REGISTRY_PATH=data/wu_pws_station_registry.json
+
 # Polymarket (obligatorio)
 POLYMARKET_PRIVATE_KEY=<tu_private_key>
 POLYMARKET_API_KEY=<tu_api_key>
