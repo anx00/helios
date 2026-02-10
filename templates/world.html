@@ -712,23 +712,23 @@
         <!-- ============================== -->
         <!-- METAR History Panel (Today)    -->
         <!-- ============================== -->
-        <div class="world-panel full-width" id="panel-metar-history">
+        <div class="world-panel" id="panel-metar-history">
             <div class="panel-header">
                 <span class="panel-title">
                     <i data-lucide="clock" style="width:16px;height:16px;"></i>
-                    METAR History (Today NYC)
+                    METAR Today
                 </span>
                 <span style="font-size: 11px; color: var(--text-muted);" id="metar-history-count">--</span>
             </div>
-            <div id="metar-history-content" style="max-height: 400px; overflow-y: auto;">
-                <p style="color: var(--text-muted); font-size: 13px;">Loading METAR history...</p>
+            <div id="metar-history-content" style="max-height: 500px; overflow-y: auto;">
+                <p style="color: var(--text-muted); font-size: 13px;">Loading...</p>
             </div>
         </div>
 
         <!-- ============================== -->
         <!-- Upstream / Aux Obs Panel       -->
         <!-- ============================== -->
-        <div class="world-panel" id="panel-aux">
+        <div class="world-panel" id="panel-aux" style="display:none;">
             <div class="panel-header">
                 <span class="panel-title">
                     <i data-lucide="wind" style="width:16px;height:16px;"></i>
@@ -1120,17 +1120,17 @@
             el('metar-qc').textContent += ' (' + obs.qc_flags.join(', ') + ')';
         }
 
-        // Daily Max
+        // Daily Max — populated by fetchMetarHistory() from NOAA (full day source of truth)
+        // WorldState daily_max is only a fallback until history loads
         const dmRow = el('daily-max-row');
-        if (obs.daily_max_f != null) {
+        if (dmRow.style.display === 'none' && obs.daily_max_f != null) {
+            // Show WorldState value as temporary until NOAA history overwrites it
             dmRow.style.display = 'flex';
             el('daily-max-temp').textContent = obs.daily_max_f.toFixed(0) + '°F';
             el('daily-max-raw').textContent = 'Raw: ' + (obs.daily_max_f_raw != null ? obs.daily_max_f_raw.toFixed(1) + '°F' : '--');
             el('daily-max-time').textContent = obs.daily_max_obs_utc
                 ? 'at ' + formatTimeInTz(obs.daily_max_obs_utc, localTimeFormatter) + ' ' + localTzLabel
                 : '';
-        } else {
-            dmRow.style.display = 'none';
         }
 
         // Timestamps — use dynamic timezone formatters
@@ -1828,24 +1828,35 @@
             return;
         }
 
-        countEl.textContent = obs.length + ' obs | ' + data.date;
+        countEl.textContent = obs.length + ' obs';
 
-        // Find the max temp row
+        // Find the max temp from NOAA history (source of truth for the full day)
         let maxRaw = -Infinity;
+        let maxObs = null;
         for (const o of obs) {
-            if (o.temp_f_raw > maxRaw) maxRaw = o.temp_f_raw;
+            if (o.temp_f_raw > maxRaw) {
+                maxRaw = o.temp_f_raw;
+                maxObs = o;
+            }
+        }
+
+        // Update the Daily Max display in METAR card from NOAA history
+        // (overrides the WorldState tracker which may be incomplete after restart)
+        const dmRow = document.getElementById('daily-max-row');
+        if (maxObs && dmRow) {
+            const maxSettlement = maxObs.temp_f;
+            dmRow.style.display = 'flex';
+            document.getElementById('daily-max-temp').textContent = maxSettlement.toFixed(0) + '°F';
+            document.getElementById('daily-max-raw').textContent = 'Raw: ' + maxRaw.toFixed(1) + '°F';
+            document.getElementById('daily-max-time').textContent =
+                'at ' + maxObs.obs_time_local + ' ' + localTzLabel;
         }
 
         let html = `<table class="metar-history-table">
             <thead><tr>
                 <th>${localTzLabel}</th>
+                <th>ES</th>
                 <th>Temp °F</th>
-                <th>Settl.</th>
-                <th>Max Acum.</th>
-                <th>°C</th>
-                <th>Dew °C</th>
-                <th>Wind</th>
-                <th>Sky</th>
             </tr></thead><tbody>`;
 
         // Render rows in reverse order (newest first)
@@ -1853,17 +1864,13 @@
             const o = obs[i];
             const isMax = o.temp_f_raw === maxRaw;
             const rowClass = isMax ? ' class="is-max"' : '';
-            const tempClass = isMax ? ' class="temp-max-marker"' : '';
+            const tempStyle = isMax ? ' style="color:#F97316; font-weight:700;"' : '';
+            const esTime = formatTimeInTz(o.obs_time_utc, esTimeFormatter);
 
             html += `<tr${rowClass}>
                 <td style="font-weight:600;">${o.obs_time_local}</td>
-                <td${tempClass}>${o.temp_f_raw != null ? o.temp_f_raw.toFixed(1) : '--'}${isMax ? ' ★' : ''}</td>
-                <td style="color:#10B981; font-weight:600;">${o.temp_f != null ? o.temp_f.toFixed(0) + '°F' : '--'}</td>
-                <td style="color:#F97316; font-weight:600;">${o.running_max_f != null ? o.running_max_f.toFixed(1) : '--'}</td>
-                <td>${o.temp_c != null ? o.temp_c.toFixed(1) : '--'}</td>
-                <td>${o.dewpoint_c != null ? o.dewpoint_c.toFixed(1) : '--'}</td>
-                <td>${o.wind_dir != null ? o.wind_dir + '°' : '--'}/${o.wind_speed != null ? o.wind_speed + 'kt' : '--'}</td>
-                <td>${o.sky || '--'}</td>
+                <td>${esTime}</td>
+                <td${tempStyle}>${o.temp_f_raw != null ? o.temp_f_raw.toFixed(1) : '--'}${isMax ? ' ★' : ''}</td>
             </tr>`;
         }
 
