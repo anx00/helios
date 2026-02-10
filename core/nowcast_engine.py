@@ -544,6 +544,8 @@ class NowcastEngine:
         """
         now_utc = now_utc or datetime.now(UTC)
         breakdown = {
+            "base_kind": None,
+            "base_source": None,
             "base_max_f": None,
             "peak_hour": None,
             "current_hour": None,
@@ -576,10 +578,18 @@ class NowcastEngine:
         if use_base:
             base_max = self._base_forecast.t_max_base_f
             peak_hour = self._base_forecast.t_peak_hour
+            breakdown["base_kind"] = "MODEL"
+            breakdown["base_source"] = self._base_forecast.model_source
         else:
             # Fallback: use last observation + typical afternoon rise
-            base_max = state.last_obs_temp_f + 5.0 if state.last_obs_temp_f else 50.0
+            if state.last_obs_temp_f:
+                base_max = state.last_obs_temp_f + 5.0
+                breakdown["base_source"] = "METAR+5F"
+            else:
+                base_max = 50.0
+                breakdown["base_source"] = "DEFAULT_50F"
             peak_hour = 14
+            breakdown["base_kind"] = "FALLBACK"
 
         breakdown["base_max_f"] = round(base_max, 1)
         breakdown["peak_hour"] = peak_hour
@@ -953,6 +963,7 @@ class NowcastEngine:
         """
         confidence = 1.0
         factors = []
+        now_local = datetime.now(UTC).astimezone(self.station_tz)
 
         # Sigma penalty
         if sigma_f > 3.0:
@@ -990,12 +1001,22 @@ class NowcastEngine:
                 factors.append("Fresh PWS bridge")
 
         # No base forecast penalty
-        if not self._base_forecast or not self._base_forecast.is_valid():
-            confidence -= 0.2
+        has_base_forecast = bool(
+            self._base_forecast
+            and self._base_forecast.is_valid()
+            and self._base_forecast.target_date == state.target_date
+            and self._base_forecast.t_hourly_f
+        )
+        if not has_base_forecast:
+            # Without the BaseForecast layer the engine falls back to a naive heuristic.
+            # That's often *very* wrong early in the day, so penalize confidence more pre-peak.
+            penalty = 0.35
+            if now_local.hour < 11:
+                penalty += 0.15
+            confidence -= penalty
             factors.append("No base forecast" if not self._base_forecast else "Base forecast stale")
 
         # Time-of-day adjustment
-        now_local = datetime.now(UTC).astimezone(self.station_tz)
         if now_local.hour >= 14:
             confidence += 0.1
             factors.append("Post-peak observation window")
@@ -1025,10 +1046,16 @@ class NowcastEngine:
 
         # Step 1: Base forecast
         if base_max is not None:
+            base_kind = str(breakdown.get("base_kind") or "MODEL").upper()
+            base_source = breakdown.get("base_source") or "HRRR"
+            if base_kind == "FALLBACK":
+                base_desc = f"Fallback base ({base_source}): {base_max:.1f}°F"
+            else:
+                base_desc = f"Base forecast ({base_source}): {base_max:.1f}°F"
             explanations.append(NowcastExplanation(
                 factor="1_BASE",
                 contribution_f=base_max,
-                description=f"Base HRRR forecast: {base_max:.1f}°F"
+                description=base_desc
             ))
 
         # Step 2: Bias adjustment

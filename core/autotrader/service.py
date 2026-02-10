@@ -6,13 +6,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, time as dt_time, timedelta
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
-from core.polymarket_labels import normalize_label
+from core.polymarket_labels import normalize_label, parse_label
 
 from .bandit import LinUCBBandit
 from .learning import LearningConfig, LearningRunner
@@ -26,6 +27,63 @@ logger = logging.getLogger("autotrader.service")
 
 UTC = ZoneInfo("UTC")
 NYC = ZoneInfo("America/New_York")
+
+
+def _logistic_cdf(x: float, mean: float, sigma: float) -> float:
+    # Match NowcastEngine logistic parameterization.
+    if sigma <= 0:
+        return 1.0 if x >= mean else 0.0
+    s = sigma * 0.5513
+    z = (x - mean) / s
+    if z > 60:
+        return 1.0
+    if z < -60:
+        return 0.0
+    return 1.0 / (1.0 + math.exp(-z))
+
+
+def _normal_cdf(x: float, mean: float, sigma: float) -> float:
+    if sigma <= 0:
+        return 1.0 if x >= mean else 0.0
+    z = (x - mean) / (sigma * math.sqrt(2))
+    return 0.5 * (1.0 + math.erf(z))
+
+
+def _cdf(x: float, mean: float, sigma: float, distribution_type: str) -> float:
+    dt = str(distribution_type or "logistic").lower()
+    if dt == "normal":
+        return _normal_cdf(x, mean, sigma)
+    return _logistic_cdf(x, mean, sigma)
+
+
+def _prob_for_bucket_label(label: str, mean: float, sigma: float, distribution_type: str) -> Optional[float]:
+    """
+    Compute P(settlement bucket) from the continuous nowcast distribution.
+
+    Polymarket settles on integer °F (round half-up). We approximate the bucket
+    probability by integrating over half-integer boundaries.
+    """
+    kind, low, high = parse_label(label)
+
+    if kind == "range" and low is not None and high is not None:
+        a = float(low) - 0.5
+        b = float(high) + 0.5
+        return max(0.0, _cdf(b, mean, sigma, distribution_type) - _cdf(a, mean, sigma, distribution_type))
+
+    if kind == "single" and low is not None:
+        a = float(low) - 0.5
+        b = float(low) + 0.5
+        return max(0.0, _cdf(b, mean, sigma, distribution_type) - _cdf(a, mean, sigma, distribution_type))
+
+    if kind == "below" and high is not None:
+        b = float(high) + 0.5
+        return max(0.0, _cdf(b, mean, sigma, distribution_type))
+
+    if kind == "above" and low is not None:
+        a = float(low) - 0.5
+        return max(0.0, 1.0 - _cdf(a, mean, sigma, distribution_type))
+
+    return None
 
 
 def _default_station_id() -> str:
@@ -237,6 +295,33 @@ class AutoTraderService:
                 if staleness_ms is not None:
                     age = float(staleness_ms) / 1000.0
                     market_age_seconds = min(market_age_seconds, age)
+
+        # Rebin nowcast bucket distribution onto the *live market* bracket labels.
+        # This avoids mismatches like "24-25°F" vs "25°F or below" and ensures
+        # strategies always evaluate against tradable buckets.
+        if market_state and isinstance(nowcast, dict):
+            try:
+                mean_f = float(nowcast.get("tmax_mean_f") or 0.0)
+                sigma_f = float(nowcast.get("tmax_sigma_f") or nowcast.get("tmax_sigma") or 0.0)
+                dist_type = str(nowcast.get("distribution_type") or "logistic")
+
+                probs: Dict[str, float] = {}
+                for label in market_state.keys():
+                    p = _prob_for_bucket_label(label, mean_f, sigma_f, dist_type)
+                    if p is None:
+                        continue
+                    probs[label] = float(p)
+
+                total = sum(probs.values())
+                if total > 0:
+                    nowcast["p_bucket"] = [
+                        {"label": label, "probability": prob / total}
+                        for label, prob in sorted(probs.items(), key=lambda kv: kv[1], reverse=True)
+                    ]
+                    nowcast["p_bucket_source"] = "rebinned_market_labels"
+            except Exception:
+                # Best-effort only; don't block context construction.
+                pass
 
         nowcast_target_date = str(nowcast.get("target_date") or "")
         market_target_date = ""

@@ -6,6 +6,7 @@ Scrapes current day's maximum temperature from Weather Underground.
 from __future__ import annotations
 
 import httpx
+import re
 from bs4 import BeautifulSoup
 from dataclasses import dataclass
 from datetime import datetime, date, timezone
@@ -56,6 +57,55 @@ STATION_WU_MAP = {
     "KATL": {"region": "ga", "city": "atlanta", "country": "us", "units": "e"},
     "EGLC": {"region": "gb/london", "city": "city-of-london", "country": "gb", "units": "m"},  # UK uses Celsius
 }
+
+
+_RE_WU_VALID_TIME_LOCAL = re.compile(r'validTimeLocal"\s*:\s*\[([^\]]+)\]')
+_RE_WU_CAL_MAX = re.compile(r'calendarDayTemperatureMax"\s*:\s*\[([^\]]+)\]')
+
+
+def _scrape_forecast_high_from_weather_page(html: str, target_date: date, use_metric: bool) -> Optional[float]:
+    """
+    Best-effort scrape for Weather Underground's forecast high from the station weather page.
+
+    This is a fallback when the Weather.com API is unavailable/unauthorized.
+    """
+    if not html:
+        return None
+
+    m_max = _RE_WU_CAL_MAX.search(html)
+    if not m_max:
+        return None
+
+    # Values are a simple CSV list: `36,42,36,...` with possible `null`s.
+    max_vals: list[Optional[float]] = []
+    for part in m_max.group(1).split(","):
+        part = (part or "").strip()
+        if not part or part.lower() == "null":
+            max_vals.append(None)
+            continue
+        try:
+            max_vals.append(float(part))
+        except Exception:
+            max_vals.append(None)
+
+    # Prefer matching the target_date via validTimeLocal.
+    m_time = _RE_WU_VALID_TIME_LOCAL.search(html)
+    if m_time:
+        times = re.findall(r'"([^"]+)"', m_time.group(1))
+        target_iso = target_date.isoformat()
+        for i, dt_str in enumerate(times):
+            if dt_str.startswith(target_iso) and i < len(max_vals) and max_vals[i] is not None:
+                val = float(max_vals[i])
+                return (val * 9/5) + 32 if use_metric else val
+
+    # Fallback: first non-null value (usually "today").
+    for val in max_vals:
+        if val is None:
+            continue
+        v = float(val)
+        return (v * 9/5) + 32 if use_metric else v
+
+    return None
 
 
 async def fetch_wunderground_max(
@@ -307,6 +357,17 @@ async def fetch_wunderground_max(
                             else:
                                 current_temp_f = scraped_temp
                         except: pass
+
+                    # Fallback: scrape forecast highs from the weather page when API calls fail.
+                    if forecast_high_f is None:
+                        try:
+                            forecast_high_f = _scrape_forecast_high_from_weather_page(
+                                current_response.text,
+                                target_date=target_date,
+                                use_metric=use_metric,
+                            )
+                        except Exception:
+                            pass
             except Exception as e:
                 pass  # Dynamic forecast error - will continue with available data
             

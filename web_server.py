@@ -396,7 +396,14 @@ async def websocket_loop():
             await asyncio.sleep(60)
 async def nowcast_loop():
     """Phase 3: Nowcast Engine integration loop."""
-    from core.nowcast_integration import get_nowcast_integration, initialize_nowcast_integration
+    import asyncio
+    from collector.hrrr_fetcher import fetch_hrrr
+    from collector.wunderground_fetcher import fetch_wunderground_max
+    from core.nowcast_integration import (
+        extract_hourly_temps_f_for_date,
+        get_nowcast_integration,
+        initialize_nowcast_integration,
+    )
     from config import get_active_stations
     logger = logging.getLogger("nowcast_loop")
     logger.info("Starting Phase 3 Nowcast Engine...")
@@ -409,6 +416,103 @@ async def nowcast_loop():
             periodic_interval=60.0
         )
         logger.info(f"Nowcast Integration initialized for stations: {list(active.keys())}")
+
+        # ------------------------------------------------------------------
+        # BaseForecast bootstrap/refresh
+        # ------------------------------------------------------------------
+        integration = get_nowcast_integration()
+
+        async def _refresh_base_forecast_for_station(station_id: str) -> bool:
+            station = active.get(station_id)
+            if not station:
+                return False
+
+            engine = integration.get_engine(station_id)
+            now_utc = datetime.now(ZoneInfo("UTC"))
+            try:
+                target_date = engine._get_target_date(now_utc)  # Use settlement alignment logic.
+            except Exception:
+                station_tz = ZoneInfo(station.timezone)
+                target_date = datetime.now(station_tz).date()
+
+            # Skip refresh if we already have a valid base forecast for today.
+            base = engine.get_base_forecast()
+            if base and base.is_valid() and base.target_date == target_date:
+                return False
+
+            station_tz = ZoneInfo(station.timezone)
+            forecast = await fetch_hrrr(station.latitude, station.longitude, target_days_ahead=0)
+            if not forecast or not getattr(forecast, "hourly_temps_c", None):
+                logger.warning("Nowcast BaseForecast refresh failed (%s): missing hourly HRRR data", station_id)
+                return False
+
+            hourly_temps_f = extract_hourly_temps_f_for_date(
+                forecast.hourly_temps_c,
+                getattr(forecast, "hourly_times", None),
+                target_date,
+                station_tz,
+            )
+            if not hourly_temps_f:
+                logger.warning("Nowcast BaseForecast refresh failed (%s): could not extract 24h curve", station_id)
+                return False
+
+            # WU is the settlement source for Polymarket temperature markets.
+            # When Open-Meteo HRRR diverges materially, adjust the peak region
+            # of the hourly curve to match WU's forecast high (shape-preserving).
+            model_source = "HRRR"
+            try:
+                wu = await fetch_wunderground_max(station_id, target_date=target_date)
+                wu_high = float(wu.forecast_high_f) if wu and wu.forecast_high_f is not None else None
+                om_max = max(hourly_temps_f) if hourly_temps_f else None
+                if wu_high is not None and om_max is not None and abs(wu_high - om_max) >= 2.0:
+                    delta = wu_high - om_max
+                    delta = max(-12.0, min(12.0, float(delta)))  # Safety clamp.
+                    peak_hour = hourly_temps_f.index(om_max)
+                    adjusted: List[float] = []
+                    for h, t in enumerate(hourly_temps_f):
+                        w = max(0.0, 1.0 - (abs(h - peak_hour) / 10.0))
+                        adjusted.append(round(float(t) + (delta * w), 1))
+                    hourly_temps_f = adjusted
+                    model_source = "HRRR+WU"
+                    logger.info(
+                        "Nowcast BaseForecast WU adjust (%s): om_max=%.1fF wu_high=%.1fF delta=%+.1fF",
+                        station_id,
+                        float(om_max),
+                        float(wu_high),
+                        float(delta),
+                    )
+            except Exception as e:
+                logger.warning("Nowcast BaseForecast WU adjust failed (%s): %s", station_id, e)
+
+            integration.on_hrrr_update(
+                station_id=station_id,
+                hourly_temps_f=hourly_temps_f,
+                model_run_time=forecast.fetch_time,
+                model_source=model_source,
+                target_date=target_date,
+            )
+            logger.info("Nowcast BaseForecast updated (%s): tmax_base=%.1fF", station_id, max(hourly_temps_f))
+            return True
+
+        # Bootstrap immediately so early-day nowcasts aren't using the naive fallback.
+        for sid in list(active.keys()):
+            try:
+                await _refresh_base_forecast_for_station(sid)
+            except Exception as e:
+                logger.warning("Nowcast BaseForecast bootstrap failed (%s): %s", sid, e)
+
+        # Keep BaseForecast fresh (Open-Meteo HRRR is cheap enough; refresh only when missing/stale).
+        while True:
+            await asyncio.sleep(20 * 60)
+            try:
+                active = get_active_stations()
+                for sid in list(active.keys()):
+                    try:
+                        await _refresh_base_forecast_for_station(sid)
+                    except Exception as e:
+                        logger.warning("Nowcast BaseForecast refresh failed (%s): %s", sid, e)
+            except Exception as e:
+                logger.warning("Nowcast BaseForecast refresh loop error: %s", e)
     except Exception as e:
         logger.error(f"Nowcast integration failed: {e}")
 

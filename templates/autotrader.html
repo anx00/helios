@@ -1241,6 +1241,41 @@ function resolveBooks(bracket) {
     };
 }
 
+function logisticCdf(x, mean, sigma) {
+    const s = Math.max(1e-6, Number(sigma) * 0.5513);
+    const z = (Number(x) - Number(mean)) / s;
+    if (z > 60) return 1.0;
+    if (z < -60) return 0.0;
+    return 1.0 / (1.0 + Math.exp(-z));
+}
+
+function modelProbForLabel(label, mean, sigma) {
+    const p = parseLabel(label);
+    if (!p || p.kind === "unknown") return NaN;
+
+    // Polymarket settles on integer °F (round half-up). We approximate by integrating
+    // over half-integer boundaries.
+    if (p.kind === "range" && p.low !== null && p.high !== null) {
+        const a = Number(p.low) - 0.5;
+        const b = Number(p.high) + 0.5;
+        return Math.max(0.0, logisticCdf(b, mean, sigma) - logisticCdf(a, mean, sigma));
+    }
+    if (p.kind === "single" && p.low !== null) {
+        const a = Number(p.low) - 0.5;
+        const b = Number(p.low) + 0.5;
+        return Math.max(0.0, logisticCdf(b, mean, sigma) - logisticCdf(a, mean, sigma));
+    }
+    if (p.kind === "below" && p.high !== null) {
+        const b = Number(p.high) + 0.5;
+        return Math.max(0.0, logisticCdf(b, mean, sigma));
+    }
+    if (p.kind === "above" && p.low !== null) {
+        const a = Number(p.low) - 0.5;
+        return Math.max(0.0, 1.0 - logisticCdf(a, mean, sigma));
+    }
+    return NaN;
+}
+
 function renderEdge(n, m) {
     const meta = document.getElementById("edge-meta");
     const box = document.getElementById("edge-box");
@@ -1255,20 +1290,13 @@ function renderEdge(n, m) {
         return;
     }
 
-    const rawBucket = Array.isArray(n?.p_bucket) ? n.p_bucket : [];
+    const mean = Number(n?.tmax_mean_f);
+    const sigma = Number(n?.tmax_sigma_f ?? n?.tmax_sigma ?? 0.0);
     const calBucket = Array.isArray(n?.calibrated?.p_bucket) ? n.calibrated.p_bucket : [];
-    if (!rawBucket.length) {
-        meta.textContent = `${n.station_id || live.stationId} | no buckets`;
-        box.innerHTML = `<div class="empty">No nowcast buckets to price.</div>`;
+    if (!Number.isFinite(mean) || Number.isNaN(mean)) {
+        meta.textContent = `${n.station_id || live.stationId} | invalid nowcast`;
+        box.innerHTML = `<div class="empty">Nowcast missing tmax_mean.</div>`;
         return;
-    }
-
-    const rawMap = {};
-    for (const b of rawBucket) {
-        const label = normLabel(b?.label);
-        const prob = Number(b?.probability ?? b?.prob ?? 0);
-        if (!label || Number.isNaN(prob)) continue;
-        rawMap[label] = prob;
     }
 
     const calMap = {};
@@ -1291,10 +1319,25 @@ function renderEdge(n, m) {
     }
     const resolved = maxYes >= 0.98;
 
-    const labels = sortLabels(Object.keys(rawMap));
+    const labels = sortLabels(Object.keys(marketByLabel));
     const MIN_EDGE = 0.05;
     meta.textContent =
         `${n.station_id || live.stationId} | nowcast ${n.target_date || "--"} | market ${m.target_date || "--"} | conf ${pct(n.confidence, 1)} | resolved ${resolved ? "yes" : "no"}`;
+
+    // Build a normalized model distribution over the market's tradable brackets.
+    const modelMap = {};
+    let modelTotal = 0.0;
+    for (const label of labels) {
+        const p = modelProbForLabel(label, mean, sigma);
+        if (!Number.isFinite(p) || Number.isNaN(p)) continue;
+        modelMap[label] = p;
+        modelTotal += p;
+    }
+    if (modelTotal > 0) {
+        for (const label of Object.keys(modelMap)) {
+            modelMap[label] = modelMap[label] / modelTotal;
+        }
+    }
 
     box.innerHTML = `
         <div class="table-wrap">
@@ -1321,7 +1364,7 @@ function renderEdge(n, m) {
                 </thead>
                 <tbody>
                     ${labels.map((label) => {
-                        const model = Number(rawMap[label] ?? NaN);
+                        const model = Number(modelMap[label] ?? NaN);
                         const modelCal = Number(calMap[label] ?? NaN);
                         const bracket = marketByLabel[label];
                         const book = bracket ? resolveBooks(bracket) : { yesBid: null, yesAsk: null, yesMid: null, noAsk: null, noMid: null };
