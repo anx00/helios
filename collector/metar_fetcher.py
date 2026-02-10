@@ -244,8 +244,18 @@ async def fetch_metar(station_id: str) -> Optional[MetarData]:
                     and abs((winner_obs_time - last_pub).total_seconds()) < 5)
     if is_duplicate:
         logger.debug(f"METAR dedupe: {station_id} obs_time={winner_obs_time} already published, skipping WorldState publish")
+        # Still update health tracker so source doesn't go DEAD between observations
+        try:
+            from core.world import get_world, SourceHealth
+            world = get_world()
+            source_key = f"METAR_{station_id}"
+            if source_key not in world.source_health:
+                world.source_health[source_key] = SourceHealth(source_name=source_key)
+            world.source_health[source_key].last_seen_utc = datetime.now(timezone.utc)
+        except Exception:
+            pass
 
-    
+
     # Map back to MetarData (Legacy backward compatibility)
     temp_c = winner.get("temp")
     dewpoint_c = winner.get("dewp")

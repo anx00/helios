@@ -1044,7 +1044,7 @@ function renderPositions(positions) {
         </table>`;
 }
 
-function renderNowcast(n) {
+function renderNowcast(n, m) {
     const meta = document.getElementById("nowcast-meta");
     const box = document.getElementById("nowcast-box");
     if (!n || n.error) {
@@ -1052,16 +1052,61 @@ function renderNowcast(n) {
         box.innerHTML = `<div class="empty">${esc(n?.error || "No nowcast data.")}</div>`;
         return;
     }
-    const calibratedBucket = n?.calibrated?.p_bucket || n?.p_bucket || [];
-    const top = [...calibratedBucket].sort((a,b) => Number(b.probability||0) - Number(a.probability||0)).slice(0, 6);
+
+    const mean = Number(n?.tmax_mean_f);
+    const sigma = Number(n?.tmax_sigma_f ?? n?.tmax_sigma ?? 0.0);
+    const observedMax = Number(n?.observed_max_f);
+    const hasObservedMax = Number.isFinite(observedMax);
+
+    // Prefer a model distribution over the market's tradable labels so this panel
+    // matches the Edge table below.
+    let view = "raw";
+    let shownBucket = null;
+    if (
+        m
+        && !m.error
+        && Array.isArray(m.brackets)
+        && m.brackets.length
+        && Number.isFinite(mean)
+        && Number.isFinite(sigma)
+    ) {
+        const byLabel = {};
+        for (const b of (m.brackets || [])) {
+            const label = normLabel(b?.name || b?.label || "");
+            if (!label) continue;
+            byLabel[label] = b;
+        }
+        const labels = sortLabels(Object.keys(byLabel));
+        const probs = [];
+        let total = 0.0;
+        for (const label of labels) {
+            let p = modelProbForLabel(label, mean, sigma);
+            if (!Number.isFinite(p) || Number.isNaN(p)) continue;
+            if (hasObservedMax && isImpossibleWithObservedMax(label, observedMax)) p = 0.0;
+            probs.push({ label, probability: p });
+            total += p;
+        }
+        if (total > 0) {
+            for (const row of probs) row.probability = row.probability / total;
+        }
+        shownBucket = probs.sort((a, b) => Number(b.probability || 0) - Number(a.probability || 0));
+        view = "model";
+    }
+    if (!shownBucket) {
+        shownBucket = n?.calibrated?.p_bucket || n?.p_bucket || [];
+        view = n?.calibrated?.p_bucket ? "cal" : "raw";
+    }
+
+    const top = [...shownBucket].sort((a, b) => Number(b.probability || 0) - Number(a.probability || 0)).slice(0, 6);
     const blend = Number(n?.calibrated?.blend_weight);
     const blendTxt = Number.isFinite(blend) ? `blend ${Math.round(blend * 100)}% market` : "raw";
     const requestedDate = n?.requested_target_date || "--";
     const nowcastDate = n?.target_date || "--";
     const warns = (n?.diagnostics?.warnings || []).map((w) => esc(w)).join(", ");
-    meta.textContent = `${n.station_id || live.stationId} | conf ${pct(n.confidence,1)} | tmax ${num(n.tmax_mean_f,1)}F | req ${requestedDate} | nowcast ${nowcastDate} | ${blendTxt}`;
+    meta.textContent = `${n.station_id || live.stationId} | view ${view} | conf ${pct(n.confidence,1)} | tmax ${num(n.tmax_mean_f,1)}F | req ${requestedDate} | nowcast ${nowcastDate} | ${blendTxt}`;
     if (!top.length) { box.innerHTML = '<div class="empty">No bucket probabilities.</div>'; return; }
     const headerBits = [];
+    if (view === "model" && top[0]?.label) headerBits.push(`model top ${esc(top[0].label)} ${pct(top[0].probability, 1)}`);
     if (n?.raw_top?.label) headerBits.push(`raw top ${esc(n.raw_top.label)} ${pct(n.raw_top.probability, 1)}`);
     if (n?.calibrated?.top?.label) headerBits.push(`cal top ${esc(n.calibrated.top.label)} ${pct(n.calibrated.top.probability, 1)}`);
     if (n?.observed_max_f !== null && n?.observed_max_f !== undefined) headerBits.push(`observed max ${num(n.observed_max_f, 1)}F`);
@@ -1204,6 +1249,24 @@ function parseLabel(label) {
     return { kind: "unknown", low: null, high: null };
 }
 
+function _alignedObservedMax(observedMaxF) {
+    const v = Number(observedMaxF);
+    if (!Number.isFinite(v)) return null;
+    // Round to integer °F consistent with settlement approximations.
+    return Math.round(v);
+}
+
+function isImpossibleWithObservedMax(label, observedMaxF) {
+    const aligned = _alignedObservedMax(observedMaxF);
+    if (aligned === null) return false;
+    const p = parseLabel(label);
+    if (!p || p.kind === "unknown") return false;
+    // Buckets strictly below the observed max are impossible; equality is still possible.
+    if ((p.kind === "range" || p.kind === "below") && p.high !== null) return Number(p.high) < aligned;
+    if (p.kind === "single" && p.low !== null) return Number(p.low) < aligned;
+    return false;
+}
+
 function sortLabels(labels) {
     const key = (label) => {
         const p = parseLabel(label);
@@ -1327,9 +1390,12 @@ function renderEdge(n, m) {
     // Build a normalized model distribution over the market's tradable brackets.
     const modelMap = {};
     let modelTotal = 0.0;
+    const observedMax = Number(n?.observed_max_f);
+    const hasObservedMax = Number.isFinite(observedMax);
     for (const label of labels) {
-        const p = modelProbForLabel(label, mean, sigma);
+        let p = modelProbForLabel(label, mean, sigma);
         if (!Number.isFinite(p) || Number.isNaN(p)) continue;
+        if (hasObservedMax && isImpossibleWithObservedMax(label, observedMax)) p = 0.0;
         modelMap[label] = p;
         modelTotal += p;
     }
@@ -1730,7 +1796,7 @@ async function refreshSlow() {
     ]);
     const nowcastPayload = n.status === "fulfilled" ? n.value : { error: n.reason?.message || "error" };
     const marketPayload = m.status === "fulfilled" ? m.value : { error: m.reason?.message || "error" };
-    renderNowcast(nowcastPayload);
+    renderNowcast(nowcastPayload, marketPayload);
     renderMarket(marketPayload);
     renderEdge(nowcastPayload, marketPayload);
     renderIntraday(intraday.status === "fulfilled" ? intraday.value : { error: intraday.reason?.message || "error" });

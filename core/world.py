@@ -118,6 +118,9 @@ class WorldState:
         # QC state per station
         self.qc_states: Dict[str, QCState] = {}
 
+        # Daily max temperature per station (NYC settlement day)
+        self.daily_max: Dict[str, Dict] = {}  # station_id -> {date, temp_f_raw, temp_f, obs_time_utc}
+
         # SSE Subscribers (asyncio.Queue per subscriber)
         self._sse_queues: List[asyncio.Queue] = []
 
@@ -139,6 +142,7 @@ class WorldState:
         # 2. Update Head State
         if isinstance(event, OfficialObs):
             self.latest_official[event.station_id] = event
+            self._update_daily_max(event)
             source_key = f"METAR_{event.station_id}"
         elif isinstance(event, AuxObs):
             self.latest_aux[event.station_id] = event
@@ -212,6 +216,23 @@ class WorldState:
         """Store PWS source-subset metrics (all/synoptic/etc.) for diagnostics."""
         self.pws_metrics[station_id] = metrics
 
+    def _update_daily_max(self, obs: OfficialObs):
+        """Track daily max temperature per station (NYC settlement day)."""
+        nyc_date = obs.obs_time_utc.astimezone(NYC).date()
+        current = self.daily_max.get(obs.station_id)
+        if current is None or current["date"] != nyc_date:
+            # New day or first observation
+            self.daily_max[obs.station_id] = {
+                "date": nyc_date,
+                "temp_f_raw": obs.temp_f_raw,
+                "temp_f": obs.temp_f,
+                "obs_time_utc": obs.obs_time_utc,
+            }
+        elif obs.temp_f_raw > current["temp_f_raw"]:
+            current["temp_f_raw"] = obs.temp_f_raw
+            current["temp_f"] = obs.temp_f
+            current["obs_time_utc"] = obs.obs_time_utc
+
     # --- SSE Support ---
     def subscribe_sse(self) -> asyncio.Queue:
         """Create a new SSE subscriber queue."""
@@ -262,11 +283,22 @@ class WorldState:
 
     def _serialize_official(self, obs: OfficialObs) -> Dict:
         """Rich serialization for OfficialObs with dual timestamps."""
+        # Daily max for this station
+        dm = self.daily_max.get(obs.station_id)
+        dm_data = {}
+        if dm:
+            dm_data = {
+                "daily_max_f": dm["temp_f"],
+                "daily_max_f_raw": dm["temp_f_raw"],
+                "daily_max_obs_utc": dm["obs_time_utc"].isoformat(),
+            }
+
         return {
             "station_id": obs.station_id,
             "temp_c": obs.temp_c,
             "temp_f": obs.temp_f,  # Rounded for settlement
             "temp_f_raw": obs.temp_f_raw,  # With decimals for display
+            **dm_data,
             "dewpoint_c": obs.dewpoint_c,
             "wind_dir": obs.wind_dir,
             "wind_speed": obs.wind_speed,

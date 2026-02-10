@@ -86,6 +86,24 @@ def _prob_for_bucket_label(label: str, mean: float, sigma: float, distribution_t
     return None
 
 
+def _bucket_is_impossible_with_observed_max(label: str, observed_max_f: Optional[float]) -> bool:
+    if observed_max_f is None:
+        return False
+    try:
+        aligned_obs = int(round(float(observed_max_f)))
+    except Exception:
+        return False
+
+    kind, low, high = parse_label(label)
+    if kind == "range" and high is not None:
+        return high < aligned_obs
+    if kind == "below" and high is not None:
+        return high < aligned_obs
+    if kind == "single" and low is not None:
+        return low < aligned_obs
+    return False
+
+
 def _default_station_id() -> str:
     try:
         from config import get_active_stations
@@ -338,6 +356,40 @@ class AutoTraderService:
         except Exception:
             # Best-effort only; don't block context construction if Gamma API is flaky.
             pass
+
+        observed_max_f: Optional[float] = None
+        try:
+            from database import get_observed_max_for_target_date
+
+            floor_date = market_target_date or nowcast_target_date or now_local.date().isoformat()
+            if floor_date:
+                observed_max_f = get_observed_max_for_target_date(station, floor_date)
+        except Exception:
+            observed_max_f = None
+
+        if observed_max_f is not None and isinstance(nowcast, dict):
+            nowcast["observed_max_f"] = observed_max_f
+            pb = nowcast.get("p_bucket")
+            if isinstance(pb, list):
+                filtered: List[Dict[str, Any]] = []
+                total = 0.0
+                for b in pb:
+                    if not isinstance(b, dict):
+                        continue
+                    label = normalize_label(str(b.get("label") or b.get("bucket") or ""))
+                    prob = float(b.get("probability", b.get("prob", 0.0)) or 0.0)
+                    impossible = _bucket_is_impossible_with_observed_max(label, observed_max_f)
+                    if impossible:
+                        prob = 0.0
+                    filtered.append({"label": label, "probability": prob, "is_impossible": impossible})
+                    total += prob
+                if total > 0:
+                    for entry in filtered:
+                        entry["probability"] = entry["probability"] / total
+                filtered.sort(key=lambda x: float(x.get("probability") or 0.0), reverse=True)
+                nowcast["p_bucket"] = filtered
+                src = str(nowcast.get("p_bucket_source") or "")
+                nowcast["p_bucket_source"] = f"{src}+obs_floor" if src else "obs_floor"
 
         p_bucket = nowcast.get("p_bucket", [])
         confidence = float(nowcast.get("confidence", 0.0))

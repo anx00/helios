@@ -3422,11 +3422,11 @@ def _bucket_is_impossible_with_observed_max(label: str, observed_max_f: Optional
     aligned_obs = int(round(float(observed_max_f)))
     kind, low, high = parse_label(label)
     if kind == "range" and high is not None:
-        return high <= aligned_obs
+        return high < aligned_obs
     if kind == "below" and high is not None:
-        return high <= aligned_obs
+        return high < aligned_obs
     if kind == "single" and low is not None:
-        return low <= aligned_obs
+        return low < aligned_obs
     return False
 
 

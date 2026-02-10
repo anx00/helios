@@ -788,7 +788,7 @@ class NowcastEngine:
 
             # Mark impossible buckets (below observed max)
             if state.max_so_far_aligned_f > -900:
-                if bucket.bucket_high_f <= state.max_so_far_aligned_f:
+                if bucket.bucket_high_f < state.max_so_far_aligned_f:
                     bucket.is_impossible = True
                     bucket.probability = 0.0
 
