@@ -567,6 +567,7 @@ class NowcastEngine:
             "post_peak_cap_applied": False,
             "post_peak_cap_f": None,
             "post_peak_margin_f": None,
+            "remaining_max_f": None,
             "final_f": None,
         }
 
@@ -644,6 +645,22 @@ class NowcastEngine:
         # Rationale: Need time for actual peak to be reached before capping upside.
         # =========================================================================
         if state.max_so_far_aligned_f > -900 and current_hour >= peak_hour + 1:
+            remaining_max_f = None
+            try:
+                if (
+                    self._base_forecast
+                    and self._base_forecast.is_valid()
+                    and self._base_forecast.target_date == state.target_date
+                    and self._base_forecast.t_hourly_f
+                ):
+                    temps = self._base_forecast.t_hourly_f
+                    start_idx = max(0, min(len(temps) - 1, int(math.floor(current_hour))))
+                    remaining_max_f = max(temps[start_idx:]) if temps else None
+                    if remaining_max_f is not None:
+                        breakdown["remaining_max_f"] = round(float(remaining_max_f), 1)
+            except Exception:
+                remaining_max_f = None
+
             sunset_hour = 17
             hours_to_sunset = max(0, sunset_hour - current_hour)
             peak_to_sunset_span = max(1, sunset_hour - peak_hour)
@@ -653,7 +670,10 @@ class NowcastEngine:
             else:
                 margin_f = 0.5  # At or past sunset
 
+            # Never cap below what the base curve still expects can happen today.
             post_peak_cap = state.max_so_far_aligned_f + margin_f
+            if remaining_max_f is not None:
+                post_peak_cap = max(float(post_peak_cap), float(remaining_max_f))
 
             if adjusted > post_peak_cap:
                 breakdown["post_peak_cap_applied"] = True
@@ -778,9 +798,13 @@ class NowcastEngine:
         # Calculate probability mass for each bucket
         total_prob = 0.0
         for bucket in buckets:
+            # Settlement is on integer °F (round half-up). Approximate bucket probability
+            # by integrating over half-integer boundaries for the inclusive bucket label.
+            low = float(bucket.bucket_low_f) - 0.5
+            high = float(bucket.bucket_high_f) + 0.5
             prob = self._integrate_distribution(
-                bucket.bucket_low_f,
-                bucket.bucket_high_f,
+                low,
+                high,
                 mean_f,
                 sigma_f
             )
@@ -844,10 +868,13 @@ class NowcastEngine:
 
         p_ge = {}
         for strike in strikes:
+            # Settlement rounds to integer °F (half-up); P(settlement >= strike)
+            # corresponds to P(raw >= strike - 0.5).
+            boundary = float(strike) - 0.5
             if self.config.distribution_type == "logistic":
-                prob = 1 - self._logistic_cdf(strike, mean_f, sigma_f)
+                prob = 1 - self._logistic_cdf(boundary, mean_f, sigma_f)
             else:
-                prob = 1 - self._normal_cdf(strike, mean_f, sigma_f)
+                prob = 1 - self._normal_cdf(boundary, mean_f, sigma_f)
             p_ge[strike] = round(prob, 4)
 
         return p_ge
@@ -868,7 +895,7 @@ class NowcastEngine:
         """
         bins = create_2hour_t_peak_bins()
         now_local = datetime.now(UTC).astimezone(self.station_tz)
-        current_hour = now_local.hour
+        current_hour = now_local.hour + (now_local.minute / 60.0)
 
         # Base weights from temperature curve
         if (
@@ -884,11 +911,6 @@ class NowcastEngine:
             for bin in bins:
                 bin_mid_hour = (bin.bin_start_hour + bin.bin_end_hour) / 2
 
-                # Can't have peak in the past
-                if bin.bin_end_hour <= current_hour:
-                    bin.probability = 0.0
-                    continue
-
                 # Get temps in this bin's range
                 bin_temps = []
                 for h in range(bin.bin_start_hour, min(bin.bin_end_hour, len(temps))):
@@ -902,17 +924,27 @@ class NowcastEngine:
                     bin.probability = math.exp(-diff / 2.0)  # Exponential falloff
                 else:
                     bin.probability = 0.0
+
+                # If we're already past this bin, decay but don't zero it out: at late hours,
+                # the daily Tmax peak is very often in the past.
+                if bin.bin_end_hour <= current_hour:
+                    hours_past = current_hour - bin.bin_end_hour
+                    tau = 10.0 if state.trend_f_per_hour < -0.5 else (4.0 if state.trend_f_per_hour > 1.0 else 7.0)
+                    bin.probability *= math.exp(-hours_past / max(1.0, tau))
         else:
             # Default: typical afternoon peak
             for bin in bins:
-                if bin.bin_end_hour <= current_hour:
-                    bin.probability = 0.0
-                elif 12 <= bin.bin_start_hour <= 16:
+                if 12 <= bin.bin_start_hour <= 16:
                     bin.probability = 0.3
                 elif 10 <= bin.bin_start_hour < 12 or 16 < bin.bin_start_hour <= 18:
                     bin.probability = 0.1
                 else:
                     bin.probability = 0.05
+
+                if bin.bin_end_hour <= current_hour:
+                    hours_past = current_hour - bin.bin_end_hour
+                    tau = 10.0 if state.trend_f_per_hour < -0.5 else (4.0 if state.trend_f_per_hour > 1.0 else 7.0)
+                    bin.probability *= math.exp(-hours_past / max(1.0, tau))
 
         # Adjust based on trend
         if state.trend_f_per_hour > 1.0:

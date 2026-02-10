@@ -439,6 +439,19 @@
             grid-template-columns: repeat(2, 1fr);
         }
     }
+
+    .hourly-wrap {
+        height: 320px;
+        min-height: 240px;
+        position: relative;
+    }
+    .hourly-meta {
+        margin-top: 10px;
+        font-size: 11px;
+        color: var(--text-secondary);
+        font-family: 'JetBrains Mono', monospace;
+        overflow-wrap: anywhere;
+    }
 </style>
 {% endblock %}
 
@@ -543,6 +556,20 @@
         </div>
     </div>
 
+    <!-- Hourly Temperature Curve -->
+    <div class="nowcast-panel">
+        <div class="nowcast-panel-header">
+            <div class="nowcast-panel-title">
+                <i data-lucide="trending-up"></i>
+                Hourly Temperature Curve
+            </div>
+        </div>
+        <div class="hourly-wrap">
+            <canvas id="hourly-chart"></canvas>
+        </div>
+        <div class="hourly-meta" id="hourly-meta">--</div>
+    </div>
+
     <!-- Explanations -->
     <div class="nowcast-panel">
         <div class="nowcast-panel-header">
@@ -563,6 +590,7 @@
 (function() {
     let currentStation = 'KLGA';
     let pollInterval = null;
+    let hourlyChart = null;
 
     // Station timezone info
     const stationTimezones = {};  // stationId -> IANA timezone
@@ -757,23 +785,26 @@
     async function loadNowcast() {
         try {
             // Fetch distribution, state, and market data in parallel
-            const [distResp, stateResp, marketResp] = await Promise.all([
+            const [distResp, stateResp, marketResp, metarResp] = await Promise.all([
                 fetch(`/api/v3/nowcast/${currentStation}`),
                 fetch(`/api/v3/nowcast/${currentStation}/state`),
-                fetch(`/api/market/${currentStation}`)
+                fetch(`/api/market/${currentStation}`),
+                fetch(`/api/v2/world/metar_history/${currentStation}`)
             ]);
 
             const data = await distResp.json();
             const state = await stateResp.json();
             let marketData = null;
             try { marketData = await marketResp.json(); } catch {}
+            let metarHistory = null;
+            try { metarHistory = await metarResp.json(); } catch {}
 
             if (data.error) {
                 console.warn('Nowcast error:', data.error);
                 return;
             }
 
-            renderNowcast(data, state, marketData);
+            renderNowcast(data, state, marketData, metarHistory);
 
             // Update timestamp - show NYC time from data
             const updateTime = data.ts_nyc ?
@@ -786,7 +817,7 @@
         }
     }
 
-    function renderNowcast(data, state, marketData) {
+    function renderNowcast(data, state, marketData, metarHistory) {
         // Check for market resolution via live Polymarket probabilities
         checkMarketResolution(marketData);
 
@@ -868,6 +899,9 @@
 
         // Explanations
         renderExplanations(data.explanations || []);
+
+        // Hourly temperature curve (base vs nowcast-adjusted vs observed)
+        renderHourlyChart(data, metarHistory);
     }
 
     function checkMarketResolution(marketData) {
@@ -1019,6 +1053,131 @@
             `;
             container.appendChild(item);
         }
+    }
+
+    function renderHourlyChart(data, metarHistory) {
+        const canvas = document.getElementById('hourly-chart');
+        const meta = document.getElementById('hourly-meta');
+        if (!canvas) return;
+
+        if (hourlyChart) {
+            hourlyChart.destroy();
+            hourlyChart = null;
+        }
+
+        const base = Array.isArray(data?.base_hourly_f) ? data.base_hourly_f : [];
+        const adjusted = Array.isArray(data?.nowcast_hourly_f) ? data.nowcast_hourly_f : [];
+
+        if (!base.length && !adjusted.length) {
+            if (meta) meta.textContent = 'No hourly base forecast available.';
+            return;
+        }
+
+        const basePts = [];
+        const adjPts = [];
+        for (let h = 0; h < 24; h += 1) {
+            const b = Number(base[h]);
+            const a = Number(adjusted[h]);
+            basePts.push({ x: h, y: Number.isFinite(b) ? b : null });
+            adjPts.push({ x: h, y: Number.isFinite(a) ? a : null });
+        }
+
+        const obsPts = [];
+        if (metarHistory && Array.isArray(metarHistory.observations)) {
+            for (const r of metarHistory.observations) {
+                const t = Number(r?.temp_f_raw);
+                const timeStr = String(r?.obs_time_local || '');
+                const parts = timeStr.split(':');
+                if (parts.length >= 2) {
+                    const hh = parseInt(parts[0], 10);
+                    const mm = parseInt(parts[1], 10);
+                    const x = hh + (mm / 60.0);
+                    if (Number.isFinite(x) && Number.isFinite(t)) obsPts.push({ x, y: t });
+                }
+            }
+        }
+
+        const obsMax = (() => {
+            let m = null;
+            for (const p of obsPts) {
+                if (m === null || p.y > m) m = p.y;
+            }
+            return m;
+        })();
+
+        const ctx = canvas.getContext('2d');
+        hourlyChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                datasets: [
+                    {
+                        label: `Base (${data?.base_forecast_source || 'N/A'})`,
+                        data: basePts,
+                        borderColor: 'rgba(0, 212, 255, 0.70)',
+                        backgroundColor: 'rgba(0, 212, 255, 0.08)',
+                        tension: 0.25,
+                        pointRadius: 0,
+                        spanGaps: true,
+                    },
+                    {
+                        label: 'Nowcast-adjusted',
+                        data: adjPts,
+                        borderColor: 'rgba(16, 185, 129, 0.80)',
+                        backgroundColor: 'rgba(16, 185, 129, 0.08)',
+                        tension: 0.25,
+                        pointRadius: 0,
+                        spanGaps: true,
+                    },
+                    {
+                        label: 'Observed (METAR)',
+                        type: 'scatter',
+                        data: obsPts,
+                        borderColor: 'rgba(244, 208, 63, 0.95)',
+                        backgroundColor: 'rgba(244, 208, 63, 0.95)',
+                        pointRadius: 3,
+                        showLine: false,
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        labels: {
+                            color: '#cbd5e1',
+                            font: { size: 11 }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        type: 'linear',
+                        min: 0,
+                        max: 23,
+                        ticks: {
+                            stepSize: 2,
+                            color: '#94a3b8',
+                            callback: (v) => `${String(v).padStart(2, '0')}:00`,
+                        },
+                        grid: { color: 'rgba(255,255,255,0.05)' }
+                    },
+                    y: {
+                        ticks: { color: '#94a3b8' },
+                        grid: { color: 'rgba(255,255,255,0.05)' }
+                    }
+                }
+            }
+        });
+
+        const bits = [];
+        if (Number.isFinite(Number(data?.base_tmax_f))) {
+            const h = Number.isFinite(Number(data?.base_peak_hour)) ? String(Number(data.base_peak_hour)).padStart(2, '0') : '--';
+            bits.push(`base tmax ${Number(data.base_tmax_f).toFixed(1)}F @ ${h}:00`);
+        }
+        if (Number.isFinite(Number(data?.tmax_mean_f))) bits.push(`nowcast tmax ${Number(data.tmax_mean_f).toFixed(1)}F`);
+        if (obsMax !== null) bits.push(`observed max ${obsMax.toFixed(1)}F`);
+        if (meta) meta.textContent = bits.length ? bits.join(' | ') : '--';
     }
 
     // Cleanup on page unload

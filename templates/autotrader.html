@@ -236,6 +236,30 @@
         width: 180px;
         min-width: 180px;
     }
+    .signal-table {
+        /* Keep the timeline table readable on narrow panels; allow the Risk cell to wrap. */
+        table-layout: fixed;
+    }
+    .signal-table th:nth-child(2),
+    .signal-table td:nth-child(2) {
+        width: 160px;
+    }
+    .signal-table th:nth-child(3),
+    .signal-table td:nth-child(3) {
+        width: 110px;
+    }
+    .signal-table th:nth-child(5),
+    .signal-table td:nth-child(5) {
+        width: 90px;
+    }
+    .signal-table th:nth-child(6),
+    .signal-table td:nth-child(6) {
+        width: 70px;
+    }
+    .signal-table td:nth-child(4) {
+        white-space: normal;
+        overflow-wrap: anywhere;
+    }
     .mono { font-family: 'JetBrains Mono', monospace; }
     .cost-highlight { color: #fbbf24; font-weight: 600; }
     .actions { display: flex; flex-direction: column; gap: 3px; }

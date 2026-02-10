@@ -466,12 +466,14 @@ async def nowcast_loop():
     """Phase 3: Nowcast Engine integration loop."""
     import asyncio
     from collector.hrrr_fetcher import fetch_hrrr
+    from collector.metar_fetcher import fetch_metar_history
     from collector.wunderground_fetcher import fetch_wunderground_max
     from core.nowcast_integration import (
         extract_hourly_temps_f_for_date,
         get_nowcast_integration,
         initialize_nowcast_integration,
     )
+    from core.judge import JudgeAlignment
     from config import get_active_stations
     logger = logging.getLogger("nowcast_loop")
     logger.info("Starting Phase 3 Nowcast Engine...")
@@ -489,6 +491,113 @@ async def nowcast_loop():
         # BaseForecast bootstrap/refresh
         # ------------------------------------------------------------------
         integration = get_nowcast_integration()
+
+        # ------------------------------------------------------------------
+        # METAR Max Backfill (NOAA history)
+        # ------------------------------------------------------------------
+        # Rationale: our event-driven METAR ingest can miss an observation due to transient
+        # network/race failures. That breaks the hard constraint: Tmax >= max_observed.
+        #
+        # This loop periodically reconciles "max so far" using NOAA's historical feed,
+        # and updates the nowcast DailyState if we detect a higher observed max (or a newer
+        # official observation).
+        async def _backfill_noaa_metar_state_for_station(station_id: str) -> bool:
+            station = STATIONS.get(station_id)
+            if not station:
+                return False
+
+            engine = integration.get_engine(station_id)
+            now_utc = datetime.now(ZoneInfo("UTC"))
+
+            try:
+                target_date = engine._get_target_date(now_utc)
+            except Exception:
+                station_tz = ZoneInfo(station.timezone)
+                target_date = datetime.now(station_tz).date()
+
+            station_tz = ZoneInfo(station.timezone)
+            now_local = now_utc.astimezone(station_tz)
+
+            # Fetch enough hours to cover from midnight local for the *target_date*.
+            # If the target_date differs (rare), just grab a full day.
+            if now_local.date() == target_date:
+                hours_since_midnight = now_local.hour + 1
+                hours = max(hours_since_midnight + 2, 6)
+            else:
+                hours = 26
+
+            try:
+                history = await fetch_metar_history(station_id, hours=hours)
+            except Exception:
+                return False
+
+            obs: List[tuple[datetime, float, float]] = []
+            for h in history or []:
+                try:
+                    h_local = h.observation_time.astimezone(station_tz)
+                    if h_local.date() != target_date:
+                        continue
+                    if h.temp_c is None:
+                        continue
+                    temp_f_raw = float(JudgeAlignment.celsius_to_fahrenheit(h.temp_c))
+                    temp_f_aligned = float(JudgeAlignment.round_to_settlement(temp_f_raw))
+                    obs.append((h.observation_time, temp_f_raw, temp_f_aligned))
+                except Exception:
+                    continue
+
+            if not obs:
+                return False
+
+            obs.sort(key=lambda x: x[0])
+            latest_time, latest_raw_f, latest_aligned_f = obs[-1]
+            max_time, max_raw_f, max_aligned_f = max(obs, key=lambda x: x[1])
+
+            state = engine.get_or_create_daily_state(target_date=target_date)
+
+            updated = False
+            if max_aligned_f > state.max_so_far_aligned_f or max_raw_f > state.max_so_far_raw_f:
+                state.update_max(max_aligned_f, max_raw_f, max_time)
+                updated = True
+
+            if state.last_obs_time_utc is None or latest_time > state.last_obs_time_utc:
+                state.last_obs_time_utc = latest_time
+                state.last_obs_temp_f = latest_raw_f
+                state.last_obs_aligned_f = latest_aligned_f
+                state.last_obs_source = "NOAA_HISTORY_BACKFILL"
+                state.last_update_utc = datetime.now(ZoneInfo("UTC"))
+                updated = True
+
+            if updated:
+                try:
+                    engine.generate_distribution()
+                except Exception:
+                    pass
+
+            return updated
+
+        async def _noaa_metar_backfill_loop() -> None:
+            while True:
+                try:
+                    active_now = get_active_stations()
+                    tasks = []
+                    for sid in list(active_now.keys()):
+                        tasks.append(_backfill_noaa_metar_state_for_station(sid))
+                    if tasks:
+                        await asyncio.gather(*tasks, return_exceptions=True)
+                except Exception as e:
+                    logger.warning("Nowcast METAR backfill loop error: %s", e)
+                await asyncio.sleep(120)
+
+        # Run once right away, then keep reconciling in the background.
+        try:
+            active_now = get_active_stations()
+            await asyncio.gather(
+                *[_backfill_noaa_metar_state_for_station(sid) for sid in list(active_now.keys())],
+                return_exceptions=True,
+            )
+        except Exception:
+            pass
+        asyncio.create_task(_noaa_metar_backfill_loop())
 
         async def _refresh_base_forecast_for_station(station_id: str) -> bool:
             station = active.get(station_id)
@@ -1019,14 +1128,49 @@ async def get_nowcast_distribution(station_id: str):
 
     from core.nowcast_integration import get_nowcast_integration
     integration = get_nowcast_integration()
+    engine = integration.get_engine(station_id)
 
     distribution = integration.get_distribution(station_id)
     if not distribution:
         # Generate one on demand
-        engine = integration.get_engine(station_id)
         distribution = engine.generate_distribution()
 
-    return distribution.to_dict() if distribution else {"error": "No distribution available"}
+    if not distribution:
+        return {"error": "No distribution available"}
+
+    payload = distribution.to_dict()
+
+    # Optional: expose hourly temperature curve for UI debugging/inspection.
+    try:
+        base = engine.get_base_forecast()
+        if (
+            base
+            and base.is_valid()
+            and base.target_date == distribution.target_date
+            and getattr(base, "t_hourly_f", None)
+        ):
+            base_hourly = [round(float(t), 1) for t in list(base.t_hourly_f)]
+            payload["base_hourly_f"] = base_hourly
+            payload["base_peak_hour"] = int(getattr(base, "t_peak_hour", 14))
+            payload["base_tmax_f"] = round(float(getattr(base, "t_max_base_f", max(base_hourly) if base_hourly else 0.0)), 1)
+
+            # Build a shape-preserving "nowcast adjusted" hourly curve by nudging the peak region
+            # so its daily max matches the nowcast Tmax mean.
+            tmax = float(distribution.tmax_mean_f)
+            base_tmax = float(payload.get("base_tmax_f") or 0.0)
+            delta = tmax - base_tmax
+            peak = int(payload.get("base_peak_hour") or 14)
+            adjusted = []
+            for h, t in enumerate(base_hourly):
+                w = max(0.0, 1.0 - (abs(h - peak) / 10.0))
+                adjusted.append(round(float(t) + (delta * w), 1))
+            payload["nowcast_hourly_f"] = adjusted
+            if adjusted:
+                payload["nowcast_hourly_peak_hour"] = int(max(range(len(adjusted)), key=lambda i: adjusted[i]))
+    except Exception:
+        pass
+
+    return payload
 
 
 @app.get("/api/v3/nowcast/{station_id}/state")
@@ -3626,7 +3770,20 @@ async def autotrader_nowcast(target_day: int = 0):
                 continue
             market_probs[label] = yes_prob
 
-    observed_max_f = get_observed_max_for_target_date(station_id, requested_target_date)
+    # Prefer nowcast engine state (backfilled from NOAA history) over DB-only observed max.
+    observed_max_f_db = get_observed_max_for_target_date(station_id, requested_target_date)
+    observed_max_f_state: Optional[float] = None
+    try:
+        if raw.get("target_date") == requested_target_date:
+            state = integration.get_engine(station_id).get_or_create_daily_state(target_date=distribution.target_date)
+            if state.max_so_far_aligned_f > -900:
+                observed_max_f_state = float(state.max_so_far_aligned_f)
+    except Exception:
+        observed_max_f_state = None
+
+    observed_max_f = observed_max_f_db
+    if observed_max_f_state is not None:
+        observed_max_f = observed_max_f_state if observed_max_f is None else max(float(observed_max_f), observed_max_f_state)
     calibrated = _calibrate_nowcast_with_market(
         raw_p_bucket=raw.get("p_bucket") or [],
         market_probs=market_probs,
@@ -3747,7 +3904,17 @@ async def autotrader_intraday(target_day: int = 0, limit: int = 2000):
     observed_max_f = None
     market_series: List[Dict[str, Any]] = []
     if station_id and target_date:
-        observed_max_f = get_observed_max_for_target_date(station_id, target_date)
+        observed_max_f_db = get_observed_max_for_target_date(station_id, target_date)
+        observed_max_f = observed_max_f_db
+        try:
+            from core.nowcast_integration import get_nowcast_integration
+            td = date.fromisoformat(str(target_date))
+            state = get_nowcast_integration().get_engine(station_id).get_or_create_daily_state(target_date=td)
+            if state.max_so_far_aligned_f > -900:
+                state_max = float(state.max_so_far_aligned_f)
+                observed_max_f = state_max if observed_max_f is None else max(float(observed_max_f), state_max)
+        except Exception:
+            pass
         try:
             for row in iter_performance_history_by_target_date(station_id, target_date):
                 market_series.append(
