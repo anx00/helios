@@ -125,7 +125,8 @@
 
     .kpi-grid {
         display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
+        /* Auto-wrap based on available width (works even with sidebar). */
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
         gap: 10px;
         margin-bottom: 14px;
     }
@@ -162,9 +163,21 @@
     .neg { color: #EF4444; }
 
     .layout {
-        display: grid;
-        grid-template-columns: 1.45fr 1fr;
+        /* Flex-wrap adapts to the real available width (not just viewport breakpoints). */
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
         gap: 12px;
+    }
+    /* Prevent long content from forcing horizontal overflow in flex/grid contexts. */
+    .layout > div {
+        min-width: 0;
+    }
+    .layout > div:first-child {
+        flex: 1.45 1 640px;
+    }
+    .layout > div:last-child {
+        flex: 1 1 420px;
     }
     .panel {
         background: var(--bg-secondary);
@@ -172,11 +185,14 @@
         border-radius: 12px;
         padding: 12px;
         margin-bottom: 12px;
+        min-width: 0;
     }
     .panel-header {
         display: flex;
         align-items: center;
         justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 10px;
         margin-bottom: 9px;
         padding-bottom: 8px;
         border-bottom: 1px solid rgba(255,255,255,0.06);
@@ -190,10 +206,13 @@
     .panel-meta {
         font-size: 11px;
         color: var(--text-secondary);
+        min-width: 0;
+        overflow-wrap: anywhere;
     }
     .table-wrap {
         max-height: 460px;
         overflow: auto;
+        max-width: 100%;
     }
     .table {
         width: 100%;
@@ -258,7 +277,8 @@
 
     .metric-grid {
         display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        /* Collapses to 1 column when the panel is narrow (no viewport dependency). */
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
         gap: 8px;
     }
     .metric {
@@ -266,13 +286,14 @@
         border-radius: 8px;
         padding: 8px;
         background: rgba(255,255,255,0.03);
+        min-width: 0;
     }
     .metric .label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 4px; letter-spacing: 0.3px; }
-    .metric .value { font-family: 'JetBrains Mono', monospace; font-size: 14px; }
+    .metric .value { font-family: 'JetBrains Mono', monospace; font-size: 14px; overflow-wrap: anywhere; }
 
     .execution-grid {
         display: grid;
-        grid-template-columns: 1fr 1fr;
+        grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
         gap: 10px;
     }
     .mini-list {
@@ -294,6 +315,8 @@
         background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.015));
     }
     .mini-item .head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; font-size: 11px; color: var(--text-secondary); margin-bottom: 5px; }
+    .mini-item .head > span { min-width: 0; }
+    .mini-item .head > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .mini-item .line { font-size: 13px; font-weight: 600; }
     .tz-stack {
         display: flex;
@@ -399,9 +422,8 @@
     .edge-action.sell { color: #EF4444; }
     .edge-action.hold { color: var(--text-secondary); font-weight: 700; }
 
-    @media (max-width: 1300px) { .kpi-grid { grid-template-columns: repeat(2, minmax(0,1fr)); } }
-    @media (max-width: 1100px) { .layout { grid-template-columns: 1fr; } }
     @media (max-width: 760px) {
+        /* Force single-column on very small viewports for readability. */
         .kpi-grid { grid-template-columns: 1fr; }
         .metric-grid { grid-template-columns: 1fr; }
         .control-msg { width: 100%; margin-left: 0; }
@@ -419,6 +441,19 @@
         .mini-list {
             min-height: 250px;
         }
+    }
+
+    .strategy-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        font-size: 12px;
+    }
+    .strategy-name {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 </style>
 {% endblock %}
@@ -979,8 +1014,8 @@ function renderStrategies(rows) {
         const rew = Number(r.reward_sum || 0);
         return `
             <div style="margin-bottom:9px;">
-                <div style="display:flex;justify-content:space-between;font-size:12px;">
-                    <span>${esc(r.name || "--")} (${r.selected_count || 0})</span>
+                <div class="strategy-row">
+                    <span class="strategy-name">${esc(r.name || "--")} (${r.selected_count || 0})</span>
                     <span class="mono ${rew > 0 ? "pos" : (rew < 0 ? "neg" : "")}">${signed(rew, 4)}</span>
                 </div>
                 <div class="bar-wrap"><div class="bar" style="width:${w.toFixed(1)}%"></div></div>
