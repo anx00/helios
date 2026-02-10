@@ -5,12 +5,15 @@ Fetches multi-model forecasts from Open-Meteo API.
 
 import httpx
 import asyncio
+import logging
 from dataclasses import dataclass
 from typing import Optional, List
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 
 from config import OPEN_METEO_URL
+
+logger = logging.getLogger("hrrr_fetcher")
 
 
 @dataclass
@@ -138,12 +141,6 @@ async def fetch_model_forecast(
             # Calculate max from the full 24h cycle
             max_temp_c = max(full_day_temps)
             
-            # DEBUG: Print curve to verify resolution and shape
-            # (Limiting output to verify KATL which is around lat 33)
-            if 33.0 < latitude < 34.0: 
-                print(f"[DEBUG] KATL ({model or 'Merged'}) Day +{target_days_ahead} Curve: {[round(t, 1) for t in full_day_temps]}")
-                print(f"[DEBUG] Max Found: {max_temp_c:.2f}°C")
-
             # Get current hour values (for initial conditions)
             current_temp = None
             current_soil = None
@@ -174,7 +171,8 @@ async def fetch_model_forecast(
             )
             
     except Exception as e:
-        print(f"✗ {model or 'default'} model error: {e}")
+        # Keep logs ASCII-safe; Windows consoles may not support all Unicode symbols.
+        logger.warning("[%s] model error: %s", model or "default", e)
         return None
 
 
@@ -214,25 +212,10 @@ async def fetch_hrrr(latitude: float, longitude: float, target_days_ahead: int =
         
         hrrr_forecast, gfs_forecast = await asyncio.gather(primary_task, secondary_task)
     except Exception as e:
-        print(f"  [WARN] Error fetching models: {e}")
+        logger.warning("Error fetching models for (%.4f, %.4f): %s", latitude, longitude, e)
         hrrr_forecast, gfs_forecast = None, None
-    
-    if not hrrr_forecast and not gfs_forecast:
-        print(f"[ERR] No forecast data available for ({latitude}, {longitude})")
-        return None
-    
-    # Calculate consensus values
-    if hrrr_forecast and gfs_forecast:
-        consensus_max_c = (hrrr_forecast.max_forecast_c + gfs_forecast.max_forecast_c) / 2
-        divergence = abs(hrrr_forecast.max_forecast_c - gfs_forecast.max_forecast_c)
-    elif hrrr_forecast:
-        consensus_max_c = hrrr_forecast.max_forecast_c
-        divergence = 0.0
-    else:
-        consensus_max_c = gfs_forecast.max_forecast_c
-        divergence = 0.0
-    
-    # Fetch hourly data for trajectory capture
+
+    # Fetch hourly data for trajectory capture (and BaseForecast ingestion).
     hourly_temps = None
     hourly_times = None
     try:
@@ -251,7 +234,31 @@ async def fetch_hrrr(latitude: float, longitude: float, target_days_ahead: int =
                 hourly_temps = hourly.get("temperature_2m", [])
                 hourly_times = hourly.get("time", [])
     except Exception as e:
-        print(f"  [WARN] Failed to fetch hourly data for trajectory: {e}")
+        logger.warning("Failed to fetch hourly temperature curve for (%.4f, %.4f): %s", latitude, longitude, e)
+
+    if not hrrr_forecast and not gfs_forecast and not hourly_temps:
+        logger.error("No forecast data available for (%.4f, %.4f)", latitude, longitude)
+        return None
+
+    # Calculate consensus values.
+    # If both model forecasts are missing but we do have an hourly curve, derive a max from it.
+    if hrrr_forecast and gfs_forecast:
+        consensus_max_c = (hrrr_forecast.max_forecast_c + gfs_forecast.max_forecast_c) / 2
+        divergence = abs(hrrr_forecast.max_forecast_c - gfs_forecast.max_forecast_c)
+    elif hrrr_forecast:
+        consensus_max_c = hrrr_forecast.max_forecast_c
+        divergence = 0.0
+    elif gfs_forecast:
+        consensus_max_c = gfs_forecast.max_forecast_c
+        divergence = 0.0
+    else:
+        # Hourly curve is in Celsius from Open-Meteo. Use a conservative max over the first 24h window.
+        try:
+            temps = [t for t in (hourly_temps or []) if t is not None]
+            consensus_max_c = max(temps[:24]) if temps else 0.0
+        except Exception:
+            consensus_max_c = 0.0
+        divergence = 0.0
     
     return MultiModelData(
         latitude=latitude,

@@ -28,6 +28,13 @@ from database import (
 )
 from config import STATIONS, get_active_stations
 import sys
+try:
+    # Prevent UnicodeEncodeError on Windows when parts of the stack use emoji/box-drawing
+    # in debug prints (e.g., main.collect_and_predict).
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+except Exception:
+    pass
 sys.path.append(".")
 from main import collect_and_predict
 from market.polymarket_checker import build_event_slug, fetch_event_data, check_market_resolution
@@ -494,25 +501,54 @@ async def nowcast_loop():
             logger.info("Nowcast BaseForecast updated (%s): tmax_base=%.1fF", station_id, max(hourly_temps_f))
             return True
 
-        # Bootstrap immediately so early-day nowcasts aren't using the naive fallback.
-        for sid in list(active.keys()):
-            try:
-                await _refresh_base_forecast_for_station(sid)
-            except Exception as e:
-                logger.warning("Nowcast BaseForecast bootstrap failed (%s): %s", sid, e)
-
-        # Keep BaseForecast fresh (Open-Meteo HRRR is cheap enough; refresh only when missing/stale).
+        # Keep BaseForecast fresh.
+        # If we're missing/stale (common right after boot or after transient API errors),
+        # retry quickly to avoid early-day nowcasts using the naive fallback.
+        sleep_s: int = 0
         while True:
-            await asyncio.sleep(20 * 60)
+            if sleep_s:
+                await asyncio.sleep(sleep_s)
+
             try:
                 active = get_active_stations()
+                missing: List[str] = []
+
                 for sid in list(active.keys()):
                     try:
                         await _refresh_base_forecast_for_station(sid)
                     except Exception as e:
                         logger.warning("Nowcast BaseForecast refresh failed (%s): %s", sid, e)
+
+                    try:
+                        station = active.get(sid)
+                        if not station:
+                            missing.append(sid)
+                            continue
+
+                        engine = integration.get_engine(sid)
+                        now_utc = datetime.now(ZoneInfo("UTC"))
+                        try:
+                            target_date = engine._get_target_date(now_utc)
+                        except Exception:
+                            station_tz = ZoneInfo(station.timezone)
+                            target_date = datetime.now(station_tz).date()
+
+                        base = engine.get_base_forecast()
+                        ok = bool(
+                            base
+                            and base.is_valid()
+                            and base.target_date == target_date
+                            and getattr(base, "t_hourly_f", None)
+                        )
+                        if not ok:
+                            missing.append(sid)
+                    except Exception:
+                        missing.append(sid)
+
+                sleep_s = 60 if missing else (20 * 60)
             except Exception as e:
                 logger.warning("Nowcast BaseForecast refresh loop error: %s", e)
+                sleep_s = 60
     except Exception as e:
         logger.error(f"Nowcast integration failed: {e}")
 
@@ -876,6 +912,7 @@ async def trigger_nowcast_update(station_id: str):
     from core.nowcast_integration import get_nowcast_integration, extract_hourly_temps_f_for_date
     from collector.metar_fetcher import fetch_metar_race
     from collector.hrrr_fetcher import fetch_hrrr
+    from collector.wunderground_fetcher import fetch_wunderground_max
     from datetime import timezone
 
     integration = get_nowcast_integration()
@@ -895,11 +932,30 @@ async def trigger_nowcast_update(station_id: str):
                 station_tz
             )
             if hourly_temps_f:
+                # Align BaseForecast peak with WU when it diverges materially.
+                model_source = "HRRR"
+                try:
+                    wu = await fetch_wunderground_max(station_id, target_date=target_date)
+                    wu_high = float(wu.forecast_high_f) if wu and wu.forecast_high_f is not None else None
+                    om_max = max(hourly_temps_f) if hourly_temps_f else None
+                    if wu_high is not None and om_max is not None and abs(wu_high - om_max) >= 2.0:
+                        delta = wu_high - om_max
+                        delta = max(-12.0, min(12.0, float(delta)))  # Safety clamp.
+                        peak_hour = hourly_temps_f.index(om_max)
+                        adjusted = []
+                        for h, t in enumerate(hourly_temps_f):
+                            w = max(0.0, 1.0 - (abs(h - peak_hour) / 10.0))
+                            adjusted.append(round(float(t) + (delta * w), 1))
+                        hourly_temps_f = adjusted
+                        model_source = "HRRR+WU"
+                except Exception:
+                    pass
+
                 integration.on_hrrr_update(
                     station_id=station_id,
                     hourly_temps_f=hourly_temps_f,
                     model_run_time=forecast.fetch_time,
-                    model_source="HRRR",
+                    model_source=model_source,
                     target_date=target_date
                 )
     except Exception:
@@ -913,7 +969,7 @@ async def trigger_nowcast_update(station_id: str):
             from core.models import OfficialObs
             obs = OfficialObs(
                 obs_time_utc=metar.observation_time,
-                source=metar.source,
+                source=getattr(metar, "source", "METAR_RACE"),
                 station_id=station_id,
                 temp_c=metar.temp_c,
                 temp_f=metar.temp_f,
