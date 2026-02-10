@@ -205,6 +205,75 @@
         color: var(--text-secondary);
     }
 
+    /* Daily Max Row */
+    .daily-max-row {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 10px 14px;
+        margin-bottom: 16px;
+        background: rgba(249, 115, 22, 0.06);
+        border: 1px solid rgba(249, 115, 22, 0.18);
+        border-radius: 10px;
+    }
+
+    .daily-max-label {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: #F97316;
+        font-weight: 700;
+    }
+
+    .daily-max-value {
+        font-size: 22px;
+        font-weight: 700;
+        font-family: 'Space Grotesk', sans-serif;
+        color: #F97316;
+    }
+
+    .daily-max-meta {
+        font-size: 11px;
+        color: var(--text-muted);
+        font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* METAR History Table */
+    .metar-history-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+    }
+
+    .metar-history-table th {
+        text-align: left;
+        padding: 8px 10px;
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: var(--text-muted);
+        font-weight: 600;
+        background: rgba(255, 255, 255, 0.02);
+        position: sticky;
+        top: 0;
+        z-index: 1;
+    }
+
+    .metar-history-table td {
+        padding: 7px 10px;
+        font-family: 'JetBrains Mono', monospace;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    }
+
+    .metar-history-table tr.is-max td {
+        background: rgba(249, 115, 22, 0.08);
+    }
+
+    .metar-history-table .temp-max-marker {
+        color: #F97316;
+        font-weight: 700;
+    }
+
     /* Env Feature Cards */
     .env-grid {
         display: grid;
@@ -575,6 +644,16 @@
                     <span class="metar-unit">F</span>
                     <span class="metar-age-live normal" id="metar-age-live"></span>
                 </div>
+                <div class="daily-max-row" id="daily-max-row" style="display:none;">
+                    <div>
+                        <div class="daily-max-label">Daily Max (NOAA)</div>
+                    </div>
+                    <div class="daily-max-value" id="daily-max-temp">--</div>
+                    <div>
+                        <div class="daily-max-meta" id="daily-max-raw">--</div>
+                        <div class="daily-max-meta" id="daily-max-time">--</div>
+                    </div>
+                </div>
                 <div class="metar-details">
                     <div class="detail-item">
                         <span class="detail-label">Station</span>
@@ -627,6 +706,22 @@
                         <span class="ts-value" id="metar-obs-mad">--</span>
                     </div>
                 </div>
+            </div>
+        </div>
+
+        <!-- ============================== -->
+        <!-- METAR History Panel (Today)    -->
+        <!-- ============================== -->
+        <div class="world-panel full-width" id="panel-metar-history">
+            <div class="panel-header">
+                <span class="panel-title">
+                    <i data-lucide="clock" style="width:16px;height:16px;"></i>
+                    METAR History (Today NYC)
+                </span>
+                <span style="font-size: 11px; color: var(--text-muted);" id="metar-history-count">--</span>
+            </div>
+            <div id="metar-history-content" style="max-height: 400px; overflow-y: auto;">
+                <p style="color: var(--text-muted); font-size: 13px;">Loading METAR history...</p>
             </div>
         </div>
 
@@ -855,6 +950,9 @@
 
         // Re-render with existing data
         if (lastSnapshot) renderAll(lastSnapshot);
+
+        // Reload METAR history for new station
+        fetchMetarHistory();
     }
 
     // === SSE Connection ===
@@ -1020,6 +1118,19 @@
         // QC Flags shown on panel
         if (obs.qc_flags && obs.qc_flags.length > 0) {
             el('metar-qc').textContent += ' (' + obs.qc_flags.join(', ') + ')';
+        }
+
+        // Daily Max
+        const dmRow = el('daily-max-row');
+        if (obs.daily_max_f != null) {
+            dmRow.style.display = 'flex';
+            el('daily-max-temp').textContent = obs.daily_max_f.toFixed(0) + '°F';
+            el('daily-max-raw').textContent = 'Raw: ' + (obs.daily_max_f_raw != null ? obs.daily_max_f_raw.toFixed(1) + '°F' : '--');
+            el('daily-max-time').textContent = obs.daily_max_obs_utc
+                ? 'at ' + formatTimeInTz(obs.daily_max_obs_utc, localTimeFormatter) + ' ' + localTzLabel
+                : '';
+        } else {
+            dmRow.style.display = 'none';
         }
 
         // Timestamps — use dynamic timezone formatters
@@ -1686,6 +1797,80 @@
         return str.length > len ? str.substring(0, len) + '...' : str;
     }
 
+    // === METAR History ===
+    let lastHistoryStation = null;
+
+    async function fetchMetarHistory() {
+        if (!currentStation) return;
+        try {
+            const resp = await fetch(`/api/v2/world/metar_history/${currentStation}`, { cache: 'no-store' });
+            const data = await resp.json();
+            if (data.error) {
+                document.getElementById('metar-history-content').innerHTML =
+                    `<p style="color:#EF4444; font-size:13px;">${data.error}</p>`;
+                return;
+            }
+            lastHistoryStation = currentStation;
+            renderMetarHistory(data);
+        } catch (err) {
+            console.error('METAR history fetch error:', err);
+        }
+    }
+
+    function renderMetarHistory(data) {
+        const container = document.getElementById('metar-history-content');
+        const countEl = document.getElementById('metar-history-count');
+        const obs = data.observations || [];
+
+        if (obs.length === 0) {
+            container.innerHTML = '<p style="color: var(--text-muted); font-size: 13px;">No observations today yet.</p>';
+            countEl.textContent = '0 obs';
+            return;
+        }
+
+        countEl.textContent = obs.length + ' obs | ' + data.date;
+
+        // Find the max temp row
+        let maxRaw = -Infinity;
+        for (const o of obs) {
+            if (o.temp_f_raw > maxRaw) maxRaw = o.temp_f_raw;
+        }
+
+        let html = `<table class="metar-history-table">
+            <thead><tr>
+                <th>${localTzLabel}</th>
+                <th>Temp °F</th>
+                <th>Settl.</th>
+                <th>Max Acum.</th>
+                <th>°C</th>
+                <th>Dew °C</th>
+                <th>Wind</th>
+                <th>Sky</th>
+            </tr></thead><tbody>`;
+
+        // Render rows in reverse order (newest first)
+        for (let i = obs.length - 1; i >= 0; i--) {
+            const o = obs[i];
+            const isMax = o.temp_f_raw === maxRaw;
+            const rowClass = isMax ? ' class="is-max"' : '';
+            const tempClass = isMax ? ' class="temp-max-marker"' : '';
+
+            html += `<tr${rowClass}>
+                <td style="font-weight:600;">${o.obs_time_local}</td>
+                <td${tempClass}>${o.temp_f_raw != null ? o.temp_f_raw.toFixed(1) : '--'}${isMax ? ' ★' : ''}</td>
+                <td style="color:#10B981; font-weight:600;">${o.temp_f != null ? o.temp_f.toFixed(0) + '°F' : '--'}</td>
+                <td style="color:#F97316; font-weight:600;">${o.running_max_f != null ? o.running_max_f.toFixed(1) : '--'}</td>
+                <td>${o.temp_c != null ? o.temp_c.toFixed(1) : '--'}</td>
+                <td>${o.dewpoint_c != null ? o.dewpoint_c.toFixed(1) : '--'}</td>
+                <td>${o.wind_dir != null ? o.wind_dir + '°' : '--'}/${o.wind_speed != null ? o.wind_speed + 'kt' : '--'}</td>
+                <td>${o.sky || '--'}</td>
+            </tr>`;
+        }
+
+        html += '</tbody></table>';
+        container.innerHTML = html;
+    }
+
     // === Init ===
     async function init() {
         // Set up default formatters
@@ -1699,6 +1884,14 @@
 
         // Also do an immediate fetch
         fetchSnapshot();
+
+        // Fetch METAR history for today
+        fetchMetarHistory();
+        // Refresh METAR history every 60s
+        setInterval(() => {
+            if (currentStation !== lastHistoryStation) fetchMetarHistory();
+        }, 5000);  // Check station change every 5s
+        setInterval(fetchMetarHistory, 60000);  // Full refresh every 60s
 
         // Polling fallback: 15s when SSE active, 3s when disconnected
         setInterval(() => {

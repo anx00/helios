@@ -1419,6 +1419,56 @@ async def get_world_snapshot():
     return get_world().get_snapshot()
 
 
+@app.get("/api/v2/world/metar_history/{station_id}")
+async def get_world_metar_history(station_id: str):
+    """Return today's METAR observations (NYC settlement day) from NOAA."""
+    if station_id not in STATIONS:
+        return {"error": "Invalid station"}
+    from collector.metar_fetcher import fetch_metar_history
+    from core.judge import JudgeAlignment
+    from zoneinfo import ZoneInfo
+
+    tz = ZoneInfo(STATIONS[station_id].timezone)
+    now_local = datetime.now(tz)
+    today = now_local.date()
+
+    # Fetch enough hours to cover from midnight local
+    hours_since_midnight = now_local.hour + 1
+    history = await fetch_metar_history(station_id, hours=max(hours_since_midnight + 2, 6))
+
+    rows = []
+    for h in history:
+        h_local = h.observation_time.astimezone(tz)
+        if h_local.date() != today:
+            continue
+        temp_f_raw = JudgeAlignment.celsius_to_fahrenheit(h.temp_c)
+        temp_f_settlement = JudgeAlignment.round_to_settlement(temp_f_raw)
+        rows.append({
+            "obs_time_utc": h.observation_time.isoformat(),
+            "obs_time_local": h_local.strftime("%H:%M"),
+            "temp_c": h.temp_c,
+            "temp_f_raw": temp_f_raw,
+            "temp_f": temp_f_settlement,
+            "dewpoint_c": h.dewpoint_c,
+            "wind_dir": h.wind_dir_degrees,
+            "wind_speed": h.wind_speed_kt,
+            "sky": h.sky_condition,
+            "raw_metar": h.raw_metar,
+        })
+
+    # Sort by obs time ascending (oldest first)
+    rows.sort(key=lambda r: r["obs_time_utc"])
+
+    # Compute running max
+    running_max = None
+    for r in rows:
+        if running_max is None or r["temp_f_raw"] > running_max:
+            running_max = r["temp_f_raw"]
+        r["running_max_f"] = running_max
+
+    return {"station_id": station_id, "date": today.isoformat(), "observations": rows}
+
+
 @app.get("/api/v2/world/stream")
 async def world_stream():
     """
