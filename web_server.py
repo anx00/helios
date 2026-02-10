@@ -45,6 +45,67 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from core.polymarket_labels import normalize_label, parse_label
 
+def build_synthetic_hourly_curve_f(
+    now_utc: datetime,
+    station_tz: ZoneInfo,
+    current_temp_f: Optional[float],
+    tmax_f: float,
+    peak_hour: int = 14,
+) -> List[float]:
+    """
+    Build a simple 24h hourly curve in °F that:
+    - equals (roughly) the current observed temperature up to the current hour
+    - rises to `tmax_f` around `peak_hour`
+    - cools modestly after peak
+
+    This is a fallback used when we cannot fetch an hourly model curve (e.g. Open-Meteo 429s),
+    but we do have a reliable daily forecast high from Wunderground (settlement source).
+    """
+    try:
+        tmax = float(tmax_f)
+    except Exception:
+        return []
+
+    anchor = None
+    if current_temp_f is not None:
+        try:
+            anchor = float(current_temp_f)
+        except Exception:
+            anchor = None
+
+    if anchor is None or anchor <= -900:
+        anchor = tmax - 8.0
+
+    # Keep anchor <= tmax; if we're already above forecasted max, clip.
+    anchor = min(anchor, tmax)
+
+    now_local = now_utc.astimezone(station_tz)
+    anchor_hour = int(max(0, min(23, now_local.hour)))
+    peak_hour = int(max(0, min(23, peak_hour)))
+
+    # If we're already at/after the peak hour, force a near-peak anchor for shape stability.
+    if anchor_hour >= peak_hour:
+        anchor_hour = max(0, peak_hour - 1)
+
+    delta = max(0.0, tmax - anchor)
+    end_temp = anchor + (0.25 * delta)  # modest cooling by late evening
+
+    curve: List[float] = []
+    for h in range(24):
+        if h <= anchor_hour:
+            t = anchor
+        elif h <= peak_hour:
+            span = max(1, peak_hour - anchor_hour)
+            x = (h - anchor_hour) / span
+            t = anchor + (tmax - anchor) * x
+        else:
+            span = max(1, 23 - peak_hour)
+            x = (h - peak_hour) / span
+            t = tmax + (end_temp - tmax) * x
+        curve.append(round(float(t), 1))
+
+    return curve
+
 def _default_station() -> str:
     """Return the first active station ID for use as default."""
     active = get_active_stations()
@@ -448,10 +509,60 @@ async def nowcast_loop():
                 return False
 
             station_tz = ZoneInfo(station.timezone)
+
+            # Fetch WU high first (settlement-aligned). We'll use it for both:
+            # - HRRR curve peak adjustment when available
+            # - Fallback base curve if Open-Meteo is rate-limited/unavailable
+            wu_high: Optional[float] = None
+            wu_current: Optional[float] = None
+            try:
+                wu = await fetch_wunderground_max(station_id, target_date=target_date)
+                wu_high = float(wu.forecast_high_f) if wu and wu.forecast_high_f is not None else None
+                wu_current = float(wu.current_temp_f) if wu and wu.current_temp_f is not None else None
+            except Exception as e:
+                logger.warning("Nowcast BaseForecast WU fetch failed (%s): %s", station_id, e)
+
             forecast = await fetch_hrrr(station.latitude, station.longitude, target_days_ahead=0)
             if not forecast or not getattr(forecast, "hourly_temps_c", None):
-                logger.warning("Nowcast BaseForecast refresh failed (%s): missing hourly HRRR data", station_id)
-                return False
+                if wu_high is None:
+                    logger.warning("Nowcast BaseForecast refresh failed (%s): missing hourly HRRR data", station_id)
+                    return False
+
+                # Fallback: build a synthetic hourly curve anchored to current obs and WU forecast high.
+                anchor_temp_f: Optional[float] = None
+                try:
+                    state = engine.get_or_create_daily_state(target_date=target_date)
+                    if state.last_obs_time_utc:
+                        anchor_temp_f = float(state.last_obs_temp_f or state.last_obs_aligned_f)
+                except Exception:
+                    pass
+                if anchor_temp_f is None:
+                    anchor_temp_f = wu_current
+
+                hourly_temps_f = build_synthetic_hourly_curve_f(
+                    now_utc=now_utc,
+                    station_tz=station_tz,
+                    current_temp_f=anchor_temp_f,
+                    tmax_f=float(wu_high),
+                    peak_hour=14,
+                )
+                if not hourly_temps_f:
+                    logger.warning("Nowcast BaseForecast WU fallback failed (%s): could not build synthetic curve", station_id)
+                    return False
+
+                integration.on_hrrr_update(
+                    station_id=station_id,
+                    hourly_temps_f=hourly_temps_f,
+                    model_run_time=now_utc,
+                    model_source="WU_FORECAST",
+                    target_date=target_date,
+                )
+                logger.info(
+                    "Nowcast BaseForecast updated (%s): tmax_base=%.1fF (WU fallback)",
+                    station_id,
+                    max(hourly_temps_f),
+                )
+                return True
 
             hourly_temps_f = extract_hourly_temps_f_for_date(
                 forecast.hourly_temps_c,
@@ -460,16 +571,50 @@ async def nowcast_loop():
                 station_tz,
             )
             if not hourly_temps_f:
-                logger.warning("Nowcast BaseForecast refresh failed (%s): could not extract 24h curve", station_id)
-                return False
+                if wu_high is None:
+                    logger.warning("Nowcast BaseForecast refresh failed (%s): could not extract 24h curve", station_id)
+                    return False
+
+                anchor_temp_f: Optional[float] = None
+                try:
+                    state = engine.get_or_create_daily_state(target_date=target_date)
+                    if state.last_obs_time_utc:
+                        anchor_temp_f = float(state.last_obs_temp_f or state.last_obs_aligned_f)
+                except Exception:
+                    pass
+                if anchor_temp_f is None:
+                    anchor_temp_f = wu_current
+
+                hourly_temps_f = build_synthetic_hourly_curve_f(
+                    now_utc=now_utc,
+                    station_tz=station_tz,
+                    current_temp_f=anchor_temp_f,
+                    tmax_f=float(wu_high),
+                    peak_hour=14,
+                )
+                if not hourly_temps_f:
+                    logger.warning("Nowcast BaseForecast WU fallback failed (%s): could not build synthetic curve", station_id)
+                    return False
+
+                integration.on_hrrr_update(
+                    station_id=station_id,
+                    hourly_temps_f=hourly_temps_f,
+                    model_run_time=now_utc,
+                    model_source="WU_FORECAST",
+                    target_date=target_date,
+                )
+                logger.info(
+                    "Nowcast BaseForecast updated (%s): tmax_base=%.1fF (WU fallback)",
+                    station_id,
+                    max(hourly_temps_f),
+                )
+                return True
 
             # WU is the settlement source for Polymarket temperature markets.
             # When Open-Meteo HRRR diverges materially, adjust the peak region
             # of the hourly curve to match WU's forecast high (shape-preserving).
             model_source = "HRRR"
             try:
-                wu = await fetch_wunderground_max(station_id, target_date=target_date)
-                wu_high = float(wu.forecast_high_f) if wu and wu.forecast_high_f is not None else None
                 om_max = max(hourly_temps_f) if hourly_temps_f else None
                 if wu_high is not None and om_max is not None and abs(wu_high - om_max) >= 2.0:
                     delta = wu_high - om_max
@@ -921,41 +1066,81 @@ async def trigger_nowcast_update(station_id: str):
     # Fetch latest HRRR for base forecast (best effort)
     try:
         station = STATIONS[station_id]
+        station_tz = ZoneInfo(station.timezone)
+        target_date = datetime.now(station_tz).date()
+        now_utc = datetime.now(ZoneInfo("UTC"))
+
+        wu_high: Optional[float] = None
+        wu_current: Optional[float] = None
+        try:
+            wu = await fetch_wunderground_max(station_id, target_date=target_date)
+            wu_high = float(wu.forecast_high_f) if wu and wu.forecast_high_f is not None else None
+            wu_current = float(wu.current_temp_f) if wu and wu.current_temp_f is not None else None
+        except Exception:
+            wu_high = None
+            wu_current = None
+
         forecast = await fetch_hrrr(station.latitude, station.longitude, target_days_ahead=0)
+        hourly_temps_f = None
+
         if forecast and forecast.hourly_temps_c:
-            station_tz = ZoneInfo(station.timezone)
-            target_date = datetime.now(station_tz).date()
             hourly_temps_f = extract_hourly_temps_f_for_date(
                 forecast.hourly_temps_c,
                 forecast.hourly_times,
                 target_date,
                 station_tz
             )
-            if hourly_temps_f:
-                # Align BaseForecast peak with WU when it diverges materially.
-                model_source = "HRRR"
-                try:
-                    wu = await fetch_wunderground_max(station_id, target_date=target_date)
-                    wu_high = float(wu.forecast_high_f) if wu and wu.forecast_high_f is not None else None
-                    om_max = max(hourly_temps_f) if hourly_temps_f else None
-                    if wu_high is not None and om_max is not None and abs(wu_high - om_max) >= 2.0:
-                        delta = wu_high - om_max
-                        delta = max(-12.0, min(12.0, float(delta)))  # Safety clamp.
-                        peak_hour = hourly_temps_f.index(om_max)
-                        adjusted = []
-                        for h, t in enumerate(hourly_temps_f):
-                            w = max(0.0, 1.0 - (abs(h - peak_hour) / 10.0))
-                            adjusted.append(round(float(t) + (delta * w), 1))
-                        hourly_temps_f = adjusted
-                        model_source = "HRRR+WU"
-                except Exception:
-                    pass
 
+        if hourly_temps_f:
+            # Align BaseForecast peak with WU when it diverges materially.
+            model_source = "HRRR"
+            try:
+                om_max = max(hourly_temps_f) if hourly_temps_f else None
+                if wu_high is not None and om_max is not None and abs(wu_high - om_max) >= 2.0:
+                    delta = wu_high - om_max
+                    delta = max(-12.0, min(12.0, float(delta)))  # Safety clamp.
+                    peak_hour = hourly_temps_f.index(om_max)
+                    adjusted = []
+                    for h, t in enumerate(hourly_temps_f):
+                        w = max(0.0, 1.0 - (abs(h - peak_hour) / 10.0))
+                        adjusted.append(round(float(t) + (delta * w), 1))
+                    hourly_temps_f = adjusted
+                    model_source = "HRRR+WU"
+            except Exception:
+                pass
+
+            integration.on_hrrr_update(
+                station_id=station_id,
+                hourly_temps_f=hourly_temps_f,
+                model_run_time=forecast.fetch_time if forecast else now_utc,
+                model_source=model_source,
+                target_date=target_date
+            )
+        elif wu_high is not None:
+            # Fallback: Open-Meteo is rate-limited/unavailable; use WU high to avoid nonsense early-day nowcasts.
+            anchor_temp_f: Optional[float] = None
+            try:
+                state = engine.get_or_create_daily_state(target_date=target_date)
+                if state.last_obs_time_utc:
+                    anchor_temp_f = float(state.last_obs_temp_f or state.last_obs_aligned_f)
+            except Exception:
+                pass
+            if anchor_temp_f is None:
+                anchor_temp_f = wu_current
+
+            synth = build_synthetic_hourly_curve_f(
+                now_utc=now_utc,
+                station_tz=station_tz,
+                current_temp_f=anchor_temp_f,
+                tmax_f=float(wu_high),
+                peak_hour=14,
+            )
+            if synth:
                 integration.on_hrrr_update(
                     station_id=station_id,
-                    hourly_temps_f=hourly_temps_f,
-                    model_run_time=forecast.fetch_time,
-                    model_source=model_source,
+                    hourly_temps_f=synth,
+                    model_run_time=now_utc,
+                    model_source="WU_FORECAST",
                     target_date=target_date
                 )
     except Exception:
