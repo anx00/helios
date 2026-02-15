@@ -45,6 +45,7 @@ POLYMARKET_EVENTS_URL = "https://gamma-api.polymarket.com/events"
 
 # Probability threshold (98% = 0.98)
 MARKET_MATURE_PROBABILITY = 0.98
+UTC = ZoneInfo("UTC")
 
 
 @dataclass
@@ -559,11 +560,11 @@ def format_date_spanish(d: date) -> str:
 async def get_target_date(station_code: str, local_now: datetime) -> date:
     """
     Determine target date for predictions based on market status.
-    
-    PRIORITY LOGIC:
-    1. Check today's market for virtual certainty (>98%) or closed status
-    2. If today is mature, check if tomorrow's market exists
-    3. Target tomorrow if today is mature, today if still active
+
+    ROLLOVER POLICY:
+    1. Keep today's market while it is still open/active in station timezone
+    2. Move to tomorrow only when today's market is closed/inactive (or past endDate)
+    3. Prefer switching only when tomorrow's market is discoverable
     
     Args:
         station_code: ICAO station code
@@ -572,41 +573,75 @@ async def get_target_date(station_code: str, local_now: datetime) -> date:
     Returns:
         Target date for predictions
     """
+    def _parse_event_dt(ts: Optional[str]) -> Optional[datetime]:
+        if not ts:
+            return None
+        try:
+            return datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+        except Exception:
+            return None
+
+    def _is_closed_for_rollover(event_data: Optional[dict], now_local: datetime) -> bool:
+        if not event_data:
+            return False
+
+        if bool(event_data.get("closed")):
+            return True
+        if not bool(event_data.get("active", True)):
+            return True
+
+        end_dt = _parse_event_dt(event_data.get("endDate"))
+        if end_dt is not None:
+            now_utc = now_local.astimezone(UTC) if now_local.tzinfo else now_local.replace(tzinfo=UTC)
+            if end_dt <= now_utc:
+                return True
+
+        return False
+
     today = local_now.date()
     tomorrow = today + timedelta(days=1)
-    
-    # Step 1: Resolve today's event (robust date lookup)
+
+    # Step 1: Resolve today's event (robust date lookup).
     today_event = await fetch_event_for_station_date(station_code, today)
     if not today_event:
         today_slug = build_event_slug(station_code, today)
         today_event = await fetch_event_data(today_slug)
-    
+
     if today_event is None:
-        # Today's market not found - target tomorrow
-        log_market_status(station_code, None, True, None, 0.0, tomorrow, is_today=True)
-        return tomorrow
-    
-    # Step 2: Check if today's market is mature
-    is_mature_today, outcome_today, prob_today = is_event_mature(today_event)
-    
-    if is_mature_today:
-        # Today's market has virtual certainty or is closed
-        # Check if tomorrow's market exists
+        # Conservative fallback: switch only if tomorrow market is already available.
         tomorrow_event = await fetch_event_for_station_date(station_code, tomorrow)
         if not tomorrow_event:
             tomorrow_slug = build_event_slug(station_code, tomorrow)
             tomorrow_event = await fetch_event_data(tomorrow_slug)
-        
-        # Log today's status
-        log_market_status(station_code, today_event, True, outcome_today, prob_today, tomorrow, is_today=True)
-        
+
         if tomorrow_event:
-            # Tomorrow's market exists - log it too
+            log_market_status(station_code, None, True, None, 0.0, tomorrow, is_today=True)
+            return tomorrow
+
+        # Keep today if discovery is flaky/missing.
+        log_market_status(station_code, None, False, None, 0.0, today, is_today=True)
+        return today
+
+    # Step 2: Assess maturity for observability only (not rollover trigger).
+    is_mature_today, outcome_today, prob_today = is_event_mature(today_event)
+    today_closed = _is_closed_for_rollover(today_event, local_now)
+
+    if today_closed:
+        tomorrow_event = await fetch_event_for_station_date(station_code, tomorrow)
+        if not tomorrow_event:
+            tomorrow_slug = build_event_slug(station_code, tomorrow)
+            tomorrow_event = await fetch_event_data(tomorrow_slug)
+
+        log_market_status(station_code, today_event, True, outcome_today, prob_today, tomorrow, is_today=True)
+
+        if tomorrow_event:
             is_mature_tmr, outcome_tmr, prob_tmr = is_event_mature(tomorrow_event)
             log_market_status(station_code, tomorrow_event, is_mature_tmr, outcome_tmr, prob_tmr, tomorrow, is_today=False)
-        
-        return tomorrow
-    else:
-        # Today's market still active - target today
-        log_market_status(station_code, today_event, False, outcome_today, prob_today, today, is_today=True)
+            return tomorrow
+
+        # If tomorrow is not yet listed, keep today to avoid empty subscriptions.
         return today
+
+    # Today's market still active: never roll just because probabilities are high.
+    log_market_status(station_code, today_event, is_mature_today, outcome_today, prob_today, today, is_today=True)
+    return today
