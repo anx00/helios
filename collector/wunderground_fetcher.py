@@ -56,11 +56,39 @@ STATION_WU_MAP = {
     "KLGA": {"region": "ny", "city": "new-york-city", "country": "us", "units": "e"},
     "KATL": {"region": "ga", "city": "atlanta", "country": "us", "units": "e"},
     "EGLC": {"region": "gb/london", "city": "city-of-london", "country": "gb", "units": "m"},  # UK uses Celsius
+    "LTAC": {"region": "ankara", "city": "ankara", "country": "tr", "units": "m"},
 }
 
 
 _RE_WU_VALID_TIME_LOCAL = re.compile(r'validTimeLocal"\s*:\s*\[([^\]]+)\]')
 _RE_WU_CAL_MAX = re.compile(r'calendarDayTemperatureMax"\s*:\s*\[([^\]]+)\]')
+
+
+def _build_wu_history_url(wu_config: dict, station_id: str, target_date: date) -> str:
+    country = str(wu_config.get("country", "us")).lower()
+    city = str(wu_config.get("city", "")).strip("/")
+    if country == "us":
+        return WUNDERGROUND_HISTORY_URL.format(
+            region=wu_config.get("region", ""),
+            city=city,
+            station_id=station_id,
+            year=target_date.year,
+            month=target_date.month,
+            day=target_date.day,
+        )
+    return (
+        f"https://www.wunderground.com/history/daily/{country}/{city}/{station_id}"
+        f"/date/{target_date.year}-{target_date.month}-{target_date.day}"
+    )
+
+
+def _build_wu_current_url(wu_config: dict, station_id: str) -> str:
+    country = str(wu_config.get("country", "us")).lower()
+    city = str(wu_config.get("city", "")).strip("/")
+    if country == "us":
+        region = str(wu_config.get("region", "")).strip("/")
+        return f"https://www.wunderground.com/weather/us/{region}/{city}/{station_id}"
+    return f"https://www.wunderground.com/weather/{country}/{city}/{station_id}"
 
 
 def _scrape_forecast_high_from_weather_page(html: str, target_date: date, use_metric: bool) -> Optional[float]:
@@ -136,22 +164,10 @@ async def fetch_wunderground_max(
     if target_date is None:
         target_date = datetime.now(local_tz).date()
     
-    # Build URL - handle different country formats
+    # Build URL for station/country
     wu_config = STATION_WU_MAP[station_id]
-    country = wu_config.get("country", "us")  # Default to US
-    
-    # UK uses different URL path format
-    if country == "gb":
-        url = f"https://www.wunderground.com/history/daily/gb/{wu_config['city']}/{station_id}/date/{target_date.year}-{target_date.month}-{target_date.day}"
-    else:
-        url = WUNDERGROUND_HISTORY_URL.format(
-            region=wu_config["region"],
-            city=wu_config["city"],
-            station_id=station_id,
-            year=target_date.year,
-            month=target_date.month,
-            day=target_date.day
-        )
+    country = str(wu_config.get("country", "us")).lower()
+    url = _build_wu_history_url(wu_config, station_id, target_date)
     
     try:
         headers = {
@@ -178,7 +194,7 @@ async def fetch_wunderground_max(
             # URL format: api.weather.com/v1/location/{station}:9:{country}/observations/historical.json
             api_key = (WUNDERGROUND_API_KEY or "").strip()
             date_str = target_date.strftime("%Y%m%d")
-            country_code = "GB" if country == "gb" else "US"
+            country_code = str(country).upper() if country else "US"
             
             # v7.0: Use correct units for each station
             api_units = wu_config.get("units", "e")  # 'e' = imperial (F), 'm' = metric (C)
@@ -228,7 +244,7 @@ async def fetch_wunderground_max(
 
             # Method 2: FALLBACK - Scraping & Script Parsing (If API failed or returned nothing)
             if not hourly_history:
-                url = f"https://www.wunderground.com/history/daily/us/{wu_config['region']}/{wu_config['city']}/{station_id}/date/{target_date.strftime('%Y-%m-%d')}"
+                url = _build_wu_history_url(wu_config, station_id, target_date)
                 response = await client.get(url, headers=headers)
                 response.raise_for_status()
                 soup = BeautifulSoup(response.text, "html.parser")
@@ -269,10 +285,13 @@ async def fetch_wunderground_max(
                                             break
                                         except: continue
                                 hourly_history.append(WundergroundHourlyEntry(
-                                    time=obs_time, temp_f=float(temp), conditions=obs.get("wxPhraseLong", "")
+                                    time=obs_time,
+                                    temp_f=((float(temp) * 9/5) + 32) if use_metric else float(temp),
+                                    conditions=obs.get("wxPhraseLong", "")
                                 ))
-                                if high_temp_f is None or float(temp) > high_temp_f:
-                                    high_temp_f = float(temp)
+                                obs_temp_f = ((float(temp) * 9/5) + 32) if use_metric else float(temp)
+                                if high_temp_f is None or obs_temp_f > high_temp_f:
+                                    high_temp_f = obs_temp_f
                                     high_temp_time = obs_time
                         except: continue
 
@@ -337,11 +356,7 @@ async def fetch_wunderground_max(
                         forecast_high_f = daily_max if daily_max else None
                 
                 # Still get current real-time temp from the weather page
-                # v7.0: Fix URL for non-US stations
-                if country == "gb":
-                    current_url = f"https://www.wunderground.com/weather/gb/{wu_config['city']}/{station_id}"
-                else:
-                    current_url = f"https://www.wunderground.com/weather/us/{wu_config['region']}/{wu_config['city']}/{station_id}"
+                current_url = _build_wu_current_url(wu_config, station_id)
                 current_response = await client.get(current_url, headers=headers)
                 if current_response.status_code == 200:
                     current_soup = BeautifulSoup(current_response.text, "html.parser")
@@ -351,8 +366,8 @@ async def fetch_wunderground_max(
                             scraped_temp = float(current_temp_elem.text.strip())
                             # v7.0: For UK pages, the displayed temp is in Celsius - convert to F
                             if use_metric:
-                                # Validate: UK temps should be reasonable (-10 to 35 C)
-                                if -10 <= scraped_temp <= 35:
+                                # Validate: metric pages should be plausible Celsius values.
+                                if -30 <= scraped_temp <= 55:
                                     current_temp_f = (scraped_temp * 9/5) + 32
                             else:
                                 current_temp_f = scraped_temp

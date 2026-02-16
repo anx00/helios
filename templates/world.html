@@ -864,7 +864,7 @@
 
     // Station timezone info
     const stationTimezones = {};  // stationId -> IANA timezone
-    const TZ_LABELS = { 'KLGA': 'NYC', 'KATL': 'ATL', 'EGLC': 'LON' };
+    const TZ_LABELS = { 'KLGA': 'NYC', 'KATL': 'ATL', 'EGLC': 'LON', 'LTAC': 'ANK' };
     const ES_TZ = 'Europe/Madrid';
 
     // Dynamic formatters (rebuilt when station changes)
@@ -915,6 +915,11 @@
                 stationTimezones[stn.id] = stn.timezone;
             }
 
+            // If current station not in list, switch to first before rendering buttons
+            if (!stations.find(s => s.id === currentStation) && stations.length > 0) {
+                currentStation = stations[0].id;
+            }
+
             const container = document.getElementById('station-selector');
             container.innerHTML = '';
 
@@ -924,11 +929,6 @@
                 btn.textContent = stn.id;
                 btn.onclick = () => selectStation(stn.id);
                 container.appendChild(btn);
-            }
-
-            // If current station not in list, switch to first
-            if (!stations.find(s => s.id === currentStation) && stations.length > 0) {
-                currentStation = stations[0].id;
             }
 
             updateTimezoneFormatters();

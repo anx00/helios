@@ -87,7 +87,16 @@ STATIONS: Dict[str, StationConfig] = {
         longitude=0.0495,
         timezone="Europe/London",
         characteristics="Urban riverside - Thames river effect, Docklands urban heat",
-        enabled=False,  # DISABLED - focusing on KLGA only
+        enabled=True,
+    ),
+    "LTAC": StationConfig(
+        icao_id="LTAC",
+        name="Ankara Esenboga Airport",
+        latitude=40.1281,
+        longitude=32.9951,
+        timezone="Europe/Istanbul",
+        characteristics="Continental plateau - strong diurnal range, dry inland advection",
+        enabled=True,
     ),
 }
 
@@ -169,6 +178,7 @@ POLYMARKET_CITY_SLUGS = {
     "KLGA": "nyc",
     "KATL": "atlanta",
     "EGLC": "london",
+    "LTAC": "ankara",
 }
 
 # Spanish city names for logging
@@ -176,6 +186,7 @@ POLYMARKET_CITY_NAMES_ES = {
     "KLGA": "Nueva York",
     "KATL": "Atlanta",
     "EGLC": "Londres",
+    "LTAC": "Ankara",
 }
 
 # ============================================================================
@@ -235,6 +246,7 @@ MADIS_PROVIDER_CONFIG = {
     "KLGA": ["APRSWXNET", "MesoWest"],
     "KATL": ["APRSWXNET", "MesoWest"],
     "EGLC": ["APRSWXNET", "MesoWest"],
+    "LTAC": ["APRSWXNET", "MesoWest"],
 }
 
 # PWS search configuration per station
@@ -242,6 +254,7 @@ PWS_SEARCH_CONFIG = {
     "KLGA": {"radius_km": 25, "max_stations": 20},
     "KATL": {"radius_km": 30, "max_stations": 20},
     "EGLC": {"radius_km": 20, "max_stations": 20},
+    "LTAC": {"radius_km": 25, "max_stations": 20},
 }
 
 # Maximum age of PWS observations (minutes)

@@ -63,12 +63,14 @@ except Exception:
         "KLGA": ["APRSWXNET", "MesoWest"],
         "KATL": ["APRSWXNET", "MesoWest"],
         "EGLC": ["APRSWXNET", "MesoWest"],
+        "LTAC": ["APRSWXNET", "MesoWest"],
     }
     MADIS_RECWIN = 3
     PWS_SEARCH_CONFIG = {
         "KLGA": {"radius_km": 25, "max_stations": 20},
         "KATL": {"radius_km": 30, "max_stations": 20},
         "EGLC": {"radius_km": 20, "max_stations": 20},
+        "LTAC": {"radius_km": 25, "max_stations": 20},
     }
     PWS_MAX_AGE_MINUTES = 90
     PWS_MIN_SUPPORT = 3
@@ -114,6 +116,7 @@ _STATION_COORDS: Dict[str, Tuple[float, float]] = {
     "KLGA": (40.7769, -73.8740),
     "KATL": (33.6407, -84.4277),
     "EGLC": (51.5048, 0.0495),
+    "LTAC": (40.1281, 32.9951),
 }
 
 # Open-Meteo pseudo-station grid (for source diversity and diagnostics).
@@ -145,12 +148,22 @@ _GRID_OFFSETS: Dict[str, Dict[str, Any]] = {
             (0.12, 0.0), (0.0, -0.10),
         ],
     },
+    "LTAC": {
+        "lat": 40.1281,
+        "lon": 32.9951,
+        "offsets": [
+            (0.05, 0.0), (-0.05, 0.0), (0.0, 0.06), (0.0, -0.06),
+            (0.10, 0.0), (-0.10, 0.0), (0.05, 0.06), (-0.05, -0.06),
+            (0.15, 0.0), (0.0, -0.12),
+        ],
+    },
 }
 
 _STATION_STATE: Dict[str, str] = {
     "KLGA": "NY",
     "KATL": "GA",
     "EGLC": "",  # non-US
+    "LTAC": "",  # non-US
 }
 
 
@@ -1377,7 +1390,7 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(name)s | %(message)s")
 
     async def test():
-        for station in ["KLGA", "KATL", "EGLC"]:
+        for station in ["KLGA", "KATL", "EGLC", "LTAC"]:
             print(f"\n{'=' * 60}")
             print(f"  PWS Cluster (Synoptic + MADIS + Open-Meteo + Wunderground): {station}")
             print(f"{'=' * 60}")

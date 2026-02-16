@@ -17,6 +17,7 @@ CITY_SLUGS = {
     "KLGA": "nyc",
     "KATL": "atlanta",
     "EGLC": "london",
+    "LTAC": "ankara",
 }
 
 # Spanish city names for logging
@@ -24,6 +25,7 @@ CITY_NAMES_SPANISH = {
     "KLGA": "Nueva York",
     "KATL": "Atlanta",
     "EGLC": "Londres",
+    "LTAC": "Ankara",
 }
 
 # Spanish month names (abbreviated)
