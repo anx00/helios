@@ -54,7 +54,7 @@ def build_synthetic_hourly_curve_f(
 ) -> List[float]:
     """
     Build a simple 24h hourly curve in °F that:
-    - equals (roughly) the current observed temperature up to the current hour
+    - follows a gradual diurnal shape and passes near the current observed temperature
     - rises to `tmax_f` around `peak_hour`
     - cools modestly after peak
 
@@ -90,18 +90,33 @@ def build_synthetic_hourly_curve_f(
     delta = max(0.0, tmax - anchor)
     end_temp = anchor + (0.25 * delta)  # modest cooling by late evening
 
+    # Avoid flattening all hours before the current anchor hour.
+    diurnal_range = max(8.0, min(20.0, (tmax - anchor) + 10.0))
+    overnight_low = min(anchor - 3.0, tmax - diurnal_range)
+    midnight_temp = min(anchor - 1.0, overnight_low + 1.5)
+    dawn_hour = 6
+
+    def _interp(h: int, h0: int, t0: float, h1: int, t1: float) -> float:
+        if h1 <= h0:
+            return float(t1)
+        x = (h - h0) / float(h1 - h0)
+        return float(t0) + (float(t1) - float(t0)) * x
+
     curve: List[float] = []
     for h in range(24):
         if h <= anchor_hour:
-            t = anchor
+            if anchor_hour == 0:
+                t = anchor
+            elif anchor_hour <= dawn_hour:
+                t = _interp(h, 0, midnight_temp, max(1, anchor_hour), anchor)
+            elif h <= dawn_hour:
+                t = _interp(h, 0, midnight_temp, dawn_hour, overnight_low)
+            else:
+                t = _interp(h, dawn_hour, overnight_low, anchor_hour, anchor)
         elif h <= peak_hour:
-            span = max(1, peak_hour - anchor_hour)
-            x = (h - anchor_hour) / span
-            t = anchor + (tmax - anchor) * x
+            t = _interp(h, anchor_hour, anchor, peak_hour, tmax)
         else:
-            span = max(1, 23 - peak_hour)
-            x = (h - peak_hour) / span
-            t = tmax + (end_temp - tmax) * x
+            t = _interp(h, peak_hour, tmax, 23, end_temp)
         curve.append(round(float(t), 1))
 
     return curve
