@@ -1096,6 +1096,15 @@
                 }
             }
         }
+        obsPts.sort((a, b) => a.x - b.x);
+
+        const formatHour = (decimalHour) => {
+            if (!Number.isFinite(decimalHour)) return '--:--';
+            const totalMinutes = Math.max(0, Math.min((23 * 60) + 59, Math.round(decimalHour * 60)));
+            const hh = Math.floor(totalMinutes / 60);
+            const mm = totalMinutes % 60;
+            return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+        };
 
         const obsMax = (() => {
             let m = null;
@@ -1129,24 +1138,57 @@
                         spanGaps: true,
                     },
                     {
-                        label: 'Observed (METAR)',
-                        type: 'scatter',
+                        label: 'NOAA METAR (obs time)',
                         data: obsPts,
                         borderColor: 'rgba(244, 208, 63, 0.95)',
                         backgroundColor: 'rgba(244, 208, 63, 0.95)',
-                        pointRadius: 3,
-                        showLine: false,
+                        borderWidth: 1.5,
+                        tension: 0,
+                        pointRadius: 4,
+                        pointHoverRadius: 6,
+                        pointStyle: 'rectRot',
+                        fill: false,
+                        spanGaps: false,
                     }
                 ]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
+                interaction: {
+                    mode: 'nearest',
+                    axis: 'x',
+                    intersect: false,
+                },
+                hover: {
+                    mode: 'nearest',
+                    axis: 'x',
+                    intersect: false,
+                },
                 plugins: {
                     legend: {
                         labels: {
                             color: '#cbd5e1',
                             font: { size: 11 }
+                        }
+                    },
+                    tooltip: {
+                        mode: 'nearest',
+                        intersect: false,
+                        callbacks: {
+                            title: (items) => {
+                                const xVal = Number(items?.[0]?.parsed?.x);
+                                return Number.isFinite(xVal) ? `Hora ${formatHour(xVal)}` : '';
+                            },
+                            label: (ctx) => {
+                                const yVal = Number(ctx?.parsed?.y);
+                                const temp = Number.isFinite(yVal) ? `${yVal.toFixed(1)}F` : '--';
+                                if (ctx?.dataset?.label === 'NOAA METAR (obs time)') {
+                                    const xVal = Number(ctx?.parsed?.x);
+                                    return `${ctx.dataset.label}: ${temp} @ ${formatHour(xVal)}`;
+                                }
+                                return `${ctx.dataset.label}: ${temp}`;
+                            }
                         }
                     }
                 },
