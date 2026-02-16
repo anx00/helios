@@ -1106,46 +1106,6 @@
             return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
         };
 
-        const formatTemp = (value) => (Number.isFinite(value) ? `${value.toFixed(1)}F` : '--');
-
-        const interpolateYAtX = (points, x) => {
-            if (!Array.isArray(points) || !points.length || !Number.isFinite(x)) return null;
-            let prev = null;
-            for (const p of points) {
-                if (!Number.isFinite(p?.x) || !Number.isFinite(p?.y)) continue;
-                if (p.x === x) return p.y;
-                if (p.x < x) {
-                    prev = p;
-                    continue;
-                }
-                if (!prev) return p.y;
-                const span = p.x - prev.x;
-                if (span <= 0) return p.y;
-                const ratio = (x - prev.x) / span;
-                return prev.y + ((p.y - prev.y) * ratio);
-            }
-            return prev ? prev.y : null;
-        };
-
-        const nearestPointByX = (points, x) => {
-            if (!Array.isArray(points) || !points.length || !Number.isFinite(x)) return null;
-            let best = null;
-            let bestDist = Infinity;
-            for (const p of points) {
-                if (!Number.isFinite(p?.x) || !Number.isFinite(p?.y)) continue;
-                const d = Math.abs(p.x - x);
-                if (d < bestDist) {
-                    best = p;
-                    bestDist = d;
-                }
-            }
-            return best;
-        };
-
-        const baseLabel = `Base (${data?.base_forecast_source || 'N/A'})`;
-        const adjustedLabel = 'Nowcast-adjusted';
-        const metarLabel = 'NOAA METAR (obs time)';
-
         const obsMax = (() => {
             let m = null;
             for (const p of obsPts) {
@@ -1160,7 +1120,7 @@
             data: {
                 datasets: [
                     {
-                        label: baseLabel,
+                        label: `Base (${data?.base_forecast_source || 'N/A'})`,
                         data: basePts,
                         borderColor: 'rgba(0, 212, 255, 0.70)',
                         backgroundColor: 'rgba(0, 212, 255, 0.08)',
@@ -1169,7 +1129,7 @@
                         spanGaps: true,
                     },
                     {
-                        label: adjustedLabel,
+                        label: 'Nowcast-adjusted',
                         data: adjPts,
                         borderColor: 'rgba(16, 185, 129, 0.80)',
                         backgroundColor: 'rgba(16, 185, 129, 0.08)',
@@ -1178,7 +1138,7 @@
                         spanGaps: true,
                     },
                     {
-                        label: metarLabel,
+                        label: 'NOAA METAR (obs time)',
                         data: obsPts,
                         borderColor: 'rgba(244, 208, 63, 0.95)',
                         backgroundColor: 'rgba(244, 208, 63, 0.95)',
@@ -1197,12 +1157,12 @@
                 maintainAspectRatio: false,
                 interaction: {
                     mode: 'nearest',
-                    axis: 'x',
+                    axis: 'xy',
                     intersect: false,
                 },
                 hover: {
                     mode: 'nearest',
-                    axis: 'x',
+                    axis: 'xy',
                     intersect: false,
                 },
                 plugins: {
@@ -1213,37 +1173,23 @@
                         }
                     },
                     tooltip: {
+                        position: 'nearest',
                         mode: 'nearest',
                         intersect: false,
-                        displayColors: false,
                         callbacks: {
                             title: (items) => {
                                 const xVal = Number(items?.[0]?.parsed?.x);
                                 return Number.isFinite(xVal) ? `Hora ${formatHour(xVal)}` : '';
                             },
                             label: (ctx) => {
-                                const first = ctx?.chart?.tooltip?.dataPoints?.[0];
-                                if (!first || first.datasetIndex !== ctx.datasetIndex || first.dataIndex !== ctx.dataIndex) {
-                                    return '';
-                                }
-
+                                const datasetLabel = String(ctx?.dataset?.label || '');
                                 const xVal = Number(ctx?.parsed?.x);
-                                const lines = [];
-
-                                const baseY = interpolateYAtX(basePts, xVal);
-                                lines.push(`${baseLabel}: ${formatTemp(baseY)}`);
-
-                                const adjustedY = interpolateYAtX(adjPts, xVal);
-                                lines.push(`${adjustedLabel}: ${formatTemp(adjustedY)}`);
-
-                                const nearestMetar = nearestPointByX(obsPts, xVal);
-                                if (nearestMetar) {
-                                    lines.push(`${metarLabel}: ${formatTemp(nearestMetar.y)} @ ${formatHour(nearestMetar.x)}`);
-                                } else {
-                                    lines.push(`${metarLabel}: --`);
+                                const yVal = Number(ctx?.parsed?.y);
+                                const temp = Number.isFinite(yVal) ? `${yVal.toFixed(1)}F` : '--';
+                                if (datasetLabel === 'NOAA METAR (obs time)') {
+                                    return `${datasetLabel}: ${temp} @ ${formatHour(xVal)}`;
                                 }
-
-                                return lines;
+                                return `${datasetLabel}: ${temp}`;
                             }
                         }
                     }
