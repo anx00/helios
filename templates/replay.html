@@ -1011,7 +1011,7 @@
     }
 
     function localTimeFromTsNyc(tsNyc) {
-        // ts_nyc format: "2026-02-07 15:30:00" — NYC time from recorder
+        // ts_nyc format: "2026-02-07 15:30:00" - NYC time from recorder
         // Convert to station local time and ES time
         if (!tsNyc) return { local: '--:--', es: '--:--' };
         const timePart = tsNyc.split(' ')[1];
@@ -1237,7 +1237,7 @@
                     document.getElementById('current-time').textContent =
                         `${tz.local} ${localTzLabel}`;
                     document.getElementById('current-date').textContent =
-                        `${tz.es} ES  ·  ${tz.date}`;
+                        `${tz.es} ES | ${tz.date}`;
                 }
 
                 // Update progress (skip visual update during drag)
@@ -1313,16 +1313,20 @@
             const learning = data.station_learning || {};
             const rows = Object.values(learning).filter(v => v && typeof v === 'object');
             if (rows.length > 0) {
-                rows.sort((a, b) => Number(b.weight || 0) - Number(a.weight || 0));
-                const top = rows[0];
+                const eligible = rows
+                    .filter(isRankEligible)
+                    .sort((a, b) => Number(b.weight || 0) - Number(a.weight || 0));
+                const top = eligible.length > 0 ? eligible[0] : null;
                 if (top && top.station_id) {
-                    const w = Number(top.weight);
-                    const now = Number(top.now_score);
-                    const lead = Number(top.lead_score);
+                    const w = numericOrNaN(top.weight);
+                    const now = numericOrNaN(top.now_score);
+                    const lead = numericOrNaN(top.lead_score);
                     const wStr = Number.isFinite(w) ? w.toFixed(2) : '--';
                     const nowStr = Number.isFinite(now) ? now.toFixed(0) : '--';
                     const leadStr = Number.isFinite(lead) ? lead.toFixed(0) : '--';
                     topText = ` | top: <strong>${top.station_id}</strong> w=${wStr} now=${nowStr} lead=${leadStr}`;
+                } else {
+                    topText = ' | learning: warm-up';
                 }
             }
             return `PWS consensus: <strong>${data.median_f?.toFixed(1) || '--'}°F</strong>, support: ${data.support || 0}${wsText}${topText}`;
@@ -1406,13 +1410,29 @@
     }
 
     function scoreColor(score) {
-        const s = Number(score);
+        const s = numericOrNaN(score);
         if (!Number.isFinite(s)) return 'var(--text-muted)';
         if (s >= 85) return '#10B981';
         if (s >= 70) return '#22C55E';
         if (s >= 55) return '#F4D03F';
         if (s >= 40) return '#F97316';
         return '#EF4444';
+    }
+
+    function numericOrNaN(value) {
+        if (value === null || value === undefined || value === '') return NaN;
+        const n = Number(value);
+        return Number.isFinite(n) ? n : NaN;
+    }
+
+    function isRankEligible(row) {
+        if (!row || typeof row !== 'object') return false;
+        if (typeof row.rank_eligible === 'boolean') return row.rank_eligible;
+        const nowSamples = numericOrNaN(row.now_samples);
+        const leadSamples = numericOrNaN(row.lead_samples);
+        const minNow = Number.isFinite(numericOrNaN(row.rank_min_now_samples)) ? Number(row.rank_min_now_samples) : 2;
+        const minLead = Number.isFinite(numericOrNaN(row.rank_min_lead_samples)) ? Number(row.rank_min_lead_samples) : 1;
+        return nowSamples >= minNow && leadSamples >= minLead;
     }
 
     function renderPwsLearning(payload) {
@@ -1432,23 +1452,37 @@
         const current = payload.current || null;
         const top = current && Array.isArray(current.top) ? current.top : [];
         const totalPws = Number(payload.total_pws_events || 0);
+        const rankedPws = Number(payload.ranked_pws_events || 0);
         const weightedSupport = Number(current && current.weighted_support);
+        const status = String((current && current.status) || 'WARMUP').toUpperCase();
+        const warmupReason = String((current && current.warmup_reason) || '').trim();
 
-        if (!current || top.length === 0) {
+        if (!current) {
             panel.classList.remove('visible');
             return;
         }
 
         panel.classList.add('visible');
-        metaEl.textContent = `${totalPws} pws ev | ${current.ts_nyc || '--'} | w-support ${Number.isFinite(weightedSupport) ? weightedSupport.toFixed(2) : '--'}`;
+        metaEl.textContent = `${totalPws} pws ev | ranked ${rankedPws} | ${current.ts_nyc || '--'} | status ${status} | w-support ${Number.isFinite(weightedSupport) ? weightedSupport.toFixed(2) : '--'}`;
+
+        const isReady = status === 'READY' && top.length > 0;
+        if (!isReady) {
+            const minNow = Number.isFinite(numericOrNaN(current.rank_min_now_samples)) ? Number(current.rank_min_now_samples) : 2;
+            const minLead = Number.isFinite(numericOrNaN(current.rank_min_lead_samples)) ? Number(current.rank_min_lead_samples) : 1;
+            const fallbackReason = `Warm-up: ranking appears when station reaches now>=${minNow} and lead>=${minLead}.`;
+            rankingEl.innerHTML = `<div class="pl-empty">${warmupReason || fallbackReason}</div>`;
+            stripEl.innerHTML = '<div class="pl-empty">No leader timeline yet (ranking still warming up)</div>';
+            eventsEl.innerHTML = '<div class="pl-empty">No leader switches yet</div>';
+            return;
+        }
 
         rankingEl.innerHTML = top.map((row, idx) => {
             const station = row.station_id || '--';
-            const w = Number(row.weight);
-            const now = Number(row.now_score);
-            const lead = Number(row.lead_score);
-            const nNow = Number(row.now_samples);
-            const nLead = Number(row.lead_samples);
+            const w = numericOrNaN(row.weight);
+            const now = numericOrNaN(row.now_score);
+            const lead = numericOrNaN(row.lead_score);
+            const nNow = numericOrNaN(row.now_samples);
+            const nLead = numericOrNaN(row.lead_samples);
             const nowColor = scoreColor(now);
             const leadColor = scoreColor(lead);
             return `
@@ -1468,15 +1502,15 @@
             stripEl.innerHTML = '<div class="pl-empty">No timeline</div>';
         } else {
             const weights = timeline
-                .map(p => Number(p.leader_weight))
+                .map(p => numericOrNaN(p.leader_weight))
                 .filter(v => Number.isFinite(v));
             const minW = weights.length ? Math.min(...weights) : 0.0;
             const maxW = weights.length ? Math.max(...weights) : 1.0;
             const span = Math.max(0.001, maxW - minW);
 
             stripEl.innerHTML = timeline.map((p) => {
-                const w = Number(p.leader_weight);
-                const now = Number(p.leader_now_score);
+                const w = numericOrNaN(p.leader_weight);
+                const now = numericOrNaN(p.leader_now_score);
                 const h = Number.isFinite(w)
                     ? Math.max(12, Math.round(((w - minW) / span) * 84))
                     : 12;
@@ -1491,7 +1525,7 @@
         } else {
             const recent = leaderChanges.slice(-8).reverse();
             eventsEl.innerHTML = recent.map((p) => {
-                const w = Number(p.leader_weight);
+                const w = numericOrNaN(p.leader_weight);
                 return `
                     <div class="pl-leader-event">
                         <span>${p.ts_nyc || '--'}</span>
@@ -1687,3 +1721,4 @@
 })();
 </script>
 {% endblock %}
+

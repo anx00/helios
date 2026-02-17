@@ -110,6 +110,8 @@ class PWSLearningStore:
         now_alignment_minutes: int = 22,
         lead_min_minutes: int = 35,
         lead_max_minutes: int = 85,
+        ranking_min_now_samples: int = 2,
+        ranking_min_lead_samples: int = 1,
         pending_max_age_hours: int = 8,
         max_pending_per_market: int = 6000,
     ):
@@ -130,6 +132,8 @@ class PWSLearningStore:
         self.now_alignment_minutes = max(1, int(now_alignment_minutes))
         self.lead_min_minutes = max(1, int(lead_min_minutes))
         self.lead_max_minutes = max(self.lead_min_minutes + 1, int(lead_max_minutes))
+        self.ranking_min_now_samples = max(0, int(ranking_min_now_samples))
+        self.ranking_min_lead_samples = max(0, int(ranking_min_lead_samples))
         self.pending_max_age_hours = max(1, int(pending_max_age_hours))
         self.max_pending_per_market = max(100, int(max_pending_per_market))
 
@@ -215,6 +219,41 @@ class PWSLearningStore:
         err = max(0.0, float(ema_err_c))
         return math.exp(-err / max(0.1, float(scale_c)))
 
+    def _rank_policy(self) -> Dict[str, int]:
+        return {
+            "rank_min_now_samples": int(self.ranking_min_now_samples),
+            "rank_min_lead_samples": int(self.ranking_min_lead_samples),
+        }
+
+    def _rank_eligibility(self, now_samples: int, lead_samples: int) -> Dict[str, Any]:
+        now_n = max(0, int(now_samples))
+        lead_n = max(0, int(lead_samples))
+        need_now = max(0, int(self.ranking_min_now_samples) - now_n)
+        need_lead = max(0, int(self.ranking_min_lead_samples) - lead_n)
+        eligible = (need_now == 0) and (need_lead == 0)
+
+        if eligible:
+            reason = "READY"
+            phase = "READY"
+        else:
+            reason_parts: List[str] = []
+            if need_now > 0:
+                reason_parts.append(f"need_now={need_now}")
+            if need_lead > 0:
+                reason_parts.append(f"need_lead={need_lead}")
+            reason = " ".join(reason_parts) if reason_parts else "WARMUP"
+            phase = "WARMUP"
+
+        return {
+            "rank_eligible": bool(eligible),
+            "learning_phase": phase,
+            "samples_total": int(now_n + lead_n),
+            "rank_warmup_remaining_now": int(need_now),
+            "rank_warmup_remaining_lead": int(need_lead),
+            "rank_reason": reason,
+            **self._rank_policy(),
+        }
+
     def _recompute_station_locked(self, rec: Dict[str, Any], source_fallback: str = "UNKNOWN") -> None:
         source = str(rec.get("source") or source_fallback or "UNKNOWN")
         prior = self._source_prior(source)
@@ -257,6 +296,7 @@ class PWSLearningStore:
         rec["lead_score"] = round(float(100.0 * lead_rel), 2)
         rec["predictive_score"] = round(float(100.0 * rel_pred), 2)
         rec["quality_band"] = _quality_band(rec["predictive_score"])
+        rec.update(self._rank_eligibility(now_samples=now_samples, lead_samples=lead_samples))
 
     def _ensure_station_locked(self, stations: Dict[str, Any], sid: str, source: str) -> Dict[str, Any]:
         rec = stations.get(sid)
@@ -411,23 +451,26 @@ class PWSLearningStore:
             stations = market.get("stations", {}) if isinstance(market, dict) else {}
             rec = stations.get(station_key) if isinstance(stations, dict) else None
             if not isinstance(rec, dict):
+                rank_meta = self._rank_eligibility(now_samples=0, lead_samples=0)
                 return {
                     "station_id": station_key,
                     "source": src,
                     "weight": round(float(prior), 4),
                     "weight_now": round(float(prior), 4),
                     "weight_predictive": round(float(prior), 4),
-                    "now_score": 55.0,
-                    "lead_score": 55.0,
-                    "predictive_score": 55.0,
+                    "now_score": None,
+                    "lead_score": None,
+                    "predictive_score": None,
                     "now_samples": 0,
                     "lead_samples": 0,
                     "quality_band": "INIT",
+                    **rank_meta,
                 }
             if (
                 rec.get("weight") is None
                 or rec.get("now_score") is None
                 or rec.get("lead_score") is None
+                or rec.get("rank_eligible") is None
             ):
                 self._recompute_station_locked(rec, rec.get("source") or src)
             return dict(rec)
@@ -451,22 +494,87 @@ class PWSLearningStore:
         market_station_id: str,
         limit: int = 10,
         sort_by: str = "weight",
+        eligible_only: bool = False,
     ) -> List[Dict[str, Any]]:
         market_key = str(market_station_id).upper()
         key = str(sort_by or "weight")
         with self._lock:
             market = self._state.get("markets", {}).get(market_key, {})
             stations = market.get("stations", {}) if isinstance(market, dict) else {}
-            rows = [dict(v) for v in stations.values() if isinstance(v, dict)]
-        rows.sort(key=lambda r: float(r.get(key) or 0.0), reverse=True)
+            rows: List[Dict[str, Any]] = []
+            for rec in stations.values():
+                if not isinstance(rec, dict):
+                    continue
+                if (
+                    rec.get("weight") is None
+                    or rec.get("now_score") is None
+                    or rec.get("lead_score") is None
+                    or rec.get("rank_eligible") is None
+                ):
+                    self._recompute_station_locked(rec, rec.get("source") or "UNKNOWN")
+                rows.append(dict(rec))
+
+        if eligible_only:
+            rows = [r for r in rows if bool(r.get("rank_eligible"))]
+
+        def _sort_value(row: Dict[str, Any]) -> float:
+            try:
+                return float(row.get(key) or 0.0)
+            except Exception:
+                return 0.0
+
+        rows.sort(key=_sort_value, reverse=True)
         return rows[: max(1, int(limit))]
 
-    def get_top_weights(self, market_station_id: str, limit: int = 10) -> Dict[str, float]:
-        top = self.get_top_profiles(market_station_id, limit=limit, sort_by="weight")
+    def get_top_weights(
+        self,
+        market_station_id: str,
+        limit: int = 10,
+        eligible_only: bool = False,
+    ) -> Dict[str, float]:
+        top = self.get_top_profiles(
+            market_station_id,
+            limit=limit,
+            sort_by="weight",
+            eligible_only=eligible_only,
+        )
         return {
             str(p.get("station_id")): round(float(p.get("weight", 0.0)), 4)
             for p in top
             if p.get("station_id")
+        }
+
+    def get_market_summary(self, market_station_id: str) -> Dict[str, Any]:
+        market_key = str(market_station_id).upper()
+        with self._lock:
+            market = self._state.get("markets", {}).get(market_key, {})
+            stations = market.get("stations", {}) if isinstance(market, dict) else {}
+            rows: List[Dict[str, Any]] = []
+            for rec in stations.values():
+                if not isinstance(rec, dict):
+                    continue
+                if (
+                    rec.get("weight") is None
+                    or rec.get("now_score") is None
+                    or rec.get("lead_score") is None
+                    or rec.get("rank_eligible") is None
+                ):
+                    self._recompute_station_locked(rec, rec.get("source") or "UNKNOWN")
+                rows.append(dict(rec))
+
+        rows.sort(key=lambda r: float(r.get("weight") or 0.0), reverse=True)
+        ready_rows = [r for r in rows if bool(r.get("rank_eligible"))]
+        top_any = rows[0] if rows else None
+        top_ready = ready_rows[0] if ready_rows else None
+
+        return {
+            "tracked_station_count": len(rows),
+            "rank_ready_station_count": len(ready_rows),
+            "warmup_station_count": max(0, len(rows) - len(ready_rows)),
+            "rank_ready": bool(ready_rows),
+            "top_any_station_id": top_any.get("station_id") if isinstance(top_any, dict) else None,
+            "top_ready_station_id": top_ready.get("station_id") if isinstance(top_ready, dict) else None,
+            **self._rank_policy(),
         }
 
     # ---------------------------------------------------------------------

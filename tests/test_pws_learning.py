@@ -54,6 +54,7 @@ class TestPwsLearning(unittest.TestCase):
             profile = store.get_station_profile("KLGA", "P1", "SYNOPTIC")
             self.assertEqual(profile.get("now_samples"), 0)
             self.assertEqual(profile.get("lead_samples"), 1)
+            self.assertFalse(profile.get("rank_eligible"))
 
     def test_now_accuracy_drives_weight_ordering(self):
         with TemporaryDirectory() as td:
@@ -124,6 +125,50 @@ class TestPwsLearning(unittest.TestCase):
             profile = store.get_station_profile("KLGA", "LATE_LABEL", "MADIS_APRSWXNET")
             self.assertEqual(profile.get("lead_samples"), 1)
             self.assertEqual(profile.get("now_samples"), 0)
+
+    def test_rank_eligibility_requires_now_and_lead_samples(self):
+        with TemporaryDirectory() as td:
+            store = PWSLearningStore(path=Path(td) / "weights.json")
+
+            pws_t0 = datetime(2026, 2, 17, 10, 0, tzinfo=timezone.utc)
+            metar_t0 = datetime(2026, 2, 17, 10, 55, tzinfo=timezone.utc)
+            store.update_with_official(
+                market_station_id="KLGA",
+                official_temp_c=20.0,
+                readings=[_Reading("RANK_PWS", 20.0, "SYNOPTIC", pws_t0)],
+                obs_time_utc=metar_t0,
+                official_obs_time_utc=metar_t0,
+            )
+
+            pws_t1 = datetime(2026, 2, 17, 11, 55, tzinfo=timezone.utc)
+            metar_t1 = datetime(2026, 2, 17, 12, 0, tzinfo=timezone.utc)
+            store.update_with_official(
+                market_station_id="KLGA",
+                official_temp_c=20.0,
+                readings=[_Reading("RANK_PWS", 20.0, "SYNOPTIC", pws_t1)],
+                obs_time_utc=metar_t1,
+                official_obs_time_utc=metar_t1,
+            )
+
+            profile = store.get_station_profile("KLGA", "RANK_PWS", "SYNOPTIC")
+            self.assertEqual(profile.get("lead_samples"), 1)
+            self.assertEqual(profile.get("now_samples"), 1)
+            self.assertFalse(profile.get("rank_eligible"))
+
+            pws_t2 = datetime(2026, 2, 17, 12, 55, tzinfo=timezone.utc)
+            metar_t2 = datetime(2026, 2, 17, 13, 0, tzinfo=timezone.utc)
+            store.update_with_official(
+                market_station_id="KLGA",
+                official_temp_c=20.0,
+                readings=[_Reading("RANK_PWS", 20.0, "SYNOPTIC", pws_t2)],
+                obs_time_utc=metar_t2,
+                official_obs_time_utc=metar_t2,
+            )
+
+            profile = store.get_station_profile("KLGA", "RANK_PWS", "SYNOPTIC")
+            self.assertGreaterEqual(profile.get("lead_samples") or 0, 1)
+            self.assertGreaterEqual(profile.get("now_samples") or 0, 2)
+            self.assertTrue(profile.get("rank_eligible"))
 
 
 if __name__ == "__main__":

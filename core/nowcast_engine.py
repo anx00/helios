@@ -1114,7 +1114,7 @@ class NowcastEngine:
                 contribution_f=pws_adj,
                 description=(
                     f"PWS soft-anchor ({anchor_kind}, n={pws_support}, age={pws_age_min}m, "
-                    f"w={pws_weight:.2f}, delta={pws_delta:+.2f}Â°F): {pws_sign}{pws_adj:.2f}Â°F"
+                    f"w={pws_weight:.2f}, delta={pws_delta:+.2f}°F): {pws_sign}{pws_adj:.2f}°F"
                 )
             ))
 

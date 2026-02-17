@@ -1416,6 +1416,11 @@ async def fetch_and_publish_pws(
                     "learning_now_samples": profile.get("now_samples"),
                     "learning_lead_samples": profile.get("lead_samples"),
                     "learning_quality_band": profile.get("quality_band"),
+                    "learning_rank_eligible": profile.get("rank_eligible"),
+                    "learning_phase": profile.get("learning_phase"),
+                    "learning_samples_total": profile.get("samples_total"),
+                    "learning_rank_warmup_remaining_now": profile.get("rank_warmup_remaining_now"),
+                    "learning_rank_warmup_remaining_lead": profile.get("rank_warmup_remaining_lead"),
                 }
             )
 
@@ -1430,15 +1435,47 @@ async def fetch_and_publish_pws(
                 metric["drift_c"] = round(metric["median_temp_c"] - official_temp_c, 2)
             metrics_payload[key] = metric
         if consensus.learning_weights:
+            market_summary = learning_store.get_market_summary(station_id)
+            top_profiles_all = learning_store.get_top_profiles(station_id, limit=8, sort_by="weight")
+            top_profiles_rank = learning_store.get_top_profiles(
+                station_id,
+                limit=8,
+                sort_by="weight",
+                eligible_only=True,
+            )
+            rank_ready = bool(market_summary.get("rank_ready"))
+            rank_min_now = int(market_summary.get("rank_min_now_samples") or 0)
+            rank_min_lead = int(market_summary.get("rank_min_lead_samples") or 0)
+
             metrics_payload["learning"] = {
                 "model": "dual_score_now_vs_lead_v1",
                 "weighted_support": round(float(consensus.weighted_support), 3),
+                "ranking_status": "READY" if rank_ready else "WARMUP",
+                "warmup_reason": (
+                    ""
+                    if rank_ready
+                    else (
+                        f"Ranking hidden until station has now>={rank_min_now} "
+                        f"and lead>={rank_min_lead} samples."
+                    )
+                ),
+                "tracked_station_count": int(market_summary.get("tracked_station_count") or 0),
+                "rank_ready_station_count": int(market_summary.get("rank_ready_station_count") or 0),
+                "warmup_station_count": int(market_summary.get("warmup_station_count") or 0),
                 "top_weights": learning_store.get_top_weights(station_id, limit=8),
-                "top_profiles": learning_store.get_top_profiles(station_id, limit=8, sort_by="weight"),
+                "top_profiles": top_profiles_all,
+                "rank_top_weights": learning_store.get_top_weights(
+                    station_id,
+                    limit=8,
+                    eligible_only=True,
+                ),
+                "rank_top_profiles": top_profiles_rank,
                 "policy": {
                     "now_alignment_minutes": learning_store.now_alignment_minutes,
                     "lead_window_minutes": [learning_store.lead_min_minutes, learning_store.lead_max_minutes],
                     "weight_rule": "weight_now primary + bounded lead modifier",
+                    "rank_min_now_samples": rank_min_now,
+                    "rank_min_lead_samples": rank_min_lead,
                 },
             }
         world.set_pws_metrics(station_id, metrics_payload)

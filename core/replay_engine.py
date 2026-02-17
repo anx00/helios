@@ -553,7 +553,28 @@ class ReplaySession:
         return categories
 
     @staticmethod
-    def _extract_station_learning_rows(data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def _is_rank_eligible(row: Dict[str, Any]) -> bool:
+        flag = row.get("rank_eligible")
+        if isinstance(flag, bool):
+            return flag
+
+        def _as_int(value: Any, default: int = 0) -> int:
+            try:
+                return int(value)
+            except Exception:
+                return default
+
+        now_samples = _as_int(row.get("now_samples"), 0)
+        lead_samples = _as_int(row.get("lead_samples"), 0)
+        min_now = max(0, _as_int(row.get("rank_min_now_samples"), 2))
+        min_lead = max(0, _as_int(row.get("rank_min_lead_samples"), 1))
+        return now_samples >= min_now and lead_samples >= min_lead
+
+    @staticmethod
+    def _extract_station_learning_rows(
+        data: Dict[str, Any],
+        eligible_only: bool = False,
+    ) -> List[Dict[str, Any]]:
         """
         Extract sortable learning rows from a PWS event payload.
 
@@ -589,9 +610,22 @@ class ReplaySession:
                         "now_samples": None,
                         "lead_samples": None,
                         "quality_band": "LEGACY",
+                        "rank_eligible": False,
+                        "learning_phase": "LEGACY",
+                        "rank_min_now_samples": 2,
+                        "rank_min_lead_samples": 1,
                     })
 
-        rows.sort(key=lambda r: float(r.get("weight", 0.0) or 0.0), reverse=True)
+        if eligible_only:
+            rows = [r for r in rows if ReplaySession._is_rank_eligible(r)]
+
+        def _sort_weight(row: Dict[str, Any]) -> float:
+            try:
+                return float(row.get("weight", 0.0) or 0.0)
+            except Exception:
+                return 0.0
+
+        rows.sort(key=_sort_weight, reverse=True)
         return rows
 
     @staticmethod
@@ -621,6 +655,10 @@ class ReplaySession:
         points: List[Dict[str, Any]] = []
         leader_changes: List[Dict[str, Any]] = []
 
+        latest_any_rows: List[Dict[str, Any]] = []
+        latest_any_data: Optional[Dict[str, Any]] = None
+        latest_any_event: Optional[Dict[str, Any]] = None
+
         latest_rows: List[Dict[str, Any]] = []
         latest_data: Optional[Dict[str, Any]] = None
         latest_event: Optional[Dict[str, Any]] = None
@@ -635,11 +673,19 @@ class ReplaySession:
             if not isinstance(data, dict):
                 continue
 
-            rows = self._extract_station_learning_rows(data)
-            if not rows:
+            all_rows = self._extract_station_learning_rows(data, eligible_only=False)
+            if not all_rows:
                 continue
 
             pws_count += 1
+            latest_any_rows = all_rows
+            latest_any_data = data
+            latest_any_event = event
+
+            rows = self._extract_station_learning_rows(data, eligible_only=True)
+            if not rows:
+                continue
+
             leader = rows[0]
             leader_id = str(leader.get("station_id") or "")
             point = {
@@ -664,10 +710,43 @@ class ReplaySession:
             latest_data = data
             latest_event = event
 
-        if not latest_rows:
+        if pws_count == 0:
             result = {
                 "total_pws_events": 0,
+                "ranked_pws_events": 0,
                 "current": None,
+                "timeline": [],
+                "leader_changes": [],
+            }
+            self._pws_learning_cache_key = cache_key
+            self._pws_learning_cache_value = result
+            return result
+
+        if not latest_rows:
+            rank_min_now = 2
+            rank_min_lead = 1
+            if latest_any_rows:
+                rank_min_now = max(0, int(latest_any_rows[0].get("rank_min_now_samples") or 2))
+                rank_min_lead = max(0, int(latest_any_rows[0].get("rank_min_lead_samples") or 1))
+
+            current_payload = {
+                "event_index": None,
+                "ts_nyc": latest_any_event.get("ts_nyc") if latest_any_event else None,
+                "weighted_support": latest_any_data.get("weighted_support") if latest_any_data else None,
+                "support": latest_any_data.get("support") if latest_any_data else None,
+                "median_f": latest_any_data.get("median_f") if latest_any_data else None,
+                "status": "WARMUP",
+                "warmup_reason": (
+                    f"Ranking hidden until station has now>={rank_min_now} and lead>={rank_min_lead} samples."
+                ),
+                "rank_min_now_samples": rank_min_now,
+                "rank_min_lead_samples": rank_min_lead,
+                "top": [],
+            }
+            result = {
+                "total_pws_events": pws_count,
+                "ranked_pws_events": 0,
+                "current": current_payload,
                 "timeline": [],
                 "leader_changes": [],
             }
@@ -682,11 +761,14 @@ class ReplaySession:
             "weighted_support": latest_data.get("weighted_support") if latest_data else None,
             "support": latest_data.get("support") if latest_data else None,
             "median_f": latest_data.get("median_f") if latest_data else None,
+            "status": "READY",
+            "warmup_reason": "",
             "top": current_top,
         }
 
         result = {
             "total_pws_events": pws_count,
+            "ranked_pws_events": len(points),
             "current": current_payload,
             "timeline": self._decimate_points(points, max(10, int(max_points))),
             "leader_changes": leader_changes[-20:],

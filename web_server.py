@@ -463,6 +463,13 @@ async def pws_loop():
                             "now_samples": profile.get("now_samples"),
                             "lead_samples": profile.get("lead_samples"),
                             "quality_band": profile.get("quality_band"),
+                            "rank_eligible": profile.get("rank_eligible"),
+                            "learning_phase": profile.get("learning_phase"),
+                            "samples_total": profile.get("samples_total"),
+                            "rank_warmup_remaining_now": profile.get("rank_warmup_remaining_now"),
+                            "rank_warmup_remaining_lead": profile.get("rank_warmup_remaining_lead"),
+                            "rank_min_now_samples": profile.get("rank_min_now_samples"),
+                            "rank_min_lead_samples": profile.get("rank_min_lead_samples"),
                         }
 
                     pws_readings = [_serialize_reading(r) for r in consensus.readings]
