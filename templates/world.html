@@ -641,7 +641,7 @@
             <div id="metar-content">
                 <div class="metar-main">
                     <span class="metar-temp" id="metar-temp">--</span>
-                    <span class="metar-unit">F</span>
+                    <span class="metar-unit" id="metar-unit">F</span>
                     <span class="metar-age-live normal" id="metar-age-live"></span>
                 </div>
                 <div class="daily-max-row" id="daily-max-row" style="display:none;">
@@ -862,8 +862,9 @@
     let metarObsTimeUtc = null;  // Store obs time for live age calculation
     let currentStation = 'KLGA';  // Default station
 
-    // Station timezone info
-    const stationTimezones = {};  // stationId -> IANA timezone
+    // Station timezone + market-unit info
+    const stationTimezones = {};    // stationId -> IANA timezone
+    const stationMarketUnits = {};  // stationId -> 'F' | 'C'
     const TZ_LABELS = { 'KLGA': 'NYC', 'KATL': 'ATL', 'EGLC': 'LON', 'LTAC': 'ANK' };
     const ES_TZ = 'Europe/Madrid';
 
@@ -871,6 +872,36 @@
     let localTimeFormatter = null;
     let esTimeFormatter = null;
     let localTzLabel = 'NYC';
+
+    function getStationMarketUnit(stationId = currentStation) {
+        const raw = String(stationMarketUnits[stationId] || '').toUpperCase();
+        if (raw === 'C' || raw === 'CELSIUS') return 'C';
+        return (stationId === 'EGLC' || stationId === 'LTAC') ? 'C' : 'F';
+    }
+
+    function usesCelsius(stationId = currentStation) {
+        return getStationMarketUnit(stationId) === 'C';
+    }
+
+    function tempUnitSymbol(stationId = currentStation) {
+        return usesCelsius(stationId) ? '°C' : '°F';
+    }
+
+    function fToC(tempF) {
+        return (Number(tempF) - 32) * (5 / 9);
+    }
+
+    function convertTempFromF(tempF, stationId = currentStation) {
+        if (!Number.isFinite(Number(tempF))) return null;
+        const value = Number(tempF);
+        return usesCelsius(stationId) ? fToC(value) : value;
+    }
+
+    function formatTempFromF(tempF, digits = 1, stationId = currentStation) {
+        const v = convertTempFromF(tempF, stationId);
+        if (v == null) return '--';
+        return `${v.toFixed(digits)}${tempUnitSymbol(stationId)}`;
+    }
 
     function updateTimezoneFormatters() {
         const tz = stationTimezones[currentStation] || 'America/New_York';
@@ -892,6 +923,8 @@
         if (metarLocalLabel) metarLocalLabel.textContent = localTzLabel;
         const envLocalLabel = document.getElementById('env-ts-local-label');
         if (envLocalLabel) envLocalLabel.textContent = localTzLabel;
+        const metarUnit = document.getElementById('metar-unit');
+        if (metarUnit) metarUnit.textContent = usesCelsius() ? 'C' : 'F';
     }
 
     function formatTimeInTz(isoUtc, formatter) {
@@ -913,6 +946,10 @@
             // Store timezone info per station
             for (const stn of stations) {
                 stationTimezones[stn.id] = stn.timezone;
+                const unit = String(stn.market_unit || '').toUpperCase();
+                if (unit === 'C' || unit === 'F') {
+                    stationMarketUnits[stn.id] = unit;
+                }
             }
 
             // If current station not in list, switch to first before rendering buttons
@@ -1084,9 +1121,10 @@
 
         const el = (id) => document.getElementById(id);
 
-        // Use temp_f_raw (with decimals) for display, fall back to temp_f if not available
-        const displayTemp = obs.temp_f_raw != null ? obs.temp_f_raw : obs.temp_f;
-        el('metar-temp').textContent = displayTemp != null ? displayTemp.toFixed(1) : '--';
+        // Display in station market units (F for US, C for London/Ankara).
+        const displayTempF = obs.temp_f_raw != null ? Number(obs.temp_f_raw) : Number(obs.temp_f);
+        const displayTemp = convertTempFromF(displayTempF);
+        el('metar-temp').textContent = Number.isFinite(displayTemp) ? displayTemp.toFixed(1) : '--';
         el('metar-station').textContent = obs.station_id || '--';
         el('metar-source').textContent = obs.source || '--';
         el('metar-age').textContent = obs.source_age_s != null ? formatAge(obs.source_age_s) : '--';
@@ -1097,7 +1135,13 @@
             updateMetarLiveAge();
         }
         el('metar-temp-c').textContent = obs.temp_c != null ? obs.temp_c.toFixed(1) + ' C' : '--';
-        el('metar-settlement').textContent = obs.temp_f != null ? obs.temp_f.toFixed(0) + '°F' : '--';
+        if (usesCelsius()) {
+            const settlementC = Number(obs.temp_c);
+            el('metar-settlement').textContent = Number.isFinite(settlementC) ? `${Math.round(settlementC)}°C` : '--';
+        } else {
+            const settlementF = Number(obs.temp_f);
+            el('metar-settlement').textContent = Number.isFinite(settlementF) ? `${settlementF.toFixed(0)}°F` : '--';
+        }
         el('metar-dewpoint').textContent = obs.dewpoint_c != null ? obs.dewpoint_c.toFixed(1) + ' C' : '--';
         el('metar-wind').textContent = (obs.wind_dir != null && obs.wind_speed != null)
             ? obs.wind_dir + '@ ' + obs.wind_speed + 'kt'
@@ -1126,8 +1170,8 @@
         if (dmRow.style.display === 'none' && obs.daily_max_f != null) {
             // Show WorldState value as temporary until NOAA history overwrites it
             dmRow.style.display = 'flex';
-            el('daily-max-temp').textContent = obs.daily_max_f.toFixed(0) + '°F';
-            el('daily-max-raw').textContent = 'Raw: ' + (obs.daily_max_f_raw != null ? obs.daily_max_f_raw.toFixed(1) + '°F' : '--');
+            el('daily-max-temp').textContent = formatTempFromF(obs.daily_max_f, 0);
+            el('daily-max-raw').textContent = 'Raw: ' + formatTempFromF(obs.daily_max_f_raw, 1);
             el('daily-max-time').textContent = obs.daily_max_obs_utc
                 ? 'at ' + formatTimeInTz(obs.daily_max_obs_utc, localTimeFormatter) + ' ' + localTzLabel
                 : '';
@@ -1192,7 +1236,7 @@
                         </div>
                     </div>
                     <div style="text-align:right;">
-                        <div class="aux-temp">${a.temp_f != null ? a.temp_f.toFixed(1) + 'F' : '--'}</div>
+                        <div class="aux-temp">${formatTempFromF(a.temp_f, 1)}</div>
                         <div class="aux-drift ${driftClass}">Drift: ${driftSign}${a.drift.toFixed(2)} C</div>
                     </div>
                 </div>`;
@@ -1383,12 +1427,15 @@
         if (!isExpanded) {
             // Show summary only when collapsed
             const validCount = details.filter(d => d.valid).length;
-            const temps = details.filter(d => d.valid).map(d => d.temp_f);
-            const minTemp = temps.length > 0 ? Math.min(...temps).toFixed(1) : '--';
-            const maxTemp = temps.length > 0 ? Math.max(...temps).toFixed(1) : '--';
+            const temps = details
+                .filter(d => d.valid)
+                .map(d => convertTempFromF(d.temp_f))
+                .filter(Number.isFinite);
+            const minTemp = temps.length > 0 ? `${Math.min(...temps).toFixed(1)}${tempUnitSymbol()}` : '--';
+            const maxTemp = temps.length > 0 ? `${Math.max(...temps).toFixed(1)}${tempUnitSymbol()}` : '--';
             html += `
                 <div style="font-size:11px; color:var(--text-muted); padding:8px 12px; background:rgba(255,255,255,0.02); border-radius:6px;">
-                    ${validCount} valid stations | Temp range: <span style="color:#8B5CF6; font-weight:600;">${minTemp}°F - ${maxTemp}°F</span>
+                    ${validCount} valid stations | Temp range: <span style="color:#8B5CF6; font-weight:600;">${minTemp} - ${maxTemp}</span>
                     | Click expand to see all stations
                 </div>
             </div>`;
@@ -1410,7 +1457,7 @@
                                 Dist${getSortArrow('distance_km')}
                             </th>
                             <th style="padding:6px 4px; cursor:pointer; user-select:none;" onclick="sortPWSColumn('${stationName}', 'temp_f')" class="${getSortClass('temp_f')}">
-                                Temp°F${getSortArrow('temp_f')}
+                                Temp${tempUnitSymbol()}${getSortArrow('temp_f')}
                             </th>
                             <th style="padding:6px 4px; cursor:pointer; user-select:none;" onclick="sortPWSColumn('${stationName}', 'obs_time_nyc')" class="${getSortClass('obs_time_nyc')}">
                                 ${localTzLabel} Time${getSortArrow('obs_time_nyc')}
@@ -1432,6 +1479,10 @@
             const madTime = formatTimeInTz(r.obs_time_utc, esTimeFormatter);
             const nycDate = r.obs_time_nyc ? r.obs_time_nyc.substring(5, 10) : '';
             const madDate = r.obs_time_madrid ? r.obs_time_madrid.substring(5, 10) : '';
+            const primaryTemp = formatTempFromF(r.temp_f, 1);
+            const secondaryTemp = usesCelsius()
+                ? (Number.isFinite(Number(r.temp_f)) ? `${Number(r.temp_f).toFixed(1)}°F` : '--')
+                : (Number.isFinite(Number(r.temp_c)) ? `${Number(r.temp_c).toFixed(1)}°C` : '--');
 
             // Source badge metadata
             let sourceColor = '#6B7280';
@@ -1471,7 +1522,7 @@
                         <span style="font-size:9px; padding:2px 6px; border-radius:4px; background:${sourceColor}20; color:${sourceColor}; font-weight:600;" title="${sourceTitle}">${sourceBadge}</span>
                     </td>
                     <td style="padding:5px 4px; font-weight:500;">${r.distance_km.toFixed(1)}km</td>
-                    <td style="padding:5px 4px; font-weight:600; color:#8B5CF6;">${r.temp_f.toFixed(1)}°F <span style="color:var(--text-muted); font-size:9px;">(${r.temp_c.toFixed(1)}C)</span></td>
+                    <td style="padding:5px 4px; font-weight:600; color:#8B5CF6;">${primaryTemp} <span style="color:var(--text-muted); font-size:9px;">(${secondaryTemp})</span></td>
                     <td style="padding:5px 4px; font-family:'JetBrains Mono',monospace;">
                         <div style="color:#3B82F6;">${localTime}</div>
                         <div style="font-size:8px; color:var(--text-muted);">${nycDate}</div>
@@ -1564,6 +1615,7 @@
 
             // Main headline number should reflect the active source filters (mean across filtered, valid stations).
             const headerTempF = stats.mean_f != null ? stats.mean_f : (stats.median_f != null ? stats.median_f : pEntry.temp_f);
+            const headerTempDisplay = convertTempFromF(headerTempF);
             const headerMedianC = stats.median_c;
             const headerMeanC = stats.mean_c;
             const headerSupport = stats.support;
@@ -1578,9 +1630,9 @@
                         </div>
                         <div style="text-align:right;">
                             <span style="font-size:28px; font-weight:700; font-family:'Space Grotesk',sans-serif; color: #8B5CF6;">
-                                ${headerTempF != null ? headerTempF.toFixed(1) : '--'}
+                                ${headerTempDisplay != null ? headerTempDisplay.toFixed(1) : '--'}
                             </span>
-                            <span style="font-size:14px; color:var(--text-secondary);">F</span>
+                            <span style="font-size:14px; color:var(--text-secondary);">${usesCelsius() ? 'C' : 'F'}</span>
                         </div>
                     </div>
                     <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap:12px; margin-bottom:10px;">
@@ -1831,11 +1883,12 @@
         countEl.textContent = obs.length + ' obs';
 
         // Find the max temp from NOAA history (source of truth for the full day)
-        let maxRaw = -Infinity;
+        let maxRawF = -Infinity;
         let maxObs = null;
         for (const o of obs) {
-            if (o.temp_f_raw > maxRaw) {
-                maxRaw = o.temp_f_raw;
+            const tempRawF = Number(o.temp_f_raw);
+            if (Number.isFinite(tempRawF) && tempRawF > maxRawF) {
+                maxRawF = tempRawF;
                 maxObs = o;
             }
         }
@@ -1844,10 +1897,15 @@
         // (overrides the WorldState tracker which may be incomplete after restart)
         const dmRow = document.getElementById('daily-max-row');
         if (maxObs && dmRow) {
-            const maxSettlement = maxObs.temp_f;
+            const maxSettlement = usesCelsius()
+                ? Math.round(Number(maxObs.temp_c))
+                : Number(maxObs.temp_f);
+            const maxRawDisplay = convertTempFromF(maxRawF);
             dmRow.style.display = 'flex';
-            document.getElementById('daily-max-temp').textContent = maxSettlement.toFixed(0) + '°F';
-            document.getElementById('daily-max-raw').textContent = 'Raw: ' + maxRaw.toFixed(1) + '°F';
+            document.getElementById('daily-max-temp').textContent =
+                Number.isFinite(maxSettlement) ? `${maxSettlement.toFixed(0)}${tempUnitSymbol()}` : '--';
+            document.getElementById('daily-max-raw').textContent =
+                Number.isFinite(maxRawDisplay) ? `Raw: ${maxRawDisplay.toFixed(1)}${tempUnitSymbol()}` : 'Raw: --';
             document.getElementById('daily-max-time').textContent =
                 'at ' + maxObs.obs_time_local + ' ' + localTzLabel;
         }
@@ -1856,13 +1914,15 @@
             <thead><tr>
                 <th>${localTzLabel}</th>
                 <th>ES</th>
-                <th>Temp °F</th>
+                <th>Temp ${tempUnitSymbol()}</th>
             </tr></thead><tbody>`;
 
         // Render rows in reverse order (newest first)
         for (let i = obs.length - 1; i >= 0; i--) {
             const o = obs[i];
-            const isMax = o.temp_f_raw === maxRaw;
+            const rawF = Number(o.temp_f_raw);
+            const displayTemp = convertTempFromF(rawF);
+            const isMax = Number.isFinite(rawF) && rawF === maxRawF;
             const rowClass = isMax ? ' class="is-max"' : '';
             const tempStyle = isMax ? ' style="color:#F97316; font-weight:700;"' : '';
             const esTime = formatTimeInTz(o.obs_time_utc, esTimeFormatter);
@@ -1870,7 +1930,7 @@
             html += `<tr${rowClass}>
                 <td style="font-weight:600;">${o.obs_time_local}</td>
                 <td>${esTime}</td>
-                <td${tempStyle}>${o.temp_f_raw != null ? o.temp_f_raw.toFixed(1) : '--'}${isMax ? ' ★' : ''}</td>
+                <td${tempStyle}>${Number.isFinite(displayTemp) ? displayTemp.toFixed(1) : '--'}${isMax ? ' ★' : ''}</td>
             </tr>`;
         }
 

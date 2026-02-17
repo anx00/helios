@@ -189,6 +189,20 @@ POLYMARKET_CITY_NAMES_ES = {
     "LTAC": "Ankara",
 }
 
+# Polymarket market temperature unit per station.
+# US markets settle in Fahrenheit, while London/Ankara settle in Celsius.
+POLYMARKET_TEMP_UNITS = {
+    "KLGA": "F",
+    "KATL": "F",
+    "EGLC": "C",
+    "LTAC": "C",
+}
+
+
+def get_polymarket_temp_unit(station_id: str) -> str:
+    """Return market unit for a station ('F' or 'C')."""
+    return POLYMARKET_TEMP_UNITS.get(station_id, "F")
+
 # ============================================================================
 # KELLY RISK MANAGEMENT
 # ============================================================================

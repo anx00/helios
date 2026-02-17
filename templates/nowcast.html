@@ -503,8 +503,8 @@
     <!-- Central Estimate -->
     <div class="estimate-card">
         <div class="estimate-label">Predicted Maximum Temperature</div>
-        <div class="estimate-value" id="tmax-mean">--°F</div>
-        <div class="estimate-uncertainty" id="tmax-sigma">Uncertainty: ±--°F</div>
+        <div class="estimate-value" id="tmax-mean">--</div>
+        <div class="estimate-uncertainty" id="tmax-sigma">Uncertainty: --</div>
         <div class="estimate-confidence confidence-medium" id="confidence-badge">MEDIUM</div>
     </div>
 
@@ -592,8 +592,9 @@
     let pollInterval = null;
     let hourlyChart = null;
 
-    // Station timezone info
-    const stationTimezones = {};  // stationId -> IANA timezone
+    // Station timezone + market-unit info
+    const stationTimezones = {};    // stationId -> IANA timezone
+    const stationMarketUnits = {};  // stationId -> 'F' | 'C'
     const TZ_LABELS = { 'KLGA': 'NYC', 'KATL': 'ATL', 'EGLC': 'LON', 'LTAC': 'ANK' };
     const ES_TZ = 'Europe/Madrid';
 
@@ -603,6 +604,118 @@
     let localIsoDateFormatter = null;
     let esTimeFormatter = null;
     let localTzLabel = 'NYC';
+
+    function getStationMarketUnit(stationId = currentStation) {
+        const raw = String(stationMarketUnits[stationId] || '').toUpperCase();
+        if (raw === 'C' || raw === 'CELSIUS') return 'C';
+        return (stationId === 'EGLC' || stationId === 'LTAC') ? 'C' : 'F';
+    }
+
+    function usesCelsius(stationId = currentStation) {
+        return getStationMarketUnit(stationId) === 'C';
+    }
+
+    function tempUnitSymbol(stationId = currentStation) {
+        return usesCelsius(stationId) ? '°C' : '°F';
+    }
+
+    function fToC(tempF) {
+        return (Number(tempF) - 32) * (5 / 9);
+    }
+
+    function deltaFToC(deltaF) {
+        return Number(deltaF) * (5 / 9);
+    }
+
+    function convertTempFromF(tempF, stationId = currentStation) {
+        if (!Number.isFinite(Number(tempF))) return null;
+        const value = Number(tempF);
+        return usesCelsius(stationId) ? fToC(value) : value;
+    }
+
+    function convertDeltaFromF(deltaF, stationId = currentStation) {
+        if (!Number.isFinite(Number(deltaF))) return null;
+        const value = Number(deltaF);
+        return usesCelsius(stationId) ? deltaFToC(value) : value;
+    }
+
+    function formatTempFromF(tempF, digits = 1, stationId = currentStation) {
+        const v = convertTempFromF(tempF, stationId);
+        if (v == null) return '--';
+        return `${v.toFixed(digits)}${tempUnitSymbol(stationId)}`;
+    }
+
+    function formatSignedDeltaFromF(deltaF, digits = 1, stationId = currentStation) {
+        const v = convertDeltaFromF(deltaF, stationId);
+        if (v == null) return '--';
+        const sign = v >= 0 ? '+' : '';
+        return `${sign}${v.toFixed(digits)}${tempUnitSymbol(stationId)}`;
+    }
+
+    function parseBucketBoundsF(label) {
+        if (!label) return null;
+        const raw = String(label).trim();
+        if (!raw) return null;
+
+        const lower = raw.toLowerCase();
+        const numbers = raw.match(/-?\d+(?:\.\d+)?/g);
+        if (!numbers || numbers.length === 0) return null;
+
+        const isC = /°\s*c/i.test(raw) || /celsius/i.test(lower);
+        const toF = (v) => isC ? ((v * 9) / 5) + 32 : v;
+
+        if (lower.includes('or below')) {
+            const threshold = toF(Number(numbers[0]));
+            return Number.isFinite(threshold) ? { kind: 'below', threshold } : null;
+        }
+        if (lower.includes('or above') || lower.includes('or higher')) {
+            const threshold = toF(Number(numbers[0]));
+            return Number.isFinite(threshold) ? { kind: 'above', threshold } : null;
+        }
+        if (numbers.length >= 2) {
+            const low = toF(Number(numbers[0]));
+            const high = toF(Number(numbers[1]));
+            if (Number.isFinite(low) && Number.isFinite(high)) return { kind: 'range', low, high };
+        }
+        const single = toF(Number(numbers[0]));
+        if (Number.isFinite(single)) return { kind: 'single', value: single };
+        return null;
+    }
+
+    function formatBucketLabelForStation(bucket) {
+        const raw = bucket && bucket.label ? String(bucket.label).trim() : '';
+        if (!usesCelsius()) {
+            if (raw) return raw.includes('°') ? raw : `${raw}°F`;
+            if (bucket && Number.isFinite(bucket.bucket_low_f) && Number.isFinite(bucket.bucket_high_f)) {
+                return `${bucket.bucket_low_f}-${bucket.bucket_high_f}°F`;
+            }
+            return '--';
+        }
+
+        const parsed = parseBucketBoundsF(raw);
+        if (parsed && parsed.kind === 'range') {
+            const lowC = Math.round(fToC(parsed.low));
+            const highC = Math.round(fToC(parsed.high));
+            return lowC === highC ? `${lowC}°C` : `${lowC}-${highC}°C`;
+        }
+        if (parsed && parsed.kind === 'below') {
+            return `${Math.round(fToC(parsed.threshold))}°C or below`;
+        }
+        if (parsed && parsed.kind === 'above') {
+            return `${Math.round(fToC(parsed.threshold))}°C or higher`;
+        }
+        if (parsed && parsed.kind === 'single') {
+            return `${Math.round(fToC(parsed.value))}°C`;
+        }
+
+        if (bucket && Number.isFinite(bucket.bucket_low_f) && Number.isFinite(bucket.bucket_high_f)) {
+            const lowC = Math.round(fToC(bucket.bucket_low_f));
+            const highC = Math.round(fToC(bucket.bucket_high_f));
+            return lowC === highC ? `${lowC}°C` : `${lowC}-${highC}°C`;
+        }
+        if (raw) return raw.replace(/°F/gi, '°C');
+        return '--';
+    }
 
     function updateTimezoneFormatters() {
         const tz = stationTimezones[currentStation] || 'America/New_York';
@@ -754,6 +867,10 @@
             // Store timezone info per station
             for (const stn of stations) {
                 stationTimezones[stn.id] = stn.timezone;
+                const unit = String(stn.market_unit || '').toUpperCase();
+                if (unit === 'C' || unit === 'F') {
+                    stationMarketUnits[stn.id] = unit;
+                }
             }
 
             // If current station not in list, switch to first before rendering buttons
@@ -841,16 +958,25 @@
         updateMarketStatus(data.target_date);
 
         // Central estimate
+        const meanF = Number(data.tmax_mean_f);
         document.getElementById('tmax-mean').textContent =
-            data.tmax_mean_f ? `${data.tmax_mean_f.toFixed(1)}°F` : '--°F';
-        document.getElementById('tmax-sigma').textContent =
-            data.tmax_sigma_f ? `Uncertainty: ±${data.tmax_sigma_f.toFixed(1)}°F` : 'Uncertainty: --';
+            Number.isFinite(meanF) ? formatTempFromF(meanF, 1) : `--${tempUnitSymbol()}`;
+
+        const sigmaF = Number(data.tmax_sigma_f);
+        if (Number.isFinite(sigmaF)) {
+            const sigmaDisplay = convertDeltaFromF(sigmaF);
+            document.getElementById('tmax-sigma').textContent =
+                `Uncertainty: ±${sigmaDisplay.toFixed(1)}${tempUnitSymbol()}`;
+        } else {
+            document.getElementById('tmax-sigma').textContent = 'Uncertainty: --';
+        }
 
         // Max observed from state
-        const maxObs = state && state.max_so_far_f !== undefined && state.max_so_far_f > -900
-            ? state.max_so_far_f.toFixed(0)
-            : '--';
-        document.getElementById('stat-max-observed').textContent = maxObs !== '--' ? `${maxObs}°F` : '--';
+        const maxObsF = state && state.max_so_far_f !== undefined && state.max_so_far_f > -900
+            ? Number(state.max_so_far_f)
+            : null;
+        document.getElementById('stat-max-observed').textContent =
+            maxObsF != null ? formatTempFromF(maxObsF, 0) : '--';
 
         // Confidence badge
         const badge = document.getElementById('confidence-badge');
@@ -870,7 +996,7 @@
         // Stats
         const bias = data.bias_applied_f || 0;
         document.getElementById('stat-bias').textContent =
-            `${bias >= 0 ? '+' : ''}${bias.toFixed(1)}°F`;
+            formatSignedDeltaFromF(bias, 1);
         document.getElementById('stat-bias').className =
             'stat-value ' + (bias > 0 ? 'positive' : bias < 0 ? 'negative' : 'neutral');
 
@@ -969,20 +1095,12 @@
         container.innerHTML = '';
 
         const bucketSortValue = (label) => {
-            if (!label) return -9999;
-            const match = String(label).match(/-?\d+/);
-            return match ? parseInt(match[0], 10) : -9999;
-        };
-
-        const bucketDisplayLabel = (bucket) => {
-            const raw = bucket && bucket.label ? String(bucket.label) : '';
-            if (raw) {
-                return raw.includes('°') ? raw : `${raw}°F`;
-            }
-            if (bucket && Number.isFinite(bucket.bucket_low_f) && Number.isFinite(bucket.bucket_high_f)) {
-                return `${bucket.bucket_low_f}-${bucket.bucket_high_f}°F`;
-            }
-            return '--';
+            const parsed = parseBucketBoundsF(label);
+            if (!parsed) return -9999;
+            if (parsed.kind === 'range') return Number(parsed.low);
+            if (parsed.kind === 'single') return Number(parsed.value);
+            if (parsed.kind === 'below' || parsed.kind === 'above') return Number(parsed.threshold);
+            return -9999;
         };
 
         // Sort by bucket label (descending)
@@ -999,7 +1117,7 @@
             const row = document.createElement('div');
             row.className = 'bucket-row';
             row.innerHTML = `
-                <div class="bucket-label">${bucketDisplayLabel(bucket)}</div>
+                <div class="bucket-label">${formatBucketLabelForStation(bucket)}</div>
                 <div class="bucket-bar-container">
                     <div class="bucket-bar ${bucket.is_impossible ? 'impossible' : ''}"
                          style="width: ${Math.max(prob * 100, 1)}%"></div>
@@ -1057,7 +1175,7 @@
             const valueClass = exp.contribution_f > 0 ? 'positive' :
                               exp.contribution_f < 0 ? 'negative' : 'neutral';
             const valueText = exp.contribution_f !== 0 ?
-                `${exp.contribution_f >= 0 ? '+' : ''}${exp.contribution_f.toFixed(1)}°F` : '';
+                formatSignedDeltaFromF(exp.contribution_f, 1) : '';
 
             item.innerHTML = `
                 <div class="explanation-factor">${exp.factor}</div>
@@ -1078,6 +1196,9 @@
             hourlyChart = null;
         }
 
+        const unitSymbol = tempUnitSymbol();
+        const toDisplayTemp = (tempF) => convertTempFromF(tempF);
+
         const base = Array.isArray(data?.base_hourly_f) ? data.base_hourly_f : [];
         const adjusted = Array.isArray(data?.nowcast_hourly_f) ? data.nowcast_hourly_f : [];
 
@@ -1091,21 +1212,24 @@
         for (let h = 0; h < 24; h += 1) {
             const b = Number(base[h]);
             const a = Number(adjusted[h]);
-            basePts.push({ x: h, y: Number.isFinite(b) ? b : null });
-            adjPts.push({ x: h, y: Number.isFinite(a) ? a : null });
+            const bDisplay = Number.isFinite(b) ? toDisplayTemp(b) : null;
+            const aDisplay = Number.isFinite(a) ? toDisplayTemp(a) : null;
+            basePts.push({ x: h, y: Number.isFinite(bDisplay) ? bDisplay : null });
+            adjPts.push({ x: h, y: Number.isFinite(aDisplay) ? aDisplay : null });
         }
 
         const obsPts = [];
         if (metarHistory && Array.isArray(metarHistory.observations)) {
             for (const r of metarHistory.observations) {
-                const t = Number(r?.temp_f_raw);
+                const tF = Number(r?.temp_f_raw);
                 const timeStr = String(r?.obs_time_local || '');
                 const parts = timeStr.split(':');
                 if (parts.length >= 2) {
                     const hh = parseInt(parts[0], 10);
                     const mm = parseInt(parts[1], 10);
                     const x = hh + (mm / 60.0);
-                    if (Number.isFinite(x) && Number.isFinite(t)) obsPts.push({ x, y: t });
+                    const tDisplay = Number.isFinite(tF) ? toDisplayTemp(tF) : null;
+                    if (Number.isFinite(x) && Number.isFinite(tDisplay)) obsPts.push({ x, y: tDisplay });
                 }
             }
         }
@@ -1198,7 +1322,7 @@
                                 const datasetLabel = String(ctx?.dataset?.label || '');
                                 const xVal = Number(ctx?.parsed?.x);
                                 const yVal = Number(ctx?.parsed?.y);
-                                const temp = Number.isFinite(yVal) ? `${yVal.toFixed(1)}F` : '--';
+                                const temp = Number.isFinite(yVal) ? `${yVal.toFixed(1)}${unitSymbol}` : '--';
                                 if (datasetLabel === 'NOAA METAR (obs time)') {
                                     return `${datasetLabel}: ${temp} @ ${formatHour(xVal)}`;
                                 }
@@ -1220,6 +1344,11 @@
                         grid: { color: 'rgba(255,255,255,0.05)' }
                     },
                     y: {
+                        title: {
+                            display: true,
+                            text: unitSymbol,
+                            color: '#94a3b8',
+                        },
                         ticks: { color: '#94a3b8' },
                         grid: { color: 'rgba(255,255,255,0.05)' }
                     }
@@ -1230,10 +1359,16 @@
         const bits = [];
         if (Number.isFinite(Number(data?.base_tmax_f))) {
             const h = Number.isFinite(Number(data?.base_peak_hour)) ? String(Number(data.base_peak_hour)).padStart(2, '0') : '--';
-            bits.push(`base tmax ${Number(data.base_tmax_f).toFixed(1)}F @ ${h}:00`);
+            const baseTmaxDisplay = toDisplayTemp(Number(data.base_tmax_f));
+            if (Number.isFinite(baseTmaxDisplay)) {
+                bits.push(`base tmax ${baseTmaxDisplay.toFixed(1)}${unitSymbol} @ ${h}:00`);
+            }
         }
-        if (Number.isFinite(Number(data?.tmax_mean_f))) bits.push(`nowcast tmax ${Number(data.tmax_mean_f).toFixed(1)}F`);
-        if (obsMax !== null) bits.push(`observed max ${obsMax.toFixed(1)}F`);
+        if (Number.isFinite(Number(data?.tmax_mean_f))) {
+            const nowcastDisplay = toDisplayTemp(Number(data.tmax_mean_f));
+            if (Number.isFinite(nowcastDisplay)) bits.push(`nowcast tmax ${nowcastDisplay.toFixed(1)}${unitSymbol}`);
+        }
+        if (obsMax !== null) bits.push(`observed max ${obsMax.toFixed(1)}${unitSymbol}`);
         if (meta) meta.textContent = bits.length ? bits.join(' | ') : '--';
     }
 

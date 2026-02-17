@@ -5,6 +5,7 @@ if today's market is resolved/mature and predictions should target tomorrow.
 """
 
 import httpx
+import re
 from dataclasses import dataclass
 from typing import Optional, Tuple
 from datetime import datetime, date, timedelta
@@ -100,102 +101,110 @@ class MarketResolution:
 
 
 
+def _clean_bracket_text(bracket: str) -> str:
+    s = str(bracket or "")
+    # Handle common mojibake cases like "Â°" / "Ã‚Â°".
+    for _ in range(2):
+        try:
+            fixed = s.encode("latin1").decode("utf-8")
+            if fixed == s:
+                break
+            s = fixed
+        except Exception:
+            break
+    s = s.replace("\u00C2", " ")
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+def _bracket_unit(clean: str) -> str:
+    lower = clean.lower()
+    has_f = bool(re.search("\\d\\s*[\\u00B0\\u00BA]?\\s*f\\b", lower))
+    has_c = bool(re.search("\\d\\s*[\\u00B0\\u00BA]?\\s*c\\b", lower))
+    if has_c and not has_f:
+        return "C"
+    return "F"
+
+
 def parse_bracket_midpoint(bracket: str) -> Optional[float]:
     """
-    Parse bracket like '48-49' and return midpoint (48.5).
-    Handle edge cases like '41°F or below' -> 40.5
-    
-    CELSIUS SUPPORT: Also handles '3°C', '6°C or higher', etc.
-    Returns the value in the native unit (Celsius for C, Fahrenheit for F)
+    Parse a Polymarket bracket and return midpoint in Fahrenheit.
+
+    Supports both Fahrenheit and Celsius labels:
+    - "48-49°F" -> 48.5
+    - "41°F or below" -> 40.5
+    - "6°C or higher" -> 42.35
     """
     if not bracket:
         return None
-    
-    # Handle "X°F or below" or "X°C or below" format
-    if "or below" in bracket.lower():
-        try:
-            temp = float(bracket.split("°")[0].strip())
-            return temp - 0.5
-        except:
-            return None
-    
-    # Handle "X°F or above" or "X°C or above" or "X°C or higher" format
-    if "or above" in bracket.lower() or "or higher" in bracket.lower():
-        try:
-            temp = float(bracket.split("°")[0].strip())
-            return temp + 0.5
-        except:
-            return None
-    
-    # Handle single value format like "3°C" or "48°F"
-    if "°C" in bracket or "°F" in bracket:
-        try:
-            clean = bracket.replace("°C", "").replace("°F", "").strip()
-            # If no range separator, it's a single value
-            if "-" not in clean:
-                return float(clean)
-        except:
-            pass
-    
-    # Handle "XX-YY" format (e.g., "48-49°F" or "3-4°C")
+
+    clean = _clean_bracket_text(bracket)
+    lower = clean.lower()
+    is_celsius = _bracket_unit(clean) == "C"
+
+    def to_f(value: float) -> float:
+        return (value * 9.0 / 5.0 + 32.0) if is_celsius else value
+
     try:
-        # Remove °F or °C suffix if present
-        clean = bracket.replace("°F", "").replace("°C", "").replace("°", "").strip()
-        parts = clean.split("-")
-        if len(parts) == 2:
-            low = float(parts[0].strip())
-            high = float(parts[1].strip())
-            return (low + high) / 2
-    except:
-        pass
-    
-    return None
+        range_match = re.search(r"(-?\d+(?:\.\d+)?)\s*-\s*(-?\d+(?:\.\d+)?)", clean)
+        if range_match:
+            low = float(range_match.group(1))
+            high = float(range_match.group(2))
+            return to_f((low + high) / 2.0)
+
+        num_match = re.search(r"-?\d+(?:\.\d+)?", clean)
+        if not num_match:
+            return None
+
+        temp = float(num_match.group(0))
+        if "or below" in lower:
+            return to_f(temp - 0.5)
+        if "or above" in lower or "or higher" in lower:
+            return to_f(temp + 0.5)
+        return to_f(temp)
+    except Exception:
+        return None
 
 
 def parse_bracket_threshold(bracket: str) -> Optional[float]:
     """
-    Parse bracket and return the LOW threshold that must be reached to WIN this bracket.
-    
+    Parse bracket and return the LOW threshold in Fahrenheit that must be
+    reached to win this bracket.
+
     Examples:
-    - "46°F or higher" -> 46.0 (must reach 46 to win)
-    - "44-45°F" -> 44.0 (must reach 44 to enter this range)
-    - "41°F or below" -> None (this wins if temp stays below, no threshold to reach)
+    - "46°F or higher" -> 46.0
+    - "44-45°F" -> 44.0
+    - "6°C or higher" -> 42.8
+    - "41°F or below" -> None
     """
     if not bracket:
         return None
-    
-    bracket_lower = bracket.lower()
-    
-    # "X or higher" / "X or above" - threshold is X
-    if "or higher" in bracket_lower or "or above" in bracket_lower:
-        try:
-            temp = float(bracket.split("°")[0].strip())
-            return temp
-        except:
-            return None
-    
-    # "X or below" - no upward threshold (wins by staying low)
-    if "or below" in bracket_lower:
+
+    clean = _clean_bracket_text(bracket)
+    lower = clean.lower()
+    is_celsius = _bracket_unit(clean) == "C"
+
+    def to_f(value: float) -> float:
+        return (value * 9.0 / 5.0 + 32.0) if is_celsius else value
+
+    # "X or below" wins by staying low; no upward threshold exists.
+    if "or below" in lower:
         return None
-    
-    # Range format "XX-YY°F" - threshold is the low value
+
     try:
-        clean = bracket.replace("°F", "").replace("°C", "").replace("°", "").strip()
-        parts = clean.split("-")
-        if len(parts) == 2:
-            low = float(parts[0].strip())
-            return low
-    except:
+        range_match = re.search(r"(-?\d+(?:\.\d+)?)\s*-\s*(-?\d+(?:\.\d+)?)", clean)
+        if range_match:
+            return to_f(float(range_match.group(1)))
+    except Exception:
         pass
-    
-    # Single value "48°F" - threshold is that value
+
     try:
-        clean = bracket.replace("°F", "").replace("°C", "").replace("°", "").strip()
-        if "-" not in clean:
-            return float(clean)
-    except:
+        num_match = re.search(r"-?\d+(?:\.\d+)?", clean)
+        if num_match:
+            return to_f(float(num_match.group(0)))
+    except Exception:
         pass
-    
+
     return None
 
 
@@ -647,3 +656,4 @@ async def get_target_date(station_code: str, local_now: datetime) -> date:
     # Today's market still active: never roll just because probabilities are high.
     log_market_status(station_code, today_event, is_mature_today, outcome_today, prob_today, today, is_today=True)
     return today
+

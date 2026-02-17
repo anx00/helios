@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import os
+import re
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -26,7 +27,7 @@ from database import (
     get_observed_max_for_target_date,
     iter_performance_history_by_target_date,
 )
-from config import STATIONS, get_active_stations
+from config import STATIONS, get_active_stations, get_polymarket_temp_unit
 import sys
 try:
     # Prevent UnicodeEncodeError on Windows when parts of the stack use emoji/box-drawing
@@ -161,7 +162,15 @@ class StationConfig(BaseModel):
 def get_stations():
     """Return list of active stations."""
     active = get_active_stations()
-    return [{"id": k, "name": v.name, "timezone": v.timezone} for k, v in active.items()]
+    return [
+        {
+            "id": k,
+            "name": v.name,
+            "timezone": v.timezone,
+            "market_unit": get_polymarket_temp_unit(k),
+        }
+        for k, v in active.items()
+    ]
 
 def parse_physics_breakdown(physics_reason: str) -> list:
     """Parse the physics reason string into a structured list with values."""
@@ -3612,6 +3621,55 @@ def _resolve_yes_probability_from_bracket(bracket: Dict[str, Any]) -> Optional[f
     return max(0.0, min(1.0, float(yes_mid)))
 
 
+def _convert_market_label_to_f(label: str, market_unit: str) -> str:
+    """
+    Convert Celsius market labels to Fahrenheit labels so downstream logic
+    (nowcast buckets, calibration, observed-max floor) stays unit-consistent.
+    """
+    clean = str(label or "")
+    for _ in range(2):
+        try:
+            fixed = clean.encode("latin1").decode("utf-8")
+            if fixed == clean:
+                break
+            clean = fixed
+        except Exception:
+            break
+    clean = clean.replace("\u00C2", "")
+    clean = re.sub(r"\s+", " ", clean).strip()
+    if not clean:
+        return ""
+    if str(market_unit or "F").upper() != "C":
+        return clean
+
+    def c_to_f(v: float) -> float:
+        return (v * 9.0 / 5.0) + 32.0
+
+    lower = clean.lower()
+    # If label already carries Fahrenheit, keep as-is.
+    if re.search("\\d\\s*[\\u00B0\\u00BA]?\\s*f\\b", lower):
+        return clean
+
+    range_match = re.search(r"(-?\d+(?:\.\d+)?)\s*-\s*(-?\d+(?:\.\d+)?)", clean)
+    if range_match:
+        low_f = int(round(c_to_f(float(range_match.group(1)))))
+        high_f = int(round(c_to_f(float(range_match.group(2)))))
+        if high_f < low_f:
+            low_f, high_f = high_f, low_f
+        return f"{low_f}-{high_f}°F"
+
+    num_match = re.search(r"-?\d+(?:\.\d+)?", clean)
+    if not num_match:
+        return clean
+
+    threshold_f = int(round(c_to_f(float(num_match.group(0)))))
+    if "or below" in lower:
+        return f"{threshold_f}°F or below"
+    if "or above" in lower or "or higher" in lower:
+        return f"{threshold_f}°F or higher"
+    return f"{threshold_f}°F"
+
+
 def _normalize_prob_dict(raw: Dict[str, float]) -> Dict[str, float]:
     cleaned: Dict[str, float] = {}
     for label, prob in raw.items():
@@ -3774,10 +3832,12 @@ async def autotrader_nowcast(target_day: int = 0):
 
     market_probs: Dict[str, float] = {}
     market_error = None
+    station_market_unit = get_polymarket_temp_unit(station_id)
     if isinstance(market_payload, dict):
         market_error = market_payload.get("error")
         for b in market_payload.get("brackets", []) if isinstance(market_payload.get("brackets"), list) else []:
-            label = normalize_label(str(b.get("name", "")))
+            raw_label = str(b.get("name", ""))
+            label = normalize_label(_convert_market_label_to_f(raw_label, station_market_unit))
             if not label:
                 continue
             yes_prob = _resolve_yes_probability_from_bracket(b)
