@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import Optional, Dict, List, Callable, Any
@@ -198,6 +199,8 @@ class ReplaySession:
         self._event_index: int = 0
         self._metar_indices: List[int] = []
         self._window_indices: List[int] = []
+        self._pws_learning_cache_key: Optional[tuple] = None
+        self._pws_learning_cache_value: Optional[Dict[str, Any]] = None
 
         # Playback
         self._playback_task: Optional[asyncio.Task] = None
@@ -548,6 +551,149 @@ class ReplaySession:
                 categories[ch]["latest_time"] = self._events[i].get("ts_nyc")
 
         return categories
+
+    @staticmethod
+    def _extract_station_learning_rows(data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        Extract sortable learning rows from a PWS event payload.
+
+        Supports both:
+        - data.station_learning (rich profiles)
+        - data.station_weights (legacy weight-only payload)
+        """
+        rows: List[Dict[str, Any]] = []
+        learning = data.get("station_learning")
+        if isinstance(learning, dict) and learning:
+            for sid, raw in learning.items():
+                if isinstance(raw, dict):
+                    row = dict(raw)
+                    row.setdefault("station_id", sid)
+                    rows.append(row)
+
+        if not rows:
+            weights = data.get("station_weights")
+            if isinstance(weights, dict):
+                for sid, w in weights.items():
+                    try:
+                        wv = float(w)
+                    except Exception:
+                        continue
+                    rows.append({
+                        "station_id": sid,
+                        "weight": wv,
+                        "weight_now": wv,
+                        "weight_predictive": wv,
+                        "now_score": None,
+                        "lead_score": None,
+                        "predictive_score": None,
+                        "now_samples": None,
+                        "lead_samples": None,
+                        "quality_band": "LEGACY",
+                    })
+
+        rows.sort(key=lambda r: float(r.get("weight", 0.0) or 0.0), reverse=True)
+        return rows
+
+    @staticmethod
+    def _decimate_points(points: List[Dict[str, Any]], max_points: int) -> List[Dict[str, Any]]:
+        if max_points <= 0 or len(points) <= max_points:
+            return points
+        step = max(1, int(math.ceil(len(points) / float(max_points))))
+        sampled = points[::step]
+        if sampled and sampled[-1] is not points[-1]:
+            sampled.append(points[-1])
+        return sampled
+
+    def get_pws_learning_summary(self, max_points: int = 80, top_n: int = 6) -> Dict[str, Any]:
+        """
+        Build replay-time PWS learning diagnostics up to current playback index.
+
+        Returns:
+        - current: latest top ranking snapshot
+        - timeline: decimated leader evolution over the day
+        - leader_changes: compact list when leader station switches
+        """
+        current_limit = min(self._event_index + 1, len(self._events))
+        cache_key = (current_limit, int(max_points), int(top_n))
+        if self._pws_learning_cache_key == cache_key and self._pws_learning_cache_value is not None:
+            return self._pws_learning_cache_value
+        pws_count = 0
+        points: List[Dict[str, Any]] = []
+        leader_changes: List[Dict[str, Any]] = []
+
+        latest_rows: List[Dict[str, Any]] = []
+        latest_data: Optional[Dict[str, Any]] = None
+        latest_event: Optional[Dict[str, Any]] = None
+        prev_leader: Optional[str] = None
+
+        for idx in range(current_limit):
+            event = self._events[idx]
+            if event.get("ch") != "pws":
+                continue
+
+            data = event.get("data", {})
+            if not isinstance(data, dict):
+                continue
+
+            rows = self._extract_station_learning_rows(data)
+            if not rows:
+                continue
+
+            pws_count += 1
+            leader = rows[0]
+            leader_id = str(leader.get("station_id") or "")
+            point = {
+                "event_index": idx,
+                "ts_nyc": event.get("ts_nyc"),
+                "ts_ingest_utc": event.get("ts_ingest_utc"),
+                "leader_station_id": leader_id,
+                "leader_weight": leader.get("weight"),
+                "leader_now_score": leader.get("now_score"),
+                "leader_lead_score": leader.get("lead_score"),
+                "weighted_support": data.get("weighted_support"),
+                "support": data.get("support"),
+                "median_f": data.get("median_f"),
+            }
+            points.append(point)
+
+            if leader_id and leader_id != prev_leader:
+                leader_changes.append(point)
+                prev_leader = leader_id
+
+            latest_rows = rows
+            latest_data = data
+            latest_event = event
+
+        if not latest_rows:
+            result = {
+                "total_pws_events": 0,
+                "current": None,
+                "timeline": [],
+                "leader_changes": [],
+            }
+            self._pws_learning_cache_key = cache_key
+            self._pws_learning_cache_value = result
+            return result
+
+        current_top = latest_rows[: max(1, int(top_n))]
+        current_payload = {
+            "event_index": points[-1]["event_index"] if points else None,
+            "ts_nyc": latest_event.get("ts_nyc") if latest_event else None,
+            "weighted_support": latest_data.get("weighted_support") if latest_data else None,
+            "support": latest_data.get("support") if latest_data else None,
+            "median_f": latest_data.get("median_f") if latest_data else None,
+            "top": current_top,
+        }
+
+        result = {
+            "total_pws_events": pws_count,
+            "current": current_payload,
+            "timeline": self._decimate_points(points, max(10, int(max_points))),
+            "leader_changes": leader_changes[-20:],
+        }
+        self._pws_learning_cache_key = cache_key
+        self._pws_learning_cache_value = result
+        return result
 
     def get_current_event(self) -> Optional[Dict]:
         """Get the current event."""

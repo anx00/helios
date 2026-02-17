@@ -10,6 +10,8 @@ from collector.pws_fetcher import (
     _normalize_open_meteo_payload,
     _parse_madis_xml_records,
     _parse_open_meteo_obs_time,
+    _weighted_mad,
+    _weighted_median,
 )
 
 
@@ -98,6 +100,19 @@ class TestMadisPwsParser(unittest.TestCase):
         self.assertEqual(naive.utcoffset(), timezone.utc.utcoffset(None))
 
         self.assertIsNone(_parse_open_meteo_obs_time("invalid"))
+
+    def test_weighted_median_prefers_higher_weight_station(self):
+        values = [10.0, 20.0, 30.0]
+        weights = [0.1, 0.2, 5.0]
+        self.assertEqual(_weighted_median(values, weights), 30.0)
+
+    def test_weighted_mad_reflects_weighted_center(self):
+        values = [10.0, 20.0, 30.0]
+        weights = [0.1, 0.2, 5.0]
+        center = _weighted_median(values, weights)
+        mad = _weighted_mad(values, weights, center)
+        self.assertEqual(center, 30.0)
+        self.assertEqual(mad, 0.0)
 
 
 if __name__ == "__main__":

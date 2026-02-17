@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import httpx
+from core.pws_learning import get_pws_learning_store
 
 logger = logging.getLogger("pws_fetcher")
 
@@ -205,6 +206,10 @@ class PWSConsensus:
     station_details: List[str] = field(default_factory=list)
     # Precomputed QC metrics to feed HELIOS/UX comparisons.
     source_metrics: Dict[str, Dict[str, float]] = field(default_factory=dict)
+    # Learning diagnostics.
+    weighted_support: float = 0.0
+    learning_weights: Dict[str, float] = field(default_factory=dict)
+    learning_profiles: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -1079,6 +1084,36 @@ def _compute_qc_metrics(readings: List[PWSReading], min_support: int = 1) -> Opt
     }
 
 
+def _weighted_median(values: List[float], weights: List[float]) -> float:
+    if not values:
+        raise ValueError("values cannot be empty")
+    if not weights or len(weights) != len(values):
+        return float(statistics.median(values))
+
+    pairs = sorted(
+        (float(v), max(0.0, float(w)))
+        for v, w in zip(values, weights)
+    )
+    total = sum(w for _, w in pairs)
+    if total <= 0.0:
+        return float(statistics.median(values))
+
+    half = total * 0.5
+    acc = 0.0
+    for value, weight in pairs:
+        acc += weight
+        if acc >= half:
+            return float(value)
+    return float(pairs[-1][0])
+
+
+def _weighted_mad(values: List[float], weights: List[float], center: float) -> float:
+    if len(values) <= 1:
+        return 0.0
+    deviations = [abs(float(v) - float(center)) for v in values]
+    return float(_weighted_median(deviations, weights))
+
+
 def _build_source_metrics(readings: List[PWSReading], min_support: int) -> Dict[str, Dict[str, float]]:
     """
     Build canonical HELIOS-facing metrics for source subsets.
@@ -1225,9 +1260,16 @@ async def fetch_pws_cluster(station_id: str, min_support: int = PWS_MIN_SUPPORT)
         return None
 
     final_temps = [r.temp_c for r in final_valid]
-    median_val = statistics.median(final_temps)
-    if len(final_temps) > 1:
-        mad = statistics.median([abs(t - median_val) for t in final_temps])
+    learning_store = get_pws_learning_store()
+    learning_profiles = learning_store.get_profiles_for_readings(station_id, final_valid)
+    learning_weights_map = {
+        sid: float(profile.get("weight", 1.0))
+        for sid, profile in learning_profiles.items()
+    }
+    final_weights = [max(0.05, float(learning_weights_map.get(r.label.upper(), 1.0))) for r in final_valid]
+
+    median_val = _weighted_median(final_temps, final_weights)
+    mad = _weighted_mad(final_temps, final_weights, median_val)
 
     if len(final_valid) < min_support:
         logger.warning(
@@ -1244,6 +1286,12 @@ async def fetch_pws_cluster(station_id: str, min_support: int = PWS_MIN_SUPPORT)
         logger.info(line)
     if outliers:
         logger.info(f"  >> {len(outliers)} outliers removed by MAD filter")
+    logger.info(
+        "PWS %s learning support: weighted_support=%.2f raw_support=%s",
+        station_id,
+        sum(final_weights),
+        len(final_valid),
+    )
 
     source_metrics = _build_source_metrics(readings, min_support=min_support)
 
@@ -1260,10 +1308,17 @@ async def fetch_pws_cluster(station_id: str, min_support: int = PWS_MIN_SUPPORT)
         data_source=data_source,
         station_details=detail_lines,
         source_metrics=source_metrics,
+        weighted_support=round(sum(final_weights), 3),
+        learning_weights={k: round(float(v), 4) for k, v in learning_weights_map.items()},
+        learning_profiles=learning_profiles,
     )
 
 
-async def fetch_and_publish_pws(station_id: str, official_temp_c: Optional[float] = None):
+async def fetch_and_publish_pws(
+    station_id: str,
+    official_temp_c: Optional[float] = None,
+    official_obs_time_utc: Optional[datetime] = None,
+):
     """
     Full pipeline: fetch PWS cluster, compute consensus, QC, and publish to WorldState.
     """
@@ -1274,6 +1329,34 @@ async def fetch_and_publish_pws(station_id: str, official_temp_c: Optional[float
     # Compute drift vs official
     if official_temp_c is not None:
         consensus.drift_c = round(consensus.median_temp_c - official_temp_c, 2)
+
+    learning_store = get_pws_learning_store()
+    all_readings = consensus.readings + consensus.outliers
+
+    try:
+        updated = learning_store.update_with_official(
+            market_station_id=station_id,
+            official_temp_c=official_temp_c,
+            readings=all_readings,
+            obs_time_utc=consensus.obs_time_utc,
+            official_obs_time_utc=official_obs_time_utc,
+        )
+        if updated:
+            consensus.learning_weights.update({k: round(float(v), 4) for k, v in updated.items()})
+    except Exception as e:
+        logger.warning("PWS learning update failed for %s: %s", station_id, e)
+
+    try:
+        all_profiles = learning_store.get_profiles_for_readings(station_id, all_readings)
+        consensus.learning_profiles = all_profiles
+        consensus.learning_weights.update(
+            {
+                sid: round(float(profile.get("weight", 1.0)), 4)
+                for sid, profile in all_profiles.items()
+            }
+        )
+    except Exception as e:
+        logger.warning("PWS learning profile extraction failed for %s: %s", station_id, e)
 
     try:
         from core.models import AuxObs
@@ -1300,13 +1383,13 @@ async def fetch_and_publish_pws(station_id: str, official_temp_c: Optional[float
         nyc_tz = ZoneInfo("America/New_York")
         mad_tz = ZoneInfo("Europe/Madrid")
 
-        all_readings = consensus.readings + consensus.outliers
         details = []
         for r in all_readings:
             temp_f = round((r.temp_c * 9 / 5) + 32, 1)
             obs_nyc = r.obs_time_utc.astimezone(nyc_tz).strftime("%Y-%m-%d %H:%M:%S") if r.obs_time_utc else None
             obs_mad = r.obs_time_utc.astimezone(mad_tz).strftime("%Y-%m-%d %H:%M:%S") if r.obs_time_utc else None
             obs_utc = r.obs_time_utc.strftime("%Y-%m-%dT%H:%M:%SZ") if r.obs_time_utc else None
+            profile = consensus.learning_profiles.get(r.label.upper(), {})
 
             details.append(
                 {
@@ -1324,6 +1407,15 @@ async def fetch_and_publish_pws(station_id: str, official_temp_c: Optional[float
                     "source": r.source,
                     "valid": r.valid,
                     "qc_flag": r.qc_flag,
+                    "learning_weight": profile.get("weight", consensus.learning_weights.get(r.label.upper())),
+                    "learning_weight_now": profile.get("weight_now"),
+                    "learning_weight_predictive": profile.get("weight_predictive"),
+                    "learning_now_score": profile.get("now_score"),
+                    "learning_lead_score": profile.get("lead_score"),
+                    "learning_predictive_score": profile.get("predictive_score"),
+                    "learning_now_samples": profile.get("now_samples"),
+                    "learning_lead_samples": profile.get("lead_samples"),
+                    "learning_quality_band": profile.get("quality_band"),
                 }
             )
 
@@ -1331,12 +1423,24 @@ async def fetch_and_publish_pws(station_id: str, official_temp_c: Optional[float
         world.set_pws_details(station_id, details)
 
         # Store HELIOS-facing PWS metrics (dual view: Synoptic-only vs all sources QC).
-        metrics_payload: Dict[str, Dict[str, float]] = {}
+        metrics_payload: Dict[str, Any] = {}
         for key, value in (consensus.source_metrics or {}).items():
             metric = dict(value)
             if official_temp_c is not None:
                 metric["drift_c"] = round(metric["median_temp_c"] - official_temp_c, 2)
             metrics_payload[key] = metric
+        if consensus.learning_weights:
+            metrics_payload["learning"] = {
+                "model": "dual_score_now_vs_lead_v1",
+                "weighted_support": round(float(consensus.weighted_support), 3),
+                "top_weights": learning_store.get_top_weights(station_id, limit=8),
+                "top_profiles": learning_store.get_top_profiles(station_id, limit=8, sort_by="weight"),
+                "policy": {
+                    "now_alignment_minutes": learning_store.now_alignment_minutes,
+                    "lead_window_minutes": [learning_store.lead_min_minutes, learning_store.lead_max_minutes],
+                    "weight_rule": "weight_now primary + bounded lead modifier",
+                },
+            }
         world.set_pws_metrics(station_id, metrics_payload)
 
         # Update QC state
@@ -1364,6 +1468,7 @@ async def fetch_and_publish_pws(station_id: str, official_temp_c: Optional[float
             f"PWS {station_id} PUBLISHED: source={consensus.data_source} "
             f"median={consensus.median_temp_c}C ({consensus.median_temp_f}F) "
             f"MAD={consensus.mad:.2f} support={consensus.support}/{consensus.total_queried} "
+            f"weighted_support={consensus.weighted_support:.2f} "
             f"drift={consensus.drift_c:+.2f}C outliers={len(consensus.outliers)}"
         )
 

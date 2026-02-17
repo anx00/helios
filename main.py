@@ -482,7 +482,12 @@ async def collect_and_predict(station_id: str, target_days: List[int] = None) ->
                         try:
                             from collector.pws_fetcher import fetch_and_publish_pws
                             official_temp = metar.temp_c if metar else None
-                            await fetch_and_publish_pws(station_id, official_temp_c=official_temp)
+                            official_obs_time_utc = metar.observation_time if metar else None
+                            await fetch_and_publish_pws(
+                                station_id,
+                                official_temp_c=official_temp,
+                                official_obs_time_utc=official_obs_time_utc,
+                            )
                         except Exception as e:
                             print(f"[WARN] PWS cluster failed: {e}")
 

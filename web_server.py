@@ -418,20 +418,55 @@ async def pws_loop():
             for station_id in active.keys():
                 # Get current METAR for drift calculation
                 official_temp_c = None
+                official_obs_time_utc = None
                 try:
                     metar = await fetch_metar_race(station_id)
                     if metar:
                         official_temp_c = metar.temp_c
+                        official_obs_time_utc = metar.observation_time
                 except Exception as e:
                     logger.debug(f"METAR fetch for PWS drift failed: {e}")
 
                 logger.info(f"PWS fetch for {station_id}...")
-                consensus = await fetch_and_publish_pws(station_id, official_temp_c=official_temp_c)
+                consensus = await fetch_and_publish_pws(
+                    station_id,
+                    official_temp_c=official_temp_c,
+                    official_obs_time_utc=official_obs_time_utc,
+                )
                 if consensus:
                     qc_state = "OK"
                     if consensus.outliers or consensus.support < 5 or consensus.mad > 2.0:
                         qc_state = "UNCERTAIN"
                     pws_ids = [r.label for r in consensus.readings]
+                    all_readings = consensus.readings + consensus.outliers
+                    pws_all_ids = [r.label for r in all_readings]
+
+                    def _serialize_reading(r):
+                        sid = str(r.label).upper()
+                        profile = consensus.learning_profiles.get(sid, {})
+                        return {
+                            "station_id": r.label,
+                            "station_name": r.station_name,
+                            "source": r.source,
+                            "temp_c": round(float(r.temp_c), 3),
+                            "temp_f": round((float(r.temp_c) * 9.0 / 5.0) + 32.0, 1),
+                            "distance_km": round(float(r.distance_km), 3),
+                            "age_minutes": round(float(r.age_minutes), 3),
+                            "valid": bool(r.valid),
+                            "qc_flag": r.qc_flag,
+                            "weight": profile.get("weight", consensus.learning_weights.get(sid)),
+                            "weight_now": profile.get("weight_now"),
+                            "weight_predictive": profile.get("weight_predictive"),
+                            "now_score": profile.get("now_score"),
+                            "lead_score": profile.get("lead_score"),
+                            "predictive_score": profile.get("predictive_score"),
+                            "now_samples": profile.get("now_samples"),
+                            "lead_samples": profile.get("lead_samples"),
+                            "quality_band": profile.get("quality_band"),
+                        }
+
+                    pws_readings = [_serialize_reading(r) for r in consensus.readings]
+                    pws_outliers = [_serialize_reading(r) for r in consensus.outliers]
                     mad_f = round(consensus.mad * 9 / 5, 2)
                     asyncio.create_task(recorder.record_pws(
                         station_id=station_id,
@@ -439,6 +474,12 @@ async def pws_loop():
                         mad_f=mad_f,
                         support=consensus.support,
                         pws_ids=pws_ids,
+                        pws_all_ids=pws_all_ids,
+                        pws_readings=pws_readings,
+                        pws_outliers=pws_outliers,
+                        station_weights=consensus.learning_weights,
+                        station_learning=consensus.learning_profiles,
+                        weighted_support=consensus.weighted_support,
                         qc_state=qc_state,
                         obs_time_utc=consensus.obs_time_utc
                     ))
@@ -1434,6 +1475,19 @@ async def get_replay_categories(session_id: str):
         return {"error": "Session not found"}
 
     return session.get_category_summary()
+
+
+@app.get("/api/v4/replay/session/{session_id}/pws_learning")
+async def get_replay_pws_learning(session_id: str, max_points: int = 80, top_n: int = 6):
+    """Get PWS learning ranking + leader evolution for replay."""
+    from core.replay_engine import get_replay_engine
+    engine = get_replay_engine()
+
+    session = engine.get_session(session_id)
+    if not session:
+        return {"error": "Session not found"}
+
+    return session.get_pws_learning_summary(max_points=max_points, top_n=top_n)
 
 
 @app.post("/api/v4/replay/session/{session_id}/play")

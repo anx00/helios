@@ -409,6 +409,12 @@ class Recorder:
         pws_ids: List[str],
         qc_state: str,
         obs_time_utc: datetime,
+        pws_all_ids: Optional[List[str]] = None,
+        pws_readings: Optional[List[Dict[str, Any]]] = None,
+        pws_outliers: Optional[List[Dict[str, Any]]] = None,
+        station_weights: Optional[Dict[str, float]] = None,
+        station_learning: Optional[Dict[str, Dict[str, Any]]] = None,
+        weighted_support: Optional[float] = None,
         correlation_id: Optional[str] = None
     ):
         """Record PWS cluster consensus (Section 4.3 B.2)."""
@@ -419,6 +425,18 @@ class Recorder:
             "pws_ids": pws_ids[:10],  # Limit to 10 IDs
             "qc": qc_state
         }
+        if pws_all_ids is not None:
+            data["pws_all_ids"] = list(pws_all_ids)
+        if pws_readings is not None:
+            data["pws_readings"] = list(pws_readings)
+        if pws_outliers is not None:
+            data["pws_outliers"] = list(pws_outliers)
+        if station_weights is not None:
+            data["station_weights"] = dict(station_weights)
+        if station_learning is not None:
+            data["station_learning"] = dict(station_learning)
+        if weighted_support is not None:
+            data["weighted_support"] = float(weighted_support)
         await self.record(
             channel="pws",
             data=data,

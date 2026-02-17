@@ -565,8 +565,120 @@
     .mr-depth-bid { background: rgba(16, 185, 129, 0.45); }
     .mr-depth-ask { background: rgba(239, 68, 68, 0.45); }
 
+    /* PWS Learning Replay Panel */
+    .pws-learning-panel {
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(139, 92, 246, 0.20);
+        border-radius: 12px;
+        padding: 18px;
+        margin-bottom: 20px;
+        display: none;
+    }
+    .pws-learning-panel.visible { display: block; }
+    .pl-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 12px;
+    }
+    .pl-title {
+        font-size: 13px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        color: #8B5CF6;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .pl-title i { width: 14px; height: 14px; }
+    .pl-meta {
+        font-size: 11px;
+        color: var(--text-muted);
+        font-family: 'JetBrains Mono', monospace;
+    }
+    .pl-grid {
+        display: grid;
+        grid-template-columns: 1.2fr 1fr;
+        gap: 12px;
+    }
+    .pl-card {
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 10px;
+        padding: 12px;
+    }
+    .pl-card-title {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: var(--text-muted);
+        margin-bottom: 8px;
+    }
+    .pl-rank-row {
+        display: grid;
+        grid-template-columns: 28px 1fr auto auto auto;
+        gap: 8px;
+        align-items: center;
+        font-size: 12px;
+        padding: 6px 0;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    }
+    .pl-rank-row:last-child { border-bottom: none; }
+    .pl-rank-pos {
+        color: var(--text-muted);
+        font-family: 'JetBrains Mono', monospace;
+    }
+    .pl-rank-station {
+        font-family: 'JetBrains Mono', monospace;
+        color: var(--text-main);
+        font-weight: 700;
+    }
+    .pl-pill {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 11px;
+        padding: 2px 6px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.07);
+        color: var(--text-secondary);
+    }
+    .pl-leader-strip {
+        display: flex;
+        gap: 2px;
+        align-items: flex-end;
+        height: 92px;
+        margin-bottom: 8px;
+    }
+    .pl-leader-bar {
+        flex: 1;
+        min-width: 2px;
+        border-radius: 2px 2px 0 0;
+        background: rgba(139, 92, 246, 0.55);
+    }
+    .pl-leader-events {
+        max-height: 120px;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+    .pl-leader-event {
+        font-size: 11px;
+        color: var(--text-secondary);
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        border-bottom: 1px dotted rgba(255,255,255,0.08);
+        padding-bottom: 3px;
+    }
+    .pl-empty {
+        color: var(--text-muted);
+        font-size: 12px;
+    }
+
     @media (max-width: 1100px) {
         .mr-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+        .pl-grid { grid-template-columns: 1fr; }
     }
 
     .category-count {
@@ -801,6 +913,25 @@
         </div>
         <div class="mr-grid" id="mr-grid">
             <!-- Brackets populated by JS -->
+        </div>
+    </div>
+
+    <!-- PWS Learning Replay Panel -->
+    <div class="pws-learning-panel" id="pws-learning-panel">
+        <div class="pl-header">
+            <span class="pl-title"><i data-lucide="graduation-cap"></i> PWS Learning</span>
+            <span class="pl-meta" id="pl-meta">--</span>
+        </div>
+        <div class="pl-grid">
+            <div class="pl-card">
+                <div class="pl-card-title">Ranking Actual (Now Weight)</div>
+                <div id="pl-ranking" class="pl-empty">No data</div>
+            </div>
+            <div class="pl-card">
+                <div class="pl-card-title">Evolucion Lider Del Dia</div>
+                <div id="pl-strip" class="pl-leader-strip"></div>
+                <div id="pl-events" class="pl-leader-events"></div>
+            </div>
         </div>
     </div>
 
@@ -1121,15 +1252,18 @@
                 }
             }
 
-            // Get events and categories in parallel
-            const [eventsResp, catResp] = await Promise.all([
+            // Get events, categories and PWS learning in parallel
+            const [eventsResp, catResp, pwsLearnResp] = await Promise.all([
                 fetch(`/api/v4/replay/session/${sessionId}/events?n=10`),
-                fetch(`/api/v4/replay/session/${sessionId}/categories`)
+                fetch(`/api/v4/replay/session/${sessionId}/categories`),
+                fetch(`/api/v4/replay/session/${sessionId}/pws_learning?max_points=96&top_n=6`)
             ]);
             const eventsData = await eventsResp.json();
             const catData = await catResp.json();
+            const pwsLearnData = await pwsLearnResp.json();
             renderEvents(eventsData);
             renderCategories(catData);
+            renderPwsLearning(pwsLearnData);
 
         } catch (e) {
             console.error('State update error:', e);
@@ -1170,7 +1304,28 @@
             return `Tmax: <strong>${data.tmax_mean_f?.toFixed(1) || '--'}°F</strong> ± ${data.tmax_sigma_f?.toFixed(1) || '--'}°F, conf: ${(data.confidence * 100).toFixed(0)}%`;
         }
         if (ch === 'pws') {
-            return `PWS consensus: <strong>${data.median_f?.toFixed(1) || '--'}°F</strong>, support: ${data.support || 0}`;
+            const weightedSupport = Number(data.weighted_support);
+            const wsText = Number.isFinite(weightedSupport)
+                ? `, w-support: ${weightedSupport.toFixed(2)}`
+                : '';
+
+            let topText = '';
+            const learning = data.station_learning || {};
+            const rows = Object.values(learning).filter(v => v && typeof v === 'object');
+            if (rows.length > 0) {
+                rows.sort((a, b) => Number(b.weight || 0) - Number(a.weight || 0));
+                const top = rows[0];
+                if (top && top.station_id) {
+                    const w = Number(top.weight);
+                    const now = Number(top.now_score);
+                    const lead = Number(top.lead_score);
+                    const wStr = Number.isFinite(w) ? w.toFixed(2) : '--';
+                    const nowStr = Number.isFinite(now) ? now.toFixed(0) : '--';
+                    const leadStr = Number.isFinite(lead) ? lead.toFixed(0) : '--';
+                    topText = ` | top: <strong>${top.station_id}</strong> w=${wStr} now=${nowStr} lead=${leadStr}`;
+                }
+            }
+            return `PWS consensus: <strong>${data.median_f?.toFixed(1) || '--'}°F</strong>, support: ${data.support || 0}${wsText}${topText}`;
         }
         if (ch === 'event_window') {
             return `<strong>${data.action}</strong>: ${data.reason}`;
@@ -1248,6 +1403,103 @@
         }
 
         lucide.createIcons();
+    }
+
+    function scoreColor(score) {
+        const s = Number(score);
+        if (!Number.isFinite(s)) return 'var(--text-muted)';
+        if (s >= 85) return '#10B981';
+        if (s >= 70) return '#22C55E';
+        if (s >= 55) return '#F4D03F';
+        if (s >= 40) return '#F97316';
+        return '#EF4444';
+    }
+
+    function renderPwsLearning(payload) {
+        const panel = document.getElementById('pws-learning-panel');
+        const metaEl = document.getElementById('pl-meta');
+        const rankingEl = document.getElementById('pl-ranking');
+        const stripEl = document.getElementById('pl-strip');
+        const eventsEl = document.getElementById('pl-events');
+
+        if (!panel || !metaEl || !rankingEl || !stripEl || !eventsEl) return;
+
+        if (!payload || payload.error) {
+            panel.classList.remove('visible');
+            return;
+        }
+
+        const current = payload.current || null;
+        const top = current && Array.isArray(current.top) ? current.top : [];
+        const totalPws = Number(payload.total_pws_events || 0);
+        const weightedSupport = Number(current && current.weighted_support);
+
+        if (!current || top.length === 0) {
+            panel.classList.remove('visible');
+            return;
+        }
+
+        panel.classList.add('visible');
+        metaEl.textContent = `${totalPws} pws ev | ${current.ts_nyc || '--'} | w-support ${Number.isFinite(weightedSupport) ? weightedSupport.toFixed(2) : '--'}`;
+
+        rankingEl.innerHTML = top.map((row, idx) => {
+            const station = row.station_id || '--';
+            const w = Number(row.weight);
+            const now = Number(row.now_score);
+            const lead = Number(row.lead_score);
+            const nNow = Number(row.now_samples);
+            const nLead = Number(row.lead_samples);
+            const nowColor = scoreColor(now);
+            const leadColor = scoreColor(lead);
+            return `
+                <div class="pl-rank-row">
+                    <span class="pl-rank-pos">#${idx + 1}</span>
+                    <span class="pl-rank-station">${station}</span>
+                    <span class="pl-pill">w ${Number.isFinite(w) ? w.toFixed(2) : '--'}</span>
+                    <span class="pl-pill" style="color:${nowColor};">now ${Number.isFinite(now) ? now.toFixed(0) : '--'}</span>
+                    <span class="pl-pill" style="color:${leadColor};">lead ${Number.isFinite(lead) ? lead.toFixed(0) : '--'}</span>
+                </div>
+                <div style="font-size:10px;color:var(--text-muted);margin:-2px 0 6px 36px;">N now ${Number.isFinite(nNow) ? nNow : '--'} | N lead ${Number.isFinite(nLead) ? nLead : '--'}</div>
+            `;
+        }).join('');
+
+        const timeline = Array.isArray(payload.timeline) ? payload.timeline : [];
+        if (timeline.length === 0) {
+            stripEl.innerHTML = '<div class="pl-empty">No timeline</div>';
+        } else {
+            const weights = timeline
+                .map(p => Number(p.leader_weight))
+                .filter(v => Number.isFinite(v));
+            const minW = weights.length ? Math.min(...weights) : 0.0;
+            const maxW = weights.length ? Math.max(...weights) : 1.0;
+            const span = Math.max(0.001, maxW - minW);
+
+            stripEl.innerHTML = timeline.map((p) => {
+                const w = Number(p.leader_weight);
+                const now = Number(p.leader_now_score);
+                const h = Number.isFinite(w)
+                    ? Math.max(12, Math.round(((w - minW) / span) * 84))
+                    : 12;
+                const title = `${p.ts_nyc || '--'} | ${p.leader_station_id || '--'} | w=${Number.isFinite(w) ? w.toFixed(2) : '--'} | now=${Number.isFinite(now) ? now.toFixed(0) : '--'}`;
+                return `<div class="pl-leader-bar" style="height:${h}px; background:${scoreColor(now)}55;" title="${title}"></div>`;
+            }).join('');
+        }
+
+        const leaderChanges = Array.isArray(payload.leader_changes) ? payload.leader_changes : [];
+        if (leaderChanges.length === 0) {
+            eventsEl.innerHTML = '<div class="pl-empty">No leader switches</div>';
+        } else {
+            const recent = leaderChanges.slice(-8).reverse();
+            eventsEl.innerHTML = recent.map((p) => {
+                const w = Number(p.leader_weight);
+                return `
+                    <div class="pl-leader-event">
+                        <span>${p.ts_nyc || '--'}</span>
+                        <span><strong>${p.leader_station_id || '--'}</strong> (${Number.isFinite(w) ? w.toFixed(2) : '--'})</span>
+                    </div>
+                `;
+            }).join('');
+        }
     }
 
     function renderMarketPanel(data, timestamp) {
