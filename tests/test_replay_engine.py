@@ -264,6 +264,8 @@ def test_replay_pws_learning_summary_includes_consensus_snapshot_rows():
     assert row_a["temp_f"] == 69.8
     assert row_a["predictive_score"] == 80.5
     assert row_a["now_ema_abs_error_c"] == 0.35
+    assert row_a["now_samples_session"] is None
+    assert row_a["lead_samples_session"] is None
 
     row_b = next(r for r in rows if r["station_id"] == "B")
     assert row_b["in_consensus"] is False

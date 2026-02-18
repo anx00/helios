@@ -1862,7 +1862,7 @@
             `<div class="pl-cs-kpi"><span class="pl-cs-kpi-label">PWS Tick</span><span class="pl-cs-kpi-value">${escapeHtml(pwsTickLabel)}</span><span class="pl-cs-kpi-sub">${escapeHtml(pwsTickNyc)} NYC</span></div>`,
             `<div class="pl-cs-kpi"><span class="pl-cs-kpi-label">Stations</span><span class="pl-cs-kpi-value">${inConsensusCount} IN / ${excludedCount} OUT</span><span class="pl-cs-kpi-sub">support ${Number.isFinite(support) ? support : '--'} | w-support ${Number.isFinite(weightedSupport) ? weightedSupport.toFixed(2) : '--'}</span></div>`,
             `<div class="pl-cs-kpi"><span class="pl-cs-kpi-label">Leader (w actual)</span><span class="pl-cs-kpi-value">${escapeHtml(leaderStationId || '--')}</span><span class="pl-cs-kpi-sub">w ${Number.isFinite(leaderWeight) ? leaderWeight.toFixed(2) : '--'}</span></div>`,
-            `<div class="pl-cs-kpi"><span class="pl-cs-kpi-label">Top Historico</span><span class="pl-cs-kpi-value">${escapeHtml(histId)}</span><span class="pl-cs-kpi-sub">hist ${Number.isFinite(histScore) ? histScore.toFixed(0) : '--'} | N ${Number.isFinite(histSamples) ? histSamples : '--'}</span></div>`,
+            `<div class="pl-cs-kpi"><span class="pl-cs-kpi-label">Top Historico</span><span class="pl-cs-kpi-value">${escapeHtml(histId)}</span><span class="pl-cs-kpi-sub">hist ${Number.isFinite(histScore) ? histScore.toFixed(0) : '--'} | N ${Number.isFinite(histSamples) ? histSamples : '--'} (H)</span></div>`,
         ].join('');
 
         tableEl.innerHTML = `
@@ -1877,8 +1877,8 @@
                         <th>Hist</th>
                         <th>Now</th>
                         <th>Lead</th>
-                        <th>N now</th>
-                        <th>N lead</th>
+                        <th>N now (H)</th>
+                        <th>N lead (H)</th>
                         <th>Age</th>
                         <th>State</th>
                     </tr>
@@ -1911,6 +1911,8 @@
                         const lead = numericOrNaN(row && row.lead_score);
                         const nNow = numericOrNaN(row && row.now_samples);
                         const nLead = numericOrNaN(row && row.lead_samples);
+                        const nNowSession = numericOrNaN(row && row.now_samples_session);
+                        const nLeadSession = numericOrNaN(row && row.lead_samples_session);
                         const ageText = formatAgeMinutes(row && row.age_minutes);
                         const obsText = formatObsLocal(row && row.obs_time_utc);
                         const inConsensus = row && row.in_consensus === true;
@@ -1944,8 +1946,14 @@
                                 </td>
                                 <td style="color:${scoreColor(now)};">${Number.isFinite(now) ? now.toFixed(0) : '--'}</td>
                                 <td style="color:${scoreColor(lead)};">${Number.isFinite(lead) ? lead.toFixed(0) : '--'}</td>
-                                <td>${Number.isFinite(nNow) ? nNow : '--'}</td>
-                                <td>${Number.isFinite(nLead) ? nLead : '--'}</td>
+                                <td>
+                                    ${Number.isFinite(nNow) ? nNow : '--'}
+                                    <span class="pl-cs-sub">${Number.isFinite(nNowSession) ? `+${nNowSession} sess` : '--'}</span>
+                                </td>
+                                <td>
+                                    ${Number.isFinite(nLead) ? nLead : '--'}
+                                    <span class="pl-cs-sub">${Number.isFinite(nLeadSession) ? `+${nLeadSession} sess` : '--'}</span>
+                                </td>
                                 <td>
                                     ${escapeHtml(ageText)}
                                     <span class="pl-cs-sub">${escapeHtml(obsText)}</span>
@@ -2022,6 +2030,7 @@
             '<span class="pl-guide-pill"><strong>w</strong> peso dinamico (no temperatura): now + ajuste lead</span>',
             '<span class="pl-guide-pill"><strong>now</strong> score 0-100 vs METAR actual</span>',
             '<span class="pl-guide-pill"><strong>lead</strong> score 0-100 con adelanto 35-85 min (EMA)</span>',
+            '<span class="pl-guide-pill"><strong>N now/N lead</strong> historico acumulado (multidia), no solo esta hora</span>',
             `<span class="pl-guide-pill"><strong>PWS tick</strong> ${pwsTickLabel} (${pwsTickNyc} NYC)</span>`,
             `<span class="pl-guide-pill"><strong>METAR</strong> ${metarTempText} (${metarSource}, ${metarTime})</span>`,
             `<span class="pl-guide-pill"><strong>PWS median</strong> ${pwsMedianText} | <strong>delta</strong> ${deltaText}</span>`,
@@ -2069,7 +2078,7 @@
                         <span class="pl-pill" style="color:${nowColor};">now ${Number.isFinite(now) ? now.toFixed(0) : '--'}</span>
                         <span class="pl-pill" style="color:${leadColor};">lead ${Number.isFinite(lead) ? lead.toFixed(0) : '--'}</span>
                     </div>
-                    <div class="pl-rank-meta">N now ${Number.isFinite(nNow) ? nNow : '--'} | N lead ${Number.isFinite(nLead) ? nLead : '--'} | err now ${Number.isFinite(errNowC) ? errNowC.toFixed(2) + 'C' : '--'} | err lead ${Number.isFinite(errLeadC) ? errLeadC.toFixed(2) + 'C' : '--'}</div>
+                    <div class="pl-rank-meta">N now(H) ${Number.isFinite(nNow) ? nNow : '--'} | N lead(H) ${Number.isFinite(nLead) ? nLead : '--'} | err now ${Number.isFinite(errNowC) ? errNowC.toFixed(2) + 'C' : '--'} | err lead ${Number.isFinite(errLeadC) ? errLeadC.toFixed(2) + 'C' : '--'}</div>
                 </div>
             `;
         }).join('');

@@ -170,6 +170,59 @@ class TestPwsLearning(unittest.TestCase):
             self.assertGreaterEqual(profile.get("now_samples") or 0, 2)
             self.assertTrue(profile.get("rank_eligible"))
 
+    def test_lead_counts_once_per_station_per_official_obs(self):
+        with TemporaryDirectory() as td:
+            store = PWSLearningStore(path=Path(td) / "weights.json")
+            base = datetime(2026, 2, 17, 10, 0, tzinfo=timezone.utc)
+            station = "L1"
+
+            # Three pending snapshots for same station in the 35-85 min window.
+            rows = [
+                _Reading(station, 18.0, "SYNOPTIC", base),
+                _Reading(station, 18.0, "SYNOPTIC", base + timedelta(minutes=10)),
+                _Reading(station, 18.0, "SYNOPTIC", base + timedelta(minutes=20)),
+            ]
+            store.ingest_pending("KLGA", rows, obs_time_utc=base + timedelta(minutes=20))
+
+            official_t = datetime(2026, 2, 17, 11, 0, tzinfo=timezone.utc)
+            store.update_with_official(
+                market_station_id="KLGA",
+                official_temp_c=18.0,
+                readings=[],
+                obs_time_utc=official_t,
+                official_obs_time_utc=official_t,
+            )
+
+            profile = store.get_station_profile("KLGA", station, "SYNOPTIC")
+            self.assertEqual(profile.get("lead_samples"), 1)
+            self.assertGreaterEqual(int(profile.get("last_lead_candidates_in_window") or 0), 3)
+
+    def test_source_prior_fades_with_strong_historical_evidence(self):
+        with TemporaryDirectory() as td:
+            store = PWSLearningStore(path=Path(td) / "weights.json")
+            base_t = datetime(2026, 2, 17, 15, 0, tzinfo=timezone.utc)
+
+            # Same perfect behavior for both stations; after enough evidence,
+            # source prior should have little impact on active weight.
+            for i in range(64):
+                t = base_t + timedelta(hours=i)
+                syn = _Reading("SYN_EQ", 20.0, "SYNOPTIC", t)
+                wu = _Reading("WU_EQ", 20.0, "WUNDERGROUND", t)
+                store.update_with_official(
+                    market_station_id="KLGA",
+                    official_temp_c=20.0,
+                    readings=[syn, wu],
+                    obs_time_utc=t,
+                    official_obs_time_utc=t,
+                )
+
+            w_syn = store.get_weight("KLGA", "SYN_EQ", "SYNOPTIC")
+            w_wu = store.get_weight("KLGA", "WU_EQ", "WUNDERGROUND")
+            self.assertGreater(w_syn, 0)
+            self.assertGreater(w_wu, 0)
+            ratio = w_syn / w_wu if w_wu > 0 else 10.0
+            self.assertLess(ratio, 1.08)
+
 
 if __name__ == "__main__":
     unittest.main()

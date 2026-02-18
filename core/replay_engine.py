@@ -805,6 +805,7 @@ class ReplaySession:
         data: Optional[Dict[str, Any]],
         ranked_rows: Optional[List[Dict[str, Any]]] = None,
         all_rows: Optional[List[Dict[str, Any]]] = None,
+        sample_baseline_by_station: Optional[Dict[str, Dict[str, int]]] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         Build a station-level PWS snapshot for the current replay tick.
@@ -898,6 +899,16 @@ class ReplaySession:
             if samples_total is None and (now_samples is not None or lead_samples is not None):
                 samples_total = int(max(0, now_samples or 0) + max(0, lead_samples or 0))
 
+            baseline = (sample_baseline_by_station or {}).get(sid, {})
+            baseline_now = _as_int(baseline.get("now_samples"))
+            baseline_lead = _as_int(baseline.get("lead_samples"))
+            now_samples_session = None
+            lead_samples_session = None
+            if now_samples is not None and baseline_now is not None:
+                now_samples_session = max(0, int(now_samples) - max(0, int(baseline_now or 0)))
+            if lead_samples is not None and baseline_lead is not None:
+                lead_samples_session = max(0, int(lead_samples) - max(0, int(baseline_lead or 0)))
+
             row = {
                 "station_id": sid,
                 "station_name": _pick("station_name"),
@@ -920,6 +931,8 @@ class ReplaySession:
                 "now_samples": now_samples,
                 "lead_samples": lead_samples,
                 "samples_total": samples_total,
+                "now_samples_session": now_samples_session,
+                "lead_samples_session": lead_samples_session,
                 "now_ema_abs_error_c": _as_float(_pick("now_ema_abs_error_c")),
                 "lead_ema_abs_error_c": _as_float(_pick("lead_ema_abs_error_c")),
                 "quality_band": _pick("quality_band"),
@@ -1017,6 +1030,7 @@ class ReplaySession:
             "ts_nyc": event.get("ts_nyc"),
             "ts_ingest_utc": _as_iso(event.get("ts_ingest_utc")),
             "obs_time_utc": _as_iso(event.get("obs_time_utc")),
+            "sample_scope": "historical_cumulative",
             "market_station_id": market_station_id,
             "median_f": _as_float(data.get("median_f")),
             "mad_f": _as_float(data.get("mad_f")),
@@ -1061,6 +1075,7 @@ class ReplaySession:
         points: List[Dict[str, Any]] = []
         leader_changes: List[Dict[str, Any]] = []
         latest_world_by_station: Dict[str, Dict[str, Any]] = {}
+        sample_baseline_by_station: Dict[str, Dict[str, int]] = {}
 
         latest_any_rows: List[Dict[str, Any]] = []
         latest_any_data: Optional[Dict[str, Any]] = None
@@ -1115,6 +1130,28 @@ class ReplaySession:
             all_rows = self._extract_station_learning_rows(data, eligible_only=False)
             if not all_rows:
                 continue
+
+            for row in all_rows:
+                if not isinstance(row, dict):
+                    continue
+                sid = str(row.get("station_id") or "").upper()
+                if not sid:
+                    continue
+                entry = sample_baseline_by_station.get(sid, {})
+                try:
+                    now_n = int(row.get("now_samples"))
+                except Exception:
+                    now_n = None
+                try:
+                    lead_n = int(row.get("lead_samples"))
+                except Exception:
+                    lead_n = None
+                if now_n is not None and "now_samples" not in entry:
+                    entry["now_samples"] = max(0, now_n)
+                if lead_n is not None and "lead_samples" not in entry:
+                    entry["lead_samples"] = max(0, lead_n)
+                if entry:
+                    sample_baseline_by_station[sid] = entry
 
             pws_count += 1
             latest_any_rows = all_rows
@@ -1173,6 +1210,7 @@ class ReplaySession:
             latest_any_data,
             ranked_rows=latest_rows,
             all_rows=latest_any_rows,
+            sample_baseline_by_station=sample_baseline_by_station,
         )
 
         if not latest_rows:

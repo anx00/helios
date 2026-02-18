@@ -110,6 +110,7 @@ class PWSLearningStore:
         now_alignment_minutes: int = 22,
         lead_min_minutes: int = 35,
         lead_max_minutes: int = 85,
+        lead_target_minutes: Optional[int] = None,
         ranking_min_now_samples: int = 2,
         ranking_min_lead_samples: int = 1,
         pending_max_age_hours: int = 8,
@@ -132,6 +133,9 @@ class PWSLearningStore:
         self.now_alignment_minutes = max(1, int(now_alignment_minutes))
         self.lead_min_minutes = max(1, int(lead_min_minutes))
         self.lead_max_minutes = max(self.lead_min_minutes + 1, int(lead_max_minutes))
+        if lead_target_minutes is None:
+            lead_target_minutes = int(round((self.lead_min_minutes + self.lead_max_minutes) / 2.0))
+        self.lead_target_minutes = max(self.lead_min_minutes, min(int(lead_target_minutes), self.lead_max_minutes))
         self.ranking_min_now_samples = max(0, int(ranking_min_now_samples))
         self.ranking_min_lead_samples = max(0, int(ranking_min_lead_samples))
         self.pending_max_age_hours = max(1, int(pending_max_age_hours))
@@ -278,16 +282,24 @@ class PWSLearningStore:
         dynamic_now = 0.65 + (1.30 * rel_now)
         base_now = ((1.0 - now_conf) * 1.0) + (now_conf * dynamic_now)
         lead_modifier = 1.0 + (0.10 * (lead_rel - 0.5) * lead_conf)  # +/-5% max
-        weight_now = _clamp(prior * base_now * lead_modifier, self.min_weight, self.max_weight)
+        # Source prior is useful at cold start, but should fade as evidence accrues.
+        evidence_now = min(1.0, max(0.0, max(now_conf, 0.35 * lead_conf)))
+        prior_now = 1.0 + ((prior - 1.0) * (1.0 - evidence_now))
+        weight_now = _clamp(prior_now * base_now * lead_modifier, self.min_weight, self.max_weight)
 
         # Predictive weight (for user-facing diagnostics).
         rel_pred = (0.55 * now_rel) + (0.45 * lead_rel)
         conf_pred = max(0.35 * now_conf, lead_conf)
         dynamic_pred = 0.70 + (1.30 * rel_pred)
         base_pred = ((1.0 - conf_pred) * 1.0) + (conf_pred * dynamic_pred)
-        weight_pred = _clamp(prior * base_pred, self.min_weight, self.max_weight)
+        evidence_pred = min(1.0, max(0.0, max(now_conf, lead_conf)))
+        prior_pred = 1.0 + ((prior - 1.0) * (1.0 - evidence_pred))
+        weight_pred = _clamp(prior_pred * base_pred, self.min_weight, self.max_weight)
 
         rec["source"] = source
+        rec["source_prior"] = round(float(prior), 4)
+        rec["source_prior_now_effective"] = round(float(prior_now), 4)
+        rec["source_prior_predictive_effective"] = round(float(prior_pred), 4)
         rec["weight"] = round(float(weight_now), 4)  # active consensus weight
         rec["weight_now"] = round(float(weight_now), 4)
         rec["weight_predictive"] = round(float(weight_pred), 4)
@@ -658,8 +670,12 @@ class PWSLearningStore:
                 touched_ids.add(sid)
 
             # LEAD labels: pending queue resolution (35-85 min before official).
+            # Use at most ONE lead sample per station per official METAR timestamp:
+            # choose the candidate closest to lead_target_minutes.
             pending = market.get("pending", [])
             keep_pending: List[Dict[str, Any]] = []
+            lead_candidates_by_station: Dict[str, Dict[str, Any]] = {}
+            lead_candidate_count_by_station: Dict[str, int] = {}
             for row in pending:
                 if not isinstance(row, dict):
                     continue
@@ -679,6 +695,28 @@ class PWSLearningStore:
                     # Too old to score as lead and no longer useful.
                     continue
 
+                lead_candidate_count_by_station[sid] = int(lead_candidate_count_by_station.get(sid, 0) or 0) + 1
+                candidate = dict(row)
+                candidate["_lead_min"] = float(lead_min)
+                prev = lead_candidates_by_station.get(sid)
+                if not isinstance(prev, dict):
+                    lead_candidates_by_station[sid] = candidate
+                    continue
+
+                prev_lead = float(prev.get("_lead_min", 0.0) or 0.0)
+                prev_gap = abs(prev_lead - float(self.lead_target_minutes))
+                cur_gap = abs(float(lead_min) - float(self.lead_target_minutes))
+                if cur_gap < prev_gap:
+                    lead_candidates_by_station[sid] = candidate
+                    continue
+                if cur_gap > prev_gap:
+                    continue
+
+                prev_ts = _as_utc(prev.get("obs_time_utc"))
+                if prev_ts is None or row_ts > prev_ts:
+                    lead_candidates_by_station[sid] = candidate
+
+            for sid, row in lead_candidates_by_station.items():
                 temp_val = row.get("temp_c")
                 try:
                     temp_c = float(temp_val)
@@ -686,10 +724,15 @@ class PWSLearningStore:
                     continue
 
                 rec = self._ensure_station_locked(stations, sid, str(row.get("source") or "UNKNOWN"))
+                # One LEAD label per station per official timestamp.
+                if rec.get("last_lead_official_obs_time_utc") == official_iso:
+                    continue
+
                 err = abs(temp_c - official)
                 if row.get("valid") is False:
                     err += 0.15
 
+                lead_min = float(row.get("_lead_min", 0.0) or 0.0)
                 rec["lead_samples"] = int(rec.get("lead_samples", 0) or 0) + 1
                 rec["lead_ema_abs_error_c"] = round(
                     self._update_ema(rec.get("lead_ema_abs_error_c"), err, self.alpha_lead), 4
@@ -698,6 +741,7 @@ class PWSLearningStore:
                 rec["last_lead_minutes"] = round(float(lead_min), 2)
                 rec["last_lead_official_obs_time_utc"] = official_iso
                 rec["last_lead_sample_obs_time_utc"] = row.get("obs_time_utc")
+                rec["last_lead_candidates_in_window"] = int(lead_candidate_count_by_station.get(sid, 1) or 1)
                 rec["updated_at"] = _utc_now_iso()
                 touched_ids.add(sid)
 
