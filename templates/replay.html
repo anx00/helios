@@ -641,16 +641,28 @@
         color: var(--text-muted);
         margin-bottom: 8px;
     }
+    .pl-rank-item {
+        padding: 4px 0 8px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    }
+    .pl-rank-item:last-child {
+        border-bottom: none;
+        padding-bottom: 2px;
+    }
     .pl-rank-row {
         display: grid;
         grid-template-columns: 28px 1fr auto auto auto;
         gap: 8px;
         align-items: center;
         font-size: 12px;
-        padding: 6px 0;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+        padding: 4px 0;
     }
-    .pl-rank-row:last-child { border-bottom: none; }
+    .pl-rank-meta {
+        font-size: 10px;
+        color: var(--text-muted);
+        margin: 2px 0 0 36px;
+        line-height: 1.35;
+    }
     .pl-rank-pos {
         color: var(--text-muted);
         font-family: 'JetBrains Mono', monospace;
@@ -706,6 +718,117 @@
     .pl-empty {
         color: var(--text-muted);
         font-size: 12px;
+    }
+    .pl-consensus-card {
+        margin-top: 12px;
+    }
+    .pl-consensus-summary {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 8px;
+        margin-bottom: 10px;
+    }
+    .pl-cs-kpi {
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(255, 255, 255, 0.025);
+        border-radius: 8px;
+        padding: 8px 10px;
+        min-height: 56px;
+    }
+    .pl-cs-kpi-label {
+        display: block;
+        font-size: 9px;
+        text-transform: uppercase;
+        letter-spacing: 0.7px;
+        color: var(--text-muted);
+        margin-bottom: 4px;
+    }
+    .pl-cs-kpi-value {
+        display: block;
+        font-size: 12px;
+        color: var(--text-main);
+        font-family: 'JetBrains Mono', monospace;
+        font-weight: 600;
+        line-height: 1.2;
+    }
+    .pl-cs-kpi-sub {
+        display: block;
+        font-size: 9px;
+        color: var(--text-muted);
+        margin-top: 3px;
+        font-family: 'JetBrains Mono', monospace;
+    }
+    .pl-consensus-table-wrap {
+        overflow-x: auto;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 8px;
+    }
+    .pl-consensus-table {
+        width: 100%;
+        min-width: 980px;
+        border-collapse: collapse;
+        font-size: 11px;
+    }
+    .pl-consensus-table thead th {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        text-align: left;
+        padding: 7px 8px;
+        color: var(--text-muted);
+        background: rgba(10, 14, 28, 0.94);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+        font-weight: 600;
+        white-space: nowrap;
+    }
+    .pl-consensus-table tbody td {
+        padding: 7px 8px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        color: var(--text-secondary);
+        vertical-align: middle;
+        white-space: nowrap;
+    }
+    .pl-consensus-table tbody tr:last-child td {
+        border-bottom: none;
+    }
+    .pl-consensus-row-leader td {
+        background: rgba(59, 130, 246, 0.10);
+    }
+    .pl-consensus-row-out td {
+        opacity: 0.65;
+    }
+    .pl-cs-station {
+        font-family: 'JetBrains Mono', monospace;
+        font-weight: 700;
+        color: var(--text-main);
+    }
+    .pl-cs-sub {
+        display: block;
+        font-size: 9px;
+        color: var(--text-muted);
+        margin-top: 2px;
+    }
+    .pl-cs-source {
+        display: inline-block;
+        padding: 2px 6px;
+        border-radius: 999px;
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.4px;
+    }
+    .pl-cs-temp {
+        color: var(--text-main);
+        font-weight: 600;
+    }
+    .pl-cs-state {
+        font-size: 10px;
+        font-family: 'JetBrains Mono', monospace;
+    }
+    .pl-cs-state.in {
+        color: #10B981;
+    }
+    .pl-cs-state.out {
+        color: #F59E0B;
     }
 
     @media (max-width: 1100px) {
@@ -966,6 +1089,11 @@
                 <div id="pl-strip-summary" class="pl-strip-summary">--</div>
                 <div id="pl-events" class="pl-leader-events"></div>
             </div>
+        </div>
+        <div class="pl-card pl-consensus-card">
+            <div class="pl-card-title">PWS Consensus Snapshot (temperatura por estacion + historico acumulado)</div>
+            <div id="pl-consensus-summary" class="pl-consensus-summary"></div>
+            <div id="pl-consensus-table" class="pl-consensus-table-wrap"></div>
         </div>
     </div>
 
@@ -1630,6 +1758,207 @@
         return nowSamples >= minNow && leadSamples >= minLead;
     }
 
+    function escapeHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function normalizeSourceName(source) {
+        return String(source || 'UNKNOWN').toUpperCase();
+    }
+
+    function pwsSourceBadge(source) {
+        const src = normalizeSourceName(source);
+        if (src === 'SYNOPTIC') return { label: 'SYN', color: '#10B981', title: 'Synoptic' };
+        if (src === 'OPEN_METEO') return { label: 'OM', color: '#F59E0B', title: 'Open-Meteo' };
+        if (src === 'WUNDERGROUND') return { label: 'WU', color: '#F97316', title: 'Wunderground' };
+        if (src.startsWith('MADIS_APRSWXNET')) return { label: 'CWOP', color: '#22C55E', title: 'MADIS APRSWXNET' };
+        if (src.startsWith('MADIS_')) return { label: 'MADIS', color: '#06B6D4', title: src };
+        return { label: src.slice(0, 8) || 'UNK', color: '#6B7280', title: src || 'UNKNOWN' };
+    }
+
+    function formatAgeMinutes(ageMinutes) {
+        const n = numericOrNaN(ageMinutes);
+        if (!Number.isFinite(n)) return '--';
+        if (n < 60) return `${n.toFixed(0)}m`;
+        const h = Math.floor(n / 60);
+        const m = Math.round(n % 60);
+        return `${h}h ${m}m`;
+    }
+
+    function formatObsLocal(isoUtc) {
+        if (!isoUtc || !localTimeFormatter || !esTimeFormatter) return '--';
+        const dt = new Date(isoUtc);
+        if (Number.isNaN(dt.getTime())) return '--';
+        return `${localTimeFormatter.format(dt)} ${localTzLabel} | ${esTimeFormatter.format(dt)} ES`;
+    }
+
+    function renderPwsConsensusSnapshot(snapshot, opts = {}) {
+        const summaryEl = opts.summaryEl;
+        const tableEl = opts.tableEl;
+        const stationId = String(opts.stationId || currentStationId()).toUpperCase();
+        const metarTempF = numericOrNaN(opts.metarTempF);
+        const fallbackLeader = String(opts.leaderStationId || '').toUpperCase();
+        const pwsTickLabel = String(opts.pwsTickLabel || '--');
+        const pwsTickNyc = String(opts.pwsTickNyc || '--');
+
+        if (!summaryEl || !tableEl) return;
+        if (!snapshot || typeof snapshot !== 'object') {
+            summaryEl.innerHTML = '<div class="pl-empty">No consensus snapshot</div>';
+            tableEl.innerHTML = '';
+            return;
+        }
+
+        const rows = Array.isArray(snapshot.rows) ? snapshot.rows.slice() : [];
+        if (rows.length === 0) {
+            summaryEl.innerHTML = '<div class="pl-empty">No station-level rows in this replay tick.</div>';
+            tableEl.innerHTML = '';
+            return;
+        }
+
+        const leaderStationId = String(snapshot.leader_station_id || fallbackLeader || '').toUpperCase();
+        rows.sort((a, b) => {
+            const aIn = a && a.in_consensus === true ? 0 : 1;
+            const bIn = b && b.in_consensus === true ? 0 : 1;
+            if (aIn !== bIn) return aIn - bIn;
+            const aLeader = String(a && a.station_id || '').toUpperCase() === leaderStationId ? 0 : 1;
+            const bLeader = String(b && b.station_id || '').toUpperCase() === leaderStationId ? 0 : 1;
+            if (aLeader !== bLeader) return aLeader - bLeader;
+            const aW = Number.isFinite(numericOrNaN(a && a.weight)) ? Number(a.weight) : -1;
+            const bW = Number.isFinite(numericOrNaN(b && b.weight)) ? Number(b.weight) : -1;
+            if (aW !== bW) return bW - aW;
+            return String(a && a.station_id || '').localeCompare(String(b && b.station_id || ''));
+        });
+
+        const histRows = rows
+            .map(row => ({
+                row,
+                score: numericOrNaN(row && row.predictive_score),
+                samples: numericOrNaN(row && row.samples_total),
+            }))
+            .filter(x => Number.isFinite(x.score))
+            .sort((a, b) => (b.score - a.score) || ((Number.isFinite(b.samples) ? b.samples : -1) - (Number.isFinite(a.samples) ? a.samples : -1)));
+        const histTop = histRows.length > 0 ? histRows[0].row : null;
+
+        const inConsensusCount = Number.isFinite(numericOrNaN(snapshot.in_consensus_count))
+            ? Number(snapshot.in_consensus_count)
+            : rows.filter(r => r && r.in_consensus === true).length;
+        const excludedCount = Number.isFinite(numericOrNaN(snapshot.excluded_count))
+            ? Number(snapshot.excluded_count)
+            : Math.max(0, rows.length - inConsensusCount);
+        const weightedSupport = numericOrNaN(snapshot.weighted_support);
+        const support = numericOrNaN(snapshot.support);
+        const histScore = histTop ? numericOrNaN(histTop.predictive_score) : NaN;
+        const histSamples = histTop ? numericOrNaN(histTop.samples_total) : NaN;
+        const histId = histTop ? String(histTop.station_id || '--') : '--';
+        const leaderRow = rows.find(r => String(r && r.station_id || '').toUpperCase() === leaderStationId) || null;
+        const leaderWeight = numericOrNaN(leaderRow && leaderRow.weight);
+
+        summaryEl.innerHTML = [
+            `<div class="pl-cs-kpi"><span class="pl-cs-kpi-label">PWS Tick</span><span class="pl-cs-kpi-value">${escapeHtml(pwsTickLabel)}</span><span class="pl-cs-kpi-sub">${escapeHtml(pwsTickNyc)} NYC</span></div>`,
+            `<div class="pl-cs-kpi"><span class="pl-cs-kpi-label">Stations</span><span class="pl-cs-kpi-value">${inConsensusCount} IN / ${excludedCount} OUT</span><span class="pl-cs-kpi-sub">support ${Number.isFinite(support) ? support : '--'} | w-support ${Number.isFinite(weightedSupport) ? weightedSupport.toFixed(2) : '--'}</span></div>`,
+            `<div class="pl-cs-kpi"><span class="pl-cs-kpi-label">Leader (w actual)</span><span class="pl-cs-kpi-value">${escapeHtml(leaderStationId || '--')}</span><span class="pl-cs-kpi-sub">w ${Number.isFinite(leaderWeight) ? leaderWeight.toFixed(2) : '--'}</span></div>`,
+            `<div class="pl-cs-kpi"><span class="pl-cs-kpi-label">Top Historico</span><span class="pl-cs-kpi-value">${escapeHtml(histId)}</span><span class="pl-cs-kpi-sub">hist ${Number.isFinite(histScore) ? histScore.toFixed(0) : '--'} | N ${Number.isFinite(histSamples) ? histSamples : '--'}</span></div>`,
+        ].join('');
+
+        tableEl.innerHTML = `
+            <table class="pl-consensus-table">
+                <thead>
+                    <tr>
+                        <th>Station</th>
+                        <th>Src</th>
+                        <th>Temp</th>
+                        <th>vs METAR</th>
+                        <th>w</th>
+                        <th>Hist</th>
+                        <th>Now</th>
+                        <th>Lead</th>
+                        <th>N now</th>
+                        <th>N lead</th>
+                        <th>Age</th>
+                        <th>State</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${rows.map((row) => {
+                        const sid = String(row && row.station_id || '--').toUpperCase();
+                        const stationName = String(row && row.station_name || '');
+                        const source = pwsSourceBadge(row && row.source);
+                        const tempF = Number.isFinite(numericOrNaN(row && row.temp_f))
+                            ? Number(row.temp_f)
+                            : (Number.isFinite(numericOrNaN(row && row.temp_c)) ? ((Number(row.temp_c) * 9.0 / 5.0) + 32.0) : NaN);
+                        const tempText = Number.isFinite(tempF) ? formatTempFromF(tempF, 1, stationId) : '--';
+                        const tempAlt = Number.isFinite(tempF)
+                            ? (usesCelsius(stationId) ? `${tempF.toFixed(1)} F` : `${fToC(tempF).toFixed(1)} C`)
+                            : '--';
+                        const deltaF = (Number.isFinite(tempF) && Number.isFinite(metarTempF)) ? (tempF - metarTempF) : NaN;
+                        const deltaText = formatSignedDeltaFromF(deltaF, 1, stationId);
+                        const deltaConverted = convertDeltaFromF(deltaF, stationId);
+                        let deltaColor = 'var(--text-muted)';
+                        if (Number.isFinite(deltaConverted)) {
+                            const absDelta = Math.abs(deltaConverted);
+                            if (absDelta <= 0.3) deltaColor = '#10B981';
+                            else if (absDelta <= 0.8) deltaColor = '#F4D03F';
+                            else deltaColor = '#EF4444';
+                        }
+                        const weight = numericOrNaN(row && row.weight);
+                        const hist = numericOrNaN(row && row.predictive_score);
+                        const now = numericOrNaN(row && row.now_score);
+                        const lead = numericOrNaN(row && row.lead_score);
+                        const nNow = numericOrNaN(row && row.now_samples);
+                        const nLead = numericOrNaN(row && row.lead_samples);
+                        const ageText = formatAgeMinutes(row && row.age_minutes);
+                        const obsText = formatObsLocal(row && row.obs_time_utc);
+                        const inConsensus = row && row.in_consensus === true;
+                        const isLeader = sid === leaderStationId;
+                        const stateRaw = inConsensus
+                            ? 'IN'
+                            : `OUT${row && row.excluded_reason ? ` (${String(row.excluded_reason)})` : ''}`;
+                        const stateCls = inConsensus ? 'in' : 'out';
+                        const rowClass = `${isLeader ? ' pl-consensus-row-leader' : ''}${!inConsensus ? ' pl-consensus-row-out' : ''}`;
+
+                        return `
+                            <tr class="${rowClass}">
+                                <td>
+                                    <span class="pl-cs-station">${escapeHtml(sid)}</span>
+                                    <span class="pl-cs-sub">${escapeHtml(stationName || '--')}</span>
+                                </td>
+                                <td>
+                                    <span class="pl-cs-source" style="background:${source.color}22;color:${source.color};" title="${escapeHtml(source.title)}">${escapeHtml(source.label)}</span>
+                                </td>
+                                <td>
+                                    <span class="pl-cs-temp">${escapeHtml(tempText)}</span>
+                                    <span class="pl-cs-sub">${escapeHtml(tempAlt)}</span>
+                                </td>
+                                <td style="color:${deltaColor};">
+                                    ${escapeHtml(deltaText)}
+                                </td>
+                                <td>${Number.isFinite(weight) ? weight.toFixed(2) : '--'}</td>
+                                <td>
+                                    <span style="color:${scoreColor(hist)};">${Number.isFinite(hist) ? hist.toFixed(0) : '--'}</span>
+                                    <span class="pl-cs-sub">N ${Number.isFinite(numericOrNaN(row && row.samples_total)) ? Number(row.samples_total) : '--'}</span>
+                                </td>
+                                <td style="color:${scoreColor(now)};">${Number.isFinite(now) ? now.toFixed(0) : '--'}</td>
+                                <td style="color:${scoreColor(lead)};">${Number.isFinite(lead) ? lead.toFixed(0) : '--'}</td>
+                                <td>${Number.isFinite(nNow) ? nNow : '--'}</td>
+                                <td>${Number.isFinite(nLead) ? nLead : '--'}</td>
+                                <td>
+                                    ${escapeHtml(ageText)}
+                                    <span class="pl-cs-sub">${escapeHtml(obsText)}</span>
+                                </td>
+                                <td><span class="pl-cs-state ${stateCls}">${escapeHtml(stateRaw)}</span></td>
+                            </tr>
+                        `;
+                    }).join('')}
+                </tbody>
+            </table>
+        `;
+    }
+
     function renderPwsLearning(payload, categories = null) {
         const panel = document.getElementById('pws-learning-panel');
         const metaEl = document.getElementById('pl-meta');
@@ -1638,8 +1967,10 @@
         const stripEl = document.getElementById('pl-strip');
         const stripSummaryEl = document.getElementById('pl-strip-summary');
         const eventsEl = document.getElementById('pl-events');
+        const consensusSummaryEl = document.getElementById('pl-consensus-summary');
+        const consensusTableEl = document.getElementById('pl-consensus-table');
 
-        if (!panel || !metaEl || !guideEl || !rankingEl || !stripEl || !stripSummaryEl || !eventsEl) return;
+        if (!panel || !metaEl || !guideEl || !rankingEl || !stripEl || !stripSummaryEl || !eventsEl || !consensusSummaryEl || !consensusTableEl) return;
 
         if (!payload || payload.error) {
             panel.classList.remove('visible');
@@ -1679,16 +2010,32 @@
         const metarTempText = formatTempFromF(metarTemp, 1, stationId);
         const pwsMedianText = formatTempFromF(pwsMedian, 1, stationId);
         const deltaText = formatSignedDeltaFromF(deltaVsMetar, 1, stationId);
+        const pwsTickNyc = String(current.ts_nyc || '--');
+        const pwsTick = pwsTickNyc !== '--'
+            ? localTimeFromTsNyc(pwsTickNyc)
+            : { local: '--:--', es: '--:--' };
+        const pwsTickLabel = `${pwsTick.local} ${localTzLabel} | ${pwsTick.es} ES`;
 
         panel.classList.add('visible');
-        metaEl.textContent = `${totalPws} pws ev | ranked ${rankedPws} | market ${marketStation} | ${current.ts_nyc || '--'} | status ${status} | w-support ${Number.isFinite(weightedSupport) ? weightedSupport.toFixed(2) : '--'}`;
+        metaEl.textContent = `${totalPws} pws ev | ranked ${rankedPws} | market ${marketStation} | pws tick ${pwsTickLabel} | status ${status} | w-support ${Number.isFinite(weightedSupport) ? weightedSupport.toFixed(2) : '--'}`;
         guideEl.innerHTML = [
-            '<span class="pl-guide-pill"><strong>w</strong> peso de influencia (no es temperatura)</span>',
+            '<span class="pl-guide-pill"><strong>w</strong> peso dinamico (no temperatura): now + ajuste lead</span>',
             '<span class="pl-guide-pill"><strong>now</strong> score 0-100 vs METAR actual</span>',
-            '<span class="pl-guide-pill"><strong>lead</strong> score 0-100 vs METAR siguiente (~1h)</span>',
+            '<span class="pl-guide-pill"><strong>lead</strong> score 0-100 con adelanto 35-85 min (EMA)</span>',
+            `<span class="pl-guide-pill"><strong>PWS tick</strong> ${pwsTickLabel} (${pwsTickNyc} NYC)</span>`,
             `<span class="pl-guide-pill"><strong>METAR</strong> ${metarTempText} (${metarSource}, ${metarTime})</span>`,
             `<span class="pl-guide-pill"><strong>PWS median</strong> ${pwsMedianText} | <strong>delta</strong> ${deltaText}</span>`,
         ].join('');
+
+        renderPwsConsensusSnapshot(payload.consensus_snapshot || null, {
+            summaryEl: consensusSummaryEl,
+            tableEl: consensusTableEl,
+            stationId,
+            metarTempF: metarTemp,
+            leaderStationId: top.length > 0 ? String(top[0].station_id || '').toUpperCase() : '',
+            pwsTickLabel,
+            pwsTickNyc,
+        });
 
         const isReady = status === 'READY' && top.length > 0;
         if (!isReady) {
@@ -1714,14 +2061,16 @@
             const nowColor = scoreColor(now);
             const leadColor = scoreColor(lead);
             return `
-                <div class="pl-rank-row">
-                    <span class="pl-rank-pos">#${idx + 1}</span>
-                    <span class="pl-rank-station">${station}</span>
-                    <span class="pl-pill">w ${Number.isFinite(w) ? w.toFixed(2) : '--'}</span>
-                    <span class="pl-pill" style="color:${nowColor};">now ${Number.isFinite(now) ? now.toFixed(0) : '--'}</span>
-                    <span class="pl-pill" style="color:${leadColor};">lead ${Number.isFinite(lead) ? lead.toFixed(0) : '--'}</span>
+                <div class="pl-rank-item">
+                    <div class="pl-rank-row">
+                        <span class="pl-rank-pos">#${idx + 1}</span>
+                        <span class="pl-rank-station">${station}</span>
+                        <span class="pl-pill">w ${Number.isFinite(w) ? w.toFixed(2) : '--'}</span>
+                        <span class="pl-pill" style="color:${nowColor};">now ${Number.isFinite(now) ? now.toFixed(0) : '--'}</span>
+                        <span class="pl-pill" style="color:${leadColor};">lead ${Number.isFinite(lead) ? lead.toFixed(0) : '--'}</span>
+                    </div>
+                    <div class="pl-rank-meta">N now ${Number.isFinite(nNow) ? nNow : '--'} | N lead ${Number.isFinite(nLead) ? nLead : '--'} | err now ${Number.isFinite(errNowC) ? errNowC.toFixed(2) + 'C' : '--'} | err lead ${Number.isFinite(errLeadC) ? errLeadC.toFixed(2) + 'C' : '--'}</div>
                 </div>
-                <div style="font-size:10px;color:var(--text-muted);margin:-2px 0 6px 36px;">N now ${Number.isFinite(nNow) ? nNow : '--'} | N lead ${Number.isFinite(nLead) ? nLead : '--'} | err now ${Number.isFinite(errNowC) ? errNowC.toFixed(2) + 'C' : '--'} | err lead ${Number.isFinite(errLeadC) ? errLeadC.toFixed(2) + 'C' : '--'}</div>
             `;
         }).join('');
 

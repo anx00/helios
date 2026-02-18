@@ -168,6 +168,109 @@ def test_replay_pws_learning_summary_warmup_when_no_rank_eligible_station():
     assert summary["current"]["top"] == []
 
 
+def test_replay_pws_learning_summary_includes_consensus_snapshot_rows():
+    from core.replay_engine import ReplaySession
+
+    start = datetime(2026, 2, 6, 12, 0, 0, tzinfo=UTC)
+    events = [
+        {
+            "ch": "pws",
+            "station_id": "KLGA",
+            "ts_ingest_utc": start,
+            "ts_nyc": "2026-02-05 19:00:00",
+            "obs_time_utc": start - timedelta(minutes=2),
+            "data": {
+                "median_f": 70.1,
+                "mad_f": 1.2,
+                "support": 2,
+                "weighted_support": 1.9,
+                "qc": "OK",
+                "pws_readings": [
+                    {
+                        "station_id": "A",
+                        "station_name": "Station A",
+                        "source": "SYNOPTIC",
+                        "temp_f": 69.8,
+                        "temp_c": 21.0,
+                        "age_minutes": 5.0,
+                        "distance_km": 1.2,
+                        "valid": True,
+                        "weight": 1.25,
+                        "now_score": 84.0,
+                        "lead_score": 73.0,
+                        "now_samples": 12,
+                        "lead_samples": 8,
+                        "rank_eligible": True,
+                    }
+                ],
+                "pws_outliers": [
+                    {
+                        "station_id": "B",
+                        "station_name": "Station B",
+                        "source": "WUNDERGROUND",
+                        "temp_f": 75.0,
+                        "temp_c": 23.9,
+                        "age_minutes": 7.0,
+                        "distance_km": 2.5,
+                        "valid": False,
+                        "qc_flag": "SPATIAL_OUTLIER_MAD",
+                    }
+                ],
+                "station_learning": {
+                    "A": {
+                        "station_id": "A",
+                        "weight": 1.25,
+                        "predictive_score": 80.5,
+                        "samples_total": 20,
+                        "now_ema_abs_error_c": 0.35,
+                        "lead_ema_abs_error_c": 0.58,
+                        "rank_eligible": True,
+                    },
+                    "B": {
+                        "station_id": "B",
+                        "weight": 0.92,
+                        "predictive_score": 89.0,
+                        "samples_total": 45,
+                        "now_score": 69.0,
+                        "lead_score": 90.0,
+                        "now_samples": 21,
+                        "lead_samples": 24,
+                        "rank_eligible": True,
+                    },
+                },
+            },
+        }
+    ]
+
+    session = ReplaySession("s3b", "2026-02-06", "KLGA")
+    session._reader = _StubReader(events)
+    ok = asyncio.run(session.load())
+    assert ok
+    session.seek_percent(100)
+
+    summary = session.get_pws_learning_summary(max_points=20, top_n=3)
+    snapshot = summary.get("consensus_snapshot")
+    assert isinstance(snapshot, dict)
+    assert snapshot["market_station_id"] == "KLGA"
+    assert snapshot["in_consensus_count"] == 1
+    assert snapshot["excluded_count"] == 1
+    assert snapshot["top_historical_station_id"] == "B"
+
+    rows = snapshot.get("rows", [])
+    assert len(rows) == 2
+
+    row_a = next(r for r in rows if r["station_id"] == "A")
+    assert row_a["in_consensus"] is True
+    assert row_a["temp_f"] == 69.8
+    assert row_a["predictive_score"] == 80.5
+    assert row_a["now_ema_abs_error_c"] == 0.35
+
+    row_b = next(r for r in rows if r["station_id"] == "B")
+    assert row_b["in_consensus"] is False
+    assert row_b["excluded_reason"] == "SPATIAL_OUTLIER_MAD"
+    assert row_b["predictive_score"] == 89.0
+
+
 def test_replay_category_summary_maps_market_alias_to_l2_snap():
     from core.replay_engine import ReplaySession
 

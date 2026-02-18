@@ -448,6 +448,7 @@ async def pws_loop():
                             "station_id": r.label,
                             "station_name": r.station_name,
                             "source": r.source,
+                            "obs_time_utc": r.obs_time_utc.isoformat() if r.obs_time_utc else None,
                             "temp_c": round(float(r.temp_c), 3),
                             "temp_f": round((float(r.temp_c) * 9.0 / 5.0) + 32.0, 1),
                             "distance_km": round(float(r.distance_km), 3),

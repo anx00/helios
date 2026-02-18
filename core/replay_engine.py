@@ -799,6 +799,242 @@ class ReplaySession:
             sampled.append(points[-1])
         return sampled
 
+    @staticmethod
+    def _build_pws_consensus_snapshot(
+        event: Optional[Dict[str, Any]],
+        data: Optional[Dict[str, Any]],
+        ranked_rows: Optional[List[Dict[str, Any]]] = None,
+        all_rows: Optional[List[Dict[str, Any]]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Build a station-level PWS snapshot for the current replay tick.
+
+        Snapshot includes per-station temperatures (when recorded) and merged
+        long-horizon learning fields (scores/samples/EMA errors).
+        """
+        if not isinstance(event, dict) or not isinstance(data, dict):
+            return None
+
+        def _as_float(value: Any) -> Optional[float]:
+            try:
+                n = float(value)
+            except Exception:
+                return None
+            if not math.isfinite(n):
+                return None
+            return n
+
+        def _as_int(value: Any) -> Optional[int]:
+            try:
+                return int(value)
+            except Exception:
+                return None
+
+        def _as_iso(value: Any) -> Optional[str]:
+            if value is None:
+                return None
+            if isinstance(value, datetime):
+                return value.isoformat()
+            txt = str(value).strip()
+            return txt or None
+
+        learning_by_station: Dict[str, Dict[str, Any]] = {}
+        for row in (all_rows or []):
+            if not isinstance(row, dict):
+                continue
+            sid = str(row.get("station_id") or "").upper()
+            if sid:
+                learning_by_station[sid] = row
+
+        leader_row: Optional[Dict[str, Any]] = None
+        if ranked_rows:
+            leader_row = ranked_rows[0]
+        elif all_rows:
+            def _weight_value(row: Dict[str, Any]) -> float:
+                try:
+                    return float(row.get("weight", 0.0) or 0.0)
+                except Exception:
+                    return 0.0
+
+            sorted_all = sorted(
+                [r for r in all_rows if isinstance(r, dict)],
+                key=_weight_value,
+                reverse=True,
+            )
+            leader_row = sorted_all[0] if sorted_all else None
+
+        leader_station_id = str((leader_row or {}).get("station_id") or "").upper() or None
+
+        def _merge_reading_row(raw_row: Dict[str, Any], in_consensus: bool) -> Optional[Dict[str, Any]]:
+            sid = str(raw_row.get("station_id") or raw_row.get("label") or "").upper()
+            if not sid:
+                return None
+            learning = learning_by_station.get(sid, {})
+
+            def _pick(key: str) -> Any:
+                value = raw_row.get(key)
+                if value is None and isinstance(learning, dict):
+                    value = learning.get(key)
+                return value
+
+            temp_f = _as_float(_pick("temp_f"))
+            temp_c = _as_float(_pick("temp_c"))
+            if temp_f is None and temp_c is not None:
+                temp_f = round((temp_c * 9.0 / 5.0) + 32.0, 3)
+            if temp_c is None and temp_f is not None:
+                temp_c = round((temp_f - 32.0) * (5.0 / 9.0), 3)
+
+            valid_raw = _pick("valid")
+            if isinstance(valid_raw, bool):
+                valid = valid_raw
+            elif valid_raw is None:
+                valid = bool(in_consensus)
+            else:
+                valid = bool(valid_raw)
+
+            now_samples = _as_int(_pick("now_samples"))
+            lead_samples = _as_int(_pick("lead_samples"))
+            samples_total = _as_int(_pick("samples_total"))
+            if samples_total is None and (now_samples is not None or lead_samples is not None):
+                samples_total = int(max(0, now_samples or 0) + max(0, lead_samples or 0))
+
+            row = {
+                "station_id": sid,
+                "station_name": _pick("station_name"),
+                "source": _pick("source"),
+                "in_consensus": bool(in_consensus),
+                "valid": bool(valid),
+                "qc_flag": _pick("qc_flag"),
+                "excluded_reason": None if in_consensus else (_pick("qc_flag") or "EXCLUDED"),
+                "obs_time_utc": _as_iso(_pick("obs_time_utc")),
+                "distance_km": _as_float(_pick("distance_km")),
+                "age_minutes": _as_float(_pick("age_minutes")),
+                "temp_c": temp_c,
+                "temp_f": temp_f,
+                "weight": _as_float(_pick("weight")),
+                "weight_now": _as_float(_pick("weight_now")),
+                "weight_predictive": _as_float(_pick("weight_predictive")),
+                "now_score": _as_float(_pick("now_score")),
+                "lead_score": _as_float(_pick("lead_score")),
+                "predictive_score": _as_float(_pick("predictive_score")),
+                "now_samples": now_samples,
+                "lead_samples": lead_samples,
+                "samples_total": samples_total,
+                "now_ema_abs_error_c": _as_float(_pick("now_ema_abs_error_c")),
+                "lead_ema_abs_error_c": _as_float(_pick("lead_ema_abs_error_c")),
+                "quality_band": _pick("quality_band"),
+                "learning_phase": _pick("learning_phase"),
+                "rank_eligible": ReplaySession._is_rank_eligible(
+                    {
+                        "rank_eligible": _pick("rank_eligible"),
+                        "now_samples": now_samples,
+                        "lead_samples": lead_samples,
+                        "rank_min_now_samples": _pick("rank_min_now_samples"),
+                        "rank_min_lead_samples": _pick("rank_min_lead_samples"),
+                    }
+                ),
+            }
+            return row
+
+        merged_rows: List[Dict[str, Any]] = []
+        seen: set[str] = set()
+
+        for raw in data.get("pws_readings") or []:
+            if not isinstance(raw, dict):
+                continue
+            row = _merge_reading_row(raw, in_consensus=True)
+            if not row:
+                continue
+            sid = str(row.get("station_id") or "")
+            if sid in seen:
+                continue
+            seen.add(sid)
+            merged_rows.append(row)
+
+        for raw in data.get("pws_outliers") or []:
+            if not isinstance(raw, dict):
+                continue
+            row = _merge_reading_row(raw, in_consensus=False)
+            if not row:
+                continue
+            sid = str(row.get("station_id") or "")
+            if sid in seen:
+                continue
+            seen.add(sid)
+            merged_rows.append(row)
+
+        # Legacy fallback: if replay data predates pws_readings serialization,
+        # show station list from learning rows (no per-tick temperature available).
+        if not merged_rows and learning_by_station:
+            for sid, lrow in learning_by_station.items():
+                row = _merge_reading_row({"station_id": sid, "source": lrow.get("source")}, in_consensus=False)
+                if row:
+                    row["excluded_reason"] = "NO_READING_AT_TICK"
+                    merged_rows.append(row)
+
+        def _sort_key(row: Dict[str, Any]) -> tuple:
+            sid = str(row.get("station_id") or "")
+            in_consensus_rank = 0 if bool(row.get("in_consensus")) else 1
+            leader_rank = 0 if (leader_station_id and sid == leader_station_id) else 1
+            weight = _as_float(row.get("weight"))
+            hist = _as_float(row.get("predictive_score"))
+            return (
+                in_consensus_rank,
+                leader_rank,
+                -(weight if weight is not None else -1.0),
+                -(hist if hist is not None else -1.0),
+                sid,
+            )
+
+        merged_rows.sort(key=_sort_key)
+
+        hist_row: Optional[Dict[str, Any]] = None
+        for row in merged_rows:
+            score = _as_float(row.get("predictive_score"))
+            if score is None:
+                continue
+            if hist_row is None:
+                hist_row = row
+                continue
+            cur_best = _as_float(hist_row.get("predictive_score"))
+            if cur_best is None:
+                hist_row = row
+                continue
+            if score > cur_best:
+                hist_row = row
+            elif score == cur_best:
+                cur_n = _as_int(hist_row.get("samples_total")) or 0
+                row_n = _as_int(row.get("samples_total")) or 0
+                if row_n > cur_n:
+                    hist_row = row
+
+        in_consensus_count = sum(1 for r in merged_rows if bool(r.get("in_consensus")))
+        excluded_count = max(0, len(merged_rows) - in_consensus_count)
+
+        market_station_id = str(event.get("station_id") or "").upper() or None
+        return {
+            "event_index": event.get("event_index"),
+            "ts_nyc": event.get("ts_nyc"),
+            "ts_ingest_utc": _as_iso(event.get("ts_ingest_utc")),
+            "obs_time_utc": _as_iso(event.get("obs_time_utc")),
+            "market_station_id": market_station_id,
+            "median_f": _as_float(data.get("median_f")),
+            "mad_f": _as_float(data.get("mad_f")),
+            "support": _as_int(data.get("support")),
+            "weighted_support": _as_float(data.get("weighted_support")),
+            "qc": data.get("qc"),
+            "leader_station_id": leader_station_id,
+            "leader_weight": _as_float((leader_row or {}).get("weight")),
+            "leader_now_score": _as_float((leader_row or {}).get("now_score")),
+            "leader_lead_score": _as_float((leader_row or {}).get("lead_score")),
+            "top_historical_station_id": str((hist_row or {}).get("station_id") or "").upper() or None,
+            "top_historical_score": _as_float((hist_row or {}).get("predictive_score")),
+            "top_historical_samples_total": _as_int((hist_row or {}).get("samples_total")),
+            "in_consensus_count": in_consensus_count,
+            "excluded_count": excluded_count,
+            "rows": merged_rows,
+        }
+
     def get_pws_learning_summary(self, max_points: int = 80, top_n: int = 6) -> Dict[str, Any]:
         """
         Build replay-time PWS learning diagnostics up to current playback index.
@@ -829,6 +1065,7 @@ class ReplaySession:
         latest_any_rows: List[Dict[str, Any]] = []
         latest_any_data: Optional[Dict[str, Any]] = None
         latest_any_event: Optional[Dict[str, Any]] = None
+        latest_any_idx: Optional[int] = None
 
         latest_rows: List[Dict[str, Any]] = []
         latest_data: Optional[Dict[str, Any]] = None
@@ -883,6 +1120,7 @@ class ReplaySession:
             latest_any_rows = all_rows
             latest_any_data = data
             latest_any_event = event
+            latest_any_idx = idx
 
             rows = self._extract_station_learning_rows(data, eligible_only=True)
             if not rows:
@@ -920,12 +1158,22 @@ class ReplaySession:
                 "total_pws_events": 0,
                 "ranked_pws_events": 0,
                 "current": None,
+                "consensus_snapshot": None,
                 "timeline": [],
                 "leader_changes": [],
             }
             self._pws_learning_cache_key = cache_key
             self._pws_learning_cache_value = result
             return result
+
+        latest_any_event_with_index = dict(latest_any_event or {})
+        latest_any_event_with_index["event_index"] = latest_any_idx
+        consensus_snapshot = self._build_pws_consensus_snapshot(
+            latest_any_event_with_index if latest_any_event else None,
+            latest_any_data,
+            ranked_rows=latest_rows,
+            all_rows=latest_any_rows,
+        )
 
         if not latest_rows:
             rank_min_now = 2
@@ -956,6 +1204,7 @@ class ReplaySession:
                 "total_pws_events": pws_count,
                 "ranked_pws_events": 0,
                 "current": current_payload,
+                "consensus_snapshot": consensus_snapshot,
                 "timeline": [],
                 "leader_changes": [],
             }
@@ -983,6 +1232,7 @@ class ReplaySession:
             "total_pws_events": pws_count,
             "ranked_pws_events": len(points),
             "current": current_payload,
+            "consensus_snapshot": consensus_snapshot,
             "timeline": self._decimate_points(points, max(10, int(max_points))),
             "leader_changes": leader_changes[-20:],
         }
