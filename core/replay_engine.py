@@ -526,6 +526,11 @@ class ReplaySession:
 
     def get_state(self) -> Dict:
         """Get session state for UI."""
+        channels_loaded = sorted({
+            str(ev.get("ch"))
+            for ev in self._events
+            if isinstance(ev, dict) and ev.get("ch")
+        })
         return {
             "session_id": self.session_id,
             "date": self.date_str,
@@ -535,6 +540,7 @@ class ReplaySession:
             "current_index": self._event_index,
             "metar_count": len(self._metar_indices),
             "window_count": len(self._window_indices),
+            "channels_loaded": channels_loaded,
             "clock": self.clock.get_state()
         }
 
@@ -542,13 +548,16 @@ class ReplaySession:
         """Get latest event and count per channel for category cards."""
         channels = ["world", "nowcast", "pws", "features", "event_window", "health", "l2_snap"]
         categories = {ch: {"count": 0, "latest": None, "latest_time": None} for ch in channels}
+        l2_aliases = {"l2_snap", "l2_snap_1s", "market"}
 
         for i in range(min(self._event_index + 1, len(self._events))):
-            ch = self._events[i].get("ch", "")
-            if ch in categories:
-                categories[ch]["count"] += 1
-                categories[ch]["latest"] = self._events[i]
-                categories[ch]["latest_time"] = self._events[i].get("ts_nyc")
+            event = self._events[i]
+            ch = event.get("ch", "")
+            key = "l2_snap" if ch in l2_aliases else ch
+            if key in categories:
+                categories[key]["count"] += 1
+                categories[key]["latest"] = event
+                categories[key]["latest_time"] = event.get("ts_nyc")
 
         return categories
 
@@ -647,6 +656,15 @@ class ReplaySession:
         - timeline: decimated leader evolution over the day
         - leader_changes: compact list when leader station switches
         """
+        def _as_float(value: Any) -> Optional[float]:
+            try:
+                n = float(value)
+            except Exception:
+                return None
+            if not math.isfinite(n):
+                return None
+            return n
+
         current_limit = min(self._event_index + 1, len(self._events))
         cache_key = (current_limit, int(max_points), int(top_n))
         if self._pws_learning_cache_key == cache_key and self._pws_learning_cache_value is not None:
@@ -654,6 +672,7 @@ class ReplaySession:
         pws_count = 0
         points: List[Dict[str, Any]] = []
         leader_changes: List[Dict[str, Any]] = []
+        latest_world_by_station: Dict[str, Dict[str, Any]] = {}
 
         latest_any_rows: List[Dict[str, Any]] = []
         latest_any_data: Optional[Dict[str, Any]] = None
@@ -664,9 +683,40 @@ class ReplaySession:
         latest_event: Optional[Dict[str, Any]] = None
         prev_leader: Optional[str] = None
 
+        def _build_metar_context(market_station_id: Optional[str], median_f: Any) -> Dict[str, Any]:
+            sid = str(market_station_id or "").upper()
+            world = latest_world_by_station.get(sid, {})
+            metar_temp = _as_float(world.get("temp_f"))
+            pws_median = _as_float(median_f)
+            delta = None
+            if metar_temp is not None and pws_median is not None:
+                delta = round(pws_median - metar_temp, 3)
+
+            return {
+                "market_station_id": sid or None,
+                "metar_temp_f": metar_temp,
+                "metar_aligned_f": _as_float(world.get("temp_aligned_f")),
+                "metar_ts_nyc": world.get("ts_nyc"),
+                "metar_source": world.get("source"),
+                "pws_vs_metar_f": delta,
+            }
+
         for idx in range(current_limit):
             event = self._events[idx]
-            if event.get("ch") != "pws":
+            ch = event.get("ch")
+            if ch == "world":
+                station_id = str(event.get("station_id") or "").upper()
+                data = event.get("data", {})
+                if station_id and isinstance(data, dict):
+                    latest_world_by_station[station_id] = {
+                        "ts_nyc": event.get("ts_nyc"),
+                        "temp_f": data.get("temp_f"),
+                        "temp_aligned_f": data.get("temp_aligned"),
+                        "source": data.get("src"),
+                    }
+                continue
+
+            if ch != "pws":
                 continue
 
             data = event.get("data", {})
@@ -688,10 +738,12 @@ class ReplaySession:
 
             leader = rows[0]
             leader_id = str(leader.get("station_id") or "")
+            market_station_id = str(event.get("station_id") or "").upper()
             point = {
                 "event_index": idx,
                 "ts_nyc": event.get("ts_nyc"),
                 "ts_ingest_utc": event.get("ts_ingest_utc"),
+                "market_station_id": market_station_id or None,
                 "leader_station_id": leader_id,
                 "leader_weight": leader.get("weight"),
                 "leader_now_score": leader.get("now_score"),
@@ -699,6 +751,7 @@ class ReplaySession:
                 "weighted_support": data.get("weighted_support"),
                 "support": data.get("support"),
                 "median_f": data.get("median_f"),
+                **_build_metar_context(market_station_id, data.get("median_f")),
             }
             points.append(point)
 
@@ -735,6 +788,10 @@ class ReplaySession:
                 "weighted_support": latest_any_data.get("weighted_support") if latest_any_data else None,
                 "support": latest_any_data.get("support") if latest_any_data else None,
                 "median_f": latest_any_data.get("median_f") if latest_any_data else None,
+                **_build_metar_context(
+                    latest_any_event.get("station_id") if latest_any_event else None,
+                    latest_any_data.get("median_f") if latest_any_data else None,
+                ),
                 "status": "WARMUP",
                 "warmup_reason": (
                     f"Ranking hidden until station has now>={rank_min_now} and lead>={rank_min_lead} samples."
@@ -761,6 +818,10 @@ class ReplaySession:
             "weighted_support": latest_data.get("weighted_support") if latest_data else None,
             "support": latest_data.get("support") if latest_data else None,
             "median_f": latest_data.get("median_f") if latest_data else None,
+            **_build_metar_context(
+                latest_event.get("station_id") if latest_event else None,
+                latest_data.get("median_f") if latest_data else None,
+            ),
             "status": "READY",
             "warmup_reason": "",
             "top": current_top,

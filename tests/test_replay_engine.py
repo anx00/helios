@@ -148,3 +148,43 @@ def test_replay_pws_learning_summary_warmup_when_no_rank_eligible_station():
     assert summary["current"] is not None
     assert summary["current"]["status"] == "WARMUP"
     assert summary["current"]["top"] == []
+
+
+def test_replay_category_summary_maps_market_alias_to_l2_snap():
+    from core.replay_engine import ReplaySession
+
+    start = datetime(2026, 2, 6, 0, 0, 0, tzinfo=UTC)
+    events = [
+        {"ch": "market", "ts_ingest_utc": start, "ts_nyc": "2026-02-05 19:00:00", "data": {"34-35F": {"mid": 0.4}}},
+        {"ch": "l2_snap_1s", "ts_ingest_utc": start + timedelta(seconds=1), "ts_nyc": "2026-02-05 19:00:01", "data": {"36+F": {"mid": 0.6}}},
+    ]
+
+    session = ReplaySession("s4", "2026-02-06", "KLGA")
+    session._reader = _StubReader(events)
+    ok = asyncio.run(session.load())
+    assert ok
+    session.seek_percent(100)
+
+    cats = session.get_category_summary()
+    assert cats["l2_snap"]["count"] == 2
+    assert cats["l2_snap"]["latest"] is not None
+    assert cats["l2_snap"]["latest"]["ch"] == "l2_snap_1s"
+
+
+def test_replay_state_exposes_loaded_channels():
+    from core.replay_engine import ReplaySession
+
+    start = datetime(2026, 2, 6, 0, 0, 0, tzinfo=UTC)
+    events = [
+        {"ch": "world", "ts_ingest_utc": start, "data": {"src": "METAR"}},
+        {"ch": "market", "ts_ingest_utc": start + timedelta(seconds=1), "data": {"x": {}}},
+    ]
+
+    session = ReplaySession("s5", "2026-02-06", "KLGA")
+    session._reader = _StubReader(events)
+    ok = asyncio.run(session.load())
+    assert ok
+
+    state = session.get_state()
+    assert "channels_loaded" in state
+    assert state["channels_loaded"] == ["market", "world"]

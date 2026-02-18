@@ -379,6 +379,8 @@
     .event-channel.features { background: rgba(244,208,63,0.2); color: #F4D03F; }
     .event-channel.health { background: rgba(100,100,100,0.3); color: var(--text-muted); }
     .event-channel.event_window { background: rgba(239,68,68,0.2); color: #EF4444; }
+    .event-channel.market { background: rgba(249,115,22,0.2); color: #F97316; }
+    .event-channel.l2_snap_1s { background: rgba(249,115,22,0.2); color: #F97316; }
 
     .event-content {
         flex: 1;
@@ -521,6 +523,11 @@
         grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
         gap: 10px;
     }
+    .mr-empty {
+        font-size: 12px;
+        color: var(--text-muted);
+        padding: 10px 2px;
+    }
     .mr-bracket {
         background: rgba(255, 255, 255, 0.03);
         border: 1px solid rgba(255, 255, 255, 0.06);
@@ -597,6 +604,25 @@
         color: var(--text-muted);
         font-family: 'JetBrains Mono', monospace;
     }
+    .pl-guide {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-bottom: 10px;
+    }
+    .pl-guide-pill {
+        font-size: 10px;
+        color: var(--text-secondary);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(255, 255, 255, 0.03);
+        border-radius: 999px;
+        padding: 4px 8px;
+    }
+    .pl-guide-pill strong {
+        color: var(--text-main);
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 10px;
+    }
     .pl-grid {
         display: grid;
         grid-template-columns: 1.2fr 1fr;
@@ -654,6 +680,12 @@
         min-width: 2px;
         border-radius: 2px 2px 0 0;
         background: rgba(139, 92, 246, 0.55);
+    }
+    .pl-strip-summary {
+        font-size: 10px;
+        color: var(--text-muted);
+        margin-bottom: 8px;
+        font-family: 'JetBrains Mono', monospace;
     }
     .pl-leader-events {
         max-height: 120px;
@@ -922,14 +954,16 @@
             <span class="pl-title"><i data-lucide="graduation-cap"></i> PWS Learning</span>
             <span class="pl-meta" id="pl-meta">--</span>
         </div>
+        <div class="pl-guide" id="pl-guide"></div>
         <div class="pl-grid">
             <div class="pl-card">
-                <div class="pl-card-title">Ranking Actual (Now Weight)</div>
+                <div class="pl-card-title">Current Ranking (weight w)</div>
                 <div id="pl-ranking" class="pl-empty">No data</div>
             </div>
             <div class="pl-card">
-                <div class="pl-card-title">Evolucion Lider Del Dia</div>
+                <div class="pl-card-title">Leader Evolution (height=w, color=now/lead)</div>
                 <div id="pl-strip" class="pl-leader-strip"></div>
+                <div id="pl-strip-summary" class="pl-strip-summary">--</div>
                 <div id="pl-events" class="pl-leader-events"></div>
             </div>
         </div>
@@ -965,6 +999,9 @@
     let isPlaying = false;
     let pollInterval = null;
     let isDragging = false;
+    let sessionLoadedChannels = new Set();
+    let currentReplayDate = '';
+    let currentReplayStation = '';
 
     // Station timezone info (populated from template data)
     const stationTimezones = {
@@ -1205,6 +1242,9 @@
         document.getElementById('stats-row').style.display = 'grid';
         document.getElementById('category-grid').style.display = 'grid';
         document.getElementById('event-feed').style.display = 'block';
+        currentReplayDate = data.date || '';
+        currentReplayStation = data.station_id || '';
+        sessionLoadedChannels = new Set(Array.isArray(data.channels_loaded) ? data.channels_loaded : []);
 
         // Update stats
         document.getElementById('stat-total').textContent = data.total_events || 0;
@@ -1220,6 +1260,9 @@
         try {
             const resp = await fetch(`/api/v4/replay/session/${sessionId}/state`);
             const data = await resp.json();
+            sessionLoadedChannels = new Set(Array.isArray(data.channels_loaded) ? data.channels_loaded : []);
+            currentReplayDate = data.date || currentReplayDate;
+            currentReplayStation = data.station_id || currentReplayStation;
 
             // Update status badge
             const badge = document.getElementById('status-badge');
@@ -1263,7 +1306,7 @@
             const pwsLearnData = await pwsLearnResp.json();
             renderEvents(eventsData);
             renderCategories(catData);
-            renderPwsLearning(pwsLearnData);
+            renderPwsLearning(pwsLearnData, catData);
 
         } catch (e) {
             console.error('State update error:', e);
@@ -1363,7 +1406,7 @@
             const gaps = data.gaps || 0;
             return `Sources: <strong>${ok}/${total} OK</strong> | Reconnects: ${reconn} | Gaps: ${gaps}`;
         }
-        if (ch === 'l2_snap') {
+        if (ch === 'l2_snap' || ch === 'market' || ch === 'l2_snap_1s') {
             const brackets = Object.entries(data)
                 .filter(([k]) => k !== '__meta__')
                 .map(([name, b]) => ({ name, mid: b.mid || 0 }))
@@ -1404,6 +1447,16 @@
         const l2 = categories.l2_snap;
         if (l2 && l2.latest && l2.count > 0) {
             renderMarketPanel(l2.latest.data, l2.latest_time);
+        } else {
+            const hasAnyL2Channel =
+                sessionLoadedChannels.has('l2_snap') ||
+                sessionLoadedChannels.has('market') ||
+                sessionLoadedChannels.has('l2_snap_1s');
+            const stationLabel = currentReplayStation || document.getElementById('station-select')?.value || 'ALL';
+            const reason = hasAnyL2Channel
+                ? 'No market snapshot yet at this replay timestamp.'
+                : `No Polymarket snapshots recorded for ${stationLabel} on ${currentReplayDate || 'this date'}.`;
+            renderMarketPanel(null, null, reason);
         }
 
         lucide.createIcons();
@@ -1425,6 +1478,12 @@
         return Number.isFinite(n) ? n : NaN;
     }
 
+    function formatSigned(value, digits = 1) {
+        const n = numericOrNaN(value);
+        if (!Number.isFinite(n)) return '--';
+        return `${n >= 0 ? '+' : ''}${n.toFixed(digits)}`;
+    }
+
     function isRankEligible(row) {
         if (!row || typeof row !== 'object') return false;
         if (typeof row.rank_eligible === 'boolean') return row.rank_eligible;
@@ -1435,14 +1494,16 @@
         return nowSamples >= minNow && leadSamples >= minLead;
     }
 
-    function renderPwsLearning(payload) {
+    function renderPwsLearning(payload, categories = null) {
         const panel = document.getElementById('pws-learning-panel');
         const metaEl = document.getElementById('pl-meta');
+        const guideEl = document.getElementById('pl-guide');
         const rankingEl = document.getElementById('pl-ranking');
         const stripEl = document.getElementById('pl-strip');
+        const stripSummaryEl = document.getElementById('pl-strip-summary');
         const eventsEl = document.getElementById('pl-events');
 
-        if (!panel || !metaEl || !rankingEl || !stripEl || !eventsEl) return;
+        if (!panel || !metaEl || !guideEl || !rankingEl || !stripEl || !stripSummaryEl || !eventsEl) return;
 
         if (!payload || payload.error) {
             panel.classList.remove('visible');
@@ -1456,14 +1517,36 @@
         const weightedSupport = Number(current && current.weighted_support);
         const status = String((current && current.status) || 'WARMUP').toUpperCase();
         const warmupReason = String((current && current.warmup_reason) || '').trim();
+        const marketStation = String((current && current.market_station_id) || '--');
 
         if (!current) {
             panel.classList.remove('visible');
             return;
         }
 
+        const categoryWorld = categories && categories.world && categories.world.latest
+            ? categories.world.latest
+            : null;
+        const worldTemp = numericOrNaN(categoryWorld && categoryWorld.data ? categoryWorld.data.temp_f : NaN);
+        const metarTempFromLearning = numericOrNaN(current.metar_temp_f);
+        const metarTemp = Number.isFinite(metarTempFromLearning) ? metarTempFromLearning : worldTemp;
+        const pwsMedian = numericOrNaN(current.median_f);
+        const deltaFromLearning = numericOrNaN(current.pws_vs_metar_f);
+        const deltaVsMetar = Number.isFinite(deltaFromLearning)
+            ? deltaFromLearning
+            : (Number.isFinite(pwsMedian) && Number.isFinite(metarTemp) ? (pwsMedian - metarTemp) : NaN);
+        const metarTime = String(current.metar_ts_nyc || (categoryWorld && categoryWorld.ts_nyc) || '--');
+        const metarSource = String(current.metar_source || ((categoryWorld && categoryWorld.data && categoryWorld.data.src) || 'METAR'));
+
         panel.classList.add('visible');
-        metaEl.textContent = `${totalPws} pws ev | ranked ${rankedPws} | ${current.ts_nyc || '--'} | status ${status} | w-support ${Number.isFinite(weightedSupport) ? weightedSupport.toFixed(2) : '--'}`;
+        metaEl.textContent = `${totalPws} pws ev | ranked ${rankedPws} | market ${marketStation} | ${current.ts_nyc || '--'} | status ${status} | w-support ${Number.isFinite(weightedSupport) ? weightedSupport.toFixed(2) : '--'}`;
+        guideEl.innerHTML = [
+            '<span class="pl-guide-pill"><strong>w</strong> peso de influencia (no es temperatura)</span>',
+            '<span class="pl-guide-pill"><strong>now</strong> score 0-100 vs METAR actual</span>',
+            '<span class="pl-guide-pill"><strong>lead</strong> score 0-100 vs METAR siguiente (~1h)</span>',
+            `<span class="pl-guide-pill"><strong>METAR</strong> ${Number.isFinite(metarTemp) ? metarTemp.toFixed(1) + 'F' : '--'} (${metarSource}, ${metarTime})</span>`,
+            `<span class="pl-guide-pill"><strong>PWS median</strong> ${Number.isFinite(pwsMedian) ? pwsMedian.toFixed(1) + 'F' : '--'} | <strong>delta</strong> ${Number.isFinite(deltaVsMetar) ? formatSigned(deltaVsMetar, 1) + 'F' : '--'}</span>`,
+        ].join('');
 
         const isReady = status === 'READY' && top.length > 0;
         if (!isReady) {
@@ -1472,6 +1555,7 @@
             const fallbackReason = `Warm-up: ranking appears when station reaches now>=${minNow} and lead>=${minLead}.`;
             rankingEl.innerHTML = `<div class="pl-empty">${warmupReason || fallbackReason}</div>`;
             stripEl.innerHTML = '<div class="pl-empty">No leader timeline yet (ranking still warming up)</div>';
+            stripSummaryEl.textContent = 'No leader summary yet';
             eventsEl.innerHTML = '<div class="pl-empty">No leader switches yet</div>';
             return;
         }
@@ -1483,6 +1567,8 @@
             const lead = numericOrNaN(row.lead_score);
             const nNow = numericOrNaN(row.now_samples);
             const nLead = numericOrNaN(row.lead_samples);
+            const errNowC = numericOrNaN(row.now_ema_abs_error_c);
+            const errLeadC = numericOrNaN(row.lead_ema_abs_error_c);
             const nowColor = scoreColor(now);
             const leadColor = scoreColor(lead);
             return `
@@ -1493,13 +1579,14 @@
                     <span class="pl-pill" style="color:${nowColor};">now ${Number.isFinite(now) ? now.toFixed(0) : '--'}</span>
                     <span class="pl-pill" style="color:${leadColor};">lead ${Number.isFinite(lead) ? lead.toFixed(0) : '--'}</span>
                 </div>
-                <div style="font-size:10px;color:var(--text-muted);margin:-2px 0 6px 36px;">N now ${Number.isFinite(nNow) ? nNow : '--'} | N lead ${Number.isFinite(nLead) ? nLead : '--'}</div>
+                <div style="font-size:10px;color:var(--text-muted);margin:-2px 0 6px 36px;">N now ${Number.isFinite(nNow) ? nNow : '--'} | N lead ${Number.isFinite(nLead) ? nLead : '--'} | err now ${Number.isFinite(errNowC) ? errNowC.toFixed(2) + 'C' : '--'} | err lead ${Number.isFinite(errLeadC) ? errLeadC.toFixed(2) + 'C' : '--'}</div>
             `;
         }).join('');
 
         const timeline = Array.isArray(payload.timeline) ? payload.timeline : [];
         if (timeline.length === 0) {
             stripEl.innerHTML = '<div class="pl-empty">No timeline</div>';
+            stripSummaryEl.textContent = 'No leader summary yet';
         } else {
             const weights = timeline
                 .map(p => numericOrNaN(p.leader_weight))
@@ -1511,12 +1598,23 @@
             stripEl.innerHTML = timeline.map((p) => {
                 const w = numericOrNaN(p.leader_weight);
                 const now = numericOrNaN(p.leader_now_score);
+                const lead = numericOrNaN(p.leader_lead_score);
+                const pointDelta = numericOrNaN(p.pws_vs_metar_f);
                 const h = Number.isFinite(w)
                     ? Math.max(12, Math.round(((w - minW) / span) * 84))
                     : 12;
-                const title = `${p.ts_nyc || '--'} | ${p.leader_station_id || '--'} | w=${Number.isFinite(w) ? w.toFixed(2) : '--'} | now=${Number.isFinite(now) ? now.toFixed(0) : '--'}`;
-                return `<div class="pl-leader-bar" style="height:${h}px; background:${scoreColor(now)}55;" title="${title}"></div>`;
+                const nowColor = scoreColor(now);
+                const leadColor = scoreColor(lead);
+                const title = `${p.ts_nyc || '--'} | ${p.leader_station_id || '--'} | w=${Number.isFinite(w) ? w.toFixed(2) : '--'} | now=${Number.isFinite(now) ? now.toFixed(0) : '--'} | lead=${Number.isFinite(lead) ? lead.toFixed(0) : '--'} | pws-metar=${Number.isFinite(pointDelta) ? formatSigned(pointDelta, 1) + 'F' : '--'}`;
+                return `<div class="pl-leader-bar" style="height:${h}px; background:linear-gradient(180deg, ${leadColor}AA 0%, ${nowColor}55 100%);" title="${title}"></div>`;
             }).join('');
+
+            const last = timeline[timeline.length - 1] || {};
+            const lastW = numericOrNaN(last.leader_weight);
+            const lastNow = numericOrNaN(last.leader_now_score);
+            const lastLead = numericOrNaN(last.leader_lead_score);
+            const lastDelta = numericOrNaN(last.pws_vs_metar_f);
+            stripSummaryEl.textContent = `Latest leader ${last.leader_station_id || '--'} | w ${Number.isFinite(lastW) ? lastW.toFixed(2) : '--'} | now ${Number.isFinite(lastNow) ? lastNow.toFixed(0) : '--'} | lead ${Number.isFinite(lastLead) ? lastLead.toFixed(0) : '--'} | pws-metar ${Number.isFinite(lastDelta) ? formatSigned(lastDelta, 1) + 'F' : '--'}`;
         }
 
         const leaderChanges = Array.isArray(payload.leader_changes) ? payload.leader_changes : [];
@@ -1526,22 +1624,30 @@
             const recent = leaderChanges.slice(-8).reverse();
             eventsEl.innerHTML = recent.map((p) => {
                 const w = numericOrNaN(p.leader_weight);
+                const now = numericOrNaN(p.leader_now_score);
+                const lead = numericOrNaN(p.leader_lead_score);
                 return `
                     <div class="pl-leader-event">
                         <span>${p.ts_nyc || '--'}</span>
-                        <span><strong>${p.leader_station_id || '--'}</strong> (${Number.isFinite(w) ? w.toFixed(2) : '--'})</span>
+                        <span><strong>${p.leader_station_id || '--'}</strong> | w ${Number.isFinite(w) ? w.toFixed(2) : '--'} | now ${Number.isFinite(now) ? now.toFixed(0) : '--'} | lead ${Number.isFinite(lead) ? lead.toFixed(0) : '--'}</span>
                     </div>
                 `;
             }).join('');
         }
     }
 
-    function renderMarketPanel(data, timestamp) {
+    function renderMarketPanel(data, timestamp, emptyReason = 'No market data for this replay segment') {
         const panel = document.getElementById('market-replay-panel');
         const grid = document.getElementById('mr-grid');
         const timeEl = document.getElementById('mr-time');
 
-        if (!data) { panel.classList.remove('visible'); return; }
+        if (!panel || !grid || !timeEl) return;
+        if (!data || typeof data !== 'object') {
+            panel.classList.add('visible');
+            timeEl.textContent = '--';
+            grid.innerHTML = `<div class="mr-empty">${emptyReason}</div>`;
+            return;
+        }
 
         // Parse brackets (exclude __meta__)
         const brackets = Object.entries(data)
@@ -1557,7 +1663,12 @@
             }))
             .sort((a, b) => b.mid - a.mid);
 
-        if (brackets.length === 0) { panel.classList.remove('visible'); return; }
+        if (brackets.length === 0) {
+            panel.classList.add('visible');
+            timeEl.textContent = timestamp || '--';
+            grid.innerHTML = '<div class="mr-empty">No bracket books in this market snapshot</div>';
+            return;
+        }
 
         panel.classList.add('visible');
         timeEl.textContent = timestamp || '--';

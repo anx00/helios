@@ -82,6 +82,9 @@ except Exception:
 SYNOPTIC_TIMEOUT_SECONDS = 15.0
 WUNDERGROUND_TIMEOUT_SECONDS = 8.0
 _WUNDERGROUND_CURRENT_URL = "https://api.weather.com/v2/pws/observations/current"
+_WUNDERGROUND_DISCOVERY_URL = "https://api.weather.com/v3/location/near"
+_WUNDERGROUND_DISCOVERY_TTL_SECONDS = 6 * 3600
+_WUNDERGROUND_DISCOVERY_CACHE: Dict[str, Dict[str, Any]] = {}
 _DEFAULT_WUNDERGROUND_STATION_IDS: Dict[str, List[str]] = {
     "KLGA": [
         "KNYNEWYO1591",
@@ -106,6 +109,29 @@ _DEFAULT_WUNDERGROUND_STATION_IDS: Dict[str, List[str]] = {
         "KGAFORES15",
         "KGAATLAN972",
         "KGACONLE4",
+    ],
+    "EGLC": [
+        "ILONDO288",
+        "ILONDON828",
+        "ILONDO672",
+        "ILONDO873",
+        "ILONDO636",
+        "ILONDO575",
+        "ILONDO869",
+        "ILONDO658",
+        "ILONDO994",
+        "ILONDO452",
+    ],
+    "LTAC": [
+        "IANKAR46",
+        "IANKARA40",
+        "IANKAR59",
+        "IANKAR28",
+        "IETIME4",
+        "IANKAR53",
+        "IANKAR47",
+        "IANKAR25",
+        "IANKARA23",
     ],
 }
 
@@ -825,6 +851,96 @@ def _get_wunderground_api_key() -> str:
     return str(WUNDERGROUND_API_KEY or "").strip()
 
 
+def _safe_index(values: Any, idx: int, default: Any = None) -> Any:
+    if not isinstance(values, list):
+        return default
+    if idx < 0 or idx >= len(values):
+        return default
+    return values[idx]
+
+
+async def _discover_wunderground_candidates(
+    station_id: str,
+    *,
+    center_lat: float,
+    center_lon: float,
+    max_stations: int,
+    api_key: str,
+) -> List[Dict[str, Any]]:
+    station_id = station_id.upper()
+    now_ts = datetime.now(timezone.utc).timestamp()
+    cached = _WUNDERGROUND_DISCOVERY_CACHE.get(station_id)
+    if cached:
+        cached_ts = float(cached.get("ts", 0.0) or 0.0)
+        cached_rows = cached.get("rows")
+        if (
+            isinstance(cached_rows, list)
+            and (now_ts - cached_ts) <= _WUNDERGROUND_DISCOVERY_TTL_SECONDS
+        ):
+            rows = list(cached_rows)
+            return rows[:max_stations] if max_stations > 0 else rows
+
+    try:
+        async with httpx.AsyncClient(timeout=WUNDERGROUND_TIMEOUT_SECONDS + 3.0) as client:
+            resp = await client.get(
+                _WUNDERGROUND_DISCOVERY_URL,
+                params={
+                    "geocode": f"{center_lat},{center_lon}",
+                    "product": "pws",
+                    "format": "json",
+                    "apiKey": api_key,
+                },
+            )
+        if resp.status_code != 200:
+            logger.info(f"Wunderground {station_id}: discovery returned {resp.status_code}")
+            return []
+        payload = resp.json()
+    except Exception as e:
+        logger.info(f"Wunderground {station_id}: discovery failed ({e})")
+        return []
+
+    location = payload.get("location") if isinstance(payload, dict) else None
+    if not isinstance(location, dict):
+        return []
+
+    ids = location.get("stationId") or []
+    names = location.get("stationName") or []
+    lats = location.get("latitude") or []
+    lons = location.get("longitude") or []
+
+    discovered: List[Dict[str, Any]] = []
+    for idx, raw_id in enumerate(ids):
+        sid = str(raw_id or "").strip().upper()
+        if not sid:
+            continue
+
+        lat = _float_or_none(_safe_index(lats, idx))
+        lon = _float_or_none(_safe_index(lons, idx))
+        distance_km = None
+        if lat is not None and lon is not None:
+            distance_km = round(_haversine_km(center_lat, center_lon, lat, lon), 3)
+
+        discovered.append(
+            {
+                "station_id": sid,
+                "station_name": str(_safe_index(names, idx, "") or ""),
+                "lat": lat,
+                "lon": lon,
+                "distance_km": distance_km,
+            }
+        )
+
+    discovered = _dedupe_wunderground_candidates(discovered)
+    discovered.sort(key=lambda x: _float_or_none(x.get("distance_km")) or 9999.0)
+    _WUNDERGROUND_DISCOVERY_CACHE[station_id] = {"ts": now_ts, "rows": list(discovered)}
+
+    if max_stations > 0:
+        discovered = discovered[:max_stations]
+
+    logger.info(f"Wunderground {station_id}: discovered {len(discovered)} nearby candidates")
+    return discovered
+
+
 async def _fetch_wunderground_point(
     client: httpx.AsyncClient,
     *,
@@ -924,15 +1040,25 @@ async def _fetch_wunderground_cluster(station_id: str, max_stations: int) -> Opt
         return None
     center_lat, center_lon = coords
 
-    candidates = _load_wunderground_candidates(station_id, max_stations=max_stations)
-    if not candidates:
-        logger.info(f"Wunderground {station_id}: no station candidates configured")
-        return None
-
     api_key = _get_wunderground_api_key()
     if not api_key:
         logger.info(f"Wunderground {station_id}: API key not configured")
         return None
+
+    candidates = _load_wunderground_candidates(station_id, max_stations=max_stations)
+    if not candidates:
+        discovered = await _discover_wunderground_candidates(
+            station_id,
+            center_lat=center_lat,
+            center_lon=center_lon,
+            max_stations=max_stations,
+            api_key=api_key,
+        )
+        if discovered:
+            candidates = discovered
+        else:
+            logger.info(f"Wunderground {station_id}: no station candidates configured")
+            return None
 
     limits = httpx.Limits(max_connections=max(16, len(candidates) * 2), max_keepalive_connections=8)
     async with httpx.AsyncClient(limits=limits) as client:
@@ -949,6 +1075,31 @@ async def _fetch_wunderground_cluster(station_id: str, max_stations: int) -> Opt
         results = await asyncio.gather(*tasks)
 
     readings = [r for r in results if r is not None]
+    if not readings and station_id.upper() not in {"KLGA", "KATL"}:
+        discovered = await _discover_wunderground_candidates(
+            station_id,
+            center_lat=center_lat,
+            center_lon=center_lon,
+            max_stations=max_stations,
+            api_key=api_key,
+        )
+        if discovered:
+            limits = httpx.Limits(max_connections=max(16, len(discovered) * 2), max_keepalive_connections=8)
+            async with httpx.AsyncClient(limits=limits) as client:
+                retry_tasks = [
+                    _fetch_wunderground_point(
+                        client,
+                        center_lat=center_lat,
+                        center_lon=center_lon,
+                        api_key=api_key,
+                        candidate=candidate,
+                    )
+                    for candidate in discovered
+                ]
+                retry_results = await asyncio.gather(*retry_tasks)
+            readings = [r for r in retry_results if r is not None]
+            candidates = discovered
+
     readings.sort(key=lambda r: (r.distance_km, r.age_minutes))
     logger.info(f"Wunderground {station_id}: {len(readings)}/{len(candidates)} readings")
     return readings if readings else None

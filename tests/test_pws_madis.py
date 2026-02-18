@@ -7,6 +7,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from collector.pws_fetcher import (
     _build_madis_query_params,
+    _load_wunderground_candidates,
     _normalize_open_meteo_payload,
     _parse_madis_xml_records,
     _parse_open_meteo_obs_time,
@@ -113,6 +114,18 @@ class TestMadisPwsParser(unittest.TestCase):
         mad = _weighted_mad(values, weights, center)
         self.assertEqual(center, 30.0)
         self.assertEqual(mad, 0.0)
+
+    def test_wunderground_defaults_include_non_us_stations(self):
+        eglc = _load_wunderground_candidates("EGLC", max_stations=20)
+        ltac = _load_wunderground_candidates("LTAC", max_stations=20)
+
+        self.assertGreater(len(eglc), 0)
+        self.assertGreater(len(ltac), 0)
+
+        eglc_ids = {str(r.get("station_id")) for r in eglc}
+        ltac_ids = {str(r.get("station_id")) for r in ltac}
+        self.assertIn("ILONDO288", eglc_ids)
+        self.assertIn("IANKAR46", ltac_ids)
 
 
 if __name__ == "__main__":
