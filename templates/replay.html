@@ -1009,7 +1009,12 @@
         '{{ sid }}': '{{ all_stations[sid].timezone }}',
         {% endfor %}
     };
-    const TZ_LABELS = { 'KLGA': 'NYC', 'KATL': 'ATL', 'EGLC': 'LON' };
+    const stationMarketUnits = {
+        {% for sid in active_stations %}
+        '{{ sid }}': '{{ station_market_units.get(sid, "F") }}',
+        {% endfor %}
+    };
+    const TZ_LABELS = { 'KLGA': 'NYC', 'KATL': 'ATL', 'EGLC': 'LON', 'LTAC': 'ANK' };
     const ES_TZ = 'Europe/Madrid';
 
     // Dynamic timezone formatters (rebuilt when station changes)
@@ -1018,6 +1023,122 @@
     let esTimeFormatter = null;
     let localTzLabel = '';
 
+    function currentStationId() {
+        const selected = document.getElementById('station-select')?.value || '';
+        return (currentReplayStation || selected || 'KLGA').toUpperCase();
+    }
+
+    function getStationMarketUnit(stationId = currentStationId()) {
+        const sid = String(stationId || '').toUpperCase();
+        const raw = String(stationMarketUnits[sid] || '').toUpperCase();
+        if (raw === 'C' || raw === 'CELSIUS') return 'C';
+        if (raw === 'F' || raw === 'FAHRENHEIT') return 'F';
+        return (sid === 'EGLC' || sid === 'LTAC') ? 'C' : 'F';
+    }
+
+    function usesCelsius(stationId = currentStationId()) {
+        return getStationMarketUnit(stationId) === 'C';
+    }
+
+    function tempUnitSymbol(stationId = currentStationId()) {
+        return usesCelsius(stationId) ? ' C' : ' F';
+    }
+
+    function fToC(tempF) {
+        return (Number(tempF) - 32) * (5 / 9);
+    }
+
+    function deltaFToC(deltaF) {
+        return Number(deltaF) * (5 / 9);
+    }
+
+    function convertTempFromF(tempF, stationId = currentStationId()) {
+        if (!Number.isFinite(Number(tempF))) return null;
+        const value = Number(tempF);
+        return usesCelsius(stationId) ? fToC(value) : value;
+    }
+
+    function convertDeltaFromF(deltaF, stationId = currentStationId()) {
+        if (!Number.isFinite(Number(deltaF))) return null;
+        const value = Number(deltaF);
+        return usesCelsius(stationId) ? deltaFToC(value) : value;
+    }
+
+    function formatTempFromF(tempF, digits = 1, stationId = currentStationId()) {
+        const converted = convertTempFromF(tempF, stationId);
+        if (converted == null) return '--';
+        return `${converted.toFixed(digits)}${tempUnitSymbol(stationId)}`;
+    }
+
+    function formatSignedDeltaFromF(deltaF, digits = 1, stationId = currentStationId()) {
+        const converted = convertDeltaFromF(deltaF, stationId);
+        if (converted == null) return '--';
+        const sign = converted >= 0 ? '+' : '';
+        return `${sign}${converted.toFixed(digits)}${tempUnitSymbol(stationId)}`;
+    }
+
+    function parseBucketBoundsF(label, stationId = currentStationId()) {
+        if (!label) return null;
+        const raw = String(label).trim();
+        if (!raw) return null;
+
+        const lower = raw.toLowerCase();
+        const numbers = raw.match(/-?\d+(?:\.\d+)?/g);
+        if (!numbers || numbers.length === 0) return null;
+
+        const hasC = /\d\s*(?:\u00B0)?\s*c\b/i.test(raw) || /celsius/i.test(lower);
+        const hasF = /\d\s*(?:\u00B0)?\s*f\b/i.test(raw) || /fahrenheit/i.test(lower);
+        const defaultIsC = usesCelsius(stationId);
+        const sourceIsC = hasC || (!hasF && defaultIsC);
+        const toF = (v) => sourceIsC ? ((v * 9) / 5) + 32 : v;
+
+        if (lower.includes('or below')) {
+            const threshold = toF(Number(numbers[0]));
+            return Number.isFinite(threshold) ? { kind: 'below', threshold } : null;
+        }
+        if (lower.includes('or above') || lower.includes('or higher')) {
+            const threshold = toF(Number(numbers[0]));
+            return Number.isFinite(threshold) ? { kind: 'above', threshold } : null;
+        }
+        if (numbers.length >= 2) {
+            const low = toF(Number(numbers[0]));
+            const high = toF(Number(numbers[1]));
+            if (Number.isFinite(low) && Number.isFinite(high)) {
+                return { kind: 'range', low, high };
+            }
+        }
+
+        const single = toF(Number(numbers[0]));
+        if (Number.isFinite(single)) return { kind: 'single', value: single };
+        return null;
+    }
+
+    function formatBucketLabelForStation(rawLabel, stationId = currentStationId()) {
+        const parsed = parseBucketBoundsF(rawLabel, stationId);
+        if (!parsed) return String(rawLabel || '--');
+
+        if (usesCelsius(stationId)) {
+            if (parsed.kind === 'range') {
+                const lowC = Math.round(fToC(parsed.low));
+                const highC = Math.round(fToC(parsed.high));
+                return lowC === highC ? `${lowC} C` : `${lowC}-${highC} C`;
+            }
+            if (parsed.kind === 'below') return `${Math.round(fToC(parsed.threshold))} C or below`;
+            if (parsed.kind === 'above') return `${Math.round(fToC(parsed.threshold))} C or higher`;
+            if (parsed.kind === 'single') return `${Math.round(fToC(parsed.value))} C`;
+            return String(rawLabel || '--');
+        }
+
+        if (parsed.kind === 'range') {
+            const low = Math.round(parsed.low);
+            const high = Math.round(parsed.high);
+            return low === high ? `${low} F` : `${low}-${high} F`;
+        }
+        if (parsed.kind === 'below') return `${Math.round(parsed.threshold)} F or below`;
+        if (parsed.kind === 'above') return `${Math.round(parsed.threshold)} F or higher`;
+        if (parsed.kind === 'single') return `${Math.round(parsed.value)} F`;
+        return String(rawLabel || '--');
+    }
     function updateReplayFormatters() {
         const stationId = document.getElementById('station-select').value;
         const tz = stationTimezones[stationId] || 'America/New_York';
@@ -1095,10 +1216,15 @@
 
     async function loadAvailableDates() {
         try {
-            const resp = await fetch('/api/v4/replay/dates');
+            const station = document.getElementById('station-select')?.value || '';
+            const params = new URLSearchParams();
+            if (station) params.append('station_id', station);
+            const qs = params.toString();
+            const resp = await fetch(`/api/v4/replay/dates${qs ? `?${qs}` : ''}`);
             const data = await resp.json();
 
             const select = document.getElementById('date-select');
+            const prev = select.value;
             select.innerHTML = '<option value="">Select a date...</option>';
 
             for (const date of data.dates || []) {
@@ -1106,6 +1232,9 @@
                 opt.value = date;
                 opt.textContent = date;
                 select.appendChild(opt);
+            }
+            if (prev && Array.from(select.options).some(o => o.value === prev)) {
+                select.value = prev;
             }
 
             updateLoadButton();
@@ -1116,6 +1245,11 @@
 
     function setupEventListeners() {
         document.getElementById('date-select').onchange = updateLoadButton;
+        document.getElementById('station-select').onchange = async () => {
+            updateReplayFormatters();
+            await loadAvailableDates();
+            updateLoadButton();
+        };
         document.getElementById('load-btn').onclick = loadSession;
         document.getElementById('btn-play-pause').onclick = togglePlayPause;
         document.getElementById('btn-stop').onclick = stopSession;
@@ -1336,15 +1470,21 @@
         }).join('');
     }
 
+    // Station-unit-aware formatter (F for US markets, C for C markets).
     function formatEventContent(event) {
         const data = event.data || {};
         const ch = event.ch;
+        const stationId = String(event.station_id || currentStationId()).toUpperCase();
 
         if (ch === 'world') {
-            return `<strong>${data.src || 'OBS'}</strong>: ${data.temp_f?.toFixed(1) || '--'}°F (aligned: ${data.temp_aligned || '--'}°F)`;
+            const tempText = formatTempFromF(data.temp_f, 1, stationId);
+            const alignedText = formatTempFromF(data.temp_aligned, 1, stationId);
+            return `<strong>${data.src || 'OBS'}</strong>: ${tempText} (aligned: ${alignedText})`;
         }
         if (ch === 'nowcast') {
-            return `Tmax: <strong>${data.tmax_mean_f?.toFixed(1) || '--'}°F</strong> ± ${data.tmax_sigma_f?.toFixed(1) || '--'}°F, conf: ${(data.confidence * 100).toFixed(0)}%`;
+            const meanText = formatTempFromF(data.tmax_mean_f, 1, stationId);
+            const sigmaText = formatSignedDeltaFromF(data.tmax_sigma_f, 1, stationId).replace(/^\+/, '');
+            return `Tmax: <strong>${meanText}</strong> +/- ${sigmaText}, conf: ${(data.confidence * 100).toFixed(0)}%`;
         }
         if (ch === 'pws') {
             const weightedSupport = Number(data.weighted_support);
@@ -1372,7 +1512,9 @@
                     topText = ' | learning: warm-up';
                 }
             }
-            return `PWS consensus: <strong>${data.median_f?.toFixed(1) || '--'}°F</strong>, support: ${data.support || 0}${wsText}${topText}`;
+
+            const medianText = formatTempFromF(data.median_f, 1, stationId);
+            return `PWS consensus: <strong>${medianText}</strong>, support: ${data.support || 0}${wsText}${topText}`;
         }
         if (ch === 'event_window') {
             return `<strong>${data.action}</strong>: ${data.reason}`;
@@ -1409,7 +1551,7 @@
         if (ch === 'l2_snap' || ch === 'market' || ch === 'l2_snap_1s') {
             const brackets = Object.entries(data)
                 .filter(([k]) => k !== '__meta__')
-                .map(([name, b]) => ({ name, mid: b.mid || 0 }))
+                .map(([name, b]) => ({ name: formatBucketLabelForStation(name, stationId), mid: b.mid || 0 }))
                 .sort((a, b) => b.mid - a.mid)
                 .slice(0, 3);
             if (brackets.length === 0) return 'No brackets';
@@ -1446,7 +1588,7 @@
         // Update Market State panel from l2_snap data
         const l2 = categories.l2_snap;
         if (l2 && l2.latest && l2.count > 0) {
-            renderMarketPanel(l2.latest.data, l2.latest_time);
+            renderMarketPanel(l2.latest.data, l2.latest_time, undefined, l2.latest.station_id);
         } else {
             const hasAnyL2Channel =
                 sessionLoadedChannels.has('l2_snap') ||
@@ -1456,7 +1598,7 @@
             const reason = hasAnyL2Channel
                 ? 'No market snapshot yet at this replay timestamp.'
                 : `No Polymarket snapshots recorded for ${stationLabel} on ${currentReplayDate || 'this date'}.`;
-            renderMarketPanel(null, null, reason);
+            renderMarketPanel(null, null, reason, currentReplayStation);
         }
 
         lucide.createIcons();
@@ -1476,12 +1618,6 @@
         if (value === null || value === undefined || value === '') return NaN;
         const n = Number(value);
         return Number.isFinite(n) ? n : NaN;
-    }
-
-    function formatSigned(value, digits = 1) {
-        const n = numericOrNaN(value);
-        if (!Number.isFinite(n)) return '--';
-        return `${n >= 0 ? '+' : ''}${n.toFixed(digits)}`;
     }
 
     function isRankEligible(row) {
@@ -1511,6 +1647,9 @@
         }
 
         const current = payload.current || null;
+        const stationId = current && current.market_station_id
+            ? String(current.market_station_id).toUpperCase()
+            : currentStationId();
         const top = current && Array.isArray(current.top) ? current.top : [];
         const totalPws = Number(payload.total_pws_events || 0);
         const rankedPws = Number(payload.ranked_pws_events || 0);
@@ -1537,6 +1676,9 @@
             : (Number.isFinite(pwsMedian) && Number.isFinite(metarTemp) ? (pwsMedian - metarTemp) : NaN);
         const metarTime = String(current.metar_ts_nyc || (categoryWorld && categoryWorld.ts_nyc) || '--');
         const metarSource = String(current.metar_source || ((categoryWorld && categoryWorld.data && categoryWorld.data.src) || 'METAR'));
+        const metarTempText = formatTempFromF(metarTemp, 1, stationId);
+        const pwsMedianText = formatTempFromF(pwsMedian, 1, stationId);
+        const deltaText = formatSignedDeltaFromF(deltaVsMetar, 1, stationId);
 
         panel.classList.add('visible');
         metaEl.textContent = `${totalPws} pws ev | ranked ${rankedPws} | market ${marketStation} | ${current.ts_nyc || '--'} | status ${status} | w-support ${Number.isFinite(weightedSupport) ? weightedSupport.toFixed(2) : '--'}`;
@@ -1544,8 +1686,8 @@
             '<span class="pl-guide-pill"><strong>w</strong> peso de influencia (no es temperatura)</span>',
             '<span class="pl-guide-pill"><strong>now</strong> score 0-100 vs METAR actual</span>',
             '<span class="pl-guide-pill"><strong>lead</strong> score 0-100 vs METAR siguiente (~1h)</span>',
-            `<span class="pl-guide-pill"><strong>METAR</strong> ${Number.isFinite(metarTemp) ? metarTemp.toFixed(1) + 'F' : '--'} (${metarSource}, ${metarTime})</span>`,
-            `<span class="pl-guide-pill"><strong>PWS median</strong> ${Number.isFinite(pwsMedian) ? pwsMedian.toFixed(1) + 'F' : '--'} | <strong>delta</strong> ${Number.isFinite(deltaVsMetar) ? formatSigned(deltaVsMetar, 1) + 'F' : '--'}</span>`,
+            `<span class="pl-guide-pill"><strong>METAR</strong> ${metarTempText} (${metarSource}, ${metarTime})</span>`,
+            `<span class="pl-guide-pill"><strong>PWS median</strong> ${pwsMedianText} | <strong>delta</strong> ${deltaText}</span>`,
         ].join('');
 
         const isReady = status === 'READY' && top.length > 0;
@@ -1605,7 +1747,7 @@
                     : 12;
                 const nowColor = scoreColor(now);
                 const leadColor = scoreColor(lead);
-                const title = `${p.ts_nyc || '--'} | ${p.leader_station_id || '--'} | w=${Number.isFinite(w) ? w.toFixed(2) : '--'} | now=${Number.isFinite(now) ? now.toFixed(0) : '--'} | lead=${Number.isFinite(lead) ? lead.toFixed(0) : '--'} | pws-metar=${Number.isFinite(pointDelta) ? formatSigned(pointDelta, 1) + 'F' : '--'}`;
+                const title = `${p.ts_nyc || '--'} | ${p.leader_station_id || '--'} | w=${Number.isFinite(w) ? w.toFixed(2) : '--'} | now=${Number.isFinite(now) ? now.toFixed(0) : '--'} | lead=${Number.isFinite(lead) ? lead.toFixed(0) : '--'} | pws-metar=${formatSignedDeltaFromF(pointDelta, 1, stationId)}`;
                 return `<div class="pl-leader-bar" style="height:${h}px; background:linear-gradient(180deg, ${leadColor}AA 0%, ${nowColor}55 100%);" title="${title}"></div>`;
             }).join('');
 
@@ -1614,7 +1756,7 @@
             const lastNow = numericOrNaN(last.leader_now_score);
             const lastLead = numericOrNaN(last.leader_lead_score);
             const lastDelta = numericOrNaN(last.pws_vs_metar_f);
-            stripSummaryEl.textContent = `Latest leader ${last.leader_station_id || '--'} | w ${Number.isFinite(lastW) ? lastW.toFixed(2) : '--'} | now ${Number.isFinite(lastNow) ? lastNow.toFixed(0) : '--'} | lead ${Number.isFinite(lastLead) ? lastLead.toFixed(0) : '--'} | pws-metar ${Number.isFinite(lastDelta) ? formatSigned(lastDelta, 1) + 'F' : '--'}`;
+            stripSummaryEl.textContent = `Latest leader ${last.leader_station_id || '--'} | w ${Number.isFinite(lastW) ? lastW.toFixed(2) : '--'} | now ${Number.isFinite(lastNow) ? lastNow.toFixed(0) : '--'} | lead ${Number.isFinite(lastLead) ? lastLead.toFixed(0) : '--'} | pws-metar ${formatSignedDeltaFromF(lastDelta, 1, stationId)}`;
         }
 
         const leaderChanges = Array.isArray(payload.leader_changes) ? payload.leader_changes : [];
@@ -1636,10 +1778,11 @@
         }
     }
 
-    function renderMarketPanel(data, timestamp, emptyReason = 'No market data for this replay segment') {
+    function renderMarketPanel(data, timestamp, emptyReason = 'No market data for this replay segment', stationIdOverride = null) {
         const panel = document.getElementById('market-replay-panel');
         const grid = document.getElementById('mr-grid');
         const timeEl = document.getElementById('mr-time');
+        const stationId = String(stationIdOverride || currentStationId()).toUpperCase();
 
         if (!panel || !grid || !timeEl) return;
         if (!data || typeof data !== 'object') {
@@ -1653,7 +1796,7 @@
         const brackets = Object.entries(data)
             .filter(([k]) => k !== '__meta__')
             .map(([name, b]) => ({
-                name,
+                name: formatBucketLabelForStation(name, stationId),
                 mid: b.mid || 0,
                 best_bid: b.best_bid || 0,
                 best_ask: b.best_ask || 0,

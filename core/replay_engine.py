@@ -16,17 +16,105 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date as date_cls, time as time_cls
 from enum import Enum
 from typing import Optional, Dict, List, Callable, Any
 from zoneinfo import ZoneInfo
 
 from core.compactor import get_hybrid_reader, HybridReader
+from config import STATIONS
 
 logger = logging.getLogger("replay_engine")
 
 UTC = ZoneInfo("UTC")
 NYC = ZoneInfo("America/New_York")
+
+
+def _parse_iso_date(value: str) -> Optional[date_cls]:
+    try:
+        return date_cls.fromisoformat(str(value))
+    except Exception:
+        return None
+
+
+def _resolve_station_timezone(station_id: Optional[str]) -> ZoneInfo:
+    sid = str(station_id or "").upper()
+    if sid and sid in STATIONS:
+        tz_name = str(getattr(STATIONS[sid], "timezone", "") or "")
+        if tz_name:
+            try:
+                return ZoneInfo(tz_name)
+            except Exception:
+                logger.warning(
+                    "Replay timezone fallback: invalid tz for station=%s (%s)",
+                    sid,
+                    tz_name,
+                )
+    return NYC
+
+
+def _local_day_window_utc(
+    date_str: str,
+    station_tz: ZoneInfo,
+) -> Optional[tuple[datetime, datetime]]:
+    target_date = _parse_iso_date(date_str)
+    if target_date is None:
+        return None
+    start_local = datetime.combine(target_date, time_cls.min, tzinfo=station_tz)
+    end_local = start_local + timedelta(days=1)
+    return (start_local.astimezone(UTC), end_local.astimezone(UTC))
+
+
+def _source_partition_dates_for_local_day(
+    date_str: str,
+    station_tz: ZoneInfo,
+) -> List[str]:
+    """
+    Resolve underlying storage partition dates for a station-local market day.
+
+    Recordings are currently partitioned by NYC ingest date. Non-NYC market days
+    can span two NYC partitions, so replay must read both and then filter by local
+    day window.
+    """
+    window = _local_day_window_utc(date_str, station_tz)
+    if window is None:
+        return [date_str]
+
+    start_utc, end_utc = window
+    start_nyc = start_utc.astimezone(NYC).date()
+    end_nyc = (end_utc - timedelta(microseconds=1)).astimezone(NYC).date()
+
+    dates = {str(date_str)}
+    cur = start_nyc
+    while cur <= end_nyc:
+        dates.add(cur.isoformat())
+        cur += timedelta(days=1)
+    return sorted(dates)
+
+
+def _map_partition_date_to_station_market_dates(
+    raw_date_str: str,
+    station_tz: ZoneInfo,
+) -> List[str]:
+    """
+    Map a raw NYC partition date into one or two station-local market dates.
+    """
+    raw_date = _parse_iso_date(raw_date_str)
+    if raw_date is None:
+        return []
+
+    start_nyc = datetime.combine(raw_date, time_cls.min, tzinfo=NYC)
+    end_nyc = start_nyc + timedelta(days=1)
+
+    local_start = start_nyc.astimezone(station_tz).date()
+    local_end = (end_nyc - timedelta(microseconds=1)).astimezone(station_tz).date()
+
+    out = set()
+    cur = local_start
+    while cur <= local_end:
+        out.add(cur.isoformat())
+        cur += timedelta(days=1)
+    return sorted(out)
 
 
 class ReplayState(Enum):
@@ -190,6 +278,15 @@ class ReplaySession:
         self.date_str = date_str
         self.station_id = station_id
         self.channels = channels
+        self._station_tz = _resolve_station_timezone(station_id)
+        self._date_reference = (
+            f"{self._station_tz.key} market date"
+            if station_id
+            else "NYC market date"
+        )
+        self._source_dates: List[str] = [date_str]
+        self._local_day_start_utc: Optional[datetime] = None
+        self._local_day_end_utc: Optional[datetime] = None
 
         self.state = ReplayState.IDLE
         self.clock = VirtualClock()
@@ -215,11 +312,29 @@ class ReplaySession:
         logger.info(f"Loading replay session: {self.date_str} / {self.station_id}")
 
         try:
+            local_window_utc: Optional[tuple[datetime, datetime]] = None
+            if self.station_id:
+                local_window_utc = _local_day_window_utc(self.date_str, self._station_tz)
+                self._source_dates = _source_partition_dates_for_local_day(
+                    self.date_str,
+                    self._station_tz,
+                )
+            else:
+                self._source_dates = [self.date_str]
+
+            if local_window_utc:
+                self._local_day_start_utc, self._local_day_end_utc = local_window_utc
+            else:
+                self._local_day_start_utc = None
+                self._local_day_end_utc = None
+
             channels = self.channels
             # Default channel set optimized for UI/replay latency.
             # Prefer lower-volume market channel when multiple variants exist.
             if channels is None and hasattr(self._reader, "list_channels_for_date"):
-                available = set(self._reader.list_channels_for_date(self.date_str, self.station_id))
+                available = set()
+                for source_date in self._source_dates:
+                    available.update(self._reader.list_channels_for_date(source_date, self.station_id))
                 channels = ["world", "pws", "nowcast", "features", "health", "event_window"]
                 if "l2_snap" in available:
                     channels.append("l2_snap")
@@ -228,31 +343,63 @@ class ReplaySession:
                 elif "l2_snap_1s" in available:
                     channels.append("l2_snap_1s")
 
-            # Read all events sorted by timestamp
-            self._events = self._reader.get_events_sorted(
-                self.date_str,
-                self.station_id,
-                channels
-            )
+            # Read all events from source partitions, then filter to the requested
+            # station-local market day window.
+            all_events: List[Dict[str, Any]] = []
+            for source_date in self._source_dates:
+                source_events = self._reader.get_events_sorted(
+                    source_date,
+                    self.station_id,
+                    channels,
+                )
+                if source_events:
+                    all_events.extend(source_events)
+
+            if local_window_utc:
+                start_utc, end_utc = local_window_utc
+                filtered_events: List[Dict[str, Any]] = []
+                for ev in all_events:
+                    ev_ts = self._parse_timestamp(ev)
+                    if ev_ts is None:
+                        continue
+                    if start_utc <= ev_ts < end_utc:
+                        filtered_events.append(ev)
+                all_events = filtered_events
+
+            def _sort_key(ev: Dict[str, Any]):
+                ev_ts = self._parse_timestamp(ev)
+                if ev_ts is not None:
+                    return (0, ev_ts)
+                return (1, str(ev.get("ts_ingest_utc", "")))
+
+            all_events.sort(key=_sort_key)
+            self._events = all_events
 
             if not self._events:
                 # Diagnostic logging
                 try:
-                    available_channels = self._reader.list_channels_for_date(self.date_str)
+                    available_channels = set()
+                    for source_date in self._source_dates:
+                        available_channels.update(self._reader.list_channels_for_date(source_date))
                     available_dates = self._reader.list_available_dates(self.station_id)
                     logger.warning(
-                        f"No events found for date={self.date_str}, station={self.station_id}. "
-                        f"Channels on date: {available_channels}. "
+                        f"No events found for date={self.date_str}, station={self.station_id}, "
+                        f"sources={self._source_dates}. "
+                        f"Channels on source dates: {sorted(available_channels)}. "
                         f"Recent dates for station: {available_dates[:5]}"
                     )
                     if not available_channels:
                         logger.warning(
-                            f"No NDJSON or Parquet data exists for {self.date_str}. "
+                            f"No NDJSON or Parquet data exists for source dates {self._source_dates}. "
                             f"Is the recorder running?"
                         )
                     elif self.station_id:
                         # Data exists but not for this station
-                        all_events = self._reader.get_events_sorted(self.date_str, None, self.channels)
+                        all_events = []
+                        for source_date in self._source_dates:
+                            all_events.extend(
+                                self._reader.get_events_sorted(source_date, None, self.channels)
+                            )
                         stations_found = set()
                         for ev in all_events[:200]:
                             sid = ev.get("station_id") or ev.get("data", {}).get("station_id")
@@ -535,6 +682,11 @@ class ReplaySession:
             "session_id": self.session_id,
             "date": self.date_str,
             "station_id": self.station_id,
+            "station_timezone": self._station_tz.key,
+            "date_reference": self._date_reference,
+            "source_dates": list(self._source_dates),
+            "local_day_start_utc": self._local_day_start_utc.isoformat() if self._local_day_start_utc else None,
+            "local_day_end_utc": self._local_day_end_utc.isoformat() if self._local_day_end_utc else None,
             "state": self.state.value,
             "total_events": len(self._events),
             "current_index": self._event_index,
@@ -892,7 +1044,15 @@ class ReplayEngine:
 
     def list_available_dates(self, station_id: Optional[str] = None) -> List[str]:
         """List dates with recorded data."""
-        return self._reader.list_available_dates(station_id)
+        raw_dates = self._reader.list_available_dates(station_id)
+        if not station_id:
+            return raw_dates
+
+        station_tz = _resolve_station_timezone(station_id)
+        local_dates = set()
+        for raw_date in raw_dates:
+            local_dates.update(_map_partition_date_to_station_market_dates(raw_date, station_tz))
+        return sorted(local_dates, reverse=True)
 
     def list_channels_for_date(
         self,
@@ -900,7 +1060,15 @@ class ReplayEngine:
         station_id: Optional[str] = None
     ) -> List[str]:
         """List channels available for a date."""
-        return self._reader.list_channels_for_date(date_str, station_id)
+        if not station_id:
+            return self._reader.list_channels_for_date(date_str, station_id)
+
+        station_tz = _resolve_station_timezone(station_id)
+        source_dates = _source_partition_dates_for_local_day(date_str, station_tz)
+        channels = set()
+        for source_date in source_dates:
+            channels.update(self._reader.list_channels_for_date(source_date, station_id))
+        return list(channels)
 
     async def create_session(
         self,

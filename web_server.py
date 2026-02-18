@@ -1397,11 +1397,11 @@ async def trigger_nowcast_update(station_id: str):
 # =============================================================================
 
 @app.get("/api/v4/replay/dates")
-async def get_replay_dates():
+async def get_replay_dates(station_id: str = None):
     """Get list of dates with recorded data."""
     from core.replay_engine import get_replay_engine
     engine = get_replay_engine()
-    return {"dates": engine.list_available_dates()}
+    return {"dates": engine.list_available_dates(station_id)}
 
 
 @app.get("/api/v4/replay/dates/{date_str}/channels")
@@ -1439,7 +1439,11 @@ async def create_replay_session(date: str, station_id: str = None):
             "channels_for_date": all_channels,
             "channels_for_station": channels,
             "available_dates": available_dates,
-            "date_reference": "NYC market date"
+            "date_reference": (
+                f"{STATIONS[station_id].timezone} market date"
+                if station_id and station_id in STATIONS
+                else "NYC market date"
+            ),
         }
 
     return session.get_state()
@@ -4371,9 +4375,15 @@ async def nowcast_debug(request: Request):
 @app.get("/replay", response_class=HTMLResponse)
 async def replay_dashboard(request: Request):
     """Phase 4 Replay Dashboard - session replay with timeline."""
+    active = get_active_stations()
+    station_market_units = {
+        sid: get_polymarket_temp_unit(sid)
+        for sid in active.keys()
+    }
     return templates.TemplateResponse("replay.html", {
         "request": request,
-        "active_page": "replay"
+        "active_page": "replay",
+        "station_market_units": station_market_units,
     })
 
 

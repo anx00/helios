@@ -14,6 +14,24 @@ class _StubReader:
         return list(self._events)
 
 
+class _DateAwareStubReader:
+    def __init__(self, by_date):
+        self._by_date = by_date
+
+    def get_events_sorted(self, date_str, station_id=None, channels=None):
+        events = list(self._by_date.get(date_str, []))
+        if channels is not None:
+            allowed = set(channels)
+            events = [e for e in events if e.get("ch") in allowed]
+        if station_id:
+            events = [e for e in events if e.get("station_id") in (None, station_id)]
+        return events
+
+    def list_channels_for_date(self, date_str, station_id=None):
+        events = self.get_events_sorted(date_str, station_id=station_id, channels=None)
+        return sorted({str(e.get("ch")) for e in events if e.get("ch")})
+
+
 class _TimestampLike:
     def __init__(self, dt: datetime):
         self._dt = dt
@@ -25,7 +43,7 @@ class _TimestampLike:
 def test_replay_load_initializes_clock_with_datetime_timestamps():
     from core.replay_engine import ReplaySession
 
-    start = datetime(2026, 2, 6, 0, 0, 0, tzinfo=UTC)
+    start = datetime(2026, 2, 6, 12, 0, 0, tzinfo=UTC)
     mid = start + timedelta(minutes=30)
     end = start + timedelta(hours=1)
 
@@ -55,7 +73,7 @@ def test_replay_load_initializes_clock_with_datetime_timestamps():
 def test_replay_pws_learning_summary_tracks_leader_changes():
     from core.replay_engine import ReplaySession
 
-    start = datetime(2026, 2, 6, 0, 0, 0, tzinfo=UTC)
+    start = datetime(2026, 2, 6, 12, 0, 0, tzinfo=UTC)
     e1 = {
         "ch": "pws",
         "ts_ingest_utc": start,
@@ -109,7 +127,7 @@ def test_replay_pws_learning_summary_tracks_leader_changes():
 def test_replay_pws_learning_summary_warmup_when_no_rank_eligible_station():
     from core.replay_engine import ReplaySession
 
-    start = datetime(2026, 2, 6, 0, 0, 0, tzinfo=UTC)
+    start = datetime(2026, 2, 6, 12, 0, 0, tzinfo=UTC)
     events = [
         {
             "ch": "pws",
@@ -153,7 +171,7 @@ def test_replay_pws_learning_summary_warmup_when_no_rank_eligible_station():
 def test_replay_category_summary_maps_market_alias_to_l2_snap():
     from core.replay_engine import ReplaySession
 
-    start = datetime(2026, 2, 6, 0, 0, 0, tzinfo=UTC)
+    start = datetime(2026, 2, 6, 12, 0, 0, tzinfo=UTC)
     events = [
         {"ch": "market", "ts_ingest_utc": start, "ts_nyc": "2026-02-05 19:00:00", "data": {"34-35F": {"mid": 0.4}}},
         {"ch": "l2_snap_1s", "ts_ingest_utc": start + timedelta(seconds=1), "ts_nyc": "2026-02-05 19:00:01", "data": {"36+F": {"mid": 0.6}}},
@@ -174,7 +192,7 @@ def test_replay_category_summary_maps_market_alias_to_l2_snap():
 def test_replay_state_exposes_loaded_channels():
     from core.replay_engine import ReplaySession
 
-    start = datetime(2026, 2, 6, 0, 0, 0, tzinfo=UTC)
+    start = datetime(2026, 2, 6, 12, 0, 0, tzinfo=UTC)
     events = [
         {"ch": "world", "ts_ingest_utc": start, "data": {"src": "METAR"}},
         {"ch": "market", "ts_ingest_utc": start + timedelta(seconds=1), "data": {"x": {}}},
@@ -188,3 +206,53 @@ def test_replay_state_exposes_loaded_channels():
     state = session.get_state()
     assert "channels_loaded" in state
     assert state["channels_loaded"] == ["market", "world"]
+
+
+def test_replay_helpers_map_london_market_day_to_nyc_partitions():
+    from core.replay_engine import (
+        _map_partition_date_to_station_market_dates,
+        _source_partition_dates_for_local_day,
+    )
+
+    london = ZoneInfo("Europe/London")
+
+    # One NYC partition can touch two London market dates.
+    local_dates = _map_partition_date_to_station_market_dates("2026-02-17", london)
+    assert local_dates == ["2026-02-17", "2026-02-18"]
+
+    # A London market day needs two NYC source partitions.
+    source_dates = _source_partition_dates_for_local_day("2026-02-18", london)
+    assert source_dates == ["2026-02-17", "2026-02-18"]
+
+
+def test_replay_load_filters_to_station_local_market_day():
+    from core.replay_engine import ReplaySession
+
+    # London (UTC in February): local market day 2026-02-18 means UTC [00:00, 24:00).
+    # Storage partitions are still NYC-based, so replay must read both 2026-02-17 and 2026-02-18.
+    prev_partition_events = [
+        {"ch": "world", "station_id": "EGLC", "ts_ingest_utc": datetime(2026, 2, 17, 23, 50, tzinfo=UTC), "data": {"src": "METAR"}},
+        {"ch": "world", "station_id": "EGLC", "ts_ingest_utc": datetime(2026, 2, 18, 0, 10, tzinfo=UTC), "data": {"src": "METAR"}},
+    ]
+    next_partition_events = [
+        {"ch": "world", "station_id": "EGLC", "ts_ingest_utc": datetime(2026, 2, 18, 15, 0, tzinfo=UTC), "data": {"src": "METAR"}},
+        {"ch": "world", "station_id": "EGLC", "ts_ingest_utc": datetime(2026, 2, 19, 0, 5, tzinfo=UTC), "data": {"src": "METAR"}},
+    ]
+
+    session = ReplaySession("s6", "2026-02-18", "EGLC")
+    session._reader = _DateAwareStubReader(
+        {
+            "2026-02-17": prev_partition_events,
+            "2026-02-18": next_partition_events,
+        }
+    )
+
+    ok = asyncio.run(session.load())
+    assert ok
+    assert len(session._events) == 2
+    assert session._events[0]["ts_ingest_utc"] == datetime(2026, 2, 18, 0, 10, tzinfo=UTC)
+    assert session._events[1]["ts_ingest_utc"] == datetime(2026, 2, 18, 15, 0, tzinfo=UTC)
+
+    state = session.get_state()
+    assert state["date_reference"] == "Europe/London market date"
+    assert state["source_dates"] == ["2026-02-17", "2026-02-18"]
