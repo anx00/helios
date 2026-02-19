@@ -2225,15 +2225,23 @@
 
     function computeSeriesAgeMinutes(series, pointTimesMs) {
         const out = new Array(series.length).fill(null);
-        let lastValidTs = null;
+        let lastUpdateTs = null;
+        let lastValue = null;
+        const eps = 0.0001;
         for (let i = 0; i < series.length; i++) {
             const v = series[i];
             const ts = pointTimesMs[i];
-            if (v !== null && v !== undefined && Number.isFinite(Number(v)) && Number.isFinite(ts)) {
-                lastValidTs = ts;
+            const hasValue = (v !== null && v !== undefined && Number.isFinite(Number(v)));
+            if (hasValue && Number.isFinite(ts)) {
+                const n = Number(v);
+                const changed = !(lastValue !== null && Number.isFinite(lastValue) && Math.abs(n - lastValue) <= eps);
+                if (changed || lastUpdateTs === null) {
+                    lastUpdateTs = ts;
+                    lastValue = n;
+                }
             }
-            if (lastValidTs !== null && Number.isFinite(ts) && ts >= lastValidTs) {
-                out[i] = (ts - lastValidTs) / 60000;
+            if (lastUpdateTs !== null && Number.isFinite(ts) && ts >= lastUpdateTs) {
+                out[i] = (ts - lastUpdateTs) / 60000;
             }
         }
         return out;
@@ -2268,6 +2276,16 @@
 
             const prev = nearestPrev(i);
             const next = nearestNext(i);
+            // Leading/trailing zero spikes (common ingest glitch)
+            if (Math.abs(v) < 0.2) {
+                const prevFar = prev !== null && prev >= 20.0 && Math.abs(prev - v) >= 18.0;
+                const nextFar = next !== null && next >= 20.0 && Math.abs(next - v) >= 18.0;
+                if (prevFar || nextFar) {
+                    vals[i] = null;
+                    continue;
+                }
+            }
+
             if (prev === null || next === null) continue;
 
             const neighborStable = Math.abs(prev - next) <= 6.0;
@@ -2276,6 +2294,53 @@
             const hardSpike = neighborStable && Math.abs(v - prev) >= 22.0 && Math.abs(v - next) >= 22.0;
             if (zeroSpike || hardSpike) {
                 vals[i] = null;
+            }
+        }
+
+        // Trim leading/trailing near-zero runs when the day is otherwise warm.
+        let firstIdx = vals.findIndex(v => v !== null);
+        while (firstIdx >= 0 && firstIdx < vals.length && vals[firstIdx] !== null && Math.abs(vals[firstIdx]) < 0.2) {
+            let nextWarm = null;
+            for (let j = firstIdx + 1; j < vals.length; j++) {
+                if (vals[j] !== null) {
+                    nextWarm = vals[j];
+                    break;
+                }
+            }
+            if (nextWarm !== null && nextWarm >= 20.0) {
+                vals[firstIdx] = null;
+                firstIdx = vals.findIndex(v => v !== null);
+            } else {
+                break;
+            }
+        }
+
+        let lastIdx = -1;
+        for (let i = vals.length - 1; i >= 0; i--) {
+            if (vals[i] !== null) {
+                lastIdx = i;
+                break;
+            }
+        }
+        while (lastIdx >= 0 && Math.abs(vals[lastIdx]) < 0.2) {
+            let prevWarm = null;
+            for (let j = lastIdx - 1; j >= 0; j--) {
+                if (vals[j] !== null) {
+                    prevWarm = vals[j];
+                    break;
+                }
+            }
+            if (prevWarm !== null && prevWarm >= 20.0) {
+                vals[lastIdx] = null;
+                lastIdx = -1;
+                for (let i = vals.length - 1; i >= 0; i--) {
+                    if (vals[i] !== null) {
+                        lastIdx = i;
+                        break;
+                    }
+                }
+            } else {
+                break;
             }
         }
 
@@ -2464,6 +2529,10 @@
             const midFromBackend = asNumOrNull(point && point[`pm_top${rank}_midpoint_f`]);
             const rawLabel = point ? point[`pm_top${rank}_label`] : null;
             const midF = midFromBackend != null ? midFromBackend : marketBracketMidpointF(rawLabel, stationId);
+            const metarF = asNumOrNull(point && point.metar_temp_f);
+            if (midF != null && (midF < -90 || midF > 140)) return null;
+            // Guard against bogus PM 0.0 points when METAR is clearly warm.
+            if (midF != null && metarF != null && metarF >= 20 && midF <= 5) return null;
             return asTempOrNull(midF);
         };
 
@@ -2483,6 +2552,7 @@
         const agePwsConsensus = computeSeriesAgeMinutes(dsPwsConsensus, pointTimesMs);
         const agePwsLeader = computeSeriesAgeMinutes(dsPwsLeader, pointTimesMs);
         const ageHelios = computeSeriesAgeMinutes(dsHelios, pointTimesMs);
+        const hasPmData = dsTop1.some(v => v !== null) || dsTop2.some(v => v !== null) || dsTop3.some(v => v !== null);
 
         panel.classList.add('visible');
         const unit = tempUnitSymbol(stationId).trim();
@@ -2508,54 +2578,17 @@
             const midpointText = midpointF == null ? '--' : formatTempFromF(midpointF, 1, stationId);
             return `Top${rank} ${midpointText} (${probStr}) ${lbl}`;
         };
-        top3El.innerHTML = [
-            `<span class="rt-pill">${escapeHtml(topLabel(0))}</span>`,
-            `<span class="rt-pill">${escapeHtml(topLabel(1))}</span>`,
-            `<span class="rt-pill">${escapeHtml(topLabel(2))}</span>`,
-        ].join('');
+        if (hasPmData) {
+            top3El.innerHTML = [
+                `<span class="rt-pill">${escapeHtml(topLabel(0))}</span>`,
+                `<span class="rt-pill">${escapeHtml(topLabel(1))}</span>`,
+                `<span class="rt-pill">${escapeHtml(topLabel(2))}</span>`,
+            ].join('');
+        } else {
+            top3El.innerHTML = '<span class="rt-pill">Polymarket: no valid bracket data in this replay window</span>';
+        }
 
         const datasets = [
-            {
-                label: 'PM Top1 Bracket',
-                data: dsTop1,
-                yAxisID: 'yTemp',
-                borderColor: '#F59E0B',
-                backgroundColor: 'rgba(245,158,11,0.18)',
-                borderWidth: 1.8,
-                pointRadius: 0,
-                tension: 0.22,
-                spanGaps: true,
-                pmRank: 1,
-                ageMinutes: ageTop1,
-            },
-            {
-                label: 'PM Top2 Bracket',
-                data: dsTop2,
-                yAxisID: 'yTemp',
-                borderColor: '#A78BFA',
-                backgroundColor: 'rgba(167,139,250,0.16)',
-                borderWidth: 1.4,
-                pointRadius: 0,
-                tension: 0.22,
-                spanGaps: true,
-                borderDash: [6, 3],
-                pmRank: 2,
-                ageMinutes: ageTop2,
-            },
-            {
-                label: 'PM Top3 Bracket',
-                data: dsTop3,
-                yAxisID: 'yTemp',
-                borderColor: '#94A3B8',
-                backgroundColor: 'rgba(148,163,184,0.16)',
-                borderWidth: 1.2,
-                pointRadius: 0,
-                tension: 0.22,
-                spanGaps: true,
-                borderDash: [2, 4],
-                pmRank: 3,
-                ageMinutes: ageTop3,
-            },
             {
                 label: 'NOAA METAR',
                 data: dsMetar,
@@ -2605,6 +2638,51 @@
                 ageMinutes: ageHelios,
             },
         ];
+        if (hasPmData) {
+            datasets.unshift(
+                {
+                    label: 'PM Top1 Bracket',
+                    data: dsTop1,
+                    yAxisID: 'yTemp',
+                    borderColor: '#F59E0B',
+                    backgroundColor: 'rgba(245,158,11,0.18)',
+                    borderWidth: 1.8,
+                    pointRadius: 0,
+                    tension: 0.22,
+                    spanGaps: true,
+                    pmRank: 1,
+                    ageMinutes: ageTop1,
+                },
+                {
+                    label: 'PM Top2 Bracket',
+                    data: dsTop2,
+                    yAxisID: 'yTemp',
+                    borderColor: '#A78BFA',
+                    backgroundColor: 'rgba(167,139,250,0.16)',
+                    borderWidth: 1.4,
+                    pointRadius: 0,
+                    tension: 0.22,
+                    spanGaps: true,
+                    borderDash: [6, 3],
+                    pmRank: 2,
+                    ageMinutes: ageTop2,
+                },
+                {
+                    label: 'PM Top3 Bracket',
+                    data: dsTop3,
+                    yAxisID: 'yTemp',
+                    borderColor: '#94A3B8',
+                    backgroundColor: 'rgba(148,163,184,0.16)',
+                    borderWidth: 1.2,
+                    pointRadius: 0,
+                    tension: 0.22,
+                    spanGaps: true,
+                    borderDash: [2, 4],
+                    pmRank: 3,
+                    ageMinutes: ageTop3,
+                }
+            );
+        }
 
         const chartData = { labels, datasets };
         if (!replayTrendChart) {
@@ -2639,8 +2717,10 @@
                                 },
                                 label: (ctx) => {
                                     const dsLabel = String(ctx?.dataset?.label || 'Value');
-                                    const yVal = Number(ctx?.parsed?.y);
-                                    const valueStr = Number.isFinite(yVal) ? `${yVal.toFixed(1)} ${unit}` : '--';
+                                    const rawY = Number(ctx?.raw);
+                                    const hasY = Number.isFinite(rawY);
+                                    const yVal = hasY ? rawY : Number(ctx?.parsed?.y);
+                                    const valueStr = Number.isFinite(yVal) && hasY ? `${yVal.toFixed(1)} ${unit}` : '--';
                                     const i = Number(ctx?.dataIndex);
                                     const ageValues = Array.isArray(ctx?.dataset?.ageMinutes) ? ctx.dataset.ageMinutes : [];
                                     const age = (i >= 0 && i < ageValues.length) ? ageValues[i] : null;
