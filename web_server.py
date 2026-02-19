@@ -355,24 +355,66 @@ async def _resolve_station_tokens(
     logger: logging.Logger,
 ) -> List[Tuple[str, str, str]]:
     """Resolve token IDs for a station/date with robust fallbacks and caching."""
-    tokens = await fetch_market_token_ids_for_station_date(station_id, target_date)
-    if not tokens:
-        slug = build_event_slug(station_id, target_date)
-        tokens = await fetch_market_token_ids(slug)
+    def _parse_tokens_from_event_payload(event_data: Dict[str, Any]) -> List[Tuple[str, str, str]]:
+        rows: List[Tuple[str, str, str]] = []
+        if not isinstance(event_data, dict):
+            return rows
+        markets = event_data.get("markets", [])
+        if not isinstance(markets, list):
+            return rows
+        for market in markets:
+            if not isinstance(market, dict):
+                continue
+            bracket = str(market.get("groupItemTitle") or market.get("title") or "").strip() or "Unknown"
+            raw = market.get("clobTokenIds", [])
+            ids: List[str] = []
+            if isinstance(raw, str):
+                try:
+                    import json
+                    parsed = json.loads(raw)
+                except Exception:
+                    parsed = []
+                if isinstance(parsed, list):
+                    ids = [str(x) for x in parsed if x]
+            elif isinstance(raw, list):
+                ids = [str(x) for x in raw if x]
 
-    if not tokens:
-        # Fallback: try today and tomorrow explicitly
-        today = now_local.date()
-        if today != target_date:
-            tokens = await fetch_market_token_ids_for_station_date(station_id, today)
-            if not tokens:
-                tokens = await fetch_market_token_ids(build_event_slug(station_id, today))
-        if not tokens:
-            tomorrow = today + timedelta(days=1)
-            if tomorrow != target_date:
-                tokens = await fetch_market_token_ids_for_station_date(station_id, tomorrow)
-                if not tokens:
-                    tokens = await fetch_market_token_ids(build_event_slug(station_id, tomorrow))
+            yes_id = ids[0] if len(ids) > 0 else None
+            no_id = ids[1] if len(ids) > 1 else None
+            if yes_id:
+                rows.append((yes_id, bracket, "yes"))
+            if no_id:
+                rows.append((no_id, bracket, "no"))
+        return rows
+
+    tokens: List[Tuple[str, str, str]] = []
+
+    # Candidate dates (ordered, deduped): target -> today -> tomorrow
+    today = now_local.date()
+    tomorrow = today + timedelta(days=1)
+    candidate_dates: List[Any] = []
+    for cand in [target_date, today, tomorrow]:
+        if cand not in candidate_dates:
+            candidate_dates.append(cand)
+
+    for cand_date in candidate_dates:
+        # Primary: station/date resolver
+        tokens = await fetch_market_token_ids_for_station_date(station_id, cand_date)
+        if tokens:
+            break
+
+        # Secondary: slug resolver
+        slug = build_event_slug(station_id, cand_date)
+        tokens = await fetch_market_token_ids(slug)
+        if tokens:
+            break
+
+        # Tertiary: raw event payload parser (resilient to discovery regressions)
+        event_data = await fetch_event_for_station_date(station_id, cand_date)
+        if event_data:
+            tokens = _parse_tokens_from_event_payload(event_data)
+            if tokens:
+                break
 
     if not tokens and station_id in _WS_TOKEN_CACHE:
         logger.warning(f"WS token fetch failed; using cached tokens for {station_id}")

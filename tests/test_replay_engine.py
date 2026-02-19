@@ -474,6 +474,26 @@ def test_replay_pws_learning_trend_5min_bins_points():
     assert points[2].get("metar_temp_f") == 51.0
 
 
+def test_replay_market_top3_fallback_uses_bid_ask_and_c_midpoint_to_f():
+    from core.replay_engine import ReplaySession
+
+    rows = ReplaySession._extract_market_top3({
+        "2°C or below": {"best_bid": 0.41, "best_ask": 0.45},
+        "5-6°C": {"mid": 0.30},
+        "__meta__": {"book_count": 2},
+    })
+
+    assert len(rows) == 2
+    top = rows[0]
+    assert top.get("label") == "2°C or below"
+    assert top.get("mid_pct") == 43.0
+    assert abs(float(top.get("midpoint_f")) - 35.6) < 0.01
+
+    second = rows[1]
+    assert second.get("label") == "5-6°C"
+    assert abs(float(second.get("midpoint_f")) - 41.9) < 0.01
+
+
 def test_replay_category_summary_maps_market_alias_to_l2_snap():
     from core.replay_engine import ReplaySession
 

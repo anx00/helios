@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 import logging
 from typing import Optional
 
-from config import STATIONS
+from config import STATIONS, get_active_stations
 from database import insert_performance_log, get_pending_reconciliation_logs, update_performance_wu_final, get_latest_prediction, get_latest_prediction_for_date, get_latest_performance_log
 from collector.wunderground_fetcher import fetch_wunderground_max
 from collector.metar_fetcher import fetch_metar, fetch_metar_history
@@ -17,17 +17,28 @@ from collector.metar_fetcher import fetch_metar, fetch_metar_history
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("monitor")
 
-# v8.2: Global state cache to allow independent fast/slow updates
+# v8.2: Global state cache to allow independent fast/slow updates.
+# Keep it dynamic so newly active stations (e.g., LTAC) are not silently skipped.
 _state_cache = {
-    "KLGA": {"history": None, "wu_obs": None, "market_today": None, "market_tmr": None},
-    "KATL": {"history": None, "wu_obs": None, "market_today": None, "market_tmr": None},
-    "EGLC": {"history": None, "wu_obs": None, "market_today": None, "market_tmr": None}
+    sid: {"history": None, "wu_obs": None, "market_today": None, "market_tmr": None}
+    for sid in get_active_stations().keys()
 }
 _weather_cache_time = {}  # station_id -> datetime (for TTL tracking)
+
+
+def _ensure_station_cache(station_id: str) -> None:
+    if station_id not in _state_cache:
+        _state_cache[station_id] = {
+            "history": None,
+            "wu_obs": None,
+            "market_today": None,
+            "market_tmr": None,
+        }
 
 async def background_slow_refresh(station_id, today_local, tomorrow_local):
     """Refreshes slow data sources in the background without blocking the fast METAR line."""
     global _state_cache
+    _ensure_station_cache(station_id)
     try:
         from market.polymarket_checker import get_market_all_options
         from collector.wunderground_fetcher import fetch_wunderground_max
@@ -58,8 +69,10 @@ async def snapshot_current_state():
     """
     global _weather_cache_time, _state_cache
     
-    for station_id in ["KLGA", "KATL", "EGLC"]:
+    active_ids = list(get_active_stations().keys())
+    for station_id in active_ids:
         try:
+            _ensure_station_cache(station_id)
             from zoneinfo import ZoneInfo
             tz = ZoneInfo(STATIONS[station_id].timezone)
             now_local = datetime.now(tz)

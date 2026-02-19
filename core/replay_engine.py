@@ -23,7 +23,6 @@ from typing import Optional, Dict, List, Callable, Any
 from zoneinfo import ZoneInfo
 
 from core.compactor import get_hybrid_reader, HybridReader
-from core.polymarket_labels import parse_label
 from config import STATIONS
 
 logger = logging.getLogger("replay_engine")
@@ -825,28 +824,29 @@ class ReplaySession:
         if not txt:
             return None
         lower = txt.lower()
-        try:
-            kind, low, high = parse_label(txt)
-        except Exception:
-            kind, low, high = ("unknown", None, None)
-
-        if kind == "range" and low is not None and high is not None:
-            return round((float(low) + float(high)) / 2.0, 4)
-        if kind == "single" and low is not None:
-            return round(float(low), 4)
-        if kind == "below" and high is not None:
-            return round(float(high), 4)
-        if kind == "above" and low is not None:
-            return round(float(low), 4)
-
-        # Fallback parser for raw labels like "40-41F" or "60F or higher".
         cleaned = txt.replace("Â", "").replace("°", " ").replace("º", " ")
-        m_range = re.search(r"(-?\d+(?:\.\d+)?)\s*[-–]\s*(-?\d+(?:\.\d+)?)", cleaned)
+        cleaned_lower = cleaned.lower()
+        unit_c = bool(
+            re.search(r"\d+\s*c\b", cleaned_lower)
+            or re.search(r"\bcelsius\b", cleaned_lower)
+        )
+        unit_f = bool(
+            re.search(r"\d+\s*f\b", cleaned_lower)
+            or re.search(r"\bfahrenheit\b", cleaned_lower)
+        )
+
+        def _to_f(v: float) -> float:
+            if unit_c and not unit_f:
+                return (v * 9.0 / 5.0) + 32.0
+            return v
+
+        m_range = re.search(r"(-?\d+(?:\.\d+)?)\s*[-–—]\s*(-?\d+(?:\.\d+)?)", cleaned)
         if m_range:
             try:
                 low_v = float(m_range.group(1))
                 high_v = float(m_range.group(2))
-                return round((low_v + high_v) / 2.0, 4)
+                midpoint = (low_v + high_v) / 2.0
+                return round(_to_f(midpoint), 4)
             except Exception:
                 pass
 
@@ -858,12 +858,8 @@ class ReplaySession:
         except Exception:
             return None
 
-        # For open-ended buckets we keep threshold as representative midpoint.
-        if "or below" in lower or "or lower" in lower:
-            return round(n, 4)
-        if "or above" in lower or "or higher" in lower:
-            return round(n, 4)
-        return round(n, 4)
+        # Open-ended and single buckets use the threshold as representative point.
+        return round(_to_f(n), 4)
 
     @staticmethod
     def _extract_market_top3(data: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -876,6 +872,15 @@ class ReplaySession:
             if not isinstance(payload, dict):
                 continue
             mid_pct = ReplaySession._normalize_probability_pct(payload.get("mid"))
+            if mid_pct is None:
+                bid_pct = ReplaySession._normalize_probability_pct(payload.get("best_bid"))
+                ask_pct = ReplaySession._normalize_probability_pct(payload.get("best_ask"))
+                if bid_pct is not None and ask_pct is not None:
+                    mid_pct = round((bid_pct + ask_pct) / 2.0, 4)
+                elif bid_pct is not None:
+                    mid_pct = bid_pct
+                elif ask_pct is not None:
+                    mid_pct = ask_pct
             if mid_pct is None:
                 continue
             rows.append({
