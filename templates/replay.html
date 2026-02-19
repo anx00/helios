@@ -1309,14 +1309,14 @@
         if (!raw) return null;
 
         const lower = raw.toLowerCase();
-        const numbers = raw.match(/-?\d+(?:\.\d+)?/g);
-        if (!numbers || numbers.length === 0) return null;
 
         const hasC = /\d\s*(?:\u00B0)?\s*c\b/i.test(raw) || /celsius/i.test(lower);
         const hasF = /\d\s*(?:\u00B0)?\s*f\b/i.test(raw) || /fahrenheit/i.test(lower);
         const defaultIsC = usesCelsius(stationId);
         const sourceIsC = hasC || (!hasF && defaultIsC);
         const toF = (v) => sourceIsC ? ((v * 9) / 5) + 32 : v;
+        const numbers = raw.match(/-?\d+(?:\.\d+)?/g);
+        if (!numbers || numbers.length === 0) return null;
 
         if (lower.includes('or below')) {
             const threshold = toF(Number(numbers[0]));
@@ -1326,9 +1326,10 @@
             const threshold = toF(Number(numbers[0]));
             return Number.isFinite(threshold) ? { kind: 'above', threshold } : null;
         }
-        if (numbers.length >= 2) {
-            const low = toF(Number(numbers[0]));
-            const high = toF(Number(numbers[1]));
+        const rangeMatch = raw.match(/(-?\d+(?:\.\d+)?)\s*[-–]\s*(-?\d+(?:\.\d+)?)/);
+        if (rangeMatch) {
+            const low = toF(Number(rangeMatch[1]));
+            const high = toF(Number(rangeMatch[2]));
             if (Number.isFinite(low) && Number.isFinite(high)) {
                 return { kind: 'range', low, high };
             }
@@ -1336,6 +1337,28 @@
 
         const single = toF(Number(numbers[0]));
         if (Number.isFinite(single)) return { kind: 'single', value: single };
+        return null;
+    }
+
+    function marketBracketMidpointF(label, stationId = currentStationId()) {
+        const parsed = parseBucketBoundsF(label, stationId);
+        if (!parsed) return null;
+        if (parsed.kind === 'range') {
+            const low = Number(parsed.low);
+            const high = Number(parsed.high);
+            if (Number.isFinite(low) && Number.isFinite(high)) {
+                return (low + high) / 2;
+            }
+            return null;
+        }
+        if (parsed.kind === 'single') {
+            const v = Number(parsed.value);
+            return Number.isFinite(v) ? v : null;
+        }
+        if (parsed.kind === 'below' || parsed.kind === 'above') {
+            const t = Number(parsed.threshold);
+            return Number.isFinite(t) ? t : null;
+        }
         return null;
     }
 
@@ -1347,7 +1370,9 @@
             if (parsed.kind === 'range') {
                 const lowC = Math.round(fToC(parsed.low));
                 const highC = Math.round(fToC(parsed.high));
-                return lowC === highC ? `${lowC} C` : `${lowC}-${highC} C`;
+                const minC = Math.min(lowC, highC);
+                const maxC = Math.max(lowC, highC);
+                return minC === maxC ? `${minC} C` : `${minC}-${maxC} C`;
             }
             if (parsed.kind === 'below') return `${Math.round(fToC(parsed.threshold))} C or below`;
             if (parsed.kind === 'above') return `${Math.round(fToC(parsed.threshold))} C or higher`;
@@ -1358,7 +1383,9 @@
         if (parsed.kind === 'range') {
             const low = Math.round(parsed.low);
             const high = Math.round(parsed.high);
-            return low === high ? `${low} F` : `${low}-${high} F`;
+            const minF = Math.min(low, high);
+            const maxF = Math.max(low, high);
+            return minF === maxF ? `${minF} F` : `${minF}-${maxF} F`;
         }
         if (parsed.kind === 'below') return `${Math.round(parsed.threshold)} F or below`;
         if (parsed.kind === 'above') return `${Math.round(parsed.threshold)} F or higher`;
@@ -1730,7 +1757,7 @@
             const [eventsResp, catResp, pwsLearnResp] = await Promise.all([
                 fetch(`/api/v4/replay/session/${sessionId}/events?n=10`),
                 fetch(`/api/v4/replay/session/${sessionId}/categories`),
-                fetch(`/api/v4/replay/session/${sessionId}/pws_learning?max_points=96&top_n=6&trend_points=320&trend_mode=hourly`)
+                fetch(`/api/v4/replay/session/${sessionId}/pws_learning?max_points=96&top_n=6&trend_points=320&trend_mode=5min`)
             ]);
             const eventsData = await eventsResp.json();
             const catData = await catResp.json();
@@ -2182,15 +2209,25 @@
                 const raw = String(p.bucket_local_hour);
                 if (raw.length >= 16) return raw.substring(11, 16);
             }
+            if (resolution === '5min' && p && p.bucket_local_5m) {
+                const raw = String(p.bucket_local_5m);
+                if (raw.length >= 16) return raw.substring(11, 16);
+            }
             const ts = String(p && p.ts_nyc || '');
             if (!ts) return '--';
             const tz = localTimeFromTsNyc(ts);
             return tz.local || '--';
         });
 
-        const dsTop1 = points.map((p) => asNumOrNull(p && p.pm_top1_prob_pct));
-        const dsTop2 = points.map((p) => asNumOrNull(p && p.pm_top2_prob_pct));
-        const dsTop3 = points.map((p) => asNumOrNull(p && p.pm_top3_prob_pct));
+        const pmBracketMidpointTemp = (point, rank) => {
+            const rawLabel = point ? point[`pm_top${rank}_label`] : null;
+            const midF = marketBracketMidpointF(rawLabel, stationId);
+            return asTempOrNull(midF);
+        };
+
+        const dsTop1 = points.map((p) => pmBracketMidpointTemp(p, 1));
+        const dsTop2 = points.map((p) => pmBracketMidpointTemp(p, 2));
+        const dsTop3 = points.map((p) => pmBracketMidpointTemp(p, 3));
         const dsMetar = points.map((p) => asTempOrNull(p && p.metar_temp_f));
         const dsPwsConsensus = points.map((p) => asTempOrNull(p && p.pws_consensus_f));
         const dsPwsLeader = points.map((p) => asTempOrNull(p && p.pws_top_weight_temp_f));
@@ -2201,15 +2238,23 @@
         const total = Number(payload.total_points || points.length);
         const rawTotal = Number(payload.total_points_raw || total);
         const latestTs = String(latest && latest.ts_nyc || '--');
-        const resLabel = resolution === 'hourly' ? `hourly (${String(payload.bin_timezone || '--')})` : 'event';
+        let resLabel = 'event';
+        if (resolution === 'hourly') {
+            resLabel = `hourly (${String(payload.bin_timezone || '--')})`;
+        } else if (resolution === '5min') {
+            resLabel = `5min (${String(payload.bin_timezone || '--')})`;
+        }
         metaEl.textContent = `${points.length}/${total} points | raw ${rawTotal} | ${resLabel} | temp unit ${unit} | latest ${latestTs}`;
 
         const topLabel = (idx) => {
             const rank = idx + 1;
-            const lbl = String(latest && latest[`pm_top${rank}_label`] || '--');
+            const rawLbl = String(latest && latest[`pm_top${rank}_label`] || '--');
+            const lbl = formatBucketLabelForStation(rawLbl, stationId);
             const prob = asNumOrNull(latest && latest[`pm_top${rank}_prob_pct`]);
             const probStr = prob == null ? '--' : `${prob.toFixed(1)}%`;
-            return `Top${rank} ${lbl} ${probStr}`;
+            const midpointF = marketBracketMidpointF(rawLbl, stationId);
+            const midpointText = midpointF == null ? '--' : formatTempFromF(midpointF, 1, stationId);
+            return `Top${rank} ${midpointText} (${probStr}) ${lbl}`;
         };
         top3El.innerHTML = [
             `<span class="rt-pill">${escapeHtml(topLabel(0))}</span>`,
@@ -2219,37 +2264,42 @@
 
         const datasets = [
             {
-                label: 'PM Top1 %',
+                label: 'PM Top1 Bracket',
                 data: dsTop1,
-                yAxisID: 'yProb',
+                yAxisID: 'yTemp',
                 borderColor: '#F59E0B',
                 backgroundColor: 'rgba(245,158,11,0.18)',
                 borderWidth: 1.8,
                 pointRadius: 0,
                 tension: 0.22,
                 spanGaps: true,
+                pmRank: 1,
             },
             {
-                label: 'PM Top2 %',
+                label: 'PM Top2 Bracket',
                 data: dsTop2,
-                yAxisID: 'yProb',
+                yAxisID: 'yTemp',
                 borderColor: '#A78BFA',
                 backgroundColor: 'rgba(167,139,250,0.16)',
                 borderWidth: 1.4,
                 pointRadius: 0,
                 tension: 0.22,
                 spanGaps: true,
+                borderDash: [6, 3],
+                pmRank: 2,
             },
             {
-                label: 'PM Top3 %',
+                label: 'PM Top3 Bracket',
                 data: dsTop3,
-                yAxisID: 'yProb',
+                yAxisID: 'yTemp',
                 borderColor: '#94A3B8',
                 backgroundColor: 'rgba(148,163,184,0.16)',
                 borderWidth: 1.2,
                 pointRadius: 0,
                 tension: 0.22,
                 spanGaps: true,
+                borderDash: [2, 4],
+                pmRank: 3,
             },
             {
                 label: 'NOAA METAR',
@@ -2328,6 +2378,22 @@
                                     if (i < 0 || i >= points.length) return '--';
                                     return String(points[i].ts_nyc || labels[i] || '--');
                                 },
+                                label: (ctx) => {
+                                    const dsLabel = String(ctx?.dataset?.label || 'Value');
+                                    const yVal = Number(ctx?.parsed?.y);
+                                    const valueStr = Number.isFinite(yVal) ? `${yVal.toFixed(1)} ${unit}` : '--';
+                                    const pmRank = Number(ctx?.dataset?.pmRank);
+                                    if (Number.isFinite(pmRank) && pmRank >= 1 && pmRank <= 3) {
+                                        const i = Number(ctx?.dataIndex);
+                                        const point = (i >= 0 && i < points.length) ? points[i] : null;
+                                        const rawLabel = String(point && point[`pm_top${pmRank}_label`] || '--');
+                                        const bucketLabel = formatBucketLabelForStation(rawLabel, stationId);
+                                        const prob = asNumOrNull(point && point[`pm_top${pmRank}_prob_pct`]);
+                                        const probStr = prob == null ? '--' : `${prob.toFixed(1)}%`;
+                                        return `${dsLabel}: ${valueStr} (${probStr}) [${bucketLabel}]`;
+                                    }
+                                    return `${dsLabel}: ${valueStr}`;
+                                },
                             },
                         },
                     },
@@ -2354,24 +2420,6 @@
                             },
                             grid: {
                                 color: 'rgba(255,255,255,0.06)',
-                            },
-                        },
-                        yProb: {
-                            type: 'linear',
-                            position: 'right',
-                            min: 0,
-                            max: 100,
-                            ticks: {
-                                color: '#94a3b8',
-                                callback: (v) => `${v}%`,
-                            },
-                            title: {
-                                display: true,
-                                text: 'Polymarket %',
-                                color: '#94a3b8',
-                            },
-                            grid: {
-                                drawOnChartArea: false,
                             },
                         },
                     },

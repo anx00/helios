@@ -1183,7 +1183,9 @@ class ReplaySession:
 
         current_limit = min(self._event_index + 1, len(self._events))
         trend_mode_norm = str(trend_mode or "hourly").strip().lower()
-        if trend_mode_norm not in {"hourly", "event"}:
+        if trend_mode_norm in {"5m", "5min", "5_min", "five_min"}:
+            trend_mode_norm = "5min"
+        if trend_mode_norm not in {"hourly", "event", "5min"}:
             trend_mode_norm = "hourly"
         cache_key = (current_limit, int(max_points), int(top_n), int(trend_points), trend_mode_norm)
         if self._pws_learning_cache_key == cache_key and self._pws_learning_cache_value is not None:
@@ -1396,7 +1398,7 @@ class ReplaySession:
 
         trend_series_points = list(trend_points_raw)
         trend_bin_tz = self._station_tz if self.station_id else NYC
-        if trend_mode_norm == "hourly" and trend_points_raw:
+        if trend_mode_norm in {"hourly", "5min"} and trend_points_raw:
             bucket_order: List[str] = []
             bucket_last: Dict[str, Dict[str, Any]] = {}
             for p in trend_points_raw:
@@ -1404,16 +1406,21 @@ class ReplaySession:
                 if point_ts_utc is None:
                     continue
                 local_ts = point_ts_utc.astimezone(trend_bin_tz)
-                local_hour = local_ts.replace(minute=0, second=0, microsecond=0)
-                bucket_key = local_hour.isoformat()
+                if trend_mode_norm == "5min":
+                    bucket_minute = (local_ts.minute // 5) * 5
+                    local_bucket = local_ts.replace(minute=bucket_minute, second=0, microsecond=0)
+                else:
+                    local_bucket = local_ts.replace(minute=0, second=0, microsecond=0)
+                bucket_key = local_bucket.isoformat()
                 if bucket_key not in bucket_last:
                     bucket_order.append(bucket_key)
 
                 row = dict(p)
-                row["bucket_local_hour"] = local_hour.strftime("%Y-%m-%d %H:00")
+                row["bucket_local_hour"] = local_bucket.strftime("%Y-%m-%d %H:00")
+                row["bucket_local_5m"] = local_bucket.strftime("%Y-%m-%d %H:%M")
                 row["bucket_timezone"] = trend_bin_tz.key
-                row["ts_nyc"] = local_hour.astimezone(NYC).strftime("%Y-%m-%d %H:%M:%S")
-                row["ts_ingest_utc"] = local_hour.astimezone(UTC).isoformat()
+                row["ts_nyc"] = local_bucket.astimezone(NYC).strftime("%Y-%m-%d %H:%M:%S")
+                row["ts_ingest_utc"] = local_bucket.astimezone(UTC).isoformat()
                 bucket_last[bucket_key] = row
 
             trend_series_points = [bucket_last[k] for k in bucket_order if k in bucket_last]

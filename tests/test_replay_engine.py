@@ -416,6 +416,62 @@ def test_replay_pws_learning_trend_hourly_bins_points():
     assert points[0].get("helios_prediction_f") == 58.0
 
 
+def test_replay_pws_learning_trend_5min_bins_points():
+    from core.replay_engine import ReplaySession
+
+    start = datetime(2026, 2, 6, 12, 0, 0, tzinfo=UTC)
+    events = [
+        {
+            "ch": "world",
+            "station_id": "KLGA",
+            "ts_ingest_utc": start + timedelta(minutes=1),
+            "ts_nyc": "2026-02-05 19:01:00",
+            "data": {"src": "METAR", "temp_f": 50.0},
+        },
+        {
+            "ch": "market",
+            "station_id": "KLGA",
+            "ts_ingest_utc": start + timedelta(minutes=4),
+            "ts_nyc": "2026-02-05 19:04:00",
+            "data": {"40-41F": {"mid": 0.55}},
+        },
+        {
+            "ch": "nowcast",
+            "station_id": "KLGA",
+            "ts_ingest_utc": start + timedelta(minutes=7),
+            "ts_nyc": "2026-02-05 19:07:00",
+            "data": {"tmax_mean_f": 58.0},
+        },
+        {
+            "ch": "world",
+            "station_id": "KLGA",
+            "ts_ingest_utc": start + timedelta(minutes=11),
+            "ts_nyc": "2026-02-05 19:11:00",
+            "data": {"src": "METAR", "temp_f": 51.0},
+        },
+    ]
+
+    session = ReplaySession("s3e", "2026-02-06", "KLGA")
+    session._reader = _StubReader(events)
+    ok = asyncio.run(session.load())
+    assert ok
+    session.seek_percent(100)
+
+    summary = session.get_pws_learning_summary(max_points=20, top_n=3, trend_points=120, trend_mode="5min")
+    trend = summary.get("trend")
+    assert isinstance(trend, dict)
+    assert trend.get("resolution") == "5min"
+    assert trend.get("bin_timezone") == "America/New_York"
+    points = trend.get("points", [])
+    assert len(points) == 3
+    assert points[0].get("bucket_local_5m", "").endswith("07:00")
+    assert points[1].get("bucket_local_5m", "").endswith("07:05")
+    assert points[2].get("bucket_local_5m", "").endswith("07:10")
+    assert points[0].get("metar_temp_f") == 50.0
+    assert points[1].get("helios_prediction_f") == 58.0
+    assert points[2].get("metar_temp_f") == 51.0
+
+
 def test_replay_category_summary_maps_market_alias_to_l2_snap():
     from core.replay_engine import ReplaySession
 
