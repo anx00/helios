@@ -800,6 +800,113 @@ class ReplaySession:
         return sampled
 
     @staticmethod
+    def _normalize_probability_pct(value: Any) -> Optional[float]:
+        try:
+            n = float(value)
+        except Exception:
+            return None
+        if not math.isfinite(n):
+            return None
+        if n < 0:
+            return None
+        if n <= 1.000001:
+            return round(n * 100.0, 4)
+        if n <= 100.000001:
+            return round(n, 4)
+        return None
+
+    @staticmethod
+    def _extract_market_top3(data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        if not isinstance(data, dict):
+            return []
+        rows: List[Dict[str, Any]] = []
+        for label, payload in data.items():
+            if label == "__meta__":
+                continue
+            if not isinstance(payload, dict):
+                continue
+            mid_pct = ReplaySession._normalize_probability_pct(payload.get("mid"))
+            if mid_pct is None:
+                continue
+            rows.append({
+                "label": str(label),
+                "mid_pct": float(mid_pct),
+            })
+        rows.sort(key=lambda r: float(r.get("mid_pct", 0.0)), reverse=True)
+        return rows[:3]
+
+    @staticmethod
+    def _extract_pws_top_weight_station_temp_f(
+        data: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        if not isinstance(data, dict):
+            return {
+                "station_id": None,
+                "temp_f": None,
+                "weight": None,
+                "source": None,
+            }
+
+        ranked = ReplaySession._extract_station_learning_rows(data, eligible_only=True)
+        if not ranked:
+            ranked = ReplaySession._extract_station_learning_rows(data, eligible_only=False)
+        if not ranked:
+            return {
+                "station_id": None,
+                "temp_f": None,
+                "weight": None,
+                "source": None,
+            }
+
+        leader = ranked[0]
+        sid = str(leader.get("station_id") or "").upper()
+        if not sid:
+            return {
+                "station_id": None,
+                "temp_f": None,
+                "weight": None,
+                "source": None,
+            }
+
+        reading_row = None
+        for raw in data.get("pws_readings") or []:
+            if not isinstance(raw, dict):
+                continue
+            if str(raw.get("station_id") or raw.get("label") or "").upper() == sid:
+                reading_row = raw
+                break
+        if reading_row is None:
+            for raw in data.get("pws_outliers") or []:
+                if not isinstance(raw, dict):
+                    continue
+                if str(raw.get("station_id") or raw.get("label") or "").upper() == sid:
+                    reading_row = raw
+                    break
+
+        temp_f = None
+        if isinstance(reading_row, dict):
+            try:
+                tf = float(reading_row.get("temp_f"))
+                if math.isfinite(tf):
+                    temp_f = tf
+            except Exception:
+                temp_f = None
+            if temp_f is None:
+                try:
+                    tc = float(reading_row.get("temp_c"))
+                    if math.isfinite(tc):
+                        temp_f = (tc * 9.0 / 5.0) + 32.0
+                except Exception:
+                    temp_f = None
+
+        return {
+            "station_id": sid,
+            "temp_f": round(float(temp_f), 4) if temp_f is not None and math.isfinite(float(temp_f)) else None,
+            "weight": leader.get("weight"),
+            "source": (reading_row or {}).get("source"),
+        }
+
+    @staticmethod
     def _build_pws_consensus_snapshot(
         event: Optional[Dict[str, Any]],
         data: Optional[Dict[str, Any]],
@@ -1049,7 +1156,13 @@ class ReplaySession:
             "rows": merged_rows,
         }
 
-    def get_pws_learning_summary(self, max_points: int = 80, top_n: int = 6) -> Dict[str, Any]:
+    def get_pws_learning_summary(
+        self,
+        max_points: int = 80,
+        top_n: int = 6,
+        trend_points: int = 240,
+        trend_mode: str = "hourly",
+    ) -> Dict[str, Any]:
         """
         Build replay-time PWS learning diagnostics up to current playback index.
 
@@ -1057,6 +1170,7 @@ class ReplaySession:
         - current: latest top ranking snapshot
         - timeline: decimated leader evolution over the day
         - leader_changes: compact list when leader station switches
+        - trend: multi-source series for replay chart overlay
         """
         def _as_float(value: Any) -> Optional[float]:
             try:
@@ -1068,7 +1182,10 @@ class ReplaySession:
             return n
 
         current_limit = min(self._event_index + 1, len(self._events))
-        cache_key = (current_limit, int(max_points), int(top_n))
+        trend_mode_norm = str(trend_mode or "hourly").strip().lower()
+        if trend_mode_norm not in {"hourly", "event"}:
+            trend_mode_norm = "hourly"
+        cache_key = (current_limit, int(max_points), int(top_n), int(trend_points), trend_mode_norm)
         if self._pws_learning_cache_key == cache_key and self._pws_learning_cache_value is not None:
             return self._pws_learning_cache_value
         pws_count = 0
@@ -1086,6 +1203,37 @@ class ReplaySession:
         latest_data: Optional[Dict[str, Any]] = None
         latest_event: Optional[Dict[str, Any]] = None
         prev_leader: Optional[str] = None
+        l2_aliases = {"l2_snap", "l2_snap_1s", "market"}
+        trend_points_raw: List[Dict[str, Any]] = []
+        trend_state: Dict[str, Any] = {
+            "pm_top1_prob_pct": None,
+            "pm_top2_prob_pct": None,
+            "pm_top3_prob_pct": None,
+            "pm_top1_label": None,
+            "pm_top2_label": None,
+            "pm_top3_label": None,
+            "metar_temp_f": None,
+            "pws_consensus_f": None,
+            "pws_top_weight_station_id": None,
+            "pws_top_weight_temp_f": None,
+            "pws_top_weight": None,
+            "helios_prediction_f": None,
+        }
+
+        def _append_trend_point(idx: int, event: Dict[str, Any]) -> None:
+            point = {
+                "event_index": idx,
+                "ts_nyc": event.get("ts_nyc"),
+                "ts_ingest_utc": event.get("ts_ingest_utc"),
+                **trend_state,
+            }
+            trend_points_raw.append(point)
+
+        def _set_trend(key: str, value: Any) -> bool:
+            if trend_state.get(key) == value:
+                return False
+            trend_state[key] = value
+            return True
 
         def _build_metar_context(market_station_id: Optional[str], median_f: Any) -> Dict[str, Any]:
             sid = str(market_station_id or "").upper()
@@ -1108,87 +1256,181 @@ class ReplaySession:
         for idx in range(current_limit):
             event = self._events[idx]
             ch = event.get("ch")
+            data = event.get("data", {})
+            if not isinstance(data, dict):
+                data = {}
+
+            trend_changed = False
+
             if ch == "world":
                 station_id = str(event.get("station_id") or "").upper()
-                data = event.get("data", {})
-                if station_id and isinstance(data, dict):
+                if station_id:
                     latest_world_by_station[station_id] = {
                         "ts_nyc": event.get("ts_nyc"),
                         "temp_f": data.get("temp_f"),
                         "temp_aligned_f": data.get("temp_aligned"),
                         "source": data.get("src"),
                     }
-                continue
+                    src = str(data.get("src") or "").upper()
+                    if src == "METAR":
+                        metar_temp = _as_float(data.get("temp_f"))
+                        if metar_temp is not None:
+                            trend_changed = _set_trend("metar_temp_f", metar_temp) or trend_changed
 
-            if ch != "pws":
-                continue
+            if ch in l2_aliases:
+                top3 = self._extract_market_top3(data)
+                vals = [None, None, None]
+                labels = [None, None, None]
+                for i, row in enumerate(top3[:3]):
+                    vals[i] = row.get("mid_pct")
+                    labels[i] = row.get("label")
+                trend_changed = _set_trend("pm_top1_prob_pct", vals[0]) or trend_changed
+                trend_changed = _set_trend("pm_top2_prob_pct", vals[1]) or trend_changed
+                trend_changed = _set_trend("pm_top3_prob_pct", vals[2]) or trend_changed
+                trend_changed = _set_trend("pm_top1_label", labels[0]) or trend_changed
+                trend_changed = _set_trend("pm_top2_label", labels[1]) or trend_changed
+                trend_changed = _set_trend("pm_top3_label", labels[2]) or trend_changed
 
-            data = event.get("data", {})
-            if not isinstance(data, dict):
-                continue
+            if ch == "nowcast":
+                pred = _as_float(data.get("tmax_mean_f"))
+                if pred is not None:
+                    trend_changed = _set_trend("helios_prediction_f", pred) or trend_changed
 
-            all_rows = self._extract_station_learning_rows(data, eligible_only=False)
-            if not all_rows:
-                continue
+            if ch == "pws":
+                pws_median = _as_float(data.get("median_f"))
+                if pws_median is not None:
+                    trend_changed = _set_trend("pws_consensus_f", pws_median) or trend_changed
 
-            for row in all_rows:
-                if not isinstance(row, dict):
+                top_weight = self._extract_pws_top_weight_station_temp_f(data)
+                trend_changed = _set_trend(
+                    "pws_top_weight_station_id",
+                    top_weight.get("station_id"),
+                ) or trend_changed
+                trend_changed = _set_trend(
+                    "pws_top_weight_temp_f",
+                    _as_float(top_weight.get("temp_f")),
+                ) or trend_changed
+                trend_changed = _set_trend(
+                    "pws_top_weight",
+                    _as_float(top_weight.get("weight")),
+                ) or trend_changed
+
+                all_rows = self._extract_station_learning_rows(data, eligible_only=False)
+                if all_rows:
+                    for row in all_rows:
+                        if not isinstance(row, dict):
+                            continue
+                        sid = str(row.get("station_id") or "").upper()
+                        if not sid:
+                            continue
+                        entry = sample_baseline_by_station.get(sid, {})
+                        try:
+                            now_n = int(row.get("now_samples"))
+                        except Exception:
+                            now_n = None
+                        try:
+                            lead_n = int(row.get("lead_samples"))
+                        except Exception:
+                            lead_n = None
+                        if now_n is not None and "now_samples" not in entry:
+                            entry["now_samples"] = max(0, now_n)
+                        if lead_n is not None and "lead_samples" not in entry:
+                            entry["lead_samples"] = max(0, lead_n)
+                        if entry:
+                            sample_baseline_by_station[sid] = entry
+
+                    pws_count += 1
+                    latest_any_rows = all_rows
+                    latest_any_data = data
+                    latest_any_event = event
+                    latest_any_idx = idx
+
+                    rows = self._extract_station_learning_rows(data, eligible_only=True)
+                    if rows:
+                        leader = rows[0]
+                        leader_id = str(leader.get("station_id") or "")
+                        market_station_id = str(event.get("station_id") or "").upper()
+                        point = {
+                            "event_index": idx,
+                            "ts_nyc": event.get("ts_nyc"),
+                            "ts_ingest_utc": event.get("ts_ingest_utc"),
+                            "market_station_id": market_station_id or None,
+                            "leader_station_id": leader_id,
+                            "leader_weight": leader.get("weight"),
+                            "leader_now_score": leader.get("now_score"),
+                            "leader_lead_score": leader.get("lead_score"),
+                            "weighted_support": data.get("weighted_support"),
+                            "support": data.get("support"),
+                            "median_f": data.get("median_f"),
+                            **_build_metar_context(market_station_id, data.get("median_f")),
+                        }
+                        points.append(point)
+
+                        if leader_id and leader_id != prev_leader:
+                            leader_changes.append(point)
+                            prev_leader = leader_id
+
+                        latest_rows = rows
+                        latest_data = data
+                        latest_event = event
+
+            if trend_changed:
+                _append_trend_point(idx, event)
+
+        def _as_dt_utc(value: Any) -> Optional[datetime]:
+            if value is None:
+                return None
+            if isinstance(value, datetime):
+                dt = value if value.tzinfo else value.replace(tzinfo=UTC)
+                return dt.astimezone(UTC)
+            txt = str(value).strip()
+            if not txt:
+                return None
+            try:
+                dt = datetime.fromisoformat(txt.replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=UTC)
+                return dt.astimezone(UTC)
+            except Exception:
+                return None
+
+        trend_series_points = list(trend_points_raw)
+        trend_bin_tz = self._station_tz if self.station_id else NYC
+        if trend_mode_norm == "hourly" and trend_points_raw:
+            bucket_order: List[str] = []
+            bucket_last: Dict[str, Dict[str, Any]] = {}
+            for p in trend_points_raw:
+                point_ts_utc = _as_dt_utc(p.get("ts_ingest_utc"))
+                if point_ts_utc is None:
                     continue
-                sid = str(row.get("station_id") or "").upper()
-                if not sid:
-                    continue
-                entry = sample_baseline_by_station.get(sid, {})
-                try:
-                    now_n = int(row.get("now_samples"))
-                except Exception:
-                    now_n = None
-                try:
-                    lead_n = int(row.get("lead_samples"))
-                except Exception:
-                    lead_n = None
-                if now_n is not None and "now_samples" not in entry:
-                    entry["now_samples"] = max(0, now_n)
-                if lead_n is not None and "lead_samples" not in entry:
-                    entry["lead_samples"] = max(0, lead_n)
-                if entry:
-                    sample_baseline_by_station[sid] = entry
+                local_ts = point_ts_utc.astimezone(trend_bin_tz)
+                local_hour = local_ts.replace(minute=0, second=0, microsecond=0)
+                bucket_key = local_hour.isoformat()
+                if bucket_key not in bucket_last:
+                    bucket_order.append(bucket_key)
 
-            pws_count += 1
-            latest_any_rows = all_rows
-            latest_any_data = data
-            latest_any_event = event
-            latest_any_idx = idx
+                row = dict(p)
+                row["bucket_local_hour"] = local_hour.strftime("%Y-%m-%d %H:00")
+                row["bucket_timezone"] = trend_bin_tz.key
+                row["ts_nyc"] = local_hour.astimezone(NYC).strftime("%Y-%m-%d %H:%M:%S")
+                row["ts_ingest_utc"] = local_hour.astimezone(UTC).isoformat()
+                bucket_last[bucket_key] = row
 
-            rows = self._extract_station_learning_rows(data, eligible_only=True)
-            if not rows:
-                continue
+            trend_series_points = [bucket_last[k] for k in bucket_order if k in bucket_last]
 
-            leader = rows[0]
-            leader_id = str(leader.get("station_id") or "")
-            market_station_id = str(event.get("station_id") or "").upper()
-            point = {
-                "event_index": idx,
-                "ts_nyc": event.get("ts_nyc"),
-                "ts_ingest_utc": event.get("ts_ingest_utc"),
-                "market_station_id": market_station_id or None,
-                "leader_station_id": leader_id,
-                "leader_weight": leader.get("weight"),
-                "leader_now_score": leader.get("now_score"),
-                "leader_lead_score": leader.get("lead_score"),
-                "weighted_support": data.get("weighted_support"),
-                "support": data.get("support"),
-                "median_f": data.get("median_f"),
-                **_build_metar_context(market_station_id, data.get("median_f")),
-            }
-            points.append(point)
-
-            if leader_id and leader_id != prev_leader:
-                leader_changes.append(point)
-                prev_leader = leader_id
-
-            latest_rows = rows
-            latest_data = data
-            latest_event = event
+        trend_points_final = self._decimate_points(
+            trend_series_points,
+            max(40, int(trend_points)),
+        )
+        trend_payload = {
+            "series_version": "replay_market_pws_v1",
+            "resolution": trend_mode_norm,
+            "bin_timezone": trend_bin_tz.key,
+            "total_points_raw": len(trend_points_raw),
+            "total_points": len(trend_series_points),
+            "points": trend_points_final,
+            "latest": trend_series_points[-1] if trend_series_points else None,
+        }
 
         if pws_count == 0:
             result = {
@@ -1196,6 +1438,7 @@ class ReplaySession:
                 "ranked_pws_events": 0,
                 "current": None,
                 "consensus_snapshot": None,
+                "trend": trend_payload,
                 "timeline": [],
                 "leader_changes": [],
             }
@@ -1243,6 +1486,7 @@ class ReplaySession:
                 "ranked_pws_events": 0,
                 "current": current_payload,
                 "consensus_snapshot": consensus_snapshot,
+                "trend": trend_payload,
                 "timeline": [],
                 "leader_changes": [],
             }
@@ -1271,6 +1515,7 @@ class ReplaySession:
             "ranked_pws_events": len(points),
             "current": current_payload,
             "consensus_snapshot": consensus_snapshot,
+            "trend": trend_payload,
             "timeline": self._decimate_points(points, max(10, int(max_points))),
             "leader_changes": leader_changes[-20:],
         }

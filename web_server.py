@@ -1490,7 +1490,13 @@ async def get_replay_categories(session_id: str):
 
 
 @app.get("/api/v4/replay/session/{session_id}/pws_learning")
-async def get_replay_pws_learning(session_id: str, max_points: int = 80, top_n: int = 6):
+async def get_replay_pws_learning(
+    session_id: str,
+    max_points: int = 80,
+    top_n: int = 6,
+    trend_points: int = 240,
+    trend_mode: str = "hourly",
+):
     """Get PWS learning ranking + leader evolution for replay."""
     from core.replay_engine import get_replay_engine
     engine = get_replay_engine()
@@ -1499,7 +1505,12 @@ async def get_replay_pws_learning(session_id: str, max_points: int = 80, top_n: 
     if not session:
         return {"error": "Session not found"}
 
-    return session.get_pws_learning_summary(max_points=max_points, top_n=top_n)
+    return session.get_pws_learning_summary(
+        max_points=max_points,
+        top_n=top_n,
+        trend_points=trend_points,
+        trend_mode=trend_mode,
+    )
 
 
 @app.post("/api/v4/replay/session/{session_id}/play")

@@ -273,6 +273,149 @@ def test_replay_pws_learning_summary_includes_consensus_snapshot_rows():
     assert row_b["predictive_score"] == 89.0
 
 
+def test_replay_pws_learning_summary_includes_trend_series():
+    from core.replay_engine import ReplaySession
+
+    start = datetime(2026, 2, 6, 12, 0, 0, tzinfo=UTC)
+    events = [
+        {
+            "ch": "world",
+            "station_id": "KLGA",
+            "ts_ingest_utc": start,
+            "ts_nyc": "2026-02-05 19:00:00",
+            "data": {"src": "METAR", "temp_f": 50.0},
+        },
+        {
+            "ch": "market",
+            "station_id": "KLGA",
+            "ts_ingest_utc": start + timedelta(minutes=5),
+            "ts_nyc": "2026-02-05 19:05:00",
+            "data": {
+                "40-41F": {"mid": 0.62},
+                "42-43F": {"mid": 0.27},
+                "44-45F": {"mid": 0.08},
+            },
+        },
+        {
+            "ch": "pws",
+            "station_id": "KLGA",
+            "ts_ingest_utc": start + timedelta(minutes=10),
+            "ts_nyc": "2026-02-05 19:10:00",
+            "data": {
+                "median_f": 51.0,
+                "support": 1,
+                "weighted_support": 1.2,
+                "pws_readings": [
+                    {
+                        "station_id": "A",
+                        "source": "SYNOPTIC",
+                        "temp_f": 51.0,
+                        "weight": 1.2,
+                        "now_score": 80.0,
+                        "lead_score": 75.0,
+                        "now_samples": 6,
+                        "lead_samples": 4,
+                        "rank_eligible": True,
+                    }
+                ],
+                "station_learning": {
+                    "A": {
+                        "station_id": "A",
+                        "weight": 1.2,
+                        "now_score": 80.0,
+                        "lead_score": 75.0,
+                        "predictive_score": 78.0,
+                        "now_samples": 6,
+                        "lead_samples": 4,
+                        "rank_eligible": True,
+                    }
+                },
+            },
+        },
+        {
+            "ch": "nowcast",
+            "station_id": "KLGA",
+            "ts_ingest_utc": start + timedelta(minutes=15),
+            "ts_nyc": "2026-02-05 19:15:00",
+            "data": {"tmax_mean_f": 58.0},
+        },
+    ]
+
+    session = ReplaySession("s3c", "2026-02-06", "KLGA")
+    session._reader = _StubReader(events)
+    ok = asyncio.run(session.load())
+    assert ok
+    session.seek_percent(100)
+
+    summary = session.get_pws_learning_summary(max_points=20, top_n=3, trend_points=120, trend_mode="event")
+    trend = summary.get("trend")
+    assert isinstance(trend, dict)
+    assert trend.get("series_version") == "replay_market_pws_v1"
+    assert trend.get("resolution") == "event"
+    points = trend.get("points", [])
+    assert len(points) >= 3
+    latest = trend.get("latest") or points[-1]
+    assert latest.get("metar_temp_f") == 50.0
+    assert latest.get("pws_consensus_f") == 51.0
+    assert latest.get("pws_top_weight_station_id") == "A"
+    assert latest.get("pws_top_weight_temp_f") == 51.0
+    assert latest.get("helios_prediction_f") == 58.0
+    assert latest.get("pm_top1_prob_pct") == 62.0
+
+
+def test_replay_pws_learning_trend_hourly_bins_points():
+    from core.replay_engine import ReplaySession
+
+    start = datetime(2026, 2, 6, 12, 0, 0, tzinfo=UTC)
+    events = [
+        {
+            "ch": "world",
+            "station_id": "KLGA",
+            "ts_ingest_utc": start,
+            "ts_nyc": "2026-02-05 19:00:00",
+            "data": {"src": "METAR", "temp_f": 50.0},
+        },
+        {
+            "ch": "market",
+            "station_id": "KLGA",
+            "ts_ingest_utc": start + timedelta(minutes=10),
+            "ts_nyc": "2026-02-05 19:10:00",
+            "data": {"40-41F": {"mid": 0.55}},
+        },
+        {
+            "ch": "nowcast",
+            "station_id": "KLGA",
+            "ts_ingest_utc": start + timedelta(minutes=20),
+            "ts_nyc": "2026-02-05 19:20:00",
+            "data": {"tmax_mean_f": 58.0},
+        },
+        {
+            "ch": "world",
+            "station_id": "KLGA",
+            "ts_ingest_utc": start + timedelta(hours=1, minutes=2),
+            "ts_nyc": "2026-02-05 20:02:00",
+            "data": {"src": "METAR", "temp_f": 51.0},
+        },
+    ]
+
+    session = ReplaySession("s3d", "2026-02-06", "KLGA")
+    session._reader = _StubReader(events)
+    ok = asyncio.run(session.load())
+    assert ok
+    session.seek_percent(100)
+
+    summary = session.get_pws_learning_summary(max_points=20, top_n=3, trend_points=120, trend_mode="hourly")
+    trend = summary.get("trend")
+    assert isinstance(trend, dict)
+    assert trend.get("resolution") == "hourly"
+    assert trend.get("bin_timezone") == "America/New_York"
+    points = trend.get("points", [])
+    assert len(points) == 2
+    assert points[0].get("metar_temp_f") == 50.0
+    assert points[1].get("metar_temp_f") == 51.0
+    assert points[0].get("helios_prediction_f") == 58.0
+
+
 def test_replay_category_summary_maps_market_alias_to_l2_snap():
     from core.replay_engine import ReplaySession
 

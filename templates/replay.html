@@ -185,6 +185,23 @@
         transition: width 0.1s;
     }
 
+    .scrubber-preview {
+        position: absolute;
+        top: 0;
+        left: 0;
+        height: 100%;
+        width: 0;
+        background: linear-gradient(90deg, rgba(16,185,129,0.26), rgba(34,211,238,0.18));
+        border-radius: 8px;
+        opacity: 0;
+        transition: width 0.06s linear, opacity 0.12s ease;
+        pointer-events: none;
+    }
+
+    .scrubber-preview.active {
+        opacity: 1;
+    }
+
     .scrubber-handle {
         position: absolute;
         top: 50%;
@@ -831,6 +848,67 @@
         color: #F59E0B;
     }
 
+    .replay-trend-panel {
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(56, 189, 248, 0.20);
+        border-radius: 12px;
+        padding: 16px;
+        margin-bottom: 20px;
+        display: none;
+    }
+    .replay-trend-panel.visible {
+        display: block;
+    }
+    .rt-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 10px;
+        gap: 10px;
+    }
+    .rt-title {
+        font-size: 12px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: #38BDF8;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+    }
+    .rt-title i {
+        width: 14px;
+        height: 14px;
+    }
+    .rt-meta {
+        font-size: 10px;
+        color: var(--text-muted);
+        font-family: 'JetBrains Mono', monospace;
+    }
+    .rt-top3 {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-bottom: 10px;
+    }
+    .rt-pill {
+        border-radius: 999px;
+        border: 1px solid rgba(255,255,255,0.10);
+        background: rgba(255,255,255,0.03);
+        padding: 4px 8px;
+        font-size: 10px;
+        color: var(--text-secondary);
+        font-family: 'JetBrains Mono', monospace;
+    }
+    .rt-chart-wrap {
+        height: 300px;
+        width: 100%;
+        border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 10px;
+        padding: 8px;
+        background: rgba(255,255,255,0.02);
+    }
+
     @media (max-width: 1100px) {
         .mr-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
         .pl-grid { grid-template-columns: 1fr; }
@@ -934,6 +1012,7 @@
         <!-- Scrubber -->
         <div class="timeline-scrubber" id="scrubber">
             <div class="scrubber-progress" id="scrubber-progress"></div>
+            <div class="scrubber-preview" id="scrubber-preview"></div>
             <div class="scrubber-markers" id="scrubber-markers"></div>
             <div class="scrubber-handle" id="scrubber-handle"></div>
         </div>
@@ -1097,6 +1176,17 @@
         </div>
     </div>
 
+    <div class="replay-trend-panel" id="replay-trend-panel">
+        <div class="rt-header">
+            <span class="rt-title"><i data-lucide="line-chart"></i> Replay Multi-Series (Market + NOAA + PWS + Helios)</span>
+            <span class="rt-meta" id="rt-meta">--</span>
+        </div>
+        <div class="rt-top3" id="rt-top3"></div>
+        <div class="rt-chart-wrap">
+            <canvas id="replay-trend-chart"></canvas>
+        </div>
+    </div>
+
     <!-- Combined Timeline -->
     <div class="event-feed" id="event-feed" style="display: none;">
         <div class="feed-header">
@@ -1130,6 +1220,14 @@
     let sessionLoadedChannels = new Set();
     let currentReplayDate = '';
     let currentReplayStation = '';
+    let updateInFlight = false;
+    let queuedForceHeavy = false;
+    let lastHeavyFetchAt = 0;
+    let lastHeavyIndex = -1;
+    let seekInFlight = false;
+    let queuedSeekPercent = null;
+    let wasPollingBeforeDrag = false;
+    let replayTrendChart = null;
 
     // Station timezone info (populated from template data)
     const stationTimezones = {
@@ -1394,10 +1492,21 @@
         const scrubber = document.getElementById('scrubber');
         const scrubberHandle = document.getElementById('scrubber-handle');
         const scrubberProgress = document.getElementById('scrubber-progress');
+        const scrubberPreview = document.getElementById('scrubber-preview');
 
         function getScrubPercent(clientX) {
             const rect = scrubber.getBoundingClientRect();
             return Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100));
+        }
+
+        function setPreviewPercent(pct) {
+            if (!scrubberPreview) return;
+            scrubberPreview.style.width = pct + '%';
+        }
+
+        function setPreviewActive(active) {
+            if (!scrubberPreview) return;
+            scrubberPreview.classList.toggle('active', Boolean(active));
         }
 
         function onDragStart(clientX) {
@@ -1405,15 +1514,21 @@
             scrubberHandle.classList.add('dragging');
             scrubberProgress.classList.remove('animated');
             document.body.style.userSelect = 'none';
+            wasPollingBeforeDrag = !!pollInterval;
+            if (pollInterval) {
+                clearInterval(pollInterval);
+                pollInterval = null;
+            }
             const pct = getScrubPercent(clientX);
-            scrubberProgress.style.width = pct + '%';
+            setPreviewPercent(pct);
+            setPreviewActive(true);
             scrubberHandle.style.left = pct + '%';
         }
 
         function onDragMove(clientX) {
             if (!isDragging) return;
             const pct = getScrubPercent(clientX);
-            scrubberProgress.style.width = pct + '%';
+            setPreviewPercent(pct);
             scrubberHandle.style.left = pct + '%';
         }
 
@@ -1423,7 +1538,14 @@
             scrubberHandle.classList.remove('dragging');
             scrubberProgress.classList.add('animated');
             document.body.style.userSelect = '';
-            seek(getScrubPercent(clientX));
+            const pct = getScrubPercent(clientX);
+            setPreviewPercent(pct);
+            seek(pct).finally(() => {
+                setPreviewActive(false);
+                if (wasPollingBeforeDrag && sessionId) {
+                    adjustPollInterval();
+                }
+            });
         }
 
         scrubber.addEventListener('mousedown', (e) => {
@@ -1516,8 +1638,32 @@
         updateState();
     }
 
-    async function updateState() {
+    function pollIntervalMsForSpeed(speed) {
+        const s = Number(speed) || 1;
+        if (s >= 50) return 260;
+        if (s >= 10) return 250;
+        if (s >= 5) return 280;
+        if (s >= 2) return 320;
+        return 420;
+    }
+
+    function heavyRefreshMsForSpeed(speed) {
+        const s = Number(speed) || 1;
+        if (s >= 50) return 1400;
+        if (s >= 10) return 900;
+        if (s >= 5) return 700;
+        if (s >= 2) return 500;
+        return 260;
+    }
+
+    async function updateState(forceHeavy = false) {
         if (!sessionId) return;
+        if (updateInFlight) {
+            queuedForceHeavy = queuedForceHeavy || Boolean(forceHeavy);
+            return;
+        }
+
+        updateInFlight = true;
 
         try {
             const resp = await fetch(`/api/v4/replay/session/${sessionId}/state`);
@@ -1552,16 +1698,39 @@
                 if (!isDragging) {
                     document.getElementById('scrubber-progress').style.width =
                         progress + '%';
+                    const previewEl = document.getElementById('scrubber-preview');
+                    if (previewEl) {
+                        previewEl.style.width = progress + '%';
+                        previewEl.classList.remove('active');
+                    }
                     document.getElementById('scrubber-handle').style.left =
                         progress + '%';
                 }
             }
 
-            // Get events, categories and PWS learning in parallel
+            const nowMs = Date.now();
+            const currentIndex = Number(data.current_index || 0);
+            const heavyAgeMs = nowMs - lastHeavyFetchAt;
+            const heavyGapIndex = Math.abs(currentIndex - lastHeavyIndex);
+            const heavyByTime = heavyAgeMs >= heavyRefreshMsForSpeed(currentSpeed);
+            const heavyByIndex = lastHeavyIndex < 0 || (isPlaying ? heavyGapIndex >= 40 : heavyGapIndex >= 1);
+            const heavyNeeded = Boolean(
+                forceHeavy || (
+                    !isDragging && (
+                        (isPlaying && (heavyByTime || heavyByIndex)) ||
+                        (!isPlaying && heavyByIndex)
+                    )
+                )
+            );
+            if (!heavyNeeded) {
+                return;
+            }
+
+            // Get events, categories and PWS learning in parallel (throttled).
             const [eventsResp, catResp, pwsLearnResp] = await Promise.all([
                 fetch(`/api/v4/replay/session/${sessionId}/events?n=10`),
                 fetch(`/api/v4/replay/session/${sessionId}/categories`),
-                fetch(`/api/v4/replay/session/${sessionId}/pws_learning?max_points=96&top_n=6`)
+                fetch(`/api/v4/replay/session/${sessionId}/pws_learning?max_points=96&top_n=6&trend_points=320&trend_mode=hourly`)
             ]);
             const eventsData = await eventsResp.json();
             const catData = await catResp.json();
@@ -1569,9 +1738,18 @@
             renderEvents(eventsData);
             renderCategories(catData);
             renderPwsLearning(pwsLearnData, catData);
+            lastHeavyFetchAt = nowMs;
+            lastHeavyIndex = currentIndex;
 
         } catch (e) {
             console.error('State update error:', e);
+        } finally {
+            updateInFlight = false;
+            if (queuedForceHeavy) {
+                const runForced = queuedForceHeavy;
+                queuedForceHeavy = false;
+                setTimeout(() => updateState(runForced), 0);
+            }
         }
     }
 
@@ -1967,6 +2145,247 @@
         `;
     }
 
+    function renderReplayTrend(trendPayload, stationId = currentStationId()) {
+        const panel = document.getElementById('replay-trend-panel');
+        const metaEl = document.getElementById('rt-meta');
+        const top3El = document.getElementById('rt-top3');
+        const canvas = document.getElementById('replay-trend-chart');
+        if (!panel || !metaEl || !top3El || !canvas || typeof Chart === 'undefined') return;
+
+        const payload = trendPayload && typeof trendPayload === 'object' ? trendPayload : {};
+        const points = Array.isArray(payload.points) ? payload.points : [];
+        const resolution = String(payload.resolution || 'event').toLowerCase();
+        const latest = payload.latest && typeof payload.latest === 'object'
+            ? payload.latest
+            : (points.length ? points[points.length - 1] : null);
+
+        if (!points.length) {
+            panel.classList.remove('visible');
+            if (replayTrendChart) {
+                replayTrendChart.destroy();
+                replayTrendChart = null;
+            }
+            return;
+        }
+
+        const asNumOrNull = (v) => {
+            const n = numericOrNaN(v);
+            return Number.isFinite(n) ? n : null;
+        };
+        const asTempOrNull = (v) => {
+            const temp = convertTempFromF(v, stationId);
+            return temp == null || !Number.isFinite(Number(temp)) ? null : Number(temp);
+        };
+
+        const labels = points.map((p) => {
+            if (resolution === 'hourly' && p && p.bucket_local_hour) {
+                const raw = String(p.bucket_local_hour);
+                if (raw.length >= 16) return raw.substring(11, 16);
+            }
+            const ts = String(p && p.ts_nyc || '');
+            if (!ts) return '--';
+            const tz = localTimeFromTsNyc(ts);
+            return tz.local || '--';
+        });
+
+        const dsTop1 = points.map((p) => asNumOrNull(p && p.pm_top1_prob_pct));
+        const dsTop2 = points.map((p) => asNumOrNull(p && p.pm_top2_prob_pct));
+        const dsTop3 = points.map((p) => asNumOrNull(p && p.pm_top3_prob_pct));
+        const dsMetar = points.map((p) => asTempOrNull(p && p.metar_temp_f));
+        const dsPwsConsensus = points.map((p) => asTempOrNull(p && p.pws_consensus_f));
+        const dsPwsLeader = points.map((p) => asTempOrNull(p && p.pws_top_weight_temp_f));
+        const dsHelios = points.map((p) => asTempOrNull(p && p.helios_prediction_f));
+
+        panel.classList.add('visible');
+        const unit = tempUnitSymbol(stationId).trim();
+        const total = Number(payload.total_points || points.length);
+        const rawTotal = Number(payload.total_points_raw || total);
+        const latestTs = String(latest && latest.ts_nyc || '--');
+        const resLabel = resolution === 'hourly' ? `hourly (${String(payload.bin_timezone || '--')})` : 'event';
+        metaEl.textContent = `${points.length}/${total} points | raw ${rawTotal} | ${resLabel} | temp unit ${unit} | latest ${latestTs}`;
+
+        const topLabel = (idx) => {
+            const rank = idx + 1;
+            const lbl = String(latest && latest[`pm_top${rank}_label`] || '--');
+            const prob = asNumOrNull(latest && latest[`pm_top${rank}_prob_pct`]);
+            const probStr = prob == null ? '--' : `${prob.toFixed(1)}%`;
+            return `Top${rank} ${lbl} ${probStr}`;
+        };
+        top3El.innerHTML = [
+            `<span class="rt-pill">${escapeHtml(topLabel(0))}</span>`,
+            `<span class="rt-pill">${escapeHtml(topLabel(1))}</span>`,
+            `<span class="rt-pill">${escapeHtml(topLabel(2))}</span>`,
+        ].join('');
+
+        const datasets = [
+            {
+                label: 'PM Top1 %',
+                data: dsTop1,
+                yAxisID: 'yProb',
+                borderColor: '#F59E0B',
+                backgroundColor: 'rgba(245,158,11,0.18)',
+                borderWidth: 1.8,
+                pointRadius: 0,
+                tension: 0.22,
+                spanGaps: true,
+            },
+            {
+                label: 'PM Top2 %',
+                data: dsTop2,
+                yAxisID: 'yProb',
+                borderColor: '#A78BFA',
+                backgroundColor: 'rgba(167,139,250,0.16)',
+                borderWidth: 1.4,
+                pointRadius: 0,
+                tension: 0.22,
+                spanGaps: true,
+            },
+            {
+                label: 'PM Top3 %',
+                data: dsTop3,
+                yAxisID: 'yProb',
+                borderColor: '#94A3B8',
+                backgroundColor: 'rgba(148,163,184,0.16)',
+                borderWidth: 1.2,
+                pointRadius: 0,
+                tension: 0.22,
+                spanGaps: true,
+            },
+            {
+                label: 'NOAA METAR',
+                data: dsMetar,
+                yAxisID: 'yTemp',
+                borderColor: '#10B981',
+                backgroundColor: 'rgba(16,185,129,0.16)',
+                borderWidth: 2.0,
+                pointRadius: 0,
+                tension: 0.22,
+                spanGaps: true,
+            },
+            {
+                label: 'PWS Consensus',
+                data: dsPwsConsensus,
+                yAxisID: 'yTemp',
+                borderColor: '#22D3EE',
+                backgroundColor: 'rgba(34,211,238,0.16)',
+                borderWidth: 2.0,
+                pointRadius: 0,
+                tension: 0.22,
+                spanGaps: true,
+            },
+            {
+                label: 'PWS Top Weight',
+                data: dsPwsLeader,
+                yAxisID: 'yTemp',
+                borderColor: '#F97316',
+                backgroundColor: 'rgba(249,115,22,0.16)',
+                borderWidth: 1.8,
+                pointRadius: 0,
+                tension: 0.22,
+                spanGaps: true,
+            },
+            {
+                label: 'Helios Pred',
+                data: dsHelios,
+                yAxisID: 'yTemp',
+                borderColor: '#3B82F6',
+                backgroundColor: 'rgba(59,130,246,0.16)',
+                borderWidth: 2.2,
+                pointRadius: 0,
+                tension: 0.22,
+                spanGaps: true,
+            },
+        ];
+
+        const chartData = { labels, datasets };
+        if (!replayTrendChart) {
+            const ctx = canvas.getContext('2d');
+            replayTrendChart = new Chart(ctx, {
+                type: 'line',
+                data: chartData,
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    normalized: true,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    },
+                    plugins: {
+                        legend: {
+                            labels: {
+                                color: '#94a3b8',
+                                boxWidth: 10,
+                                boxHeight: 10,
+                                font: { size: 10 },
+                            },
+                        },
+                        tooltip: {
+                            callbacks: {
+                                title: (items) => {
+                                    const i = items && items[0] ? items[0].dataIndex : -1;
+                                    if (i < 0 || i >= points.length) return '--';
+                                    return String(points[i].ts_nyc || labels[i] || '--');
+                                },
+                            },
+                        },
+                    },
+                    scales: {
+                        x: {
+                            ticks: {
+                                color: '#64748b',
+                                maxTicksLimit: 12,
+                            },
+                            grid: {
+                                color: 'rgba(255,255,255,0.05)',
+                            },
+                        },
+                        yTemp: {
+                            type: 'linear',
+                            position: 'left',
+                            ticks: {
+                                color: '#94a3b8',
+                            },
+                            title: {
+                                display: true,
+                                text: `Temp (${unit})`,
+                                color: '#94a3b8',
+                            },
+                            grid: {
+                                color: 'rgba(255,255,255,0.06)',
+                            },
+                        },
+                        yProb: {
+                            type: 'linear',
+                            position: 'right',
+                            min: 0,
+                            max: 100,
+                            ticks: {
+                                color: '#94a3b8',
+                                callback: (v) => `${v}%`,
+                            },
+                            title: {
+                                display: true,
+                                text: 'Polymarket %',
+                                color: '#94a3b8',
+                            },
+                            grid: {
+                                drawOnChartArea: false,
+                            },
+                        },
+                    },
+                },
+            });
+        } else {
+            replayTrendChart.data = chartData;
+            if (replayTrendChart.options && replayTrendChart.options.scales && replayTrendChart.options.scales.yTemp) {
+                replayTrendChart.options.scales.yTemp.title.text = `Temp (${unit})`;
+            }
+            replayTrendChart.update('none');
+        }
+    }
+
     function renderPwsLearning(payload, categories = null) {
         const panel = document.getElementById('pws-learning-panel');
         const metaEl = document.getElementById('pl-meta');
@@ -1982,6 +2401,7 @@
 
         if (!payload || payload.error) {
             panel.classList.remove('visible');
+            renderReplayTrend(null, currentStationId());
             return;
         }
 
@@ -1999,6 +2419,7 @@
 
         if (!current) {
             panel.classList.remove('visible');
+            renderReplayTrend(payload.trend || null, currentStationId());
             return;
         }
 
@@ -2023,6 +2444,8 @@
             ? localTimeFromTsNyc(pwsTickNyc)
             : { local: '--:--', es: '--:--' };
         const pwsTickLabel = `${pwsTick.local} ${localTzLabel} | ${pwsTick.es} ES`;
+
+        renderReplayTrend(payload.trend || null, stationId);
 
         panel.classList.add('visible');
         metaEl.textContent = `${totalPws} pws ev | ranked ${rankedPws} | market ${marketStation} | pws tick ${pwsTickLabel} | status ${status} | w-support ${Number.isFinite(weightedSupport) ? weightedSupport.toFixed(2) : '--'}`;
@@ -2226,7 +2649,7 @@
                 isPlaying = !isPlaying;
             }
             updatePlayButton();
-            await updateState();
+            await updateState(true);
         } catch (e) {
             console.error('Play/pause error:', e);
         }
@@ -2246,7 +2669,7 @@
             }
             isPlaying = data.state === 'playing';
             updatePlayButton();
-            await updateState();
+            await updateState(true);
         } catch (e) {
             console.error('Stop error:', e);
         }
@@ -2254,8 +2677,7 @@
 
     function adjustPollInterval() {
         if (pollInterval) clearInterval(pollInterval);
-        // Scale: 500ms at 1x, down to 200ms at high speeds
-        const interval = Math.max(200, Math.floor(500 / Math.sqrt(currentSpeed)));
+        const interval = pollIntervalMsForSpeed(currentSpeed);
         pollInterval = setInterval(updateState, interval);
     }
 
@@ -2281,7 +2703,7 @@
                     alert(data.error);
                     return;
                 }
-                await updateState();
+                await updateState(true);
             } catch (e) {
                 console.error('Speed change error:', e);
             }
@@ -2290,19 +2712,30 @@
 
     async function seek(percent) {
         if (!sessionId) return;
+        const clamped = Math.max(0, Math.min(100, Number(percent) || 0));
+        queuedSeekPercent = clamped;
+        if (seekInFlight) return;
+
+        seekInFlight = true;
 
         try {
-            const resp = await fetch(`/api/v4/replay/session/${sessionId}/seek?percent=${percent}`, {
-                method: 'POST'
-            });
-            const data = await resp.json();
-            if (data.error) {
-                alert(data.error);
-                return;
+            while (queuedSeekPercent !== null) {
+                const target = queuedSeekPercent;
+                queuedSeekPercent = null;
+                const resp = await fetch(`/api/v4/replay/session/${sessionId}/seek?percent=${target}`, {
+                    method: 'POST'
+                });
+                const data = await resp.json();
+                if (data.error) {
+                    alert(data.error);
+                    return;
+                }
             }
-            await updateState();
+            await updateState(true);
         } catch (e) {
             console.error('Seek error:', e);
+        } finally {
+            seekInFlight = false;
         }
     }
 
@@ -2318,7 +2751,7 @@
                 alert(data.error);
                 return;
             }
-            await updateState();
+            await updateState(true);
         } catch (e) {
             console.error('Jump error:', e);
         }
