@@ -361,6 +361,7 @@ def test_replay_pws_learning_summary_includes_trend_series():
     assert latest.get("pws_top_weight_temp_f") == 51.0
     assert latest.get("helios_prediction_f") == 58.0
     assert latest.get("pm_top1_prob_pct") == 62.0
+    assert latest.get("pm_top1_midpoint_f") == 40.5
 
 
 def test_replay_pws_learning_trend_hourly_bins_points():
@@ -414,6 +415,7 @@ def test_replay_pws_learning_trend_hourly_bins_points():
     assert points[0].get("metar_temp_f") == 50.0
     assert points[1].get("metar_temp_f") == 51.0
     assert points[0].get("helios_prediction_f") == 58.0
+    assert points[0].get("pm_top1_midpoint_f") == 40.5
 
 
 def test_replay_pws_learning_trend_5min_bins_points():

@@ -16,12 +16,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import re
 from datetime import datetime, timedelta, date as date_cls, time as time_cls
 from enum import Enum
 from typing import Optional, Dict, List, Callable, Any
 from zoneinfo import ZoneInfo
 
 from core.compactor import get_hybrid_reader, HybridReader
+from core.polymarket_labels import parse_label
 from config import STATIONS
 
 logger = logging.getLogger("replay_engine")
@@ -816,6 +818,54 @@ class ReplaySession:
         return None
 
     @staticmethod
+    def _market_label_midpoint_f(label: Any) -> Optional[float]:
+        if label is None:
+            return None
+        txt = str(label).strip()
+        if not txt:
+            return None
+        lower = txt.lower()
+        try:
+            kind, low, high = parse_label(txt)
+        except Exception:
+            kind, low, high = ("unknown", None, None)
+
+        if kind == "range" and low is not None and high is not None:
+            return round((float(low) + float(high)) / 2.0, 4)
+        if kind == "single" and low is not None:
+            return round(float(low), 4)
+        if kind == "below" and high is not None:
+            return round(float(high), 4)
+        if kind == "above" and low is not None:
+            return round(float(low), 4)
+
+        # Fallback parser for raw labels like "40-41F" or "60F or higher".
+        cleaned = txt.replace("Â", "").replace("°", " ").replace("º", " ")
+        m_range = re.search(r"(-?\d+(?:\.\d+)?)\s*[-–]\s*(-?\d+(?:\.\d+)?)", cleaned)
+        if m_range:
+            try:
+                low_v = float(m_range.group(1))
+                high_v = float(m_range.group(2))
+                return round((low_v + high_v) / 2.0, 4)
+            except Exception:
+                pass
+
+        m_num = re.search(r"-?\d+(?:\.\d+)?", cleaned)
+        if not m_num:
+            return None
+        try:
+            n = float(m_num.group(0))
+        except Exception:
+            return None
+
+        # For open-ended buckets we keep threshold as representative midpoint.
+        if "or below" in lower or "or lower" in lower:
+            return round(n, 4)
+        if "or above" in lower or "or higher" in lower:
+            return round(n, 4)
+        return round(n, 4)
+
+    @staticmethod
     def _extract_market_top3(data: Dict[str, Any]) -> List[Dict[str, Any]]:
         if not isinstance(data, dict):
             return []
@@ -831,6 +881,7 @@ class ReplaySession:
             rows.append({
                 "label": str(label),
                 "mid_pct": float(mid_pct),
+                "midpoint_f": ReplaySession._market_label_midpoint_f(label),
             })
         rows.sort(key=lambda r: float(r.get("mid_pct", 0.0)), reverse=True)
         return rows[:3]
@@ -1214,6 +1265,9 @@ class ReplaySession:
             "pm_top1_label": None,
             "pm_top2_label": None,
             "pm_top3_label": None,
+            "pm_top1_midpoint_f": None,
+            "pm_top2_midpoint_f": None,
+            "pm_top3_midpoint_f": None,
             "metar_temp_f": None,
             "pws_consensus_f": None,
             "pws_top_weight_station_id": None,
@@ -1283,15 +1337,20 @@ class ReplaySession:
                 top3 = self._extract_market_top3(data)
                 vals = [None, None, None]
                 labels = [None, None, None]
+                mids = [None, None, None]
                 for i, row in enumerate(top3[:3]):
                     vals[i] = row.get("mid_pct")
                     labels[i] = row.get("label")
+                    mids[i] = row.get("midpoint_f")
                 trend_changed = _set_trend("pm_top1_prob_pct", vals[0]) or trend_changed
                 trend_changed = _set_trend("pm_top2_prob_pct", vals[1]) or trend_changed
                 trend_changed = _set_trend("pm_top3_prob_pct", vals[2]) or trend_changed
                 trend_changed = _set_trend("pm_top1_label", labels[0]) or trend_changed
                 trend_changed = _set_trend("pm_top2_label", labels[1]) or trend_changed
                 trend_changed = _set_trend("pm_top3_label", labels[2]) or trend_changed
+                trend_changed = _set_trend("pm_top1_midpoint_f", _as_float(mids[0])) or trend_changed
+                trend_changed = _set_trend("pm_top2_midpoint_f", _as_float(mids[1])) or trend_changed
+                trend_changed = _set_trend("pm_top3_midpoint_f", _as_float(mids[2])) or trend_changed
 
             if ch == "nowcast":
                 pred = _as_float(data.get("tmax_mean_f"))

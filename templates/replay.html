@@ -1228,6 +1228,8 @@
     let queuedSeekPercent = null;
     let wasPollingBeforeDrag = false;
     let replayTrendChart = null;
+    let replayTrendZoomHandlersAttached = false;
+    let replayTrendDragState = null;
 
     // Station timezone info (populated from template data)
     const stationTimezones = {
@@ -2172,6 +2174,242 @@
         `;
     }
 
+    function parseReplayPointUtcMs(point) {
+        if (!point || typeof point !== 'object') return NaN;
+        const rawUtc = String(point.ts_ingest_utc || '').trim();
+        if (rawUtc) {
+            const tUtc = Date.parse(rawUtc);
+            if (Number.isFinite(tUtc)) return tUtc;
+        }
+
+        const tsNyc = String(point.ts_nyc || '').trim();
+        if (!tsNyc.includes(' ')) return NaN;
+        const [datePart, timePart] = tsNyc.split(' ');
+        if (!datePart || !timePart) return NaN;
+
+        try {
+            const nycFormatter = new Intl.DateTimeFormat('en-US', {
+                timeZone: 'America/New_York',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false,
+            });
+            const nycShort = timePart.substring(0, 8);
+            for (const offset of ['-05:00', '-04:00']) {
+                const candidate = new Date(`${datePart}T${timePart}${offset}`);
+                if (!Number.isFinite(candidate.getTime())) continue;
+                const rendered = nycFormatter.format(candidate);
+                if (rendered === nycShort) {
+                    return candidate.getTime();
+                }
+            }
+            const fallback = new Date(`${datePart}T${timePart}-05:00`);
+            return fallback.getTime();
+        } catch {
+            return NaN;
+        }
+    }
+
+    function formatSeriesAge(ageMinutes) {
+        const age = numericOrNaN(ageMinutes);
+        if (!Number.isFinite(age)) return '--';
+        if (age < (1 / 60)) return '0s';
+        if (age < 1) return `${Math.max(1, Math.round(age * 60))}s`;
+        if (age < 60) return `${Math.round(age)}m`;
+        const h = Math.floor(age / 60);
+        const m = Math.round(age % 60);
+        if (m <= 0) return `${h}h`;
+        return `${h}h ${m}m`;
+    }
+
+    function computeSeriesAgeMinutes(series, pointTimesMs) {
+        const out = new Array(series.length).fill(null);
+        let lastValidTs = null;
+        for (let i = 0; i < series.length; i++) {
+            const v = series[i];
+            const ts = pointTimesMs[i];
+            if (v !== null && v !== undefined && Number.isFinite(Number(v)) && Number.isFinite(ts)) {
+                lastValidTs = ts;
+            }
+            if (lastValidTs !== null && Number.isFinite(ts) && ts >= lastValidTs) {
+                out[i] = (ts - lastValidTs) / 60000;
+            }
+        }
+        return out;
+    }
+
+    function sanitizeMetarSeriesF(rawSeries) {
+        const vals = rawSeries.map((v) => {
+            const n = numericOrNaN(v);
+            return Number.isFinite(n) ? Number(n) : null;
+        });
+        const nearestPrev = (idx) => {
+            for (let i = idx - 1; i >= 0; i--) {
+                if (vals[i] !== null) return vals[i];
+            }
+            return null;
+        };
+        const nearestNext = (idx) => {
+            for (let i = idx + 1; i < vals.length; i++) {
+                if (vals[i] !== null) return vals[i];
+            }
+            return null;
+        };
+
+        for (let i = 0; i < vals.length; i++) {
+            const v = vals[i];
+            if (v === null) continue;
+
+            if (v < -90 || v > 140) {
+                vals[i] = null;
+                continue;
+            }
+
+            const prev = nearestPrev(i);
+            const next = nearestNext(i);
+            if (prev === null || next === null) continue;
+
+            const neighborStable = Math.abs(prev - next) <= 6.0;
+            const neighborMean = (prev + next) / 2.0;
+            const zeroSpike = Math.abs(v) < 0.2 && neighborStable && neighborMean >= 20.0;
+            const hardSpike = neighborStable && Math.abs(v - prev) >= 22.0 && Math.abs(v - next) >= 22.0;
+            if (zeroSpike || hardSpike) {
+                vals[i] = null;
+            }
+        }
+
+        return vals;
+    }
+
+    function setReplayTrendXWindow(chart, minIdx, maxIdx) {
+        if (!chart || !chart.options || !chart.options.scales || !chart.options.scales.x) return;
+        const total = Array.isArray(chart.data?.labels) ? chart.data.labels.length : 0;
+        if (total <= 0) return;
+        const minSpan = Math.min(6, Math.max(1, total - 1));
+        const fullMax = Math.max(0, total - 1);
+        let min = Number(minIdx);
+        let max = Number(maxIdx);
+        if (!Number.isFinite(min) || !Number.isFinite(max)) return;
+        if (max < min) {
+            const t = min;
+            min = max;
+            max = t;
+        }
+        let span = Math.max(minSpan, max - min);
+        min = Math.max(0, min);
+        max = min + span;
+        if (max > fullMax) {
+            max = fullMax;
+            min = Math.max(0, max - span);
+        }
+        span = Math.max(minSpan, max - min);
+        chart.options.scales.x.min = Math.round(min);
+        chart.options.scales.x.max = Math.round(min + span);
+    }
+
+    function resetReplayTrendZoom(chart) {
+        if (!chart || !chart.options || !chart.options.scales || !chart.options.scales.x) return;
+        delete chart.options.scales.x.min;
+        delete chart.options.scales.x.max;
+    }
+
+    function attachReplayTrendZoomControls(canvas) {
+        if (!canvas || replayTrendZoomHandlersAttached) return;
+        replayTrendZoomHandlersAttached = true;
+
+        const onWheel = (ev) => {
+            const chart = replayTrendChart;
+            if (!chart || !chart.scales || !chart.scales.x || !chart.chartArea) return;
+            ev.preventDefault();
+
+            const total = Array.isArray(chart.data?.labels) ? chart.data.labels.length : 0;
+            if (total <= 2) return;
+            const xScale = chart.scales.x;
+            const curMin = Number.isFinite(Number(chart.options?.scales?.x?.min)) ? Number(chart.options.scales.x.min) : 0;
+            const curMax = Number.isFinite(Number(chart.options?.scales?.x?.max)) ? Number(chart.options.scales.x.max) : (total - 1);
+            const curSpan = Math.max(2, curMax - curMin);
+
+            const zoomFactor = ev.deltaY < 0 ? 0.82 : 1.22;
+            let targetSpan = curSpan * zoomFactor;
+            targetSpan = Math.max(6, Math.min(total - 1, targetSpan));
+
+            const anchorRaw = xScale.getValueForPixel(ev.offsetX);
+            const anchor = Number.isFinite(Number(anchorRaw)) ? Number(anchorRaw) : (curMin + curSpan / 2);
+            const leftRatio = curSpan > 0 ? (anchor - curMin) / curSpan : 0.5;
+
+            let newMin = anchor - (targetSpan * leftRatio);
+            let newMax = newMin + targetSpan;
+            if (newMin < 0) {
+                newMin = 0;
+                newMax = targetSpan;
+            }
+            if (newMax > (total - 1)) {
+                newMax = total - 1;
+                newMin = Math.max(0, newMax - targetSpan);
+            }
+
+            setReplayTrendXWindow(chart, newMin, newMax);
+            chart.update('none');
+        };
+
+        const onMouseDown = (ev) => {
+            if (ev.button !== 0) return;
+            const chart = replayTrendChart;
+            if (!chart || !chart.scales || !chart.scales.x || !chart.chartArea) return;
+            const total = Array.isArray(chart.data?.labels) ? chart.data.labels.length : 0;
+            if (total <= 2) return;
+
+            const curMin = Number.isFinite(Number(chart.options?.scales?.x?.min)) ? Number(chart.options.scales.x.min) : 0;
+            const curMax = Number.isFinite(Number(chart.options?.scales?.x?.max)) ? Number(chart.options.scales.x.max) : (total - 1);
+            replayTrendDragState = {
+                startClientX: ev.clientX,
+                startMin: curMin,
+                startMax: curMax,
+            };
+            canvas.style.cursor = 'grabbing';
+            ev.preventDefault();
+        };
+
+        const onMouseMove = (ev) => {
+            if (!replayTrendDragState) return;
+            const chart = replayTrendChart;
+            if (!chart || !chart.chartArea) return;
+            const width = Math.max(1, chart.chartArea.right - chart.chartArea.left);
+            const span = replayTrendDragState.startMax - replayTrendDragState.startMin;
+            if (span <= 0) return;
+            const deltaPx = ev.clientX - replayTrendDragState.startClientX;
+            const deltaIdx = (deltaPx / width) * span;
+            setReplayTrendXWindow(
+                chart,
+                replayTrendDragState.startMin - deltaIdx,
+                replayTrendDragState.startMax - deltaIdx,
+            );
+            chart.update('none');
+        };
+
+        const onMouseUp = () => {
+            replayTrendDragState = null;
+            canvas.style.cursor = 'crosshair';
+        };
+
+        const onDblClick = (ev) => {
+            const chart = replayTrendChart;
+            if (!chart) return;
+            ev.preventDefault();
+            resetReplayTrendZoom(chart);
+            chart.update('none');
+        };
+
+        canvas.style.cursor = 'crosshair';
+        canvas.addEventListener('wheel', onWheel, { passive: false });
+        canvas.addEventListener('mousedown', onMouseDown);
+        canvas.addEventListener('dblclick', onDblClick);
+        window.addEventListener('mousemove', onMouseMove);
+        window.addEventListener('mouseup', onMouseUp);
+        canvas.addEventListener('mouseleave', onMouseUp);
+    }
+
     function renderReplayTrend(trendPayload, stationId = currentStationId()) {
         const panel = document.getElementById('replay-trend-panel');
         const metaEl = document.getElementById('rt-meta');
@@ -2218,20 +2456,33 @@
             const tz = localTimeFromTsNyc(ts);
             return tz.local || '--';
         });
+        const pointTimesMs = points.map((p) => parseReplayPointUtcMs(p));
 
         const pmBracketMidpointTemp = (point, rank) => {
+            const prob = asNumOrNull(point && point[`pm_top${rank}_prob_pct`]);
+            if (prob == null) return null;
+            const midFromBackend = asNumOrNull(point && point[`pm_top${rank}_midpoint_f`]);
             const rawLabel = point ? point[`pm_top${rank}_label`] : null;
-            const midF = marketBracketMidpointF(rawLabel, stationId);
+            const midF = midFromBackend != null ? midFromBackend : marketBracketMidpointF(rawLabel, stationId);
             return asTempOrNull(midF);
         };
 
         const dsTop1 = points.map((p) => pmBracketMidpointTemp(p, 1));
         const dsTop2 = points.map((p) => pmBracketMidpointTemp(p, 2));
         const dsTop3 = points.map((p) => pmBracketMidpointTemp(p, 3));
-        const dsMetar = points.map((p) => asTempOrNull(p && p.metar_temp_f));
+        const metarRawF = points.map((p) => asNumOrNull(p && p.metar_temp_f));
+        const metarCleanF = sanitizeMetarSeriesF(metarRawF);
+        const dsMetar = metarCleanF.map((v) => asTempOrNull(v));
         const dsPwsConsensus = points.map((p) => asTempOrNull(p && p.pws_consensus_f));
         const dsPwsLeader = points.map((p) => asTempOrNull(p && p.pws_top_weight_temp_f));
         const dsHelios = points.map((p) => asTempOrNull(p && p.helios_prediction_f));
+        const ageTop1 = computeSeriesAgeMinutes(dsTop1, pointTimesMs);
+        const ageTop2 = computeSeriesAgeMinutes(dsTop2, pointTimesMs);
+        const ageTop3 = computeSeriesAgeMinutes(dsTop3, pointTimesMs);
+        const ageMetar = computeSeriesAgeMinutes(dsMetar, pointTimesMs);
+        const agePwsConsensus = computeSeriesAgeMinutes(dsPwsConsensus, pointTimesMs);
+        const agePwsLeader = computeSeriesAgeMinutes(dsPwsLeader, pointTimesMs);
+        const ageHelios = computeSeriesAgeMinutes(dsHelios, pointTimesMs);
 
         panel.classList.add('visible');
         const unit = tempUnitSymbol(stationId).trim();
@@ -2244,7 +2495,7 @@
         } else if (resolution === '5min') {
             resLabel = `5min (${String(payload.bin_timezone || '--')})`;
         }
-        metaEl.textContent = `${points.length}/${total} points | raw ${rawTotal} | ${resLabel} | temp unit ${unit} | latest ${latestTs}`;
+        metaEl.textContent = `${points.length}/${total} points | raw ${rawTotal} | ${resLabel} | temp unit ${unit} | latest ${latestTs} | zoom wheel/pan drag/dblclick reset`;
 
         const topLabel = (idx) => {
             const rank = idx + 1;
@@ -2252,7 +2503,8 @@
             const lbl = formatBucketLabelForStation(rawLbl, stationId);
             const prob = asNumOrNull(latest && latest[`pm_top${rank}_prob_pct`]);
             const probStr = prob == null ? '--' : `${prob.toFixed(1)}%`;
-            const midpointF = marketBracketMidpointF(rawLbl, stationId);
+            const midpointRaw = asNumOrNull(latest && latest[`pm_top${rank}_midpoint_f`]);
+            const midpointF = midpointRaw != null ? midpointRaw : marketBracketMidpointF(rawLbl, stationId);
             const midpointText = midpointF == null ? '--' : formatTempFromF(midpointF, 1, stationId);
             return `Top${rank} ${midpointText} (${probStr}) ${lbl}`;
         };
@@ -2274,6 +2526,7 @@
                 tension: 0.22,
                 spanGaps: true,
                 pmRank: 1,
+                ageMinutes: ageTop1,
             },
             {
                 label: 'PM Top2 Bracket',
@@ -2287,6 +2540,7 @@
                 spanGaps: true,
                 borderDash: [6, 3],
                 pmRank: 2,
+                ageMinutes: ageTop2,
             },
             {
                 label: 'PM Top3 Bracket',
@@ -2300,6 +2554,7 @@
                 spanGaps: true,
                 borderDash: [2, 4],
                 pmRank: 3,
+                ageMinutes: ageTop3,
             },
             {
                 label: 'NOAA METAR',
@@ -2311,6 +2566,7 @@
                 pointRadius: 0,
                 tension: 0.22,
                 spanGaps: true,
+                ageMinutes: ageMetar,
             },
             {
                 label: 'PWS Consensus',
@@ -2322,6 +2578,7 @@
                 pointRadius: 0,
                 tension: 0.22,
                 spanGaps: true,
+                ageMinutes: agePwsConsensus,
             },
             {
                 label: 'PWS Top Weight',
@@ -2333,6 +2590,7 @@
                 pointRadius: 0,
                 tension: 0.22,
                 spanGaps: true,
+                ageMinutes: agePwsLeader,
             },
             {
                 label: 'Helios Pred',
@@ -2344,6 +2602,7 @@
                 pointRadius: 0,
                 tension: 0.22,
                 spanGaps: true,
+                ageMinutes: ageHelios,
             },
         ];
 
@@ -2382,17 +2641,20 @@
                                     const dsLabel = String(ctx?.dataset?.label || 'Value');
                                     const yVal = Number(ctx?.parsed?.y);
                                     const valueStr = Number.isFinite(yVal) ? `${yVal.toFixed(1)} ${unit}` : '--';
+                                    const i = Number(ctx?.dataIndex);
+                                    const ageValues = Array.isArray(ctx?.dataset?.ageMinutes) ? ctx.dataset.ageMinutes : [];
+                                    const age = (i >= 0 && i < ageValues.length) ? ageValues[i] : null;
+                                    const ageStr = formatSeriesAge(age);
                                     const pmRank = Number(ctx?.dataset?.pmRank);
                                     if (Number.isFinite(pmRank) && pmRank >= 1 && pmRank <= 3) {
-                                        const i = Number(ctx?.dataIndex);
                                         const point = (i >= 0 && i < points.length) ? points[i] : null;
                                         const rawLabel = String(point && point[`pm_top${pmRank}_label`] || '--');
                                         const bucketLabel = formatBucketLabelForStation(rawLabel, stationId);
                                         const prob = asNumOrNull(point && point[`pm_top${pmRank}_prob_pct`]);
                                         const probStr = prob == null ? '--' : `${prob.toFixed(1)}%`;
-                                        return `${dsLabel}: ${valueStr} (${probStr}) [${bucketLabel}]`;
+                                        return `${dsLabel}: ${valueStr} (${probStr}) [${bucketLabel}] | age ${ageStr}`;
                                     }
-                                    return `${dsLabel}: ${valueStr}`;
+                                    return `${dsLabel}: ${valueStr} | age ${ageStr}`;
                                 },
                             },
                         },
@@ -2425,7 +2687,24 @@
                     },
                 },
             });
+            attachReplayTrendZoomControls(canvas);
         } else {
+            const xOpts = replayTrendChart.options && replayTrendChart.options.scales
+                ? replayTrendChart.options.scales.x
+                : null;
+            if (xOpts) {
+                const lastIdx = Math.max(0, labels.length - 1);
+                if (Number.isFinite(Number(xOpts.min))) {
+                    xOpts.min = Math.max(0, Math.min(lastIdx, Number(xOpts.min)));
+                }
+                if (Number.isFinite(Number(xOpts.max))) {
+                    xOpts.max = Math.max(0, Math.min(lastIdx, Number(xOpts.max)));
+                }
+                if (Number.isFinite(Number(xOpts.min)) && Number.isFinite(Number(xOpts.max)) && Number(xOpts.max) <= Number(xOpts.min)) {
+                    const targetMax = Math.min(lastIdx, Number(xOpts.min) + 6);
+                    xOpts.max = targetMax;
+                }
+            }
             replayTrendChart.data = chartData;
             if (replayTrendChart.options && replayTrendChart.options.scales && replayTrendChart.options.scales.yTemp) {
                 replayTrendChart.options.scales.yTemp.title.text = `Temp (${unit})`;
