@@ -1150,6 +1150,17 @@
         </div>
     </div>
 
+    <div class="replay-trend-panel" id="replay-trend-panel">
+        <div class="rt-header">
+            <span class="rt-title"><i data-lucide="line-chart"></i> Replay Multi-Series (NOAA + PWS + Helios)</span>
+            <span class="rt-meta" id="rt-meta">--</span>
+        </div>
+        <div class="rt-top3" id="rt-top3"></div>
+        <div class="rt-chart-wrap">
+            <canvas id="replay-trend-chart"></canvas>
+        </div>
+    </div>
+
     <!-- PWS Learning Replay Panel -->
     <div class="pws-learning-panel" id="pws-learning-panel">
         <div class="pl-header">
@@ -1173,17 +1184,6 @@
             <div class="pl-card-title">PWS Consensus Snapshot (temperatura por estacion + historico acumulado)</div>
             <div id="pl-consensus-summary" class="pl-consensus-summary"></div>
             <div id="pl-consensus-table" class="pl-consensus-table-wrap"></div>
-        </div>
-    </div>
-
-    <div class="replay-trend-panel" id="replay-trend-panel">
-        <div class="rt-header">
-            <span class="rt-title"><i data-lucide="line-chart"></i> Replay Multi-Series (Market + NOAA + PWS + Helios)</span>
-            <span class="rt-meta" id="rt-meta">--</span>
-        </div>
-        <div class="rt-top3" id="rt-top3"></div>
-        <div class="rt-chart-wrap">
-            <canvas id="replay-trend-chart"></canvas>
         </div>
     </div>
 
@@ -2564,9 +2564,6 @@
         const dsPwsConsensus = points.map((p) => asTempOrNull(p && p.pws_consensus_f));
         const dsPwsLeader = points.map((p) => asTempOrNull(p && p.pws_top_weight_temp_f));
         const dsHelios = points.map((p) => asTempOrNull(p && p.helios_prediction_f));
-        const ageTop1 = computeSeriesAgeMinutes(dsTop1, pointTimesMs);
-        const ageTop2 = computeSeriesAgeMinutes(dsTop2, pointTimesMs);
-        const ageTop3 = computeSeriesAgeMinutes(dsTop3, pointTimesMs);
         const ageMetar = computeSeriesAgeMinutes(dsMetar, pointTimesMs);
         const agePwsConsensus = computeSeriesAgeMinutes(dsPwsConsensus, pointTimesMs);
         const agePwsLeader = computeSeriesAgeMinutes(dsPwsLeader, pointTimesMs);
@@ -2657,52 +2654,6 @@
                 ageMinutes: ageHelios,
             },
         ];
-        if (hasPmData) {
-            datasets.unshift(
-                {
-                    label: 'PM Top1 Bracket',
-                    data: dsTop1,
-                    yAxisID: 'yTemp',
-                    borderColor: '#F59E0B',
-                    backgroundColor: 'rgba(245,158,11,0.18)',
-                    borderWidth: 1.8,
-                    pointRadius: 0,
-                    tension: 0.22,
-                    spanGaps: true,
-                    pmRank: 1,
-                    ageMinutes: ageTop1,
-                },
-                {
-                    label: 'PM Top2 Bracket',
-                    data: dsTop2,
-                    yAxisID: 'yTemp',
-                    borderColor: '#A78BFA',
-                    backgroundColor: 'rgba(167,139,250,0.16)',
-                    borderWidth: 1.4,
-                    pointRadius: 0,
-                    tension: 0.22,
-                    spanGaps: true,
-                    borderDash: [6, 3],
-                    pmRank: 2,
-                    ageMinutes: ageTop2,
-                },
-                {
-                    label: 'PM Top3 Bracket',
-                    data: dsTop3,
-                    yAxisID: 'yTemp',
-                    borderColor: '#94A3B8',
-                    backgroundColor: 'rgba(148,163,184,0.16)',
-                    borderWidth: 1.2,
-                    pointRadius: 0,
-                    tension: 0.22,
-                    spanGaps: true,
-                    borderDash: [2, 4],
-                    pmRank: 3,
-                    ageMinutes: ageTop3,
-                }
-            );
-        }
-
         const chartData = { labels, datasets };
         if (!replayTrendChart) {
             const ctx = canvas.getContext('2d');
