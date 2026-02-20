@@ -193,6 +193,14 @@ _STATION_STATE: Dict[str, str] = {
     "LTAC": "",  # non-US
 }
 
+# Stations where Synoptic coverage is often sparse/absent and we want
+# stronger real-PWS-first behavior (WU/MADIS) with Open-Meteo as fallback.
+_REAL_PWS_PRIORITY_STATIONS = {"EGLC", "LTAC"}
+_WUNDERGROUND_DISCOVERY_MIN_CANDIDATES: Dict[str, int] = {
+    "EGLC": 30,
+    "LTAC": 30,
+}
+
 
 # ---------------------------------------------------------------------------
 # Data classes
@@ -1045,20 +1053,31 @@ async def _fetch_wunderground_cluster(station_id: str, max_stations: int) -> Opt
         logger.info(f"Wunderground {station_id}: API key not configured")
         return None
 
-    candidates = _load_wunderground_candidates(station_id, max_stations=max_stations)
-    if not candidates:
+    sid = station_id.upper()
+    discovery_limit = max_stations
+    if sid in _WUNDERGROUND_DISCOVERY_MIN_CANDIDATES:
+        discovery_limit = max(discovery_limit, _WUNDERGROUND_DISCOVERY_MIN_CANDIDATES[sid])
+
+    candidates = _load_wunderground_candidates(sid, max_stations=discovery_limit)
+    discovered: List[Dict[str, Any]] = []
+
+    should_discover = sid in _REAL_PWS_PRIORITY_STATIONS or not candidates
+    if should_discover:
         discovered = await _discover_wunderground_candidates(
-            station_id,
+            sid,
             center_lat=center_lat,
             center_lon=center_lon,
-            max_stations=max_stations,
+            max_stations=discovery_limit,
             api_key=api_key,
         )
         if discovered:
-            candidates = discovered
-        else:
-            logger.info(f"Wunderground {station_id}: no station candidates configured")
-            return None
+            merged = _dedupe_wunderground_candidates(candidates + discovered)
+            merged.sort(key=lambda x: _float_or_none(x.get("distance_km")) or 9999.0)
+            candidates = merged[:discovery_limit] if discovery_limit > 0 else merged
+
+    if not candidates:
+        logger.info(f"Wunderground {sid}: no station candidates configured")
+        return None
 
     limits = httpx.Limits(max_connections=max(16, len(candidates) * 2), max_keepalive_connections=8)
     async with httpx.AsyncClient(limits=limits) as client:
@@ -1075,12 +1094,12 @@ async def _fetch_wunderground_cluster(station_id: str, max_stations: int) -> Opt
         results = await asyncio.gather(*tasks)
 
     readings = [r for r in results if r is not None]
-    if not readings and station_id.upper() not in {"KLGA", "KATL"}:
+    if not readings and sid not in {"KLGA", "KATL"} and not discovered:
         discovered = await _discover_wunderground_candidates(
-            station_id,
+            sid,
             center_lat=center_lat,
             center_lon=center_lon,
-            max_stations=max_stations,
+            max_stations=discovery_limit,
             api_key=api_key,
         )
         if discovered:
@@ -1265,6 +1284,88 @@ def _weighted_mad(values: List[float], weights: List[float], center: float) -> f
     return float(_weighted_median(deviations, weights))
 
 
+def _is_real_pws_source(source: str) -> bool:
+    src = str(source or "").upper()
+    return src == "SYNOPTIC" or src == "WUNDERGROUND" or src.startswith("MADIS_")
+
+
+def _count_real_pws_readings(readings: Sequence[PWSReading]) -> int:
+    return sum(1 for r in readings if _is_real_pws_source(r.source))
+
+
+def _effective_min_support(station_id: str, default_min_support: int, real_count: int) -> int:
+    """
+    Keep strict support by default, but for sparse non-US markets allow
+    publishing with small real-PWS clusters instead of dropping to None.
+    """
+    base = max(1, int(default_min_support))
+    sid = str(station_id or "").upper()
+    if sid not in _REAL_PWS_PRIORITY_STATIONS:
+        return base
+    if real_count >= 2:
+        return min(base, 2)
+    if real_count == 1:
+        return 1
+    return base
+
+
+def _select_open_meteo_readings(
+    station_id: str,
+    open_meteo_readings: Optional[List[PWSReading]],
+    real_count: int,
+) -> List[PWSReading]:
+    """
+    Open-Meteo is pseudo-station data. Keep it as fallback, but cap influence
+    when real stations are available.
+    """
+    if not open_meteo_readings:
+        return []
+
+    sid = str(station_id or "").upper()
+    if real_count <= 0:
+        return list(open_meteo_readings)
+
+    cap = len(open_meteo_readings)
+    if sid in _REAL_PWS_PRIORITY_STATIONS:
+        if real_count >= 4:
+            cap = 0
+        elif real_count >= 2:
+            cap = 2
+        else:
+            cap = 4
+    else:
+        if real_count >= 5:
+            cap = 3
+
+    if cap <= 0:
+        return []
+
+    ranked = sorted(open_meteo_readings, key=lambda r: (r.age_minutes, r.distance_km))
+    return ranked[:cap]
+
+
+def _source_weight_multiplier(station_id: str, source: str, real_count: int) -> float:
+    sid = str(station_id or "").upper()
+    src = str(source or "").upper()
+
+    if sid in _REAL_PWS_PRIORITY_STATIONS:
+        if src == "OPEN_METEO":
+            return 0.20 if real_count >= 2 else 0.45
+        if src == "WUNDERGROUND":
+            return 1.20
+        if src.startswith("MADIS_"):
+            return 1.10
+        if src == "SYNOPTIC":
+            return 1.25
+        return 1.0
+
+    if src == "OPEN_METEO":
+        return 0.60 if real_count >= 4 else 0.80
+    if src == "WUNDERGROUND":
+        return 1.05
+    return 1.0
+
+
 def _build_source_metrics(readings: List[PWSReading], min_support: int) -> Dict[str, Dict[str, float]]:
     """
     Build canonical HELIOS-facing metrics for source subsets.
@@ -1338,8 +1439,19 @@ async def fetch_pws_cluster(station_id: str, min_support: int = PWS_MIN_SUPPORT)
         max_stations=max_stations,
         providers=providers,
     )
-    open_meteo_readings = await _fetch_open_meteo_cluster(station_id)
+    open_meteo_raw = await _fetch_open_meteo_cluster(station_id)
     wunderground_readings = await _fetch_wunderground_cluster(station_id, max_stations=max_stations)
+
+    real_count_pre_policy = (
+        (len(synoptic_readings) if synoptic_readings else 0)
+        + (len(madis_readings) if madis_readings else 0)
+        + (len(wunderground_readings) if wunderground_readings else 0)
+    )
+    open_meteo_readings = _select_open_meteo_readings(
+        station_id=station_id,
+        open_meteo_readings=open_meteo_raw,
+        real_count=real_count_pre_policy,
+    )
 
     readings: List[PWSReading] = []
     if synoptic_readings:
@@ -1355,23 +1467,30 @@ async def fetch_pws_cluster(station_id: str, min_support: int = PWS_MIN_SUPPORT)
         logger.warning(f"PWS {station_id}: Synoptic, MADIS, Open-Meteo and Wunderground returned no data")
         return None
 
+    real_count = _count_real_pws_readings(readings)
+    effective_min_support = _effective_min_support(station_id, min_support, real_count)
+
     synoptic_count = len(synoptic_readings) if synoptic_readings else 0
     madis_count = len(madis_readings) if madis_readings else 0
     open_meteo_count = len(open_meteo_readings) if open_meteo_readings else 0
     wunderground_count = len(wunderground_readings) if wunderground_readings else 0
     logger.info(
-        "PWS %s: source mix Synoptic=%s, MADIS=%s, Open-Meteo=%s, Wunderground=%s, total=%s",
+        "PWS %s: source mix Synoptic=%s, MADIS=%s, Open-Meteo=%s, Wunderground=%s, real=%s, total=%s, min_support=%s",
         station_id,
         synoptic_count,
         madis_count,
         open_meteo_count,
         wunderground_count,
+        real_count,
         len(readings),
+        effective_min_support,
     )
 
     total_queried = len(readings)
-    if total_queried < min_support:
-        logger.warning(f"PWS {station_id}: {total_queried} readings, below min_support={min_support}")
+    if total_queried < effective_min_support:
+        logger.warning(
+            f"PWS {station_id}: {total_queried} readings, below min_support={effective_min_support}"
+        )
         return None
 
     # QC Layer 1: Hard rules
@@ -1386,7 +1505,7 @@ async def fetch_pws_cluster(station_id: str, min_support: int = PWS_MIN_SUPPORT)
             r.valid = False
             r.qc_flag = "HARD_RULE_FAIL"
 
-    if len(valid_readings) < min_support:
+    if len(valid_readings) < effective_min_support:
         logger.warning(f"PWS {station_id}: only {len(valid_readings)} valid after hard-rule QC")
         return None
 
@@ -1417,14 +1536,18 @@ async def fetch_pws_cluster(station_id: str, min_support: int = PWS_MIN_SUPPORT)
         sid: float(profile.get("weight", 1.0))
         for sid, profile in learning_profiles.items()
     }
-    final_weights = [max(0.05, float(learning_weights_map.get(r.label.upper(), 1.0))) for r in final_valid]
+    final_weights: List[float] = []
+    for r in final_valid:
+        base_weight = max(0.05, float(learning_weights_map.get(r.label.upper(), 1.0)))
+        source_weight = _source_weight_multiplier(station_id, r.source, real_count=real_count)
+        final_weights.append(max(0.05, base_weight * source_weight))
 
     median_val = _weighted_median(final_temps, final_weights)
     mad = _weighted_mad(final_temps, final_weights, median_val)
 
-    if len(final_valid) < min_support:
+    if len(final_valid) < effective_min_support:
         logger.warning(
-            f"PWS {station_id}: only {len(final_valid)} valid after MAD, below min_support={min_support}"
+            f"PWS {station_id}: only {len(final_valid)} valid after MAD, below min_support={effective_min_support}"
         )
         return None
 
@@ -1444,7 +1567,7 @@ async def fetch_pws_cluster(station_id: str, min_support: int = PWS_MIN_SUPPORT)
         len(final_valid),
     )
 
-    source_metrics = _build_source_metrics(readings, min_support=min_support)
+    source_metrics = _build_source_metrics(readings, min_support=effective_min_support)
 
     return PWSConsensus(
         station_id=station_id,

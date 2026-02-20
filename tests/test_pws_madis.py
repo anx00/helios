@@ -6,11 +6,16 @@ from datetime import datetime, timedelta, timezone
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from collector.pws_fetcher import (
+    PWSReading,
     _build_madis_query_params,
+    _effective_min_support,
+    _is_real_pws_source,
     _load_wunderground_candidates,
     _normalize_open_meteo_payload,
     _parse_madis_xml_records,
     _parse_open_meteo_obs_time,
+    _select_open_meteo_readings,
+    _source_weight_multiplier,
     _weighted_mad,
     _weighted_median,
 )
@@ -126,6 +131,51 @@ class TestMadisPwsParser(unittest.TestCase):
         ltac_ids = {str(r.get("station_id")) for r in ltac}
         self.assertIn("ILONDO288", eglc_ids)
         self.assertIn("IANKAR46", ltac_ids)
+
+    def test_effective_min_support_relaxes_for_sparse_priority_markets(self):
+        self.assertEqual(_effective_min_support("EGLC", 3, real_count=0), 3)
+        self.assertEqual(_effective_min_support("EGLC", 3, real_count=1), 1)
+        self.assertEqual(_effective_min_support("EGLC", 3, real_count=2), 2)
+        self.assertEqual(_effective_min_support("LTAC", 4, real_count=2), 2)
+        self.assertEqual(_effective_min_support("KLGA", 3, real_count=1), 3)
+
+    def test_select_open_meteo_readings_caps_when_real_sources_exist(self):
+        sample = [
+            PWSReading(
+                lat=0.0,
+                lon=0.0,
+                temp_c=10.0 + idx,
+                label=f"OM_{idx}",
+                source="OPEN_METEO",
+                distance_km=float(idx),
+                age_minutes=float(idx),
+            )
+            for idx in range(6)
+        ]
+        eglc_with_real = _select_open_meteo_readings("EGLC", sample, real_count=3)
+        self.assertEqual(len(eglc_with_real), 2)
+        self.assertEqual([r.label for r in eglc_with_real], ["OM_0", "OM_1"])
+
+        eglc_no_real = _select_open_meteo_readings("EGLC", sample, real_count=0)
+        self.assertEqual(len(eglc_no_real), 6)
+
+        klga_dense_real = _select_open_meteo_readings("KLGA", sample, real_count=6)
+        self.assertEqual(len(klga_dense_real), 3)
+
+    def test_source_weight_multiplier_prioritizes_real_pws_for_eglc(self):
+        w_wu = _source_weight_multiplier("EGLC", "WUNDERGROUND", real_count=3)
+        w_madis = _source_weight_multiplier("EGLC", "MADIS_APRSWXNET", real_count=3)
+        w_om = _source_weight_multiplier("EGLC", "OPEN_METEO", real_count=3)
+
+        self.assertGreater(w_wu, w_madis)
+        self.assertGreater(w_madis, w_om)
+        self.assertLess(w_om, 1.0)
+
+    def test_real_source_classifier(self):
+        self.assertTrue(_is_real_pws_source("SYNOPTIC"))
+        self.assertTrue(_is_real_pws_source("WUNDERGROUND"))
+        self.assertTrue(_is_real_pws_source("MADIS_APRSWXNET"))
+        self.assertFalse(_is_real_pws_source("OPEN_METEO"))
 
 
 if __name__ == "__main__":
