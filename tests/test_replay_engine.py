@@ -494,6 +494,39 @@ def test_replay_market_top3_fallback_uses_bid_ask_and_c_midpoint_to_f():
     assert abs(float(second.get("midpoint_f")) - 41.9) < 0.01
 
 
+def test_replay_market_top3_wide_spread_prefers_tradable_bid():
+    from core.replay_engine import ReplaySession
+
+    rows = ReplaySession._extract_market_top3({
+        "12Â°C": {"best_bid": 0.38, "best_ask": 0.49, "mid": 0.435},
+        "13Â°C or higher": {"best_bid": 0.04, "best_ask": 0.08, "mid": 0.06},
+    })
+
+    assert len(rows) == 2
+    top = rows[0]
+    assert top.get("label") == "12Â°C"
+    # Wide spread => use executable bid, not midpoint.
+    assert top.get("mid_pct") == 38.0
+
+
+def test_replay_market_top3_uses_no_book_to_tighten_yes_quotes():
+    from core.replay_engine import ReplaySession
+
+    rows = ReplaySession._extract_market_top3({
+        "12Â°C": {
+            "best_bid": 0.38,
+            "best_ask": 0.49,
+            "mid": 0.435,
+            "no_best_bid": 0.59,  # implied yes ask = 0.41
+            "no_best_ask": 0.62,  # implied yes bid = 0.38
+        },
+    })
+
+    assert len(rows) == 1
+    # After using NO side, spread becomes tight (38-41) so midpoint is reasonable.
+    assert rows[0].get("mid_pct") == 39.5
+
+
 def test_replay_category_summary_maps_market_alias_to_l2_snap():
     from core.replay_engine import ReplaySession
 

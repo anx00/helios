@@ -23,6 +23,7 @@ from typing import Optional, Dict, List, Callable, Any
 from zoneinfo import ZoneInfo
 
 from core.compactor import get_hybrid_reader, HybridReader
+from core.market_pricing import normalize_probability_pct, select_probability_pct_from_quotes
 from config import STATIONS
 
 logger = logging.getLogger("replay_engine")
@@ -802,19 +803,7 @@ class ReplaySession:
 
     @staticmethod
     def _normalize_probability_pct(value: Any) -> Optional[float]:
-        try:
-            n = float(value)
-        except Exception:
-            return None
-        if not math.isfinite(n):
-            return None
-        if n < 0:
-            return None
-        if n <= 1.000001:
-            return round(n * 100.0, 4)
-        if n <= 100.000001:
-            return round(n, 4)
-        return None
+        return normalize_probability_pct(value)
 
     @staticmethod
     def _market_label_midpoint_f(label: Any) -> Optional[float]:
@@ -871,21 +860,35 @@ class ReplaySession:
                 continue
             if not isinstance(payload, dict):
                 continue
+            bid_pct_direct = ReplaySession._normalize_probability_pct(payload.get("best_bid"))
+            ask_pct_direct = ReplaySession._normalize_probability_pct(payload.get("best_ask"))
             mid_pct = ReplaySession._normalize_probability_pct(payload.get("mid"))
-            if mid_pct is None:
-                bid_pct = ReplaySession._normalize_probability_pct(payload.get("best_bid"))
-                ask_pct = ReplaySession._normalize_probability_pct(payload.get("best_ask"))
-                if bid_pct is not None and ask_pct is not None:
-                    mid_pct = round((bid_pct + ask_pct) / 2.0, 4)
-                elif bid_pct is not None:
-                    mid_pct = bid_pct
-                elif ask_pct is not None:
-                    mid_pct = ask_pct
-            if mid_pct is None:
+            no_bid_pct = ReplaySession._normalize_probability_pct(payload.get("no_best_bid"))
+            no_ask_pct = ReplaySession._normalize_probability_pct(payload.get("no_best_ask"))
+
+            implied_yes_bid_from_no_pct = (100.0 - no_ask_pct) if no_ask_pct is not None else None
+            implied_yes_ask_from_no_pct = (100.0 - no_bid_pct) if no_bid_pct is not None else None
+
+            bid_candidates = [v for v in [bid_pct_direct, implied_yes_bid_from_no_pct] if v is not None]
+            ask_candidates = [v for v in [ask_pct_direct, implied_yes_ask_from_no_pct] if v is not None]
+            bid_pct = max(bid_candidates) if bid_candidates else None
+            ask_pct = min(ask_candidates) if ask_candidates else None
+
+            ref_pct = ReplaySession._normalize_probability_pct(
+                payload.get("yes_price") if payload.get("yes_price") is not None else payload.get("reference")
+            )
+            selected_pct = select_probability_pct_from_quotes(
+                best_bid_pct=bid_pct,
+                best_ask_pct=ask_pct,
+                mid_pct=mid_pct,
+                reference_pct=ref_pct,
+            )
+            if selected_pct is None:
                 continue
             rows.append({
                 "label": str(label),
-                "mid_pct": float(mid_pct),
+                # Backward-compatible field name used by UI payload.
+                "mid_pct": float(selected_pct),
                 "midpoint_f": ReplaySession._market_label_midpoint_f(label),
             })
         rows.sort(key=lambda r: float(r.get("mid_pct", 0.0)), reverse=True)

@@ -50,6 +50,7 @@ from core.hourly_curve import (
     nudge_curve_to_target_max,
     shift_curve_toward_peak,
 )
+from core.market_pricing import select_probability_01_from_quotes
 
 def build_synthetic_hourly_curve_f(
     now_utc: datetime,
@@ -1108,27 +1109,52 @@ async def recorder_loop():
                         m_station, bracket, outcome = _parse_market_info(raw_info)
                         if m_station not in active:
                             continue
-                        # Keep recorder parity with nowcast labels: YES book is source of truth.
-                        if outcome != "yes":
-                            continue
 
                         snap = book.get_l2_snapshot(top_n=10)
                         if not snap:
                             continue
 
-                        station_books[m_station][bracket] = {
-                            "token_id": token_id,
-                            "best_bid": snap.get("best_bid"),
-                            "best_ask": snap.get("best_ask"),
-                            "spread": snap.get("spread"),
-                            "mid": snap.get("mid"),
-                            "bid_depth": snap.get("bid_depth"),
-                            "ask_depth": snap.get("ask_depth"),
-                            "bids": snap.get("bids"),
-                            "asks": snap.get("asks"),
-                            "staleness_ms": snap.get("staleness_ms"),
-                            "ts_provider": snap.get("ts_provider"),
-                        }
+                        bucket = station_books[m_station].setdefault(bracket, {})
+                        side = str(outcome or "").lower()
+                        if side == "yes":
+                            bucket.update({
+                                "token_id": token_id,  # Backward-compatible YES token
+                                "yes_token_id": token_id,
+                                "best_bid": snap.get("best_bid"),
+                                "best_ask": snap.get("best_ask"),
+                                "spread": snap.get("spread"),
+                                "mid": snap.get("mid"),
+                                "bid_depth": snap.get("bid_depth"),
+                                "ask_depth": snap.get("ask_depth"),
+                                "bids": snap.get("bids"),
+                                "asks": snap.get("asks"),
+                                "staleness_ms": snap.get("staleness_ms"),
+                                "ts_provider": snap.get("ts_provider"),
+                                "yes_best_bid": snap.get("best_bid"),
+                                "yes_best_ask": snap.get("best_ask"),
+                                "yes_spread": snap.get("spread"),
+                                "yes_mid": snap.get("mid"),
+                                "yes_bid_depth": snap.get("bid_depth"),
+                                "yes_ask_depth": snap.get("ask_depth"),
+                                "yes_staleness_ms": snap.get("staleness_ms"),
+                                "yes_ts_provider": snap.get("ts_provider"),
+                            })
+                        elif side == "no":
+                            bucket.update({
+                                "no_token_id": token_id,
+                                "no_best_bid": snap.get("best_bid"),
+                                "no_best_ask": snap.get("best_ask"),
+                                "no_spread": snap.get("spread"),
+                                "no_mid": snap.get("mid"),
+                                "no_bid_depth": snap.get("bid_depth"),
+                                "no_ask_depth": snap.get("ask_depth"),
+                                "no_bids": snap.get("bids"),
+                                "no_asks": snap.get("asks"),
+                                "no_staleness_ms": snap.get("staleness_ms"),
+                                "no_ts_provider": snap.get("ts_provider"),
+                            })
+                        else:
+                            continue
 
                         staleness_val = snap.get("staleness_ms")
                         if staleness_val is not None:
@@ -3817,15 +3843,32 @@ def _first_float(*values) -> Optional[float]:
 
 
 def _resolve_yes_probability_from_bracket(bracket: Dict[str, Any]) -> Optional[float]:
-    yes_bid = _first_float(bracket.get("ws_yes_best_bid"), bracket.get("ws_best_bid"))
-    yes_ask = _first_float(bracket.get("ws_yes_best_ask"), bracket.get("ws_best_ask"))
-    yes_mid_from_book = None
-    if yes_bid is not None and yes_ask is not None:
-        yes_mid_from_book = (yes_bid + yes_ask) / 2.0
-    yes_mid = _first_float(bracket.get("ws_yes_mid"), bracket.get("ws_mid"), yes_mid_from_book, bracket.get("yes_price"))
-    if yes_mid is None:
+    yes_bid_direct = _first_float(bracket.get("ws_yes_best_bid"), bracket.get("ws_best_bid"))
+    yes_ask_direct = _first_float(bracket.get("ws_yes_best_ask"), bracket.get("ws_best_ask"))
+    no_bid = _first_float(bracket.get("ws_no_best_bid"))
+    no_ask = _first_float(bracket.get("ws_no_best_ask"))
+
+    implied_yes_bid_from_no = (1.0 - no_ask) if no_ask is not None else None
+    implied_yes_ask_from_no = (1.0 - no_bid) if no_bid is not None else None
+
+    bid_candidates = [v for v in [yes_bid_direct, implied_yes_bid_from_no] if v is not None]
+    ask_candidates = [v for v in [yes_ask_direct, implied_yes_ask_from_no] if v is not None]
+    yes_bid = max(bid_candidates) if bid_candidates else None
+    yes_ask = min(ask_candidates) if ask_candidates else None
+
+    yes_mid = _first_float(bracket.get("ws_yes_mid"), bracket.get("ws_mid"))
+    yes_price_ref = _first_float(bracket.get("yes_price"))
+    selected = select_probability_01_from_quotes(
+        best_bid=yes_bid,
+        best_ask=yes_ask,
+        mid=yes_mid,
+        reference=yes_price_ref,
+        wide_spread_threshold=0.04,
+        reference_tolerance=0.005,
+    )
+    if selected is None:
         return None
-    return max(0.0, min(1.0, float(yes_mid)))
+    return max(0.0, min(1.0, float(selected)))
 
 
 def _convert_market_label_to_f(label: str, market_unit: str) -> str:
