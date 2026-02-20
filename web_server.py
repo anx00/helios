@@ -330,6 +330,7 @@ async def get_market_data(station_id: str, target_day: int = 0):
 async def startup_event():
     """Start background monitoring tasks."""
     from database import init_database
+    from core.telegram_bot import build_telegram_bot_from_env
     init_database()
     # Task 0: Immediate PWS fetch (no delay)
     asyncio.create_task(pws_loop())
@@ -347,6 +348,11 @@ async def startup_event():
     asyncio.create_task(autotrader_loop())
     # Task 7: Nightly offline learning cycle
     asyncio.create_task(learning_nightly_loop())
+    # Task 8: Telegram bot (optional, enabled with TELEGRAM_BOT_TOKEN)
+    telegram_bot = build_telegram_bot_from_env()
+    if telegram_bot:
+        asyncio.create_task(telegram_bot.run_forever())
+        logger.info("Telegram bot enabled")
 
 async def _resolve_station_tokens(
     station_id: str,
