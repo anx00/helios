@@ -10,7 +10,7 @@ import re
 from bs4 import BeautifulSoup
 from dataclasses import dataclass
 from datetime import datetime, date, timezone
-from typing import Optional
+from typing import Optional, List, Tuple
 from zoneinfo import ZoneInfo
 
 from config import STATIONS, WUNDERGROUND_API_KEY
@@ -32,6 +32,8 @@ class WundergroundObservation:
     high_temp_time: Optional[str]   # When the max occurred (local time string)
     current_temp_f: Optional[float] # Current temperature
     forecast_high_f: Optional[float] = None # v5.1: WU Forecasted peak for the day
+    forecast_peak_hour_local: Optional[int] = None  # Hour (0-23) of WU hourly-forecast max
+    forecast_peak_temp_f: Optional[float] = None    # Temperature at forecast peak hour
     source: str = "wunderground"
     
     # Hourly data
@@ -136,6 +138,58 @@ def _scrape_forecast_high_from_weather_page(html: str, target_date: date, use_me
     return None
 
 
+def _extract_hourly_forecast_rows_f(
+    temperatures: List,
+    valid_times_local: List,
+    target_date: date,
+    local_tz: ZoneInfo,
+    use_metric: bool,
+) -> List[Tuple[int, float]]:
+    """
+    Extract hourly forecast rows for target_date as (hour_local, temp_f).
+    """
+    rows: List[Tuple[int, float]] = []
+    if not temperatures or not valid_times_local:
+        return rows
+
+    max_len = min(len(temperatures), len(valid_times_local))
+    for i in range(max_len):
+        temp = temperatures[i]
+        ts = valid_times_local[i]
+        if temp is None or not ts:
+            continue
+        try:
+            dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=local_tz)
+            else:
+                dt = dt.astimezone(local_tz)
+        except Exception:
+            continue
+        if dt.date() != target_date:
+            continue
+        try:
+            temp_f = float(temp)
+            if use_metric:
+                temp_f = (temp_f * 9.0 / 5.0) + 32.0
+        except Exception:
+            continue
+        rows.append((int(dt.hour), float(temp_f)))
+    return rows
+
+
+def _hourly_rows_peak(rows: List[Tuple[int, float]]) -> Tuple[Optional[int], Optional[float]]:
+    """Return peak hour and peak temp from (hour, temp_f) rows."""
+    if not rows:
+        return None, None
+    peak_temp = max(temp for _, temp in rows)
+    peak_hours = [hour for hour, temp in rows if abs(temp - peak_temp) <= 0.05]
+    if not peak_hours:
+        return None, peak_temp
+    peak_hour = int(round(sum(peak_hours) / len(peak_hours)))
+    return max(0, min(23, peak_hour)), peak_temp
+
+
 async def fetch_wunderground_max(
     station_id: str,
     target_date: Optional[date] = None
@@ -188,6 +242,8 @@ async def fetch_wunderground_max(
             high_temp_time = None
             current_temp_f = None
             forecast_high_f = None # v5.8
+            forecast_peak_hour_local = None
+            forecast_peak_temp_f = None
             hourly_history = []
 
             # Method 1: Use the Weather.com API directly (Most robust)
@@ -327,16 +383,16 @@ async def fetch_wunderground_max(
                     
                     if h_response.status_code == 200:
                         h_data = h_response.json()
-                        target_iso = target_date.isoformat()
-                        upcoming_temps = [
-                            t for j, t in enumerate(h_data.get("temperature", []))
-                            if h_data.get("validTimeLocal", [])[j].startswith(target_iso)
-                        ]
-                        if upcoming_temps:
-                            upcoming_max = max(upcoming_temps)
-                            # v7.0: Convert C to F if using metric
-                            if use_metric:
-                                upcoming_max = (upcoming_max * 9/5) + 32
+                        hourly_rows = _extract_hourly_forecast_rows_f(
+                            temperatures=h_data.get("temperature", []),
+                            valid_times_local=h_data.get("validTimeLocal", []),
+                            target_date=target_date,
+                            local_tz=local_tz,
+                            use_metric=use_metric,
+                        )
+                        if hourly_rows:
+                            upcoming_max = max(temp_f for _, temp_f in hourly_rows)
+                            forecast_peak_hour_local, forecast_peak_temp_f = _hourly_rows_peak(hourly_rows)
                     
                     # Final Forecast Calculation:
                     # If it's today, we take the max of what happened vs what is predicted to happen
@@ -413,6 +469,8 @@ async def fetch_wunderground_max(
                 high_temp_time=high_temp_time,
                 current_temp_f=current_temp_f,
                 forecast_high_f=forecast_high_f,
+                forecast_peak_hour_local=forecast_peak_hour_local,
+                forecast_peak_temp_f=forecast_peak_temp_f,
                 source="wunderground",
                 hourly_history=hourly_history
             )
