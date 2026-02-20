@@ -2252,6 +2252,13 @@
             const n = numericOrNaN(v);
             return Number.isFinite(n) ? Number(n) : null;
         });
+        const nonNullIndices = () => {
+            const out = [];
+            for (let i = 0; i < vals.length; i++) {
+                if (vals[i] !== null) out.push(i);
+            }
+            return out;
+        };
         const nearestPrev = (idx) => {
             for (let i = idx - 1; i >= 0; i--) {
                 if (vals[i] !== null) return vals[i];
@@ -2294,6 +2301,43 @@
             const hardSpike = neighborStable && Math.abs(v - prev) >= 22.0 && Math.abs(v - next) >= 22.0;
             if (zeroSpike || hardSpike) {
                 vals[i] = null;
+            }
+        }
+
+        // Kill first-point METAR glitches that can vertically blow up replay charts.
+        // Pattern: very first valid value is far from the next stable cluster.
+        {
+            const idx = nonNullIndices();
+            if (idx.length >= 3) {
+                const i0 = idx[0];
+                const i1 = idx[1];
+                const i2 = idx[2];
+                const v0 = vals[i0];
+                const v1 = vals[i1];
+                const v2 = vals[i2];
+                if (
+                    v0 !== null && v1 !== null && v2 !== null &&
+                    Math.abs(v1 - v2) <= 6.0 &&
+                    Math.abs(v0 - v1) >= 18.0 &&
+                    Math.abs(v0 - v2) >= 18.0
+                ) {
+                    vals[i0] = null;
+                }
+            } else if (idx.length >= 2) {
+                const i0 = idx[0];
+                const v0 = vals[i0];
+                const tail = [];
+                for (let k = 1; k < idx.length; k++) {
+                    const vk = vals[idx[k]];
+                    if (vk !== null) tail.push(vk);
+                    if (tail.length >= 6) break;
+                }
+                if (v0 !== null && tail.length >= 2) {
+                    const tailAvg = tail.reduce((a, b) => a + b, 0) / tail.length;
+                    if (Math.abs(v0 - tailAvg) >= 20.0) {
+                        vals[i0] = null;
+                    }
+                }
             }
         }
 
