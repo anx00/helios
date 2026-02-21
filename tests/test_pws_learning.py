@@ -223,6 +223,24 @@ class TestPwsLearning(unittest.TestCase):
             ratio = w_syn / w_wu if w_wu > 0 else 10.0
             self.assertLess(ratio, 1.08)
 
+    def test_invalid_samples_do_not_train_scores(self):
+        with TemporaryDirectory() as td:
+            store = PWSLearningStore(path=Path(td) / "weights.json")
+            t = datetime(2026, 2, 21, 12, 0, tzinfo=timezone.utc)
+
+            bad = _Reading("BAD_INV", 28.0, "WUNDERGROUND", t, valid=False)
+            store.update_with_official(
+                market_station_id="LTAC",
+                official_temp_c=10.0,
+                readings=[bad],
+                obs_time_utc=t,
+                official_obs_time_utc=t,
+            )
+
+            profile = store.get_station_profile("LTAC", "BAD_INV", "WUNDERGROUND")
+            self.assertEqual(profile.get("now_samples"), 0)
+            self.assertEqual(profile.get("lead_samples"), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

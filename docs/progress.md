@@ -2,6 +2,25 @@
 
 This document tracks the evolution of the HELIOS Weather Lab project.
 
+## 2026-02-21
+
+### METAR decoding hardening (no T-group => range, not point)
+**Goal**: remove false precision in METAR observations when `T group` is missing and keep a settlement-safe range.
+
+**Changes**:
+- Added unified METAR temperature parser from raw line: `collector/metar/temperature_parser.py`.
+- Updated NOAA JSON/XML/TXT fetchers to use the same decode logic.
+- Added range fields (`temp_f_low/high`, `settlement_f_low/high`, `has_t_group`) to METAR flow and world serialization.
+- Added QC flag `TEMP_RANGE_<low>-<high>F_NO_T_GROUP` and `UNCERTAIN` status when settlement range spans more than one integer.
+- Exposed range fields in realtime endpoint `/api/realtime/{station_id}`.
+- Added parser tests: `tests/test_metar_temperature_parser.py`.
+
+**Evidence**:
+- Historical racing logs show this occurred in production (`81158` racing rows, `623` rows with NOAA pair disagreement `>=1F`).
+
+**Reference**:
+- Full technical note: `docs/FIX_METAR_T_GROUP_RANGE_2026-02-21.md`.
+
 ## 2026-01-27
 
 ### 00:55 - Integration of SEARA Logic (High-Speed Websockets)

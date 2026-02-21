@@ -4,10 +4,10 @@ Fetches METAR data from NOAA TG-FTP server (plain text files).
 """
 
 import httpx
-from datetime import datetime, timezone
 from typing import Optional
 import logging
-import re
+
+from collector.metar.temperature_parser import decode_temperature_from_raw
 
 logger = logging.getLogger("metar_tgftp")
 
@@ -34,39 +34,21 @@ async def fetch_metar_tgftp(station_id: str) -> Optional[dict]:
             obs_time_header = lines[0].strip() # 2024/01/12 21:00
             raw_ob = lines[1].strip()
             
-            # Parse simple values from raw METAR if needed, but for Racing we mostly care about TEMP
-            # Raw METAR parsing is complex, but NOAA METARs have a standard T-group for precise temp
-            # RMK ... T00890006 -> 8.9C / 0.6C
-            
-            temp_c = None
-            dewp_c = None
-            
-            t_group = re.search(r' T([01])(\d{3})([01])(\d{3})', raw_ob)
-            if t_group:
-                # 1 = negative, 0 = positive
-                t_sign = -1 if t_group.group(1) == '1' else 1
-                t_val = int(t_group.group(2)) / 10.0
-                temp_c = t_sign * t_val
-                
-                d_sign = -1 if t_group.group(3) == '1' else 1
-                d_val = int(t_group.group(4)) / 10.0
-                dewp_c = d_sign * d_val
-            else:
-                # Fallback to standard parsing (e.g. 09/01)
-                std_temp = re.search(r' (M?\d{2})/(M?\d{2}| )', raw_ob)
-                if std_temp:
-                    t_str = std_temp.group(1).replace('M', '-')
-                    temp_c = float(t_str)
-                    d_str = std_temp.group(2).replace('M', '-')
-                    if d_str.strip():
-                        dewp_c = float(d_str)
+            parsed = decode_temperature_from_raw(raw_ob)
 
             return {
                 "station_id": station_id,
                 "raw_ob": raw_ob,
                 "obs_time": obs_time_header, # Use the header time as it's more complete
-                "temp": temp_c,
-                "dewp": dewp_c,
+                "temp": parsed["temp_c"],
+                "dewp": parsed["dewp_c"],
+                "temp_c_low": parsed["temp_c_low"],
+                "temp_c_high": parsed["temp_c_high"],
+                "temp_f_low": parsed["temp_f_low"],
+                "temp_f_high": parsed["temp_f_high"],
+                "settlement_f_low": parsed["settlement_f_low"],
+                "settlement_f_high": parsed["settlement_f_high"],
+                "has_t_group": parsed["has_t_group"],
                 "source": "NOAA_TG_FTP_TXT"
             }
             

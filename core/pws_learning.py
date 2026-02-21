@@ -639,6 +639,9 @@ class PWSLearningStore:
                 sample = self._reading_to_sample(r, fallback_ts)
                 if not sample:
                     continue
+                if not bool(sample.get("valid", True)):
+                    # Invalid/outlier samples should not train reliability scores.
+                    continue
 
                 sample_ts = _as_utc(sample["obs_time_utc"])
                 if sample_ts is None:
@@ -722,6 +725,8 @@ class PWSLearningStore:
                     temp_c = float(temp_val)
                 except Exception:
                     continue
+                if row.get("valid") is False:
+                    continue
 
                 rec = self._ensure_station_locked(stations, sid, str(row.get("source") or "UNKNOWN"))
                 # One LEAD label per station per official timestamp.
@@ -729,8 +734,6 @@ class PWSLearningStore:
                     continue
 
                 err = abs(temp_c - official)
-                if row.get("valid") is False:
-                    err += 0.15
 
                 lead_min = float(row.get("_lead_min", 0.0) or 0.0)
                 rec["lead_samples"] = int(rec.get("lead_samples", 0) or 0) + 1

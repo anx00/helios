@@ -85,6 +85,11 @@ _WUNDERGROUND_CURRENT_URL = "https://api.weather.com/v2/pws/observations/current
 _WUNDERGROUND_DISCOVERY_URL = "https://api.weather.com/v3/location/near"
 _WUNDERGROUND_DISCOVERY_TTL_SECONDS = 6 * 3600
 _WUNDERGROUND_DISCOVERY_CACHE: Dict[str, Dict[str, Any]] = {}
+_WUNDERGROUND_DISCOVERY_EXTRA_CENTERS: Dict[str, List[Tuple[float, float]]] = {
+    # LTAC airport area can have sparse private stations; include Ankara city
+    # center as an additional discovery seed to improve candidate coverage.
+    "LTAC": [(39.9334, 32.8597)],
+}
 _DEFAULT_WUNDERGROUND_STATION_IDS: Dict[str, List[str]] = {
     "KLGA": [
         "KNYNEWYO1591",
@@ -876,8 +881,9 @@ async def _discover_wunderground_candidates(
     api_key: str,
 ) -> List[Dict[str, Any]]:
     station_id = station_id.upper()
+    cache_key = f"{station_id}:{round(float(center_lat), 4)}:{round(float(center_lon), 4)}"
     now_ts = datetime.now(timezone.utc).timestamp()
-    cached = _WUNDERGROUND_DISCOVERY_CACHE.get(station_id)
+    cached = _WUNDERGROUND_DISCOVERY_CACHE.get(cache_key)
     if cached:
         cached_ts = float(cached.get("ts", 0.0) or 0.0)
         cached_rows = cached.get("rows")
@@ -940,7 +946,7 @@ async def _discover_wunderground_candidates(
 
     discovered = _dedupe_wunderground_candidates(discovered)
     discovered.sort(key=lambda x: _float_or_none(x.get("distance_km")) or 9999.0)
-    _WUNDERGROUND_DISCOVERY_CACHE[station_id] = {"ts": now_ts, "rows": list(discovered)}
+    _WUNDERGROUND_DISCOVERY_CACHE[cache_key] = {"ts": now_ts, "rows": list(discovered)}
 
     if max_stations > 0:
         discovered = discovered[:max_stations]
@@ -1063,13 +1069,23 @@ async def _fetch_wunderground_cluster(station_id: str, max_stations: int) -> Opt
 
     should_discover = sid in _REAL_PWS_PRIORITY_STATIONS or not candidates
     if should_discover:
-        discovered = await _discover_wunderground_candidates(
-            sid,
-            center_lat=center_lat,
-            center_lon=center_lon,
-            max_stations=discovery_limit,
-            api_key=api_key,
-        )
+        discover_centers: List[Tuple[float, float]] = [(center_lat, center_lon)]
+        for extra_lat, extra_lon in _WUNDERGROUND_DISCOVERY_EXTRA_CENTERS.get(sid, []):
+            discover_centers.append((float(extra_lat), float(extra_lon)))
+
+        discovered_rows: List[Dict[str, Any]] = []
+        for d_lat, d_lon in discover_centers:
+            rows = await _discover_wunderground_candidates(
+                sid,
+                center_lat=d_lat,
+                center_lon=d_lon,
+                max_stations=discovery_limit,
+                api_key=api_key,
+            )
+            if rows:
+                discovered_rows.extend(rows)
+
+        discovered = _dedupe_wunderground_candidates(discovered_rows)
         if discovered:
             merged = _dedupe_wunderground_candidates(candidates + discovered)
             merged.sort(key=lambda x: _float_or_none(x.get("distance_km")) or 9999.0)
@@ -1229,17 +1245,22 @@ def _compute_qc_metrics(readings: List[PWSReading], min_support: int = 1) -> Opt
     if len(valid) < min_support:
         return None
 
-    temps = [r.temp_c for r in valid]
-    median_val = statistics.median(temps)
+    temps = [float(r.temp_c) for r in valid]
+    median_val = float(statistics.median(temps))
     deviations = [abs(t - median_val) for t in temps]
-    mad = statistics.median(deviations)
+    mad = float(statistics.median(deviations)) if deviations else 0.0
 
-    final = [r for r in valid if mad == 0 or abs(r.temp_c - median_val) <= 3.0 * mad]
+    spread = max(temps) - min(temps) if len(temps) > 1 else 0.0
+    threshold_c = (3.0 * mad) if mad > 0.0 else _fallback_spatial_threshold_c("")
+    if mad <= 0.0 and spread <= threshold_c:
+        final = list(valid)
+    else:
+        final = [r for r in valid if abs(float(r.temp_c) - median_val) <= threshold_c]
     if len(final) < min_support:
         return None
 
-    final_temps = [r.temp_c for r in final]
-    final_median_c = statistics.median(final_temps)
+    final_temps = [float(r.temp_c) for r in final]
+    final_median_c = float(statistics.median(final_temps))
     final_mad = 0.0
     if len(final_temps) > 1:
         final_mad = statistics.median([abs(t - final_median_c) for t in final_temps])
@@ -1364,6 +1385,92 @@ def _source_weight_multiplier(station_id: str, source: str, real_count: int) -> 
     if src == "WUNDERGROUND":
         return 1.05
     return 1.0
+
+
+def _fallback_spatial_threshold_c(station_id: str) -> float:
+    sid = str(station_id or "").upper()
+    if sid == "LTAC":
+        return 1.6
+    if sid in _REAL_PWS_PRIORITY_STATIONS:
+        return 1.9
+    return 2.4
+
+
+def _max_spatial_threshold_c(station_id: str) -> float:
+    sid = str(station_id or "").upper()
+    if sid == "LTAC":
+        return 2.8
+    if sid in _REAL_PWS_PRIORITY_STATIONS:
+        return 2.6
+    return 4.0
+
+
+def _apply_spatial_outlier_filter(
+    station_id: str,
+    readings: List[PWSReading],
+    *,
+    min_support: int,
+) -> Tuple[List[PWSReading], List[PWSReading], float, float]:
+    """
+    Spatial consistency filter with MAD primary rule and zero-MAD fallback.
+
+    Fallback is necessary when many stations report the same rounded value
+    (e.g., integer Fahrenheit), which can make MAD exactly zero even if there
+    are clear warm/cold outliers.
+    """
+    if not readings:
+        return [], [], 0.0, 0.0
+
+    temps = [float(r.temp_c) for r in readings]
+    center = float(statistics.median(temps))
+    deviations = [abs(t - center) for t in temps]
+    mad = float(statistics.median(deviations)) if deviations else 0.0
+
+    spread = max(temps) - min(temps) if len(temps) > 1 else 0.0
+    if mad > 0.0:
+        threshold_c = min(3.0 * mad, _max_spatial_threshold_c(station_id))
+        outlier_flag = "SPATIAL_OUTLIER_MAD"
+    else:
+        threshold_c = _fallback_spatial_threshold_c(station_id)
+        outlier_flag = "SPATIAL_OUTLIER_FALLBACK"
+        if spread <= threshold_c:
+            return list(readings), [], center, 0.0
+
+    kept: List[PWSReading] = []
+    outliers: List[PWSReading] = []
+    for r in readings:
+        if abs(float(r.temp_c) - center) <= threshold_c:
+            kept.append(r)
+        else:
+            r.valid = False
+            r.qc_flag = outlier_flag
+            outliers.append(r)
+
+    # Do not over-prune sparse clusters: if fallback was too strict, keep
+    # closest-to-center stations up to min_support.
+    if len(kept) < max(1, int(min_support)):
+        ordered = sorted(readings, key=lambda r: (abs(float(r.temp_c) - center), float(r.distance_km)))
+        selected = ordered[: max(1, int(min_support))]
+        selected_ids = {id(r) for r in selected}
+        kept = list(selected)
+        outliers = []
+        for r in readings:
+            if id(r) in selected_ids:
+                r.valid = True
+                r.qc_flag = None
+            else:
+                r.valid = False
+                if not r.qc_flag:
+                    r.qc_flag = "SPATIAL_OUTLIER_FALLBACK"
+                outliers.append(r)
+
+    final_temps = [float(r.temp_c) for r in kept]
+    final_center = float(statistics.median(final_temps)) if final_temps else center
+    final_mad = 0.0
+    if len(final_temps) > 1:
+        final_mad = float(statistics.median([abs(t - final_center) for t in final_temps]))
+
+    return kept, outliers, final_center, final_mad
 
 
 def _build_source_metrics(readings: List[PWSReading], min_support: int) -> Dict[str, Dict[str, float]]:
@@ -1509,21 +1616,12 @@ async def fetch_pws_cluster(station_id: str, min_support: int = PWS_MIN_SUPPORT)
         logger.warning(f"PWS {station_id}: only {len(valid_readings)} valid after hard-rule QC")
         return None
 
-    # QC Layer 2: Spatial MAD outlier filtering
-    temps = [r.temp_c for r in valid_readings]
-    median_val = statistics.median(temps)
-    deviations = [abs(t - median_val) for t in temps]
-    mad = statistics.median(deviations)
-
-    outliers: List[PWSReading] = []
-    final_valid: List[PWSReading] = []
-    for r in valid_readings:
-        if mad > 0 and abs(r.temp_c - median_val) > 3.0 * mad:
-            r.valid = False
-            r.qc_flag = "SPATIAL_OUTLIER_MAD"
-            outliers.append(r)
-        else:
-            final_valid.append(r)
+    # QC Layer 2: Spatial outlier filtering (MAD + zero-MAD fallback)
+    final_valid, outliers, median_val, mad = _apply_spatial_outlier_filter(
+        station_id,
+        valid_readings,
+        min_support=effective_min_support,
+    )
 
     if not final_valid:
         logger.warning(f"PWS {station_id}: no readings left after MAD filtering")

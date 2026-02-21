@@ -10,12 +10,13 @@ import math
 import asyncio
 from dataclasses import dataclass
 from typing import Optional, List
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 import logging
 
 from config import NOAA_METAR_URL
 from collector.metar.tds_fetcher import fetch_metar_tds
 from collector.metar.tgftp_fetcher import fetch_metar_tgftp
+from collector.metar.temperature_parser import decode_temperature_from_raw
 
 import time
 
@@ -31,8 +32,8 @@ class MetarData:
     """Parsed METAR observation data."""
     station_id: str
     observation_time: datetime
-    temp_c: float
-    dewpoint_c: float
+    temp_c: Optional[float]
+    dewpoint_c: Optional[float]
     humidity_pct: float
     wind_dir_degrees: Optional[int]
     wind_speed_kt: Optional[int]
@@ -43,6 +44,13 @@ class MetarData:
     wind_trend: str                  # NEW: "Estable" or "Girando al [Dir]"
     raw_metar: str
     racing_results: Optional[dict] = None  # NEW: Store all sources {source: temp_f}
+    temp_c_low: Optional[float] = None
+    temp_c_high: Optional[float] = None
+    temp_f_low: Optional[float] = None
+    temp_f_high: Optional[float] = None
+    settlement_f_low: Optional[int] = None
+    settlement_f_high: Optional[int] = None
+    has_t_group: bool = False
     
     @property
     def temp_f(self) -> float:
@@ -130,17 +138,31 @@ async def fetch_metar_json(station_id: str) -> Optional[dict]:
             except:
                 obs_time = datetime.now(timezone.utc)
 
+            raw_ob = obs.get("rawOb", "")
+            parsed = decode_temperature_from_raw(
+                raw_ob,
+                fallback_temp_c=obs.get("temp"),
+                fallback_dewp_c=obs.get("dewp"),
+            )
+
             return {
                 "station_id": station_id,
                 "obs_time": obs_time,
-                "temp": obs.get("temp"),
-                "dewp": obs.get("dewp"),
+                "temp": parsed["temp_c"],
+                "dewp": parsed["dewp_c"],
+                "temp_c_low": parsed["temp_c_low"],
+                "temp_c_high": parsed["temp_c_high"],
+                "temp_f_low": parsed["temp_f_low"],
+                "temp_f_high": parsed["temp_f_high"],
+                "settlement_f_low": parsed["settlement_f_low"],
+                "settlement_f_high": parsed["settlement_f_high"],
+                "has_t_group": parsed["has_t_group"],
                 "wdir": obs.get("wdir"),
                 "wspd": obs.get("wspd"),
                 "visib": obs.get("visib"),
                 "altim": obs.get("altim"),
                 "clouds": obs.get("clouds", []),
-                "raw_ob": obs.get("rawOb", ""),
+                "raw_ob": raw_ob,
                 "source": "NOAA_JSON_API"
             }
     except Exception:
@@ -153,10 +175,7 @@ async def fetch_metar(station_id: str) -> Optional[MetarData]:
     """
     logger.info(f"Starting METAR Race for {station_id}...")
 
-    # Phase 2: Per-route latency measurement
-    race_start = time.monotonic()
-
-    async def timed_fetch(coro, source_name):
+    async def timed_fetch(coro):
         """Wrap fetch in timing envelope."""
         t0 = time.monotonic()
         try:
@@ -169,9 +188,9 @@ async def fetch_metar(station_id: str) -> Optional[MetarData]:
             return None
 
     tasks = [
-        asyncio.create_task(timed_fetch(fetch_metar_json(station_id), "NOAA_JSON_API")),
-        asyncio.create_task(timed_fetch(fetch_metar_tds(station_id), "AWC_TDS_XML")),
-        asyncio.create_task(timed_fetch(fetch_metar_tgftp(station_id), "TGFTP_TXT"))
+        asyncio.create_task(timed_fetch(fetch_metar_json(station_id))),
+        asyncio.create_task(timed_fetch(fetch_metar_tds(station_id))),
+        asyncio.create_task(timed_fetch(fetch_metar_tgftp(station_id)))
     ]
 
     # Aggressive 3s timeout
@@ -191,6 +210,14 @@ async def fetch_metar(station_id: str) -> Optional[MetarData]:
             res = task.result()
             if res and res.get("temp") is not None:
                 res["temp_f"] = round((res["temp"] * 9/5) + 32, 1)
+                if res.get("temp_f_low") is None:
+                    res["temp_f_low"] = res["temp_f"]
+                if res.get("temp_f_high") is None:
+                    res["temp_f_high"] = res["temp_f"]
+                if res.get("temp_c_low") is None:
+                    res["temp_c_low"] = res.get("temp")
+                if res.get("temp_c_high") is None:
+                    res["temp_c_high"] = res.get("temp")
 
                 # Normalize time for comparison
                 obs_time = res.get("obs_time")
@@ -234,7 +261,13 @@ async def fetch_metar(station_id: str) -> Optional[MetarData]:
     while len(_race_latency_log) > 500:
         _race_latency_log.pop(0)
 
-    sources_str = ", ".join([f"{r['source']}={r['temp_f']}({r.get('_route_latency_ms',0):.0f}ms)" for r in valid_results])
+    def _format_route_temp(route: dict) -> str:
+        low = route.get("settlement_f_low")
+        high = route.get("settlement_f_high")
+        range_tag = f"[{low}-{high}F]" if low is not None and high is not None and low != high else ""
+        return f"{route['source']}={route['temp_f']}{range_tag}({route.get('_route_latency_ms',0):.0f}ms)"
+
+    sources_str = ", ".join([_format_route_temp(r) for r in valid_results])
     logger.info(f"METAR Race {station_id}: {sources_str} | Winner: {winner['source']}")
 
     # Phase 2: Dedupe — skip if same obs_time already published
@@ -259,7 +292,7 @@ async def fetch_metar(station_id: str) -> Optional[MetarData]:
     # Map back to MetarData (Legacy backward compatibility)
     temp_c = winner.get("temp")
     dewpoint_c = winner.get("dewp")
-    humidity = calculate_humidity(temp_c, dewpoint_c) if temp_c and dewpoint_c else None
+    humidity = calculate_humidity(temp_c, dewpoint_c) if temp_c is not None and dewpoint_c is not None else None
     
     # Sky
     sky_data = winner.get("clouds", [])
@@ -296,6 +329,14 @@ async def fetch_metar(station_id: str) -> Optional[MetarData]:
             # 1. Judge Alignment
             temp_f_raw = JudgeAlignment.celsius_to_fahrenheit(temp_c)  # With decimals
             temp_f_aligned = JudgeAlignment.round_to_settlement(temp_f_raw)  # Rounded for settlement
+            temp_f_low = winner.get("temp_f_low", temp_f_raw)
+            temp_f_high = winner.get("temp_f_high", temp_f_raw)
+            settlement_f_low = winner.get("settlement_f_low")
+            settlement_f_high = winner.get("settlement_f_high")
+            if settlement_f_low is None:
+                settlement_f_low = JudgeAlignment.round_to_settlement(temp_f_low)
+            if settlement_f_high is None:
+                settlement_f_high = JudgeAlignment.round_to_settlement(temp_f_high)
 
             sky_aligned = JudgeAlignment.map_sky_condition(primary_sky)
 
@@ -304,6 +345,10 @@ async def fetch_metar(station_id: str) -> Optional[MetarData]:
                 temp_c if temp_c is not None else 0.0,
                 dewpoint_c
             )
+            if settlement_f_low != settlement_f_high:
+                qc_result.flags.append(f"TEMP_RANGE_{settlement_f_low}-{settlement_f_high}F_NO_T_GROUP")
+                if qc_result.status == "OK":
+                    qc_result.status = "UNCERTAIN"
 
             # 3. Create Official Event with QC results
             event = OfficialObs(
@@ -314,6 +359,11 @@ async def fetch_metar(station_id: str) -> Optional[MetarData]:
                 temp_c=temp_c if temp_c is not None else 0.0,
                 temp_f=temp_f_aligned,  # Rounded for settlement
                 temp_f_raw=temp_f_raw,  # With decimals for display
+                temp_f_low=temp_f_low,
+                temp_f_high=temp_f_high,
+                settlement_f_low=settlement_f_low,
+                settlement_f_high=settlement_f_high,
+                has_t_group=bool(winner.get("has_t_group")),
                 dewpoint_c=dewpoint_c,
                 wind_dir=winner.get("wdir"),
                 wind_speed=winner.get("wspd"),
@@ -355,7 +405,14 @@ async def fetch_metar(station_id: str) -> Optional[MetarData]:
         altimeter_hg=winner.get("altim"),
         wind_trend=wind_trend,
         raw_metar=winner.get("raw_ob", ""),
-        racing_results=racing_log
+        racing_results=racing_log,
+        temp_c_low=winner.get("temp_c_low"),
+        temp_c_high=winner.get("temp_c_high"),
+        temp_f_low=winner.get("temp_f_low"),
+        temp_f_high=winner.get("temp_f_high"),
+        settlement_f_low=winner.get("settlement_f_low"),
+        settlement_f_high=winner.get("settlement_f_high"),
+        has_t_group=bool(winner.get("has_t_group")),
     )
 
 
@@ -401,9 +458,16 @@ async def fetch_metar_history(station_id: str, hours: int = 24) -> List[MetarDat
                     except (ValueError, TypeError, OSError):
                         obs_time = datetime.now(timezone.utc)
                     
-                    temp_c = obs.get("temp")
-                    dewpoint_c = obs.get("dewp")
-                    humidity = calculate_humidity(temp_c, dewpoint_c) if temp_c and dewpoint_c else None
+                    raw_ob = obs.get("rawOb", "")
+                    parsed = decode_temperature_from_raw(
+                        raw_ob,
+                        fallback_temp_c=obs.get("temp"),
+                        fallback_dewp_c=obs.get("dewp"),
+                    )
+
+                    temp_c = parsed["temp_c"]
+                    dewpoint_c = parsed["dewp_c"]
+                    humidity = calculate_humidity(temp_c, dewpoint_c) if temp_c is not None and dewpoint_c is not None else None
                     
                     sky_data = obs.get("clouds", [])
                     primary_sky, all_sky = parse_sky_condition(sky_data)
@@ -413,7 +477,7 @@ async def fetch_metar_history(station_id: str, hours: int = 24) -> List[MetarDat
                         observation_time=obs_time,
                         temp_c=temp_c,
                         dewpoint_c=dewpoint_c,
-                        humidity_pct=humidity,
+                        humidity_pct=humidity or 0.0,
                         wind_dir_degrees=obs.get("wdir"),
                         wind_speed_kt=obs.get("wspd"),
                         sky_condition=primary_sky,
@@ -421,7 +485,14 @@ async def fetch_metar_history(station_id: str, hours: int = 24) -> List[MetarDat
                         visibility_miles=obs.get("visib"),
                         altimeter_hg=obs.get("altim"),
                         wind_trend="Capturando...",  # Placeholder for history loop
-                        raw_metar=obs.get("rawOb", ""),
+                        raw_metar=raw_ob,
+                        temp_c_low=parsed["temp_c_low"],
+                        temp_c_high=parsed["temp_c_high"],
+                        temp_f_low=parsed["temp_f_low"],
+                        temp_f_high=parsed["temp_f_high"],
+                        settlement_f_low=parsed["settlement_f_low"],
+                        settlement_f_high=parsed["settlement_f_high"],
+                        has_t_group=parsed["has_t_group"],
                     ))
                 except Exception as e:
                     print(f"⚠ Error parsing historical METAR: {e}")

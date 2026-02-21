@@ -7,6 +7,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from collector.pws_fetcher import (
     PWSReading,
+    _apply_spatial_outlier_filter,
     _build_madis_query_params,
     _effective_min_support,
     _is_real_pws_source,
@@ -176,6 +177,25 @@ class TestMadisPwsParser(unittest.TestCase):
         self.assertTrue(_is_real_pws_source("WUNDERGROUND"))
         self.assertTrue(_is_real_pws_source("MADIS_APRSWXNET"))
         self.assertFalse(_is_real_pws_source("OPEN_METEO"))
+
+    def test_zero_mad_fallback_filters_warm_outliers_for_ltac(self):
+        sample = [
+            PWSReading(lat=40.0, lon=33.0, temp_c=3.33, label="A", source="WUNDERGROUND", distance_km=23.0, age_minutes=1.0),
+            PWSReading(lat=40.0, lon=33.0, temp_c=3.33, label="B", source="WUNDERGROUND", distance_km=29.0, age_minutes=1.0),
+            PWSReading(lat=40.0, lon=33.0, temp_c=3.33, label="C", source="WUNDERGROUND", distance_km=37.0, age_minutes=1.0),
+            PWSReading(lat=40.0, lon=33.0, temp_c=6.67, label="D", source="WUNDERGROUND", distance_km=31.0, age_minutes=1.0),
+            PWSReading(lat=40.0, lon=33.0, temp_c=9.44, label="E", source="WUNDERGROUND", distance_km=39.0, age_minutes=1.0),
+            PWSReading(lat=40.0, lon=33.0, temp_c=10.0, label="F", source="WUNDERGROUND", distance_km=29.0, age_minutes=1.0),
+        ]
+
+        kept, outliers, center, mad = _apply_spatial_outlier_filter("LTAC", sample, min_support=2)
+        kept_ids = {r.label for r in kept}
+        outlier_ids = {r.label for r in outliers}
+
+        self.assertSetEqual(kept_ids, {"A", "B", "C", "D"})
+        self.assertSetEqual(outlier_ids, {"E", "F"})
+        self.assertAlmostEqual(center, 3.33, places=2)
+        self.assertEqual(mad, 0.0)
 
 
 if __name__ == "__main__":

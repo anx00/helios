@@ -298,6 +298,11 @@ class WorldState:
             "temp_c": obs.temp_c,
             "temp_f": obs.temp_f,  # Rounded for settlement
             "temp_f_raw": obs.temp_f_raw,  # With decimals for display
+            "temp_f_low": obs.temp_f_low,
+            "temp_f_high": obs.temp_f_high,
+            "settlement_f_low": obs.settlement_f_low,
+            "settlement_f_high": obs.settlement_f_high,
+            "has_t_group": obs.has_t_group,
             **dm_data,
             "dewpoint_c": obs.dewpoint_c,
             "wind_dir": obs.wind_dir,

@@ -55,6 +55,11 @@ class OfficialObs(ObservationEvent):
     temp_c: float = 0.0
     temp_f: float = 0.0  # Judge aligned (rounded to integer for settlement)
     temp_f_raw: float = 0.0  # Raw value with decimals (for display)
+    temp_f_low: Optional[float] = None  # Lower bound when no T-group
+    temp_f_high: Optional[float] = None  # Upper bound when no T-group
+    settlement_f_low: Optional[int] = None  # Lower bound in settlement-space
+    settlement_f_high: Optional[int] = None  # Upper bound in settlement-space
+    has_t_group: bool = False
     dewpoint_c: Optional[float] = None
     wind_dir: Optional[int] = None
     wind_speed: Optional[int] = None

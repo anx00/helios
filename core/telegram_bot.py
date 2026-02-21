@@ -13,7 +13,7 @@ import aiohttp
 
 from collector.metar_fetcher import fetch_metar_race
 from collector.pws_fetcher import fetch_and_publish_pws
-from config import STATIONS, get_active_stations
+from config import STATIONS, get_active_stations, get_polymarket_temp_unit
 from core.world import get_world
 from database import get_latest_prediction, get_latest_prediction_for_date
 
@@ -50,6 +50,38 @@ def _fmt(value: Any, decimals: int = 2, suffix: str = "") -> str:
     if num is None:
         return "n/a"
     return f"{num:.{decimals}f}{suffix}"
+
+
+def _f_to_c(value_f: Any) -> Optional[float]:
+    num = _safe_float(value_f)
+    if num is None:
+        return None
+    return (num - 32.0) * 5.0 / 9.0
+
+
+def _c_to_f(value_c: Any) -> Optional[float]:
+    num = _safe_float(value_c)
+    if num is None:
+        return None
+    return (num * 9.0 / 5.0) + 32.0
+
+
+def _station_temp_unit(station_id: str) -> str:
+    return "C" if get_polymarket_temp_unit(station_id).upper() == "C" else "F"
+
+
+def _fmt_station_temp_from_f(value_f: Any, station_id: str, decimals: int = 1) -> str:
+    unit = _station_temp_unit(station_id)
+    if unit == "C":
+        return _fmt(_f_to_c(value_f), decimals, "C")
+    return _fmt(value_f, decimals, "F")
+
+
+def _fmt_station_temp_from_c(value_c: Any, station_id: str, decimals: int = 1) -> str:
+    unit = _station_temp_unit(station_id)
+    if unit == "C":
+        return _fmt(value_c, decimals, "C")
+    return _fmt(_c_to_f(value_c), decimals, "F")
 
 
 def _mean(values: Iterable[Any]) -> Optional[float]:
@@ -355,10 +387,10 @@ class HeliosTelegramBot:
             f"Target date pred:  {pred_target}",
             f"Timestamp DB:      {pred.get('timestamp', 'n/a')}",
             "",
-            f"Final prediction: {_fmt(pred.get('final_prediction_f'), 1, 'F')}",
-            f"HRRR base:        {_fmt(pred.get('hrrr_max_raw_f'), 1, 'F')}",
-            f"Deviation now:    {_fmt(pred.get('current_deviation_f'), 1, 'F')}",
-            f"Physics delta:    {_fmt(pred.get('physics_adjustment_f'), 1, 'F')}",
+            f"Final prediction: {_fmt_station_temp_from_f(pred.get('final_prediction_f'), station_id, 1)}",
+            f"HRRR base:        {_fmt_station_temp_from_f(pred.get('hrrr_max_raw_f'), station_id, 1)}",
+            f"Deviation now:    {_fmt_station_temp_from_f(pred.get('current_deviation_f'), station_id, 1)}",
+            f"Physics delta:    {_fmt_station_temp_from_f(pred.get('physics_adjustment_f'), station_id, 1)}",
             f"Delta weight:     {_fmt(pred.get('delta_weight'), 3)}",
             f"Confidence score: {_fmt(pred.get('confidence_score'), 3)}",
         ]
@@ -380,7 +412,8 @@ class HeliosTelegramBot:
         obs_local = metar.observation_time.astimezone(ZoneInfo(station.timezone))
         racing = metar.racing_results or {}
         race_line = ", ".join(
-            f"{src}={_fmt(temp, 1, 'F')}" for src, temp in sorted(racing.items(), key=lambda x: x[0])
+            f"{src}={_fmt_station_temp_from_f(temp, station_id, 1)}"
+            for src, temp in sorted(racing.items(), key=lambda x: x[0])
         ) if racing else "n/a"
 
         lines = [
@@ -388,7 +421,7 @@ class HeliosTelegramBot:
             f"Obs UTC:   {obs_utc.isoformat()}",
             f"Obs local: {obs_local.isoformat()}",
             "",
-            f"Temp:      {_fmt(metar.temp_f, 1, 'F')} ({_fmt(metar.temp_c, 2, 'C')})",
+            f"Temp:      {_fmt_station_temp_from_c(metar.temp_c, station_id, 1)}",
             f"Dewpoint:  {_fmt(metar.dewpoint_c, 2, 'C')}",
             f"Humidity:  {_fmt(metar.humidity_pct, 1, '%')}",
             f"Wind dir:  {metar.wind_dir_degrees if metar.wind_dir_degrees is not None else 'n/a'}",
@@ -530,7 +563,7 @@ class HeliosTelegramBot:
             f"Rule: {rule_text}",
             "",
             "Top estaciones (dist):",
-            "ID          Src Dist   TempF  Weight  Now Lead Status",
+            f"ID          Src Dist   Temp{_station_temp_unit(station_id)}  Weight  Now Lead Status",
         ]
 
         def _dist(row: Dict[str, Any]) -> float:
@@ -541,7 +574,7 @@ class HeliosTelegramBot:
                 f"{str(row.get('station_id', 'n/a'))[:10]:<10} "
                 f"{_pws_source_tag(str(row.get('source') or '')):<3} "
                 f"{_fmt(row.get('distance_km'), 1, 'km'):>6} "
-                f"{_fmt(row.get('temp_f'), 1, 'F'):>6} "
+                f"{_fmt_station_temp_from_f(row.get('temp_f'), station_id, 1):>6} "
                 f"{_fmt(row.get('learning_weight'), 2):>7} "
                 f"{_fmt(row.get('learning_now_score'), 0):>4} "
                 f"{_fmt(row.get('learning_lead_score'), 0):>4} "
@@ -630,12 +663,18 @@ class HeliosTelegramBot:
 
         lines = [f"Resumen - {station_id} ({station.name})"]
         if pred:
-            lines.append(f"HELIOS: {_fmt(pred.get('final_prediction_f'), 1, 'F')} (ts={pred.get('timestamp', 'n/a')})")
+            lines.append(
+                f"HELIOS: {_fmt_station_temp_from_f(pred.get('final_prediction_f'), station_id, 1)} "
+                f"(ts={pred.get('timestamp', 'n/a')})"
+            )
         else:
             lines.append("HELIOS: n/a")
 
         if metar:
-            lines.append(f"NOAA METAR: {_fmt(metar.temp_f, 1, 'F')} (obs={metar.observation_time.isoformat()})")
+            lines.append(
+                f"NOAA METAR: {_fmt_station_temp_from_c(metar.temp_c, station_id, 1)} "
+                f"(obs={metar.observation_time.isoformat()})"
+            )
         else:
             lines.append("NOAA METAR: n/a")
 
