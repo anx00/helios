@@ -473,11 +473,6 @@
 </div>
 
 <div class="page-content">
-    <!-- Station Selector -->
-    <div class="station-selector" id="station-selector">
-        <!-- Populated by JS -->
-    </div>
-
     <!-- Market Info Banner -->
     <div class="market-banner">
         <div class="market-info">
@@ -894,15 +889,17 @@
             }
 
             const container = document.getElementById('station-selector');
-            container.innerHTML = '';
+            if (container) {
+                container.innerHTML = '';
 
-            for (const stn of stations) {
-                const btn = document.createElement('button');
-                btn.className = 'station-btn' + (stn.id === currentStation ? ' active' : '');
-                btn.dataset.stationId = stn.id;
-                btn.textContent = stn.display_label || `${stn.id}`;
-                btn.onclick = () => selectStation(stn.id);
-                container.appendChild(btn);
+                for (const stn of stations) {
+                    const btn = document.createElement('button');
+                    btn.className = 'station-btn' + (stn.id === currentStation ? ' active' : '');
+                    btn.dataset.stationId = stn.id;
+                    btn.textContent = stn.display_label || `${stn.id}`;
+                    btn.onclick = () => selectStation(stn.id);
+                    container.appendChild(btn);
+                }
             }
 
             // Initialize formatters for the default station

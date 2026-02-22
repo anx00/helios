@@ -737,17 +737,6 @@
         </div>
 
         <nav class="sidebar-nav">
-            <div class="sidebar-station">
-                <label for="global-station-select-sidebar" class="sidebar-station-label">Station</label>
-                <select id="global-station-select-sidebar" data-global-station-select class="sidebar-station-select" onchange="handleGlobalStationSelectChange(this.value)">
-                    {% set _selected_sid = (selected_station_id if selected_station_id is defined and selected_station_id else default_station_id) %}
-                    {% for opt in station_selector_options %}
-                    <option value="{{ opt.id }}" {% if _selected_sid == opt.id %}selected{% endif %}>{{ opt.label }}</option>
-                    {% endfor %}
-                </select>
-                <div class="sidebar-station-meta" data-global-station-meta>Using selected station across all dashboards</div>
-            </div>
-
             <div class="nav-section">
                 <div class="nav-section-title">Features</div>
 

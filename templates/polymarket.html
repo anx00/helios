@@ -522,11 +522,6 @@
         Polymarket Dashboard
     </div>
     <div class="pm-controls">
-        <select id="pm-station-select" class="pm-select" onchange="selectStation(this.value)">
-            {% for opt in station_selector_options %}
-            <option value="{{ opt.id }}">{{ opt.label }}</option>
-            {% endfor %}
-        </select>
         <div class="pm-day-toggle">
             <button class="pm-day-btn active" data-day="0" onclick="selectDay(0)">Today</button>
             <button class="pm-day-btn" data-day="1" onclick="selectDay(1)">Tomorrow</button>
@@ -1063,10 +1058,6 @@
     // INIT
     // ========================
     document.addEventListener('DOMContentLoaded', () => {
-        const stationSelect = document.getElementById('pm-station-select');
-        if (stationSelect && Array.from(stationSelect.options).some(o => o.value === selectedStation)) {
-            stationSelect.value = selectedStation;
-        }
         window.addEventListener('helios:stationchange', (event) => {
             const nextStation = event?.detail?.stationId;
             if (!nextStation || nextStation === selectedStation) return;

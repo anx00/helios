@@ -503,15 +503,6 @@
     <a href="/autotrader/tutorial" class="control-btn control-link">Tutorial</a>
 
     <div class="market-select-wrap">
-        <span class="market-select-label">Station</span>
-        <select id="station-select" class="market-select" onchange="onStationChange(this.value)">
-            {% for opt in station_selector_options %}
-            <option value="{{ opt.id }}">{{ opt.label }}</option>
-            {% endfor %}
-        </select>
-    </div>
-
-    <div class="market-select-wrap">
         <span class="market-select-label">Market</span>
         <select id="market-day-select" class="market-select" onchange="onMarketDayChange()">
             <option value="0">Today</option>
