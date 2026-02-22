@@ -71,9 +71,9 @@ The script:
 2. Validates each station via `v2/pws/observations/current` (must return `200` + temperature).
 3. Writes a reusable registry JSON.
 
-Run for both stations:
+Run discovery for all active stations:
 ```bash
-python discover_wu_pws.py --stations KLGA,KATL --limit 50 --out data/wu_pws_station_registry.json
+python discover_wu_pws.py --stations KLGA,KATL,KORD,KMIA,KDAL,EGLC,LTAC --limit 50 --out data/wu_pws_station_registry.json
 ```
 
 Registry file:
@@ -113,6 +113,45 @@ KGAATLAN972
 KGACONLE4
 ```
 
+KORD fallback station IDs:
+```text
+KILBENSE15
+KILBENSE14
+KILBENSE13
+KILBENSE12
+KILELMHU61
+KILWOODD21
+KILWOODD9
+KILELMHU75
+KILWOODD12
+```
+
+KMIA fallback station IDs:
+```text
+KFLMIAMI1030
+KFLMIAMI69
+KFLMIAMI454
+KFLMIAMI1010
+KFLMIAMI448
+KFLMIAMI684
+KFLMIAMI578
+KFLMIAMI706
+KFLMIAMI1095
+```
+
+KDAL fallback station IDs:
+```text
+KTXDALLA960
+KTXDALLA1254
+KTXDALLA703
+KTXDALLA1236
+KTXDALLA1224
+KTXDALLA102
+KTXDALLA1247
+KTXDALLA1075
+KTXDALLA843
+```
+
 ## HELIOS Integration Points
 
 ### PWS Cluster (`collector/pws_fetcher.py`)
@@ -123,7 +162,8 @@ KGACONLE4
   - `station_id: <PWS_ID>`
 
 Fallback behavior:
-- If the registry JSON is missing, HELIOS has a small built-in fallback list for `KLGA` and `KATL`.
+- If the registry JSON is missing, HELIOS has small built-in fallback lists for
+  `KLGA`, `KATL`, `KORD`, `KMIA`, `KDAL`, `EGLC`, and `LTAC`.
 - The registry is still recommended so the list stays current.
 
 ### World UI (`templates/world.html`)

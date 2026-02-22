@@ -931,7 +931,8 @@ def main():
     if target_stations:
         print(f"  Estaciones: {', '.join(target_stations)} (Filtrado)")
     else:
-        print(f"  Estaciones: KLGA (NYC), KATL (Atlanta)")
+        active_labels = [f"{sid} ({cfg.name})" for sid, cfg in get_active_stations().items()]
+        print(f"  Estaciones: {', '.join(active_labels)}")
     print(f"  Días: {args.day}")
     print(f"  Modelo: HRRR + Reglas Físicas")
     print(f"{'═'*70}\n")

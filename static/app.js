@@ -9,7 +9,7 @@ async function loadStations() {
         STATIONS = data.map(s => s.id);
     } catch (e) {
         console.error('Failed to load stations, using fallback:', e);
-        STATIONS = ['KLGA', 'KATL'];
+        STATIONS = ['KLGA', 'KATL', 'KORD', 'KMIA', 'KDAL', 'EGLC', 'LTAC'];
     }
 }
 

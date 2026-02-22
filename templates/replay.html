@@ -1242,7 +1242,15 @@
         '{{ sid }}': '{{ station_market_units.get(sid, "F") }}',
         {% endfor %}
     };
-    const TZ_LABELS = { 'KLGA': 'NYC', 'KATL': 'ATL', 'EGLC': 'LON', 'LTAC': 'ANK' };
+    const TZ_LABELS = {
+        'KLGA': 'NYC',
+        'KATL': 'ATL',
+        'KORD': 'CHI',
+        'KMIA': 'MIA',
+        'KDAL': 'DAL',
+        'EGLC': 'LON',
+        'LTAC': 'ANK'
+    };
     const ES_TZ = 'Europe/Madrid';
 
     // Dynamic timezone formatters (rebuilt when station changes)

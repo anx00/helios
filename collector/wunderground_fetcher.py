@@ -57,6 +57,9 @@ WUNDERGROUND_HISTORY_URL = "https://www.wunderground.com/history/daily/us/{regio
 STATION_WU_MAP = {
     "KLGA": {"region": "ny", "city": "new-york-city", "country": "us", "units": "e"},
     "KATL": {"region": "ga", "city": "atlanta", "country": "us", "units": "e"},
+    "KORD": {"region": "il", "city": "chicago", "country": "us", "units": "e"},
+    "KMIA": {"region": "fl", "city": "miami", "country": "us", "units": "e"},
+    "KDAL": {"region": "tx", "city": "dallas", "country": "us", "units": "e"},
     "EGLC": {"region": "gb/london", "city": "city-of-london", "country": "gb", "units": "m"},  # UK uses Celsius
     "LTAC": {"region": "ankara", "city": "ankara", "country": "tr", "units": "m"},
 }

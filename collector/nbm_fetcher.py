@@ -22,10 +22,14 @@ OPEN_METEO_ENSEMBLE_URL = "https://api.open-meteo.com/v1/forecast"
 NBM_BASE_URL = "https://nomads.ncep.noaa.gov/pub/data/nccf/com/blend/prod"
 
 # Station coordinates for Open-Meteo fallback
-STATION_COORDS = {
-    "KLGA": (40.7769, -73.8740),
-    "KATL": (33.6407, -84.4277),
-    "EGLC": (51.5048, 0.0495),
+STATION_META = {
+    "KLGA": (40.7769, -73.8740, "America/New_York"),
+    "KATL": (33.6407, -84.4277, "America/New_York"),
+    "KORD": (41.9602, -87.9316, "America/Chicago"),
+    "KMIA": (25.7881, -80.3169, "America/New_York"),
+    "KDAL": (32.8384, -96.8358, "America/Chicago"),
+    "EGLC": (51.5048, 0.0495, "Europe/London"),
+    "LTAC": (40.1281, 32.9951, "Europe/Istanbul"),
 }
 
 
@@ -58,10 +62,10 @@ async def fetch_nbm_from_open_meteo(station_id: str, target_date: date = None) -
     Returns:
         NBMForecast object or None on error
     """
-    if station_id not in STATION_COORDS:
+    if station_id not in STATION_META:
         return None
     
-    lat, lon = STATION_COORDS[station_id]
+    lat, lon, tz_name = STATION_META[station_id]
     
     if target_date is None:
         target_date = date.today()
@@ -78,7 +82,7 @@ async def fetch_nbm_from_open_meteo(station_id: str, target_date: date = None) -
         "longitude": lon,
         "daily": "temperature_2m_max,temperature_2m_min",
         "temperature_unit": "fahrenheit",
-        "timezone": "America/New_York" if station_id in ["KLGA", "KATL"] else "Europe/London",
+        "timezone": tz_name,
         "forecast_days": max(2, days_ahead + 1),
         "models": "best_match"  # Uses ensemble/blend approach
     }
@@ -292,7 +296,7 @@ if __name__ == "__main__":
         print("Testing NBM Fetcher...")
         print("=" * 50)
         
-        for station in ["KLGA", "KATL"]:
+        for station in ["KLGA", "KATL", "KORD", "KMIA", "KDAL", "EGLC", "LTAC"]:
             result = await fetch_nbm(station)
             if result:
                 print(f"  {station}: {result.max_temp_f}°F from {result.source}")

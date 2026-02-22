@@ -80,6 +80,33 @@ STATIONS: Dict[str, StationConfig] = {
         characteristics="Continental - watch for afternoon storm cooling effects",
         enabled=True,
     ),
+    "KORD": StationConfig(
+        icao_id="KORD",
+        name="Chicago O'Hare International",
+        latitude=41.9602,
+        longitude=-87.9316,
+        timezone="America/Chicago",
+        characteristics="Midwest continental - strong frontal passages, lake-modified advection",
+        enabled=True,
+    ),
+    "KMIA": StationConfig(
+        icao_id="KMIA",
+        name="Miami International",
+        latitude=25.7881,
+        longitude=-80.3169,
+        timezone="America/New_York",
+        characteristics="Tropical coastal - high humidity, sea-breeze and convective effects",
+        enabled=True,
+    ),
+    "KDAL": StationConfig(
+        icao_id="KDAL",
+        name="Dallas Love Field",
+        latitude=32.8384,
+        longitude=-96.8358,
+        timezone="America/Chicago",
+        characteristics="Southern plains continental - dryline/frontal volatility and strong diurnal swings",
+        enabled=True,
+    ),
     "EGLC": StationConfig(
         icao_id="EGLC",
         name="London City Airport",
@@ -177,6 +204,9 @@ MARKET_MATURE_PROBABILITY = 0.98
 POLYMARKET_CITY_SLUGS = {
     "KLGA": "nyc",
     "KATL": "atlanta",
+    "KORD": "chicago",
+    "KMIA": "miami",
+    "KDAL": "dallas",
     "EGLC": "london",
     "LTAC": "ankara",
 }
@@ -185,6 +215,9 @@ POLYMARKET_CITY_SLUGS = {
 POLYMARKET_CITY_NAMES_ES = {
     "KLGA": "Nueva York",
     "KATL": "Atlanta",
+    "KORD": "Chicago",
+    "KMIA": "Miami",
+    "KDAL": "Dallas",
     "EGLC": "Londres",
     "LTAC": "Ankara",
 }
@@ -194,6 +227,9 @@ POLYMARKET_CITY_NAMES_ES = {
 POLYMARKET_TEMP_UNITS = {
     "KLGA": "F",
     "KATL": "F",
+    "KORD": "F",
+    "KMIA": "F",
+    "KDAL": "F",
     "EGLC": "C",
     "LTAC": "C",
 }
@@ -259,6 +295,9 @@ WUNDERGROUND_PWS_REGISTRY_PATH = _os.environ.get(
 MADIS_PROVIDER_CONFIG = {
     "KLGA": ["APRSWXNET", "MesoWest"],
     "KATL": ["APRSWXNET", "MesoWest"],
+    "KORD": ["APRSWXNET", "MesoWest"],
+    "KMIA": ["APRSWXNET", "MesoWest"],
+    "KDAL": ["APRSWXNET", "MesoWest"],
     "EGLC": ["APRSWXNET", "MesoWest"],
     "LTAC": ["APRSWXNET", "MesoWest"],
 }
@@ -267,6 +306,9 @@ MADIS_PROVIDER_CONFIG = {
 PWS_SEARCH_CONFIG = {
     "KLGA": {"radius_km": 25, "max_stations": 20},
     "KATL": {"radius_km": 30, "max_stations": 20},
+    "KORD": {"radius_km": 25, "max_stations": 20},
+    "KMIA": {"radius_km": 30, "max_stations": 20},
+    "KDAL": {"radius_km": 25, "max_stations": 20},
     "EGLC": {"radius_km": 20, "max_stations": 20},
     "LTAC": {"radius_km": 25, "max_stations": 20},
 }

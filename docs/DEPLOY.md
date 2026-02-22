@@ -139,7 +139,8 @@ tail -f /opt/helios/logs/helios-error.log
 ## 7.1 (Opcional) Auto-refresco WU PWS (systemd timer)
 
 Si usas Wunderground PWS como fuente adicional (para `WUNDERGROUND` en el panel PWS), conviene refrescar
-periodicamente la lista de estaciones cercanas validas (KLGA/KATL).
+periodicamente la lista de estaciones cercanas validas para todas las estaciones activas
+(`KLGA,KATL,KORD,KMIA,KDAL,EGLC,LTAC`).
 
 En el repo hay templates en `deploy/systemd/`:
 

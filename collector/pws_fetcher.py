@@ -63,6 +63,9 @@ except Exception:
     MADIS_PROVIDER_CONFIG = {
         "KLGA": ["APRSWXNET", "MesoWest"],
         "KATL": ["APRSWXNET", "MesoWest"],
+        "KORD": ["APRSWXNET", "MesoWest"],
+        "KMIA": ["APRSWXNET", "MesoWest"],
+        "KDAL": ["APRSWXNET", "MesoWest"],
         "EGLC": ["APRSWXNET", "MesoWest"],
         "LTAC": ["APRSWXNET", "MesoWest"],
     }
@@ -70,6 +73,9 @@ except Exception:
     PWS_SEARCH_CONFIG = {
         "KLGA": {"radius_km": 25, "max_stations": 20},
         "KATL": {"radius_km": 30, "max_stations": 20},
+        "KORD": {"radius_km": 25, "max_stations": 20},
+        "KMIA": {"radius_km": 30, "max_stations": 20},
+        "KDAL": {"radius_km": 25, "max_stations": 20},
         "EGLC": {"radius_km": 20, "max_stations": 20},
         "LTAC": {"radius_km": 25, "max_stations": 20},
     }
@@ -115,6 +121,39 @@ _DEFAULT_WUNDERGROUND_STATION_IDS: Dict[str, List[str]] = {
         "KGAATLAN972",
         "KGACONLE4",
     ],
+    "KORD": [
+        "KILBENSE15",
+        "KILBENSE14",
+        "KILBENSE13",
+        "KILBENSE12",
+        "KILELMHU61",
+        "KILWOODD21",
+        "KILWOODD9",
+        "KILELMHU75",
+        "KILWOODD12",
+    ],
+    "KMIA": [
+        "KFLMIAMI1030",
+        "KFLMIAMI69",
+        "KFLMIAMI454",
+        "KFLMIAMI1010",
+        "KFLMIAMI448",
+        "KFLMIAMI684",
+        "KFLMIAMI578",
+        "KFLMIAMI706",
+        "KFLMIAMI1095",
+    ],
+    "KDAL": [
+        "KTXDALLA960",
+        "KTXDALLA1254",
+        "KTXDALLA703",
+        "KTXDALLA1236",
+        "KTXDALLA1224",
+        "KTXDALLA102",
+        "KTXDALLA1247",
+        "KTXDALLA1075",
+        "KTXDALLA843",
+    ],
     "EGLC": [
         "ILONDO288",
         "ILONDON828",
@@ -147,6 +186,9 @@ _DEFAULT_WUNDERGROUND_STATION_IDS: Dict[str, List[str]] = {
 _STATION_COORDS: Dict[str, Tuple[float, float]] = {
     "KLGA": (40.7769, -73.8740),
     "KATL": (33.6407, -84.4277),
+    "KORD": (41.9602, -87.9316),
+    "KMIA": (25.7881, -80.3169),
+    "KDAL": (32.8384, -96.8358),
     "EGLC": (51.5048, 0.0495),
     "LTAC": (40.1281, 32.9951),
 }
@@ -165,6 +207,33 @@ _GRID_OFFSETS: Dict[str, Dict[str, Any]] = {
     "KATL": {
         "lat": 33.6407,
         "lon": -84.4277,
+        "offsets": [
+            (0.05, 0.0), (-0.05, 0.0), (0.0, 0.06), (0.0, -0.06),
+            (0.10, 0.0), (-0.10, 0.0), (0.05, 0.06), (-0.05, -0.06),
+            (0.15, 0.0), (0.0, -0.12),
+        ],
+    },
+    "KORD": {
+        "lat": 41.9602,
+        "lon": -87.9316,
+        "offsets": [
+            (0.05, 0.0), (-0.05, 0.0), (0.0, 0.06), (0.0, -0.06),
+            (0.10, 0.0), (-0.10, 0.0), (0.05, 0.06), (-0.05, -0.06),
+            (0.15, 0.0), (0.0, -0.12),
+        ],
+    },
+    "KMIA": {
+        "lat": 25.7881,
+        "lon": -80.3169,
+        "offsets": [
+            (0.05, 0.0), (-0.05, 0.0), (0.0, 0.06), (0.0, -0.06),
+            (0.10, 0.0), (-0.10, 0.0), (0.05, 0.06), (-0.05, -0.06),
+            (0.15, 0.0), (0.0, -0.12),
+        ],
+    },
+    "KDAL": {
+        "lat": 32.8384,
+        "lon": -96.8358,
         "offsets": [
             (0.05, 0.0), (-0.05, 0.0), (0.0, 0.06), (0.0, -0.06),
             (0.10, 0.0), (-0.10, 0.0), (0.05, 0.06), (-0.05, -0.06),
@@ -194,6 +263,9 @@ _GRID_OFFSETS: Dict[str, Dict[str, Any]] = {
 _STATION_STATE: Dict[str, str] = {
     "KLGA": "NY",
     "KATL": "GA",
+    "KORD": "IL",
+    "KMIA": "FL",
+    "KDAL": "TX",
     "EGLC": "",  # non-US
     "LTAC": "",  # non-US
 }
@@ -1904,7 +1976,7 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(name)s | %(message)s")
 
     async def test():
-        for station in ["KLGA", "KATL", "EGLC", "LTAC"]:
+        for station in ["KLGA", "KATL", "KORD", "KMIA", "KDAL", "EGLC", "LTAC"]:
             print(f"\n{'=' * 60}")
             print(f"  PWS Cluster (Synoptic + MADIS + Open-Meteo + Wunderground): {station}")
             print(f"{'=' * 60}")

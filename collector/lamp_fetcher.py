@@ -24,7 +24,11 @@ OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
 STATION_COORDS = {
     "KLGA": (40.7769, -73.8740, "America/New_York"),
     "KATL": (33.6407, -84.4277, "America/New_York"),
+    "KORD": (41.9602, -87.9316, "America/Chicago"),
+    "KMIA": (25.7881, -80.3169, "America/New_York"),
+    "KDAL": (32.8384, -96.8358, "America/Chicago"),
     "EGLC": (51.5048, 0.0495, "Europe/London"),
+    "LTAC": (40.1281, 32.9951, "Europe/Istanbul"),
 }
 
 
@@ -345,7 +349,7 @@ if __name__ == "__main__":
         print("Testing LAMP Fetcher...")
         print("=" * 50)
         
-        for station in ["KLGA", "KATL", "EGLC"]:
+        for station in ["KLGA", "KATL", "KORD", "KMIA", "KDAL", "EGLC", "LTAC"]:
             result = await fetch_lamp(station)
             if result:
                 print(f"  {station}: Max={result.max_temp_f}°F, "

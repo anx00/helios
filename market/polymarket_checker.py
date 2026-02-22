@@ -17,6 +17,9 @@ from market.discovery import fetch_event_for_station_date
 CITY_SLUGS = {
     "KLGA": "nyc",
     "KATL": "atlanta",
+    "KORD": "chicago",
+    "KMIA": "miami",
+    "KDAL": "dallas",
     "EGLC": "london",
     "LTAC": "ankara",
 }
@@ -25,6 +28,9 @@ CITY_SLUGS = {
 CITY_NAMES_SPANISH = {
     "KLGA": "Nueva York",
     "KATL": "Atlanta",
+    "KORD": "Chicago",
+    "KMIA": "Miami",
+    "KDAL": "Dallas",
     "EGLC": "Londres",
     "LTAC": "Ankara",
 }

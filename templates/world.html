@@ -865,7 +865,15 @@
     // Station timezone + market-unit info
     const stationTimezones = {};    // stationId -> IANA timezone
     const stationMarketUnits = {};  // stationId -> 'F' | 'C'
-    const TZ_LABELS = { 'KLGA': 'NYC', 'KATL': 'ATL', 'EGLC': 'LON', 'LTAC': 'ANK' };
+    const TZ_LABELS = {
+        'KLGA': 'NYC',
+        'KATL': 'ATL',
+        'KORD': 'CHI',
+        'KMIA': 'MIA',
+        'KDAL': 'DAL',
+        'EGLC': 'LON',
+        'LTAC': 'ANK'
+    };
     const ES_TZ = 'Europe/Madrid';
 
     // Dynamic formatters (rebuilt when station changes)

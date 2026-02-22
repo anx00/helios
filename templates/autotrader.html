@@ -763,7 +763,15 @@ function formatDateTimeInTz(value, tz) {
     return `${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get("minute")}:${get("second")}`;
 }
 
-const AT_TZ_LABELS = { 'KLGA': 'NYC', 'KATL': 'ATL', 'EGLC': 'LON' };
+const AT_TZ_LABELS = {
+    'KLGA': 'NYC',
+    'KATL': 'ATL',
+    'KORD': 'CHI',
+    'KMIA': 'MIA',
+    'KDAL': 'DAL',
+    'EGLC': 'LON',
+    'LTAC': 'ANK'
+};
 
 function dualTsHtml(value) {
     const localTz = live.stationTz || "America/New_York";

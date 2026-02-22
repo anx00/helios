@@ -2,6 +2,24 @@
 
 This document tracks the evolution of the HELIOS Weather Lab project.
 
+## 2026-02-22
+
+### New markets added: Chicago, Miami, Dallas
+**Goal**: add full market support (station config, slug resolution, PWS/WU, and forecast fetchers) for Chicago, Miami, and Dallas.
+
+**Changes**:
+- Added stations: `KORD`, `KMIA`, `KDAL` in `config.py` (coords/timezones/characteristics/enabled).
+- Added Polymarket slug/unit mappings for new stations in `config.py` and `market/polymarket_checker.py`.
+- Added Wunderground station URL mapping for the three stations in `collector/wunderground_fetcher.py`.
+- Extended PWS pipeline defaults/fallbacks/coords/state grids in `collector/pws_fetcher.py`.
+- Updated NBM/LAMP station metadata for new stations in:
+  - `collector/nbm_fetcher.py`
+  - `collector/lamp_fetcher.py`
+- Refreshed WU PWS registry with discovered nearby stations:
+  - `data/wu_pws_station_registry.json`
+- Added implementation/research note:
+  - `docs/NEW_MARKETS_CHICAGO_MIAMI_DALLAS_2026-02-22.md`
+
 ## 2026-02-21
 
 ### METAR decoding hardening (no T-group => range, not point)
@@ -608,4 +626,29 @@ Changed the trigger condition to require **1+ hour AFTER** the peak:
 - `synthesizer/physics.py`: Same change for Rule 7b
 
 **Status**: ✅ Completed.
+
+
+### New Markets Completion (2026-02-22, final pass)
+**Goal**: Close remaining integration gaps after adding `KORD`, `KMIA`, `KDAL`.
+
+**Additional work completed**:
+- Added NDBC mapping for Miami:
+  - `collector/ndbc_fetcher.py`: `KMIA -> VAKF1` (primario) con `41122` como fallback.
+  - Added onshore sector for KMIA (`40-170 deg`).
+  - Improved NDBC parser to skip newest rows with `WTMP=MM` and use the first recent valid `WTMP`.
+- Updated WU discovery deployment template:
+  - `deploy/systemd/helios-wu-discover.service` now refreshes
+    `KLGA,KATL,KORD,KMIA,KDAL,EGLC,LTAC`.
+- Updated web labels/fallbacks for new stations:
+  - `templates/world.html`
+  - `templates/nowcast.html`
+  - `templates/replay.html`
+  - `templates/autotrader.html`
+  - `static/app.js` fallback station list.
+- Updated docs to reflect expanded station set and fallback behavior:
+  - `docs/DEPLOY.md`
+  - `docs/WUNDERGROUND_PWS.md`
+  - `docs/NEW_MARKETS_CHICAGO_MIAMI_DALLAS_2026-02-22.md`
+
+**Status**: completed.
 
