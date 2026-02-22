@@ -447,6 +447,64 @@
             width: calc(100% - var(--sidebar-collapsed));
         }
 
+        .global-station-topbar {
+            position: sticky;
+            top: 0;
+            z-index: 900;
+            background: rgba(10, 14, 23, 0.96);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            backdrop-filter: blur(8px);
+        }
+
+        .global-station-topbar-inner {
+            min-height: 52px;
+            padding: 10px 18px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .global-station-topbar-label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-muted);
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .global-station-topbar-select {
+            min-width: 220px;
+            max-width: 360px;
+            width: 100%;
+            flex: 0 1 340px;
+            font-size: 12px;
+        }
+
+        .global-station-topbar-meta {
+            font-size: 11px;
+            color: var(--text-secondary);
+            font-family: 'JetBrains Mono', monospace;
+            overflow-wrap: anywhere;
+            flex: 1 1 280px;
+        }
+
+        @media (max-width: 768px) {
+            .global-station-topbar-inner {
+                align-items: stretch;
+                gap: 8px;
+            }
+            .global-station-topbar-select {
+                flex-basis: 100%;
+                max-width: none;
+            }
+            .global-station-topbar-meta {
+                flex-basis: 100%;
+                font-size: 10px;
+            }
+        }
+
         .page-header {
             padding: 20px 30px;
             background: var(--bg-secondary);
@@ -680,14 +738,14 @@
 
         <nav class="sidebar-nav">
             <div class="sidebar-station">
-                <label for="global-station-select" class="sidebar-station-label">Station</label>
-                <select id="global-station-select" class="sidebar-station-select" onchange="handleGlobalStationSelectChange(this.value)">
+                <label for="global-station-select-sidebar" class="sidebar-station-label">Station</label>
+                <select id="global-station-select-sidebar" data-global-station-select class="sidebar-station-select" onchange="handleGlobalStationSelectChange(this.value)">
                     {% set _selected_sid = (selected_station_id if selected_station_id is defined and selected_station_id else default_station_id) %}
                     {% for opt in station_selector_options %}
                     <option value="{{ opt.id }}" {% if _selected_sid == opt.id %}selected{% endif %}>{{ opt.label }}</option>
                     {% endfor %}
                 </select>
-                <div class="sidebar-station-meta" id="global-station-meta">Using selected station across all dashboards</div>
+                <div class="sidebar-station-meta" data-global-station-meta>Using selected station across all dashboards</div>
             </div>
 
             <div class="nav-section">
@@ -743,6 +801,20 @@
 
     <!-- MAIN CONTENT -->
     <div class="main-content">
+        <div class="global-station-topbar">
+            <div class="global-station-topbar-inner">
+                <span class="global-station-topbar-label">Active Station</span>
+                <select id="global-station-select-top" data-global-station-select class="global-station-topbar-select" onchange="handleGlobalStationSelectChange(this.value)">
+                    {% set _top_selected_sid = (selected_station_id if selected_station_id is defined and selected_station_id else default_station_id) %}
+                    {% for opt in station_selector_options %}
+                    <option value="{{ opt.id }}" {% if _top_selected_sid == opt.id %}selected{% endif %}>{{ opt.label }}</option>
+                    {% endfor %}
+                </select>
+                <div class="global-station-topbar-meta" data-global-station-meta>
+                    This station is used across pages and station-scoped endpoints
+                </div>
+            </div>
+        </div>
         {% block content %}{% endblock %}
     </div>
 
@@ -835,16 +907,18 @@
         }
 
         function updateGlobalStationSelectorUi(stationId) {
-            const select = document.getElementById('global-station-select');
-            if (select && select.value !== stationId) {
-                select.value = stationId;
-            }
-            const meta = document.getElementById('global-station-meta');
+            document.querySelectorAll('[data-global-station-select]').forEach((select) => {
+                if (select && select.value !== stationId) {
+                    select.value = stationId;
+                }
+            });
             const opt = HELIOS_STATION_MAP[stationId];
-            if (meta && opt) {
-                const unit = String(opt.market_unit || '').toUpperCase();
-                meta.textContent = `${opt.label} | ${opt.timezone}${unit ? ` | ${unit}` : ''}`;
-            }
+            if (!opt) return;
+            const unit = String(opt.market_unit || '').toUpperCase();
+            const metaText = `${opt.label} | ${opt.timezone}${unit ? ` | ${unit}` : ''}`;
+            document.querySelectorAll('[data-global-station-meta]').forEach((meta) => {
+                if (meta) meta.textContent = metaText;
+            });
         }
 
         function maybeRedirectStationScopedPage(stationId) {
