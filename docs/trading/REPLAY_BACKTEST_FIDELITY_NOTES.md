@@ -2,7 +2,7 @@
 
 ## Summary
 
-This document covers all fixes implemented in response to `docs/PROPUESTA-0702.md`. The four steps were:
+This document covers all fixes implemented in response to `docs/legacy/PROPUESTA-0702.md`. The four steps were:
 1. Fix market replay fidelity (`timesteps_with_market=0`)
 2. Fix backtest UX (intraday drilldown instead of daily-only summary)
 3. Normalize sizing rules ($1 minimum) and costs parity

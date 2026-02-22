@@ -428,4 +428,4 @@ if difference > 5%:
     signal = "POTENTIAL_EDGE"
 ```
 
-See `docs/HELIOS_ARCHITECTURE.md` for opportunity detection logic.
+See `docs/system/ARCHITECTURE.md` for opportunity detection logic.

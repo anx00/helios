@@ -73,7 +73,7 @@ The script:
 
 Run discovery for all active stations:
 ```bash
-python discover_wu_pws.py --stations KLGA,KATL,KORD,KMIA,KDAL,EGLC,LTAC --limit 50 --out data/wu_pws_station_registry.json
+python discover_wu_pws.py --stations KLGA,KATL,KORD,KMIA,KDAL,LFPG,EGLC,LTAC --limit 50 --out data/wu_pws_station_registry.json
 ```
 
 Registry file:
@@ -152,6 +152,18 @@ KTXDALLA1075
 KTXDALLA843
 ```
 
+LFPG fallback station IDs:
+```text
+IROISS4
+IGONES3
+IVMARS5
+IFONTE105
+IMOUSS19
+IGONES2
+IMOUSS10
+IMITRY1
+```
+
 ## HELIOS Integration Points
 
 ### PWS Cluster (`collector/pws_fetcher.py`)
@@ -163,7 +175,7 @@ KTXDALLA843
 
 Fallback behavior:
 - If the registry JSON is missing, HELIOS has small built-in fallback lists for
-  `KLGA`, `KATL`, `KORD`, `KMIA`, `KDAL`, `EGLC`, and `LTAC`.
+  `KLGA`, `KATL`, `KORD`, `KMIA`, `KDAL`, `LFPG`, `EGLC`, and `LTAC`.
 - The registry is still recommended so the list stays current.
 
 ### World UI (`templates/world.html`)

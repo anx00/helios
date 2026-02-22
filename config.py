@@ -107,6 +107,15 @@ STATIONS: Dict[str, StationConfig] = {
         characteristics="Southern plains continental - dryline/frontal volatility and strong diurnal swings",
         enabled=True,
     ),
+    "LFPG": StationConfig(
+        icao_id="LFPG",
+        name="Paris Charles de Gaulle",
+        latitude=49.0150,
+        longitude=2.5340,
+        timezone="Europe/Paris",
+        characteristics="Northern France airport - oceanic/continental transitions and low-cloud variability",
+        enabled=True,
+    ),
     "EGLC": StationConfig(
         icao_id="EGLC",
         name="London City Airport",
@@ -207,6 +216,7 @@ POLYMARKET_CITY_SLUGS = {
     "KORD": "chicago",
     "KMIA": "miami",
     "KDAL": "dallas",
+    "LFPG": "paris",
     "EGLC": "london",
     "LTAC": "ankara",
 }
@@ -218,6 +228,7 @@ POLYMARKET_CITY_NAMES_ES = {
     "KORD": "Chicago",
     "KMIA": "Miami",
     "KDAL": "Dallas",
+    "LFPG": "Paris",
     "EGLC": "Londres",
     "LTAC": "Ankara",
 }
@@ -230,6 +241,7 @@ POLYMARKET_TEMP_UNITS = {
     "KORD": "F",
     "KMIA": "F",
     "KDAL": "F",
+    "LFPG": "C",
     "EGLC": "C",
     "LTAC": "C",
 }
@@ -298,6 +310,7 @@ MADIS_PROVIDER_CONFIG = {
     "KORD": ["APRSWXNET", "MesoWest"],
     "KMIA": ["APRSWXNET", "MesoWest"],
     "KDAL": ["APRSWXNET", "MesoWest"],
+    "LFPG": ["APRSWXNET", "MesoWest"],
     "EGLC": ["APRSWXNET", "MesoWest"],
     "LTAC": ["APRSWXNET", "MesoWest"],
 }
@@ -309,6 +322,7 @@ PWS_SEARCH_CONFIG = {
     "KORD": {"radius_km": 25, "max_stations": 20},
     "KMIA": {"radius_km": 30, "max_stations": 20},
     "KDAL": {"radius_km": 25, "max_stations": 20},
+    "LFPG": {"radius_km": 25, "max_stations": 20},
     "EGLC": {"radius_km": 20, "max_stations": 20},
     "LTAC": {"radius_km": 25, "max_stations": 20},
 }

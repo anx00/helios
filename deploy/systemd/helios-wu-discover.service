@@ -14,7 +14,7 @@ ExecStartPre=/bin/mkdir -p /opt/helios/data
 ExecStartPre=/bin/mkdir -p /opt/helios/logs
 
 # Refresh PWS registry for all active stations we care about.
-ExecStart=/opt/helios/venv/bin/python discover_wu_pws.py --stations KLGA,KATL,KORD,KMIA,KDAL,EGLC,LTAC --limit 50 --out data/wu_pws_station_registry.json
+ExecStart=/opt/helios/venv/bin/python discover_wu_pws.py --stations KLGA,KATL,KORD,KMIA,KDAL,LFPG,EGLC,LTAC --limit 50 --out data/wu_pws_station_registry.json
 
 StandardOutput=append:/opt/helios/logs/wu_discover.log
 StandardError=append:/opt/helios/logs/wu_discover_error.log

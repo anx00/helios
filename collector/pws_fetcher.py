@@ -66,6 +66,7 @@ except Exception:
         "KORD": ["APRSWXNET", "MesoWest"],
         "KMIA": ["APRSWXNET", "MesoWest"],
         "KDAL": ["APRSWXNET", "MesoWest"],
+        "LFPG": ["APRSWXNET", "MesoWest"],
         "EGLC": ["APRSWXNET", "MesoWest"],
         "LTAC": ["APRSWXNET", "MesoWest"],
     }
@@ -76,6 +77,7 @@ except Exception:
         "KORD": {"radius_km": 25, "max_stations": 20},
         "KMIA": {"radius_km": 30, "max_stations": 20},
         "KDAL": {"radius_km": 25, "max_stations": 20},
+        "LFPG": {"radius_km": 25, "max_stations": 20},
         "EGLC": {"radius_km": 20, "max_stations": 20},
         "LTAC": {"radius_km": 25, "max_stations": 20},
     }
@@ -154,6 +156,16 @@ _DEFAULT_WUNDERGROUND_STATION_IDS: Dict[str, List[str]] = {
         "KTXDALLA1075",
         "KTXDALLA843",
     ],
+    "LFPG": [
+        "IROISS4",
+        "IGONES3",
+        "IVMARS5",
+        "IFONTE105",
+        "IMOUSS19",
+        "IGONES2",
+        "IMOUSS10",
+        "IMITRY1",
+    ],
     "EGLC": [
         "ILONDO288",
         "ILONDON828",
@@ -189,6 +201,7 @@ _STATION_COORDS: Dict[str, Tuple[float, float]] = {
     "KORD": (41.9602, -87.9316),
     "KMIA": (25.7881, -80.3169),
     "KDAL": (32.8384, -96.8358),
+    "LFPG": (49.0150, 2.5340),
     "EGLC": (51.5048, 0.0495),
     "LTAC": (40.1281, 32.9951),
 }
@@ -240,6 +253,15 @@ _GRID_OFFSETS: Dict[str, Dict[str, Any]] = {
             (0.15, 0.0), (0.0, -0.12),
         ],
     },
+    "LFPG": {
+        "lat": 49.0150,
+        "lon": 2.5340,
+        "offsets": [
+            (0.05, 0.0), (-0.05, 0.0), (0.0, 0.06), (0.0, -0.06),
+            (0.10, 0.0), (-0.10, 0.0), (0.05, 0.06), (-0.05, -0.06),
+            (0.15, 0.0), (0.0, -0.12),
+        ],
+    },
     "EGLC": {
         "lat": 51.5048,
         "lon": 0.0495,
@@ -266,16 +288,18 @@ _STATION_STATE: Dict[str, str] = {
     "KORD": "IL",
     "KMIA": "FL",
     "KDAL": "TX",
+    "LFPG": "",  # non-US
     "EGLC": "",  # non-US
     "LTAC": "",  # non-US
 }
 
 # Stations where Synoptic coverage is often sparse/absent and we want
 # stronger real-PWS-first behavior (WU/MADIS) with Open-Meteo as fallback.
-_REAL_PWS_PRIORITY_STATIONS = {"EGLC", "LTAC"}
+_REAL_PWS_PRIORITY_STATIONS = {"EGLC", "LTAC", "LFPG"}
 _WUNDERGROUND_DISCOVERY_MIN_CANDIDATES: Dict[str, int] = {
     "EGLC": 30,
     "LTAC": 30,
+    "LFPG": 30,
 }
 
 
@@ -1976,7 +2000,7 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(name)s | %(message)s")
 
     async def test():
-        for station in ["KLGA", "KATL", "KORD", "KMIA", "KDAL", "EGLC", "LTAC"]:
+        for station in ["KLGA", "KATL", "KORD", "KMIA", "KDAL", "LFPG", "EGLC", "LTAC"]:
             print(f"\n{'=' * 60}")
             print(f"  PWS Cluster (Synoptic + MADIS + Open-Meteo + Wunderground): {station}")
             print(f"{'=' * 60}")

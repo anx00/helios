@@ -140,7 +140,7 @@ tail -f /opt/helios/logs/helios-error.log
 
 Si usas Wunderground PWS como fuente adicional (para `WUNDERGROUND` en el panel PWS), conviene refrescar
 periodicamente la lista de estaciones cercanas validas para todas las estaciones activas
-(`KLGA,KATL,KORD,KMIA,KDAL,EGLC,LTAC`).
+(`KLGA,KATL,KORD,KMIA,KDAL,LFPG,EGLC,LTAC`).
 
 En el repo hay templates en `deploy/systemd/`:
 

@@ -60,6 +60,7 @@ STATION_WU_MAP = {
     "KORD": {"region": "il", "city": "chicago", "country": "us", "units": "e"},
     "KMIA": {"region": "fl", "city": "miami", "country": "us", "units": "e"},
     "KDAL": {"region": "tx", "city": "dallas", "country": "us", "units": "e"},
+    "LFPG": {"region": "paris", "city": "paris", "country": "fr", "units": "m"},
     "EGLC": {"region": "gb/london", "city": "city-of-london", "country": "gb", "units": "m"},  # UK uses Celsius
     "LTAC": {"region": "ankara", "city": "ankara", "country": "tr", "units": "m"},
 }
@@ -67,6 +68,47 @@ STATION_WU_MAP = {
 
 _RE_WU_VALID_TIME_LOCAL = re.compile(r'validTimeLocal"\s*:\s*\[([^\]]+)\]')
 _RE_WU_CAL_MAX = re.compile(r'calendarDayTemperatureMax"\s*:\s*\[([^\]]+)\]')
+_RE_WU_EMBEDDED_UNITS = re.compile(r"\bunits=([em])\b", re.IGNORECASE)
+
+
+def _wu_metric_value_to_f(value: float, use_metric: bool) -> float:
+    """
+    Convert WU temperature value to Fahrenheit.
+
+    WU scraping/API payloads for non-US pages are inconsistent: some responses still
+    expose Fahrenheit values even when the page/API request is metric (`units=m`).
+    For HELIOS C-markets (London/Ankara/Paris), values outside a plausible ambient
+    Celsius range are treated as already-Fahrenheit to avoid double conversion.
+    """
+    v = float(value)
+    if not use_metric:
+        return v
+    if -45.0 <= v <= 45.0:
+        return (v * 9.0 / 5.0) + 32.0
+    # Likely already in Fahrenheit despite `units=m`.
+    return v
+
+
+def _wu_scrape_values_use_metric(html: str) -> Optional[bool]:
+    """
+    Infer units used by WU embedded page payloads from weather.com request URLs in HTML.
+
+    WU pages often embed API request URLs like `...units=e...` even for non-US pages.
+    Returns:
+      - True  => page payload appears metric
+      - False => page payload appears imperial
+      - None  => unable to infer
+    """
+    if not html:
+        return None
+    hits = [h.lower() for h in _RE_WU_EMBEDDED_UNITS.findall(html)]
+    if not hits:
+        return None
+    e_count = sum(1 for h in hits if h == "e")
+    m_count = sum(1 for h in hits if h == "m")
+    if e_count == m_count:
+        return None
+    return m_count > e_count
 
 
 def _build_wu_history_url(wu_config: dict, station_id: str, target_date: date) -> str:
@@ -129,14 +171,14 @@ def _scrape_forecast_high_from_weather_page(html: str, target_date: date, use_me
         for i, dt_str in enumerate(times):
             if dt_str.startswith(target_iso) and i < len(max_vals) and max_vals[i] is not None:
                 val = float(max_vals[i])
-                return (val * 9/5) + 32 if use_metric else val
+                return _wu_metric_value_to_f(val, use_metric)
 
     # Fallback: first non-null value (usually "today").
     for val in max_vals:
         if val is None:
             continue
         v = float(val)
-        return (v * 9/5) + 32 if use_metric else v
+        return _wu_metric_value_to_f(v, use_metric)
 
     return None
 
@@ -172,9 +214,7 @@ def _extract_hourly_forecast_rows_f(
         if dt.date() != target_date:
             continue
         try:
-            temp_f = float(temp)
-            if use_metric:
-                temp_f = (temp_f * 9.0 / 5.0) + 32.0
+            temp_f = _wu_metric_value_to_f(float(temp), use_metric)
         except Exception:
             continue
         rows.append((int(dt.hour), float(temp_f)))
@@ -282,9 +322,7 @@ async def fetch_wunderground_max(
                                 cond = obs.get("wx_phrase", "")
                                 
                                 # v7.0: Convert Celsius to Fahrenheit if using metric units
-                                temp_f = float(temp)
-                                if use_metric:
-                                    temp_f = (float(temp) * 9/5) + 32
+                                temp_f = _wu_metric_value_to_f(float(temp), use_metric)
                                 
                                 hourly_history.append(WundergroundHourlyEntry(
                                     time=obs_time,
@@ -307,6 +345,10 @@ async def fetch_wunderground_max(
                 response = await client.get(url, headers=headers)
                 response.raise_for_status()
                 soup = BeautifulSoup(response.text, "html.parser")
+                scrape_use_metric = use_metric
+                inferred = _wu_scrape_values_use_metric(response.text)
+                if inferred is not None:
+                    scrape_use_metric = bool(inferred)
                 
                 # Logic for Method 3 & 4 (search scripts for embedded JSON)
                 scripts = soup.find_all("script")
@@ -345,10 +387,10 @@ async def fetch_wunderground_max(
                                         except: continue
                                 hourly_history.append(WundergroundHourlyEntry(
                                     time=obs_time,
-                                    temp_f=((float(temp) * 9/5) + 32) if use_metric else float(temp),
+                                    temp_f=_wu_metric_value_to_f(float(temp), scrape_use_metric),
                                     conditions=obs.get("wxPhraseLong", "")
                                 ))
-                                obs_temp_f = ((float(temp) * 9/5) + 32) if use_metric else float(temp)
+                                obs_temp_f = _wu_metric_value_to_f(float(temp), scrape_use_metric)
                                 if high_temp_f is None or obs_temp_f > high_temp_f:
                                     high_temp_f = obs_temp_f
                                     high_temp_time = obs_time
@@ -375,8 +417,7 @@ async def fetch_wunderground_max(
                                 if len(max_list) > i:
                                     daily_max = float(max_list[i])
                                     # v7.0: Convert C to F if using metric
-                                    if use_metric:
-                                        daily_max = (daily_max * 9/5) + 32
+                                    daily_max = _wu_metric_value_to_f(float(daily_max), use_metric)
                                     break
                     
                     # 4.2: Fetch Hourly Forecast for "Live Adjustment"
@@ -419,15 +460,20 @@ async def fetch_wunderground_max(
                 current_response = await client.get(current_url, headers=headers)
                 if current_response.status_code == 200:
                     current_soup = BeautifulSoup(current_response.text, "html.parser")
+                    page_use_metric = use_metric
+                    inferred_current_units = _wu_scrape_values_use_metric(current_response.text)
+                    if inferred_current_units is not None:
+                        page_use_metric = bool(inferred_current_units)
                     current_temp_elem = current_soup.find("span", class_="wu-value-to")
                     if current_temp_elem:
                         try:
                             scraped_temp = float(current_temp_elem.text.strip())
-                            # v7.0: For UK pages, the displayed temp is in Celsius - convert to F
-                            if use_metric:
-                                # Validate: metric pages should be plausible Celsius values.
-                                if -30 <= scraped_temp <= 55:
+                            # Convert based on inferred page payload units when available.
+                            if page_use_metric:
+                                if -45 <= scraped_temp <= 45:
                                     current_temp_f = (scraped_temp * 9/5) + 32
+                                else:
+                                    current_temp_f = scraped_temp
                             else:
                                 current_temp_f = scraped_temp
                         except: pass
@@ -438,7 +484,7 @@ async def fetch_wunderground_max(
                             forecast_high_f = _scrape_forecast_high_from_weather_page(
                                 current_response.text,
                                 target_date=target_date,
-                                use_metric=use_metric,
+                                use_metric=page_use_metric,
                             )
                         except Exception:
                             pass

@@ -18,7 +18,7 @@ This document tracks the evolution of the HELIOS Weather Lab project.
 - Refreshed WU PWS registry with discovered nearby stations:
   - `data/wu_pws_station_registry.json`
 - Added implementation/research note:
-  - `docs/NEW_MARKETS_CHICAGO_MIAMI_DALLAS_2026-02-22.md`
+  - `docs/market/rollouts/CHICAGO_MIAMI_DALLAS_2026-02-22.md`
 
 ## 2026-02-21
 
@@ -37,7 +37,7 @@ This document tracks the evolution of the HELIOS Weather Lab project.
 - Historical racing logs show this occurred in production (`81158` racing rows, `623` rows with NOAA pair disagreement `>=1F`).
 
 **Reference**:
-- Full technical note: `docs/FIX_METAR_T_GROUP_RANGE_2026-02-21.md`.
+- Full technical note: `docs/weather/METAR_SETTLEMENT_RANGE_NOTE.md`.
 
 ## 2026-01-27
 
@@ -646,9 +646,24 @@ Changed the trigger condition to require **1+ hour AFTER** the peak:
   - `templates/autotrader.html`
   - `static/app.js` fallback station list.
 - Updated docs to reflect expanded station set and fallback behavior:
-  - `docs/DEPLOY.md`
-  - `docs/WUNDERGROUND_PWS.md`
-  - `docs/NEW_MARKETS_CHICAGO_MIAMI_DALLAS_2026-02-22.md`
+  - `docs/operations/DEPLOY_VPS_LINUX.md`
+  - `docs/operations/WUNDERGROUND_PWS.md`
+  - `docs/market/rollouts/CHICAGO_MIAMI_DALLAS_2026-02-22.md`
 
 **Status**: completed.
 
+
+### New Market Added: Paris / LFPG (2026-02-22)
+**Goal**: Add Paris temperature market support with full station/config/WU/PWS integration.
+
+**Completed**:
+- Added `LFPG` (Paris Charles de Gaulle) in `config.py` with `Europe/Paris` timezone.
+- Added Polymarket slug mapping `LFPG -> paris` and market unit `C`.
+- Added WU legacy mapping (`fr/paris/LFPG`, metric units) in `collector/wunderground_fetcher.py`.
+- Added PWS integration (MADIS config, search config, WU fallback IDs, coords/grid/state) in `collector/pws_fetcher.py`.
+- Added LFPG metadata in `collector/nbm_fetcher.py` and `collector/lamp_fetcher.py`.
+- Added UI timezone labels and Celsius fallback support for LFPG in world/nowcast/replay/autotrader pages.
+- Updated WU discovery systemd service and docs to include LFPG.
+- Added implementation note: `docs/market/rollouts/PARIS_2026-02-22.md`.
+
+**Status**: completed.

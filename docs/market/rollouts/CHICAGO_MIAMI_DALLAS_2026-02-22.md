@@ -98,8 +98,8 @@ Adicional:
 - Deploy WU discovery actualizado a todas las estaciones:
   - `deploy/systemd/helios-wu-discover.service`
 - Documentacion actualizada:
-  - `docs/WUNDERGROUND_PWS.md`
-  - `docs/DEPLOY.md`
+  - `docs/operations/WUNDERGROUND_PWS.md`
+  - `docs/operations/DEPLOY_VPS_LINUX.md`
 
 ## Estado
 Alta funcional completa para `KORD`, `KMIA`, `KDAL` en:

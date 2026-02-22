@@ -28,6 +28,7 @@ STATION_META = {
     "KORD": (41.9602, -87.9316, "America/Chicago"),
     "KMIA": (25.7881, -80.3169, "America/New_York"),
     "KDAL": (32.8384, -96.8358, "America/Chicago"),
+    "LFPG": (49.0150, 2.5340, "Europe/Paris"),
     "EGLC": (51.5048, 0.0495, "Europe/London"),
     "LTAC": (40.1281, 32.9951, "Europe/Istanbul"),
 }
@@ -296,7 +297,7 @@ if __name__ == "__main__":
         print("Testing NBM Fetcher...")
         print("=" * 50)
         
-        for station in ["KLGA", "KATL", "KORD", "KMIA", "KDAL", "EGLC", "LTAC"]:
+        for station in ["KLGA", "KATL", "KORD", "KMIA", "KDAL", "LFPG", "EGLC", "LTAC"]:
             result = await fetch_nbm(station)
             if result:
                 print(f"  {station}: {result.max_temp_f}°F from {result.source}")

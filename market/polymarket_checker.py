@@ -20,6 +20,7 @@ CITY_SLUGS = {
     "KORD": "chicago",
     "KMIA": "miami",
     "KDAL": "dallas",
+    "LFPG": "paris",
     "EGLC": "london",
     "LTAC": "ankara",
 }
@@ -31,6 +32,7 @@ CITY_NAMES_SPANISH = {
     "KORD": "Chicago",
     "KMIA": "Miami",
     "KDAL": "Dallas",
+    "LFPG": "Paris",
     "EGLC": "Londres",
     "LTAC": "Ankara",
 }

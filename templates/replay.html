@@ -1248,6 +1248,7 @@
         'KORD': 'CHI',
         'KMIA': 'MIA',
         'KDAL': 'DAL',
+        'LFPG': 'PAR',
         'EGLC': 'LON',
         'LTAC': 'ANK'
     };
@@ -1269,7 +1270,7 @@
         const raw = String(stationMarketUnits[sid] || '').toUpperCase();
         if (raw === 'C' || raw === 'CELSIUS') return 'C';
         if (raw === 'F' || raw === 'FAHRENHEIT') return 'F';
-        return (sid === 'EGLC' || sid === 'LTAC') ? 'C' : 'F';
+        return (sid === 'EGLC' || sid === 'LTAC' || sid === 'LFPG') ? 'C' : 'F';
     }
 
     function usesCelsius(stationId = currentStationId()) {
