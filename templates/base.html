@@ -160,6 +160,10 @@
             padding: 10px 8px;
         }
 
+        .sidebar.collapsed .sidebar-station {
+            display: none;
+        }
+
         .sidebar.collapsed .station-header {
             justify-content: center;
             padding: 8px;
@@ -300,6 +304,38 @@
             padding: 10px 15px 5px;
             font-weight: 600;
             white-space: nowrap;
+        }
+
+        .sidebar-station {
+            margin: 4px 6px 16px;
+            padding: 12px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.07);
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .sidebar-station-label {
+            display: block;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1.2px;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+            font-weight: 600;
+        }
+
+        .sidebar-station-select {
+            width: 100%;
+            font-size: 12px;
+        }
+
+        .sidebar-station-meta {
+            margin-top: 6px;
+            font-size: 10px;
+            color: var(--text-muted);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .nav-item {
@@ -643,12 +679,20 @@
         </div>
 
         <nav class="sidebar-nav">
-            <!-- Home -->
+            <div class="sidebar-station">
+                <label for="global-station-select" class="sidebar-station-label">Station</label>
+                <select id="global-station-select" class="sidebar-station-select" onchange="handleGlobalStationSelectChange(this.value)">
+                    {% set _selected_sid = (selected_station_id if selected_station_id is defined and selected_station_id else default_station_id) %}
+                    {% for opt in station_selector_options %}
+                    <option value="{{ opt.id }}" {% if _selected_sid == opt.id %}selected{% endif %}>{{ opt.label }}</option>
+                    {% endfor %}
+                </select>
+                <div class="sidebar-station-meta" id="global-station-meta">Using selected station across all dashboards</div>
+            </div>
+
             <div class="nav-section">
-                <a href="/" class="nav-item {% if active_page == 'home' %}active{% endif %}">
-                    <i data-lucide="home"></i>
-                    <span>Home</span>
-                </a>
+                <div class="nav-section-title">Features</div>
+
                 <a href="/world" class="nav-item {% if active_page == 'world' %}active{% endif %}">
                     <i data-lucide="globe"></i>
                     <span>World State</span>
@@ -673,44 +717,22 @@
                     <i data-lucide="candlestick-chart"></i>
                     <span>Polymarket</span>
                 </a>
+                <a href="/analytics" class="nav-item {% if active_page == 'analytics' %}active{% endif %}">
+                    <i data-lucide="bar-chart-2"></i>
+                    <span>Analytics</span>
+                </a>
+                <a href="/prediction" class="nav-item {% if active_page == 'prediction' %}active{% endif %}">
+                    <i data-lucide="cpu"></i>
+                    <span>Prediction</span>
+                </a>
+                <a href="/data" class="nav-item {% if active_page == 'data' %}active{% endif %}">
+                    <i data-lucide="database"></i>
+                    <span>Data</span>
+                </a>
                 <a href="/atenea" class="nav-item {% if active_page == 'atenea' %}active{% endif %}" style="background: linear-gradient(135deg, rgba(139, 92, 246, 0.15), rgba(59, 130, 246, 0.15)); border: 1px solid rgba(139, 92, 246, 0.3);">
                     <i data-lucide="bot"></i>
                     <span>🜂 Atenea</span>
                 </a>
-            </div>
-
-            <!-- Stations (only active ones) -->
-            <div class="nav-section">
-                <div class="nav-section-title">Stations</div>
-
-                {% for sid in active_stations %}
-                {% set stn = all_stations[sid] %}
-                {% set flag = '🇺🇸' if stn.timezone == 'America/New_York' else '🇬🇧' %}
-                <div class="station-group">
-                    <div class="station-header {% if station_id == sid %}expanded{% endif %}"
-                        onclick="toggleStation('{{ sid|lower }}')">
-                        <span class="station-flag">{{ flag }}</span>
-                        <span class="station-code" style="display:none;">{{ sid }}</span>
-                        <span class="station-name">{{ sid }} - {{ stn.name.split(' ')[-1] if ' ' in stn.name else stn.name }}</span>
-                        <i data-lucide="chevron-right" class="chevron"></i>
-                    </div>
-                    <div class="nav-station" id="station-{{ sid|lower }}"
-                        style="{% if station_id != sid %}display:none{% endif %}">
-                        <a href="/station/{{ sid }}/analytics"
-                            class="nav-item {% if station_id == sid and active_page == 'analytics' %}active{% endif %}">
-                            <i data-lucide="bar-chart-2"></i> <span>Analytics</span>
-                        </a>
-                        <a href="/station/{{ sid }}/prediction"
-                            class="nav-item {% if station_id == sid and active_page == 'prediction' %}active{% endif %}">
-                            <i data-lucide="cpu"></i> <span>Prediction</span>
-                        </a>
-                        <a href="/station/{{ sid }}/data"
-                            class="nav-item {% if station_id == sid and active_page == 'data' %}active{% endif %}">
-                            <i data-lucide="database"></i> <span>Data</span>
-                        </a>
-                    </div>
-                </div>
-                {% endfor %}
             </div>
         </nav>
 
@@ -776,19 +798,113 @@
             setTimeout(() => lucide.createIcons(), 300);
         }
 
-        // Toggle station submenu
-        function toggleStation(stationId) {
-            const submenu = document.getElementById('station-' + stationId);
-            const header = submenu.previousElementSibling;
+        // ============================================
+        // Global Station State (sidebar selector)
+        // ============================================
+        const HELIOS_STATION_STORAGE_KEY = 'heliosSelectedStation';
+        const HELIOS_STATION_COOKIE_KEY = 'helios_selected_station';
+        const HELIOS_STATION_OPTIONS = {{ station_selector_options|tojson }};
+        const HELIOS_SERVER_SELECTED_STATION = {{ (selected_station_id or default_station_id)|tojson }};
+        const HELIOS_ACTIVE_PAGE = {{ (active_page or '')|tojson }};
+        const HELIOS_ROUTE_STATION_ID = {{ (station_id or '')|tojson }};
 
-            if (submenu.style.display === 'none') {
-                submenu.style.display = 'block';
-                header.classList.add('expanded');
-            } else {
-                submenu.style.display = 'none';
-                header.classList.remove('expanded');
+        const HELIOS_STATION_MAP = Object.fromEntries(
+            (HELIOS_STATION_OPTIONS || []).map((opt) => [String(opt.id || '').toUpperCase(), opt])
+        );
+
+        function normalizeHeliosStationId(stationId) {
+            const sid = String(stationId || '').trim().toUpperCase();
+            return HELIOS_STATION_MAP[sid] ? sid : null;
+        }
+
+        function readStoredHeliosStationId() {
+            try {
+                return localStorage.getItem(HELIOS_STATION_STORAGE_KEY);
+            } catch (_) {
+                return null;
             }
         }
+
+        function persistHeliosStationId(stationId) {
+            try {
+                localStorage.setItem(HELIOS_STATION_STORAGE_KEY, stationId);
+            } catch (_) {}
+            try {
+                document.cookie = `${HELIOS_STATION_COOKIE_KEY}=${encodeURIComponent(stationId)}; path=/; max-age=${60 * 60 * 24 * 365}; samesite=lax`;
+            } catch (_) {}
+        }
+
+        function updateGlobalStationSelectorUi(stationId) {
+            const select = document.getElementById('global-station-select');
+            if (select && select.value !== stationId) {
+                select.value = stationId;
+            }
+            const meta = document.getElementById('global-station-meta');
+            const opt = HELIOS_STATION_MAP[stationId];
+            if (meta && opt) {
+                const unit = String(opt.market_unit || '').toUpperCase();
+                meta.textContent = `${opt.label} | ${opt.timezone}${unit ? ` | ${unit}` : ''}`;
+            }
+        }
+
+        function maybeRedirectStationScopedPage(stationId) {
+            if (!['analytics', 'prediction', 'data'].includes(HELIOS_ACTIVE_PAGE)) return;
+            const routeStation = normalizeHeliosStationId(HELIOS_ROUTE_STATION_ID);
+            if (!routeStation || routeStation === stationId) return;
+            const target = `/${HELIOS_ACTIVE_PAGE}`;
+            window.location.replace(target);
+        }
+
+        window.HeliosStationState = {
+            current: null,
+            options: HELIOS_STATION_OPTIONS,
+            normalize(stationId) {
+                return normalizeHeliosStationId(stationId);
+            },
+            get() {
+                return this.current || normalizeHeliosStationId(HELIOS_SERVER_SELECTED_STATION) || (HELIOS_STATION_OPTIONS[0] && HELIOS_STATION_OPTIONS[0].id) || 'KLGA';
+            },
+            getOption(stationId) {
+                const sid = normalizeHeliosStationId(stationId || this.get());
+                return sid ? (HELIOS_STATION_MAP[sid] || null) : null;
+            },
+            set(stationId, opts = {}) {
+                const nextId = normalizeHeliosStationId(stationId);
+                if (!nextId) return this.get();
+                const prevId = this.current;
+                const changed = prevId !== nextId;
+
+                this.current = nextId;
+                persistHeliosStationId(nextId);
+                updateGlobalStationSelectorUi(nextId);
+
+                if (opts.emit !== false && (changed || opts.force)) {
+                    window.dispatchEvent(new CustomEvent('helios:stationchange', {
+                        detail: {
+                            stationId: nextId,
+                            previousStationId: prevId || null,
+                            source: opts.source || 'unknown',
+                        }
+                    }));
+                }
+                return nextId;
+            }
+        };
+
+        function handleGlobalStationSelectChange(stationId) {
+            const nextId = window.HeliosStationState.set(stationId, { source: 'sidebar' });
+            maybeRedirectStationScopedPage(nextId);
+        }
+        window.handleGlobalStationSelectChange = handleGlobalStationSelectChange;
+
+        (function initGlobalHeliosStationState() {
+            const storedId = normalizeHeliosStationId(readStoredHeliosStationId());
+            const serverId = normalizeHeliosStationId(HELIOS_SERVER_SELECTED_STATION);
+            const fallbackId = (HELIOS_STATION_OPTIONS[0] && HELIOS_STATION_OPTIONS[0].id) || 'KLGA';
+            const initialId = storedId || serverId || fallbackId;
+            window.HeliosStationState.set(initialId, { source: 'init', emit: false, force: true });
+            maybeRedirectStationScopedPage(window.HeliosStationState.get());
+        })();
 
         // ============================================
         // ATENEA Quick Panel Functions
@@ -835,9 +951,10 @@
 
             try {
                 // Get current screen context
+                const selectedGlobalStation = window.HeliosStationState?.get?.() || null;
                 const screenContext = {
                     screen: '{{ active_page or "home" }}',
-                    station_id: '{{ station_id or "" }}' || null,
+                    station_id: '{{ station_id or "" }}' || selectedGlobalStation,
                     mode: 'LIVE'
                 };
 

@@ -523,9 +523,8 @@
     </div>
     <div class="pm-controls">
         <select id="pm-station-select" class="pm-select" onchange="selectStation(this.value)">
-            {% for sid in active_stations %}
-            {% set stn = all_stations[sid] %}
-            <option value="{{ sid }}">{{ sid }} - {{ stn.name }}</option>
+            {% for opt in station_selector_options %}
+            <option value="{{ opt.id }}">{{ opt.label }}</option>
             {% endfor %}
         </select>
         <div class="pm-day-toggle">
@@ -646,7 +645,9 @@
 {% block scripts %}
 <script>
 (function() {
-    let selectedStation = '{{ active_stations[0] if active_stations else "" }}';
+    let selectedStation = (window.HeliosStationState && window.HeliosStationState.get())
+        ? window.HeliosStationState.get()
+        : '{{ active_stations[0] if active_stations else "" }}';
     let selectedDay = 0;
     let selectedBracket = null;
     let lastData = null;
@@ -1036,7 +1037,11 @@
     // CONTROLS
     // ========================
     function selectStation(stationId) {
-        selectedStation = stationId;
+        const normalized = window.HeliosStationState?.normalize?.(stationId) || String(stationId || '').toUpperCase();
+        selectedStation = normalized;
+        window.HeliosStationState?.set?.(selectedStation, { source: 'polymarket' });
+        const sel = document.getElementById('pm-station-select');
+        if (sel && sel.value !== selectedStation) sel.value = selectedStation;
         selectedBracket = null;
         document.getElementById('pm-orderbook-detail').classList.remove('visible');
         fetchData();
@@ -1058,6 +1063,15 @@
     // INIT
     // ========================
     document.addEventListener('DOMContentLoaded', () => {
+        const stationSelect = document.getElementById('pm-station-select');
+        if (stationSelect && Array.from(stationSelect.options).some(o => o.value === selectedStation)) {
+            stationSelect.value = selectedStation;
+        }
+        window.addEventListener('helios:stationchange', (event) => {
+            const nextStation = event?.detail?.stationId;
+            if (!nextStation || nextStation === selectedStation) return;
+            selectStation(nextStation);
+        });
         fetchData();
         setInterval(fetchData, REFRESH_MS);
         lucide.createIcons();

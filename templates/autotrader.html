@@ -505,8 +505,8 @@
     <div class="market-select-wrap">
         <span class="market-select-label">Station</span>
         <select id="station-select" class="market-select" onchange="onStationChange(this.value)">
-            {% for sid in active_stations %}
-            <option value="{{ sid }}">{{ sid }}</option>
+            {% for opt in station_selector_options %}
+            <option value="{{ opt.id }}">{{ opt.label }}</option>
             {% endfor %}
         </select>
     </div>
@@ -671,9 +671,13 @@ const STATION_TIMEZONES = {
 {% endfor %}
 };
 
+const AUTOTRADER_INITIAL_STATION = (window.HeliosStationState && window.HeliosStationState.get())
+    ? window.HeliosStationState.get()
+    : "{{ active_stations[0] if active_stations else 'KLGA' }}";
+
 const live = {
-    stationId: "{{ active_stations[0] if active_stations else 'KLGA' }}",
-    stationTz: "{{ all_stations[active_stations[0]].timezone if active_stations else 'America/New_York' }}",
+    stationId: AUTOTRADER_INITIAL_STATION,
+    stationTz: STATION_TIMEZONES[AUTOTRADER_INITIAL_STATION] || "{{ all_stations[active_stations[0]].timezone if active_stations else 'America/New_York' }}",
     targetDay: 0,
     fastTimer: null,
     slowTimer: null,
@@ -1901,18 +1905,32 @@ function onMarketDayChange() {
 }
 
 async function onStationChange(stationId) {
-    setControlMessage(`Switching to ${stationId}...`);
+    const normalized = window.HeliosStationState?.normalize?.(stationId) || String(stationId || "").toUpperCase();
+    if (!normalized) return;
+    if (live.pendingAction) return;
+    if ((live.lastStatus?.station_id || live.stationId) === normalized) {
+        live.stationId = normalized;
+        live.stationTz = STATION_TIMEZONES[normalized] || "America/New_York";
+        window.HeliosStationState?.set?.(normalized, { source: "autotrader" });
+        const sel = document.getElementById("station-select");
+        if (sel && sel.value !== normalized) sel.value = normalized;
+        return;
+    }
+    setControlMessage(`Switching to ${normalized}...`);
     try {
         const r = await fetch("/api/v6/autotrader/control", {
             method: "POST",
             headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({action: "change_station", station_id: stationId}),
+            body: JSON.stringify({action: "change_station", station_id: normalized}),
         });
         const data = await r.json();
         if (data.ok) {
-            live.stationId = stationId;
-            live.stationTz = STATION_TIMEZONES[stationId] || "America/New_York";
-            setControlMessage(`Switched to ${stationId}`, "ok");
+            live.stationId = normalized;
+            live.stationTz = STATION_TIMEZONES[normalized] || "America/New_York";
+            window.HeliosStationState?.set?.(normalized, { source: "autotrader" });
+            const sel = document.getElementById("station-select");
+            if (sel && sel.value !== normalized) sel.value = normalized;
+            setControlMessage(`Switched to ${normalized}`, "ok");
             manualRefresh();
         } else {
             setControlMessage(`Error: ${data.error}`, "warn");
@@ -1924,14 +1942,38 @@ async function onStationChange(stationId) {
 
 document.addEventListener("visibilitychange", () => { if (!document.hidden) manualRefresh(); });
 document.addEventListener("DOMContentLoaded", async () => {
+    const initialGlobalStation = window.HeliosStationState?.get?.();
+    const sel = document.getElementById("station-select");
+    if (sel && initialGlobalStation && Array.from(sel.options).some(o => o.value === initialGlobalStation)) {
+        sel.value = initialGlobalStation;
+        live.stationId = initialGlobalStation;
+        live.stationTz = STATION_TIMEZONES[initialGlobalStation] || "America/New_York";
+    }
+
+    window.addEventListener("helios:stationchange", async (event) => {
+        const nextStation = event?.detail?.stationId;
+        if (!nextStation) return;
+        if (live.pendingAction) return;
+        if ((live.lastStatus?.station_id || live.stationId) === nextStation) {
+            if (sel && sel.value !== nextStation) sel.value = nextStation;
+            live.stationId = nextStation;
+            live.stationTz = STATION_TIMEZONES[nextStation] || "America/New_York";
+            return;
+        }
+        await onStationChange(nextStation);
+    });
+
     live.targetDay = Number(document.getElementById("market-day-select").value || 0);
     updateMarketDayMeta();
     await manualRefresh();
     // Sync station selector with actual service station
-    const sel = document.getElementById("station-select");
     if (sel && live.lastStatus?.station_id) {
         sel.value = live.lastStatus.station_id;
         live.stationId = live.lastStatus.station_id;
+        live.stationTz = STATION_TIMEZONES[live.stationId] || "America/New_York";
+    }
+    if (initialGlobalStation && live.stationId !== initialGlobalStation) {
+        await onStationChange(initialGlobalStation);
     }
     startPolling();
 });

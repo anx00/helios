@@ -986,9 +986,8 @@
             <label class="selector-label">Station</label>
             <select id="station-select" class="selector-input">
                 <option value="">All stations</option>
-                {% for sid in active_stations %}
-                {% set stn = all_stations[sid] %}
-                <option value="{{ sid }}">{{ sid }} - {{ stn.name }}</option>
+                {% for opt in station_selector_options %}
+                <option value="{{ opt.id }}">{{ opt.label }}</option>
                 {% endfor %}
             </select>
         </div>
@@ -1262,7 +1261,8 @@
 
     function currentStationId() {
         const selected = document.getElementById('station-select')?.value || '';
-        return (currentReplayStation || selected || 'KLGA').toUpperCase();
+        const globalSelected = window.HeliosStationState?.get?.() || '';
+        return (currentReplayStation || selected || globalSelected || 'KLGA').toUpperCase();
     }
 
     function getStationMarketUnit(stationId = currentStationId()) {
@@ -1472,6 +1472,11 @@
 
     // Initialize
     async function init() {
+        const stationSelect = document.getElementById('station-select');
+        const globalSelected = window.HeliosStationState?.get?.();
+        if (stationSelect && globalSelected && Array.from(stationSelect.options).some(o => o.value === globalSelected)) {
+            stationSelect.value = globalSelected;
+        }
         updateReplayFormatters();  // Default formatters
         await loadAvailableDates();
         setupEventListeners();
@@ -1510,6 +1515,10 @@
     function setupEventListeners() {
         document.getElementById('date-select').onchange = updateLoadButton;
         document.getElementById('station-select').onchange = async () => {
+            const station = document.getElementById('station-select').value || '';
+            if (station) {
+                window.HeliosStationState?.set?.(station, { source: 'replay' });
+            }
             updateReplayFormatters();
             await loadAvailableDates();
             updateLoadButton();
@@ -3192,7 +3201,19 @@
         if (pollInterval) clearInterval(pollInterval);
     });
 
-    document.addEventListener('DOMContentLoaded', init);
+    document.addEventListener('DOMContentLoaded', () => {
+        window.addEventListener('helios:stationchange', async (event) => {
+            const nextStation = event?.detail?.stationId;
+            const sel = document.getElementById('station-select');
+            if (!nextStation || !sel || sel.value === nextStation) return;
+            if (!Array.from(sel.options).some(o => o.value === nextStation)) return;
+            sel.value = nextStation;
+            updateReplayFormatters();
+            await loadAvailableDates();
+            updateLoadButton();
+        });
+        init();
+    });
 })();
 </script>
 {% endblock %}

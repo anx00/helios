@@ -660,9 +660,8 @@
         <div class="config-group">
             <label class="config-label">Station</label>
             <select id="station-select" class="config-input">
-                {% for sid in active_stations %}
-                {% set stn = all_stations[sid] %}
-                <option value="{{ sid }}">{{ sid }} - {{ stn.name }}</option>
+                {% for opt in station_selector_options %}
+                <option value="{{ opt.id }}">{{ opt.label }}</option>
                 {% endfor %}
             </select>
         </div>
@@ -897,6 +896,27 @@
 
     document.getElementById('start-date').value = startDate.toISOString().split('T')[0];
     document.getElementById('end-date').value = endDate.toISOString().split('T')[0];
+
+    const backtestStationSelect = document.getElementById('station-select');
+    const syncBacktestStationFromGlobal = () => {
+        const globalSelected = window.HeliosStationState?.get?.();
+        if (!backtestStationSelect || !globalSelected) return;
+        if (Array.from(backtestStationSelect.options).some(o => o.value === globalSelected)) {
+            backtestStationSelect.value = globalSelected;
+        }
+    };
+    syncBacktestStationFromGlobal();
+    backtestStationSelect?.addEventListener('change', () => {
+        const station = backtestStationSelect.value;
+        if (station) window.HeliosStationState?.set?.(station, { source: 'backtest' });
+    });
+    window.addEventListener('helios:stationchange', (event) => {
+        const nextStation = event?.detail?.stationId;
+        if (!nextStation || !backtestStationSelect || backtestStationSelect.value === nextStation) return;
+        if (Array.from(backtestStationSelect.options).some(o => o.value === nextStation)) {
+            backtestStationSelect.value = nextStation;
+        }
+    });
 
     // Track expanded day and its chart instance
     let expandedDate = null;

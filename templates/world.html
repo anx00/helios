@@ -546,6 +546,7 @@
     .station-selector {
         display: flex;
         gap: 10px;
+        flex-wrap: wrap;
         margin-bottom: 20px;
     }
 
@@ -555,7 +556,7 @@
         border: 1px solid rgba(255,255,255,0.1);
         border-radius: 8px;
         color: var(--text-secondary);
-        font-size: 13px;
+        font-size: 12px;
         font-weight: 500;
         cursor: pointer;
         transition: all 0.2s;
@@ -860,7 +861,9 @@
     let lastSnapshotHash = '';  // Fingerprint to skip redundant re-renders
     let sseConnected = false;
     let metarObsTimeUtc = null;  // Store obs time for live age calculation
-    let currentStation = 'KLGA';  // Default station
+    let currentStation = (window.HeliosStationState && window.HeliosStationState.get())
+        ? window.HeliosStationState.get()
+        : 'KLGA';  // Default station
 
     // Station timezone + market-unit info
     const stationTimezones = {};    // stationId -> IANA timezone
@@ -958,6 +961,9 @@
             const stations = await resp.json();
             if (!stations || stations.length === 0) return;
 
+            const globalSelected = window.HeliosStationState?.get?.();
+            if (globalSelected) currentStation = globalSelected;
+
             // Store timezone info per station
             for (const stn of stations) {
                 stationTimezones[stn.id] = stn.timezone;
@@ -978,7 +984,8 @@
             for (const stn of stations) {
                 const btn = document.createElement('button');
                 btn.className = 'station-btn' + (stn.id === currentStation ? ' active' : '');
-                btn.textContent = stn.id;
+                btn.dataset.stationId = stn.id;
+                btn.textContent = stn.display_label || `${stn.id}`;
                 btn.onclick = () => selectStation(stn.id);
                 container.appendChild(btn);
             }
@@ -990,12 +997,15 @@
     }
 
     function selectStation(stationId) {
-        currentStation = stationId;
+        const normalized = window.HeliosStationState?.normalize?.(stationId) || String(stationId || '').toUpperCase();
+        currentStation = normalized;
 
         // Update buttons
         document.querySelectorAll('.station-btn').forEach(btn => {
-            btn.classList.toggle('active', btn.textContent === stationId);
+            btn.classList.toggle('active', btn.dataset.stationId === currentStation);
         });
+
+        window.HeliosStationState?.set?.(currentStation, { source: 'world' });
 
         // Update timezone formatters
         updateTimezoneFormatters();
@@ -2124,6 +2134,11 @@
     }
 
     document.addEventListener('DOMContentLoaded', () => {
+        window.addEventListener('helios:stationchange', (event) => {
+            const nextStation = event?.detail?.stationId;
+            if (!nextStation || nextStation === currentStation) return;
+            selectStation(nextStation);
+        });
         init();
         refreshIcons();
     });

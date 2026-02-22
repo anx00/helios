@@ -515,9 +515,16 @@
     // Screen context (would be dynamic in full implementation)
     const screenContext = {
         screen: 'atenea',
-        station_id: null,
+        station_id: window.HeliosStationState?.get?.() || null,
         mode: 'LIVE'
     };
+
+    function syncAteneaStationContext() {
+        const stationId = window.HeliosStationState?.get?.() || null;
+        screenContext.station_id = stationId;
+        const el = document.getElementById('ctxStation');
+        if (el) el.textContent = stationId || '-';
+    }
 
     // Send message
     async function sendMessage() {
@@ -721,6 +728,8 @@
     }
 
     // Initialize
+    syncAteneaStationContext();
+    window.addEventListener('helios:stationchange', syncAteneaStationContext);
     checkApiStatus();
     document.getElementById('chatInput').focus();
 </script>

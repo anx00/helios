@@ -6,10 +6,10 @@ load_dotenv()
 
 import os
 import re
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 import asyncio
 import logging
@@ -182,6 +182,100 @@ def _default_station() -> str:
     return next(iter(active)) if active else "KLGA"
 
 DEFAULT_STATION = _default_station()
+SELECTED_STATION_COOKIE = "helios_selected_station"
+
+_STATION_CITY_NAME_OVERRIDES = {
+    "KLGA": "New York",
+    "KATL": "Atlanta",
+    "KORD": "Chicago",
+    "KMIA": "Miami",
+    "KDAL": "Dallas",
+    "LFPG": "Paris",
+    "EGLC": "London",
+    "LTAC": "Ankara",
+}
+
+
+def _normalize_station_id(
+    station_id: Optional[str],
+    active: Optional[Dict[str, Any]] = None,
+) -> Optional[str]:
+    if not station_id:
+        return None
+    sid = str(station_id).strip().upper()
+    if not sid:
+        return None
+    station_pool = active if active is not None else get_active_stations()
+    return sid if sid in station_pool else None
+
+
+def _station_city_name(station_id: str, station: Any) -> str:
+    override = _STATION_CITY_NAME_OVERRIDES.get(station_id)
+    if override:
+        return override
+    raw = str(getattr(station, "name", "") or "").strip()
+    if not raw:
+        return station_id
+    return raw.split()[0]
+
+
+def _build_station_selector_options(active: Optional[Dict[str, Any]] = None) -> List[Dict[str, str]]:
+    active_map = active if active is not None else get_active_stations()
+    options: List[Dict[str, str]] = []
+    for sid, stn in active_map.items():
+        city_name = _station_city_name(sid, stn)
+        options.append({
+            "id": sid,
+            "city_name": city_name,
+            "label": f"{city_name} ({sid})",
+            "name": stn.name,
+            "timezone": stn.timezone,
+            "market_unit": get_polymarket_temp_unit(sid),
+        })
+    return options
+
+
+def _resolve_selected_station(request: Request, fallback: Optional[str] = None) -> str:
+    active = get_active_stations()
+    candidates = [
+        request.query_params.get("station_id"),
+        request.cookies.get(SELECTED_STATION_COOKIE),
+        fallback,
+        DEFAULT_STATION,
+    ]
+    for candidate in candidates:
+        sid = _normalize_station_id(candidate, active)
+        if sid:
+            return sid
+    return DEFAULT_STATION
+
+
+def _set_selected_station_cookie(response: Response, station_id: str) -> None:
+    response.set_cookie(
+        key=SELECTED_STATION_COOKIE,
+        value=station_id,
+        max_age=60 * 60 * 24 * 365,
+        samesite="lax",
+        httponly=False,
+        path="/",
+    )
+
+
+def _render_template(
+    request: Request,
+    template_name: str,
+    context: Optional[Dict[str, Any]] = None,
+) -> HTMLResponse:
+    payload: Dict[str, Any] = dict(context or {})
+    selected_station = _normalize_station_id(
+        payload.get("selected_station_id") or payload.get("station_id")
+    ) or _resolve_selected_station(request)
+    payload["request"] = request
+    payload.setdefault("selected_station_id", selected_station)
+    response = templates.TemplateResponse(template_name, payload)
+    if selected_station:
+        _set_selected_station_cookie(response, selected_station)
+    return response
 
 app = FastAPI(title="Helios Weather Interface")
 
@@ -198,6 +292,8 @@ def get_template_context():
     return {
         "active_stations": list(active.keys()),
         "all_stations": STATIONS,
+        "station_selector_options": _build_station_selector_options(active),
+        "default_station_id": DEFAULT_STATION,
     }
 
 # Inject into Jinja2 environment
@@ -216,14 +312,17 @@ class StationConfig(BaseModel):
 def get_stations():
     """Return list of active stations."""
     active = get_active_stations()
+    by_id = {opt["id"]: opt for opt in _build_station_selector_options(active)}
     return [
         {
-            "id": k,
-            "name": v.name,
-            "timezone": v.timezone,
-            "market_unit": get_polymarket_temp_unit(k),
+            "id": sid,
+            "name": stn.name,
+            "city_name": by_id.get(sid, {}).get("city_name", _station_city_name(sid, stn)),
+            "display_label": by_id.get(sid, {}).get("label", f"{sid}"),
+            "timezone": stn.timezone,
+            "market_unit": get_polymarket_temp_unit(sid),
         }
-        for k, v in active.items()
+        for sid, stn in active.items()
     ]
 
 def parse_physics_breakdown(physics_reason: str) -> list:
@@ -3149,21 +3248,23 @@ async def get_observed_max_api(station_id: str):
 @app.get("/station/{station_id}", response_class=HTMLResponse)
 async def station_detail(request: Request, station_id: str):
     """Serve the station detail page."""
+    station_id = (station_id or "").upper()
     if station_id not in STATIONS:
-        return templates.TemplateResponse("index.html", {"request": request})
+        return _render_template(request, "index.html", {"active_page": "home"})
     station = STATIONS[station_id]
-    return templates.TemplateResponse("station.html", {
-        "request": request, "station_id": station_id,
-        "station_name": station.name, "timezone": station.timezone
+    return _render_template(request, "station.html", {
+        "station_id": station_id,
+        "station_name": station.name,
+        "timezone": station.timezone,
     })
 
 @app.get("/station/{station_id}/analytics", response_class=HTMLResponse)
 async def read_analytics(request: Request, station_id: str):
+    station_id = (station_id or "").upper()
     station = STATIONS.get(station_id)
     if not station:
-        return templates.TemplateResponse("home.html", {"request": request, "active_page": "home"})
-    return templates.TemplateResponse("analytics.html", {
-        "request": request,
+        return _render_template(request, "home.html", {"active_page": "home"})
+    return _render_template(request, "analytics.html", {
         "station_id": station_id,
         "station_name": station.name,
         "active_page": "analytics"
@@ -3172,11 +3273,11 @@ async def read_analytics(request: Request, station_id: str):
 # v12.0: Prediction page - real-time calculation display
 @app.get("/station/{station_id}/prediction", response_class=HTMLResponse)
 async def read_prediction(request: Request, station_id: str):
+    station_id = (station_id or "").upper()
     station = STATIONS.get(station_id)
     if not station:
-        return templates.TemplateResponse("home.html", {"request": request, "active_page": "home"})
-    return templates.TemplateResponse("prediction.html", {
-        "request": request,
+        return _render_template(request, "home.html", {"active_page": "home"})
+    return _render_template(request, "prediction.html", {
         "station_id": station_id,
         "station_name": station.name,
         "active_page": "prediction"
@@ -3185,16 +3286,16 @@ async def read_prediction(request: Request, station_id: str):
 # v12.0: Data page - historical data display
 @app.get("/station/{station_id}/data", response_class=HTMLResponse)
 async def read_data(request: Request, station_id: str):
+    station_id = (station_id or "").upper()
     station = STATIONS.get(station_id)
     if not station:
-        return templates.TemplateResponse("home.html", {"request": request, "active_page": "home"})
+        return _render_template(request, "home.html", {"active_page": "home"})
     
     # Get today's date for default
     from datetime import date
     today = date.today().isoformat()
     
-    return templates.TemplateResponse("data.html", {
-        "request": request,
+    return _render_template(request, "data.html", {
         "station_id": station_id,
         "station_name": station.name,
         "active_page": "data",
@@ -3205,8 +3306,9 @@ async def read_data(request: Request, station_id: str):
 @app.get("/station/{station_id}/chart/{chart_type}", response_class=HTMLResponse)
 async def fullscreen_chart(request: Request, station_id: str, chart_type: str):
     """Serve the fullscreen chart page."""
+    station_id = (station_id or "").upper()
     if station_id not in STATIONS:
-        return templates.TemplateResponse("home.html", {"request": request, "active_page": "home"})
+        return _render_template(request, "home.html", {"active_page": "home"})
     if chart_type not in ["temperature", "probability"]:
         return RedirectResponse(url=f"/station/{station_id}/analytics", status_code=302)
     
@@ -3216,8 +3318,7 @@ async def fullscreen_chart(request: Request, station_id: str, chart_type: str):
         "probability": "MARKET BATTLE"
     }
     
-    return templates.TemplateResponse("fullscreen_chart.html", {
-        "request": request,
+    return _render_template(request, "fullscreen_chart.html", {
         "station_id": station_id,
         "station_name": station.name,
         "chart_type": chart_type,
@@ -3225,18 +3326,29 @@ async def fullscreen_chart(request: Request, station_id: str, chart_type: str):
         "active_page": "analytics"
     })
 
-# v6.0: Redirect old analytics URL for backward compatibility
-from fastapi.responses import RedirectResponse
+# v6.0+: Generic station-scoped pages resolved from persisted selection (cookie/query)
 @app.get("/analytics", response_class=HTMLResponse)
-async def read_analytics_redirect(request: Request, station_id: str = DEFAULT_STATION):
-    return RedirectResponse(url=f"/station/{station_id}/analytics", status_code=302)
+async def read_analytics_redirect(request: Request, station_id: str | None = None):
+    resolved_station = _resolve_selected_station(request, fallback=station_id)
+    return await read_analytics(request, resolved_station)
+
+
+@app.get("/prediction", response_class=HTMLResponse)
+async def read_prediction_generic(request: Request, station_id: str | None = None):
+    resolved_station = _resolve_selected_station(request, fallback=station_id)
+    return await read_prediction(request, resolved_station)
+
+
+@app.get("/data", response_class=HTMLResponse)
+async def read_data_generic(request: Request, station_id: str | None = None):
+    resolved_station = _resolve_selected_station(request, fallback=station_id)
+    return await read_data(request, resolved_station)
 
 # Phase 2: World Dashboard - Real-time Event-Driven UI
 @app.get("/world", response_class=HTMLResponse)
 async def world_dashboard(request: Request):
     """Phase 2 World State Dashboard - all sources in real-time."""
-    return templates.TemplateResponse("world.html", {
-        "request": request,
+    return _render_template(request, "world.html", {
         "active_page": "world"
     })
 
@@ -4523,8 +4635,7 @@ async def atenea_get_history():
 @app.get("/backtest", response_class=HTMLResponse)
 async def backtest_dashboard(request: Request):
     """Phase 5 Backtest Dashboard."""
-    return templates.TemplateResponse("backtest.html", {
-        "request": request,
+    return _render_template(request, "backtest.html", {
         "active_page": "backtest"
     })
 
@@ -4532,8 +4643,7 @@ async def backtest_dashboard(request: Request):
 @app.get("/autotrader", response_class=HTMLResponse)
 async def autotrader_dashboard(request: Request):
     """Phase 6 Autotrader Dashboard - realtime signals, risk, and execution."""
-    return templates.TemplateResponse("autotrader.html", {
-        "request": request,
+    return _render_template(request, "autotrader.html", {
         "active_page": "autotrader"
     })
 
@@ -4541,8 +4651,7 @@ async def autotrader_dashboard(request: Request):
 @app.get("/autotrader/tutorial", response_class=HTMLResponse)
 async def autotrader_tutorial(request: Request):
     """Autotrader tutorial page with architecture, concepts, and operating guide."""
-    return templates.TemplateResponse("autotrader_tutorial.html", {
-        "request": request,
+    return _render_template(request, "autotrader_tutorial.html", {
         "active_page": "autotrader"
     })
 
@@ -4550,8 +4659,7 @@ async def autotrader_tutorial(request: Request):
 @app.get("/nowcast", response_class=HTMLResponse)
 async def nowcast_dashboard(request: Request):
     """Phase 3 Nowcast Dashboard - P(bucket), t_peak, confidence."""
-    return templates.TemplateResponse("nowcast.html", {
-        "request": request,
+    return _render_template(request, "nowcast.html", {
         "active_page": "nowcast"
     })
 
@@ -4560,8 +4668,7 @@ async def nowcast_dashboard(request: Request):
 @app.get("/nowcast/debug", response_class=HTMLResponse)
 async def nowcast_debug(request: Request):
     """Phase 3 Model Debug Dashboard - internal state visualization."""
-    return templates.TemplateResponse("nowcast_debug.html", {
-        "request": request,
+    return _render_template(request, "nowcast_debug.html", {
         "active_page": "nowcast"
     })
 
@@ -4575,8 +4682,7 @@ async def replay_dashboard(request: Request):
         sid: get_polymarket_temp_unit(sid)
         for sid in active.keys()
     }
-    return templates.TemplateResponse("replay.html", {
-        "request": request,
+    return _render_template(request, "replay.html", {
         "active_page": "replay",
         "station_market_units": station_market_units,
     })
@@ -4585,8 +4691,7 @@ async def replay_dashboard(request: Request):
 @app.get("/polymarket", response_class=HTMLResponse)
 async def polymarket_dashboard(request: Request):
     """Polymarket Dashboard - live market data, orderbook, sentiment."""
-    return templates.TemplateResponse("polymarket.html", {
-        "request": request,
+    return _render_template(request, "polymarket.html", {
         "active_page": "polymarket"
     })
 
@@ -4595,8 +4700,7 @@ async def polymarket_dashboard(request: Request):
 @app.get("/atenea", response_class=HTMLResponse)
 async def atenea_dashboard(request: Request):
     """ATENEA - AI Diagnostic Copilot with evidence-based answers."""
-    return templates.TemplateResponse("atenea.html", {
-        "request": request,
+    return _render_template(request, "atenea.html", {
         "active_page": "atenea"
     })
 
@@ -4604,8 +4708,7 @@ async def atenea_dashboard(request: Request):
 # v12.0: Home page with sidebar
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
-    return templates.TemplateResponse("home.html", {
-        "request": request,
+    return _render_template(request, "home.html", {
         "active_page": "home"
     })
 
