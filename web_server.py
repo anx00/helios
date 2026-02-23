@@ -373,6 +373,60 @@ def _market_birth_tracker_defaults() -> Dict[str, Any]:
     return dict(_MARKET_BIRTH_TRACKER_RUNTIME.get("config") or {})
 
 
+def _market_birth_tracker_env_bool(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return bool(default)
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _market_birth_tracker_env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None or str(raw).strip() == "":
+        return int(default)
+    try:
+        return int(raw)
+    except Exception:
+        return int(default)
+
+
+def _market_birth_tracker_autostart_enabled() -> bool:
+    return _market_birth_tracker_env_bool("MARKET_BIRTH_TRACKER_AUTOSTART", True)
+
+
+def _market_birth_tracker_autostart_config() -> Dict[str, Any]:
+    base = _market_birth_tracker_defaults()
+    raw = dict(base)
+    station_id = os.environ.get("MARKET_BIRTH_TRACKER_STATION_ID")
+    if station_id:
+        raw["station_id"] = str(station_id).strip().upper()
+    raw["min_days_ahead"] = _market_birth_tracker_env_int(
+        "MARKET_BIRTH_TRACKER_MIN_DAYS_AHEAD",
+        int(raw.get("min_days_ahead", 2)),
+    )
+    raw["max_days_ahead"] = _market_birth_tracker_env_int(
+        "MARKET_BIRTH_TRACKER_MAX_DAYS_AHEAD",
+        int(raw.get("max_days_ahead", 2)),
+    )
+    raw["poll_seconds"] = _market_birth_tracker_env_int(
+        "MARKET_BIRTH_TRACKER_POLL_SECONDS",
+        int(raw.get("poll_seconds", 15)),
+    )
+    raw["capture_minutes"] = _market_birth_tracker_env_int(
+        "MARKET_BIRTH_TRACKER_CAPTURE_MINUTES",
+        int(raw.get("capture_minutes", 10)),
+    )
+    raw["backfill_existing"] = _market_birth_tracker_env_bool(
+        "MARKET_BIRTH_TRACKER_BACKFILL_EXISTING",
+        bool(raw.get("backfill_existing", False)),
+    )
+    if os.environ.get("MARKET_BIRTH_TRACKER_CALENDAR_TZ"):
+        raw["calendar_tz"] = str(os.environ.get("MARKET_BIRTH_TRACKER_CALENDAR_TZ") or "").strip() or raw.get("calendar_tz")
+    if os.environ.get("MARKET_BIRTH_TRACKER_OUT_DIR"):
+        raw["out_dir"] = str(os.environ.get("MARKET_BIRTH_TRACKER_OUT_DIR") or "").strip() or raw.get("out_dir")
+    return _market_birth_tracker_config_from_start(MarketBirthTrackerStartRequest(**raw))
+
+
 def _market_birth_tracker_is_running() -> bool:
     global _MARKET_BIRTH_TRACKER_TASK
     return _MARKET_BIRTH_TRACKER_TASK is not None and not _MARKET_BIRTH_TRACKER_TASK.done()
@@ -594,6 +648,25 @@ def _market_birth_tracker_status(limit: int = 50) -> Dict[str, Any]:
         "records": _market_birth_tracker_list_records(out_dir, limit=limit),
     }
 
+
+async def _market_birth_tracker_start_internal(config: Dict[str, Any], *, source: str) -> Tuple[bool, str]:
+    global _MARKET_BIRTH_TRACKER_TASK
+    async with _MARKET_BIRTH_TRACKER_LOCK:
+        if _market_birth_tracker_is_running():
+            return (False, "tracker_already_running")
+
+        args = _market_birth_tracker_build_namespace(config, run_once=False)
+        _MARKET_BIRTH_TRACKER_RUNTIME["config"] = dict(config)
+        _MARKET_BIRTH_TRACKER_RUNTIME["last_error"] = None
+        _MARKET_BIRTH_TRACKER_RUNTIME["last_control_action"] = source
+        _MARKET_BIRTH_TRACKER_RUNTIME["started_at_utc"] = _market_birth_tracker_now_utc_iso()
+        _MARKET_BIRTH_TRACKER_RUNTIME["stopped_at_utc"] = None
+
+        task = asyncio.create_task(run_market_birth_tracker(args), name="market_birth_tracker")
+        task.add_done_callback(_market_birth_tracker_task_done)
+        _MARKET_BIRTH_TRACKER_TASK = task
+        return (True, "started")
+
 @app.get("/api/stations")
 def get_stations():
     """Return list of active stations."""
@@ -792,6 +865,27 @@ async def startup_event():
     if telegram_bot:
         asyncio.create_task(telegram_bot.run_forever())
         logger.info("Telegram bot enabled")
+    # Task 9: Polymarket "market birth" tracker (continuous monitoring of new weather markets)
+    try:
+        if _market_birth_tracker_autostart_enabled():
+            cfg = _market_birth_tracker_autostart_config()
+            started, reason = await _market_birth_tracker_start_internal(cfg, source="startup_autostart")
+            if started:
+                logger.info(
+                    "Market birth tracker autostart enabled (station=%s d+%s..d+%s poll=%ss capture=%sm tz=%s)",
+                    cfg.get("station_id"),
+                    cfg.get("min_days_ahead"),
+                    cfg.get("max_days_ahead"),
+                    cfg.get("poll_seconds"),
+                    cfg.get("capture_minutes"),
+                    cfg.get("calendar_tz"),
+                )
+            else:
+                logger.info("Market birth tracker autostart skipped: %s", reason)
+        else:
+            logger.info("Market birth tracker autostart disabled via env")
+    except Exception as e:
+        logger.warning("Market birth tracker autostart failed: %s", e)
 
 async def _resolve_station_tokens(
     station_id: str,
@@ -4948,30 +5042,18 @@ async def market_births_record(relpath: str):
 
 @app.post("/api/v7/market_births/start")
 async def market_births_start(req: MarketBirthTrackerStartRequest):
-    global _MARKET_BIRTH_TRACKER_TASK
     try:
         config = _market_birth_tracker_config_from_start(req)
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
-    async with _MARKET_BIRTH_TRACKER_LOCK:
-        if _market_birth_tracker_is_running():
-            return {
-                "ok": False,
-                "error": "tracker_already_running",
-                "status": _market_birth_tracker_status(limit=50),
-            }
-
-        args = _market_birth_tracker_build_namespace(config, run_once=False)
-        _MARKET_BIRTH_TRACKER_RUNTIME["config"] = dict(config)
-        _MARKET_BIRTH_TRACKER_RUNTIME["last_error"] = None
-        _MARKET_BIRTH_TRACKER_RUNTIME["last_control_action"] = "start"
-        _MARKET_BIRTH_TRACKER_RUNTIME["started_at_utc"] = _market_birth_tracker_now_utc_iso()
-        _MARKET_BIRTH_TRACKER_RUNTIME["stopped_at_utc"] = None
-
-        task = asyncio.create_task(run_market_birth_tracker(args), name="market_birth_tracker")
-        task.add_done_callback(_market_birth_tracker_task_done)
-        _MARKET_BIRTH_TRACKER_TASK = task
+    started, reason = await _market_birth_tracker_start_internal(config, source="start")
+    if not started:
+        return {
+            "ok": False,
+            "error": reason,
+            "status": _market_birth_tracker_status(limit=50),
+        }
 
     return {"ok": True, "status": _market_birth_tracker_status(limit=50)}
 
