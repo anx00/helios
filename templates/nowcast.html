@@ -1234,7 +1234,9 @@
             adjPts.push({ x: h, y: Number.isFinite(aDisplay) ? aDisplay : null });
         }
 
-        const obsPts = [];
+        const obsMetarPts = [];
+        const obsSpeciPts = [];
+        const obsAllPts = [];
         if (metarHistory && Array.isArray(metarHistory.observations)) {
             for (const r of metarHistory.observations) {
                 const tF = Number(r?.temp_f_raw);
@@ -1245,11 +1247,25 @@
                     const mm = parseInt(parts[1], 10);
                     const x = hh + (mm / 60.0);
                     const tDisplay = Number.isFinite(tF) ? toDisplayTemp(tF) : null;
-                    if (Number.isFinite(x) && Number.isFinite(tDisplay)) obsPts.push({ x, y: tDisplay });
+                    if (Number.isFinite(x) && Number.isFinite(tDisplay)) {
+                        const reportType = String(r?.report_type || (r?.is_speci ? 'SPECI' : 'METAR')).toUpperCase();
+                        const point = {
+                            x,
+                            y: tDisplay,
+                            reportType,
+                            isSpeci: reportType === 'SPECI' || Boolean(r?.is_speci),
+                            obsTimeLocal: timeStr,
+                        };
+                        obsAllPts.push(point);
+                        if (point.isSpeci) obsSpeciPts.push(point);
+                        else obsMetarPts.push(point);
+                    }
                 }
             }
         }
-        obsPts.sort((a, b) => a.x - b.x);
+        obsAllPts.sort((a, b) => a.x - b.x);
+        obsMetarPts.sort((a, b) => a.x - b.x);
+        obsSpeciPts.sort((a, b) => a.x - b.x);
 
         const formatHour = (decimalHour) => {
             if (!Number.isFinite(decimalHour)) return '--:--';
@@ -1261,49 +1277,70 @@
 
         const obsMax = (() => {
             let m = null;
-            for (const p of obsPts) {
+            for (const p of obsAllPts) {
                 if (m === null || p.y > m) m = p.y;
             }
             return m;
         })();
 
+        const datasets = [
+            {
+                label: `Base (${data?.base_forecast_source || 'N/A'})`,
+                data: basePts,
+                borderColor: 'rgba(0, 212, 255, 0.70)',
+                backgroundColor: 'rgba(0, 212, 255, 0.08)',
+                tension: 0.25,
+                pointRadius: 0,
+                spanGaps: true,
+            },
+            {
+                label: 'Nowcast-adjusted',
+                data: adjPts,
+                borderColor: 'rgba(16, 185, 129, 0.80)',
+                backgroundColor: 'rgba(16, 185, 129, 0.08)',
+                tension: 0.25,
+                pointRadius: 0,
+                spanGaps: true,
+            }
+        ];
+
+        if (obsMetarPts.length) {
+            datasets.push({
+                label: 'NOAA METAR (obs time)',
+                data: obsMetarPts,
+                borderColor: 'rgba(244, 208, 63, 0.95)',
+                backgroundColor: 'rgba(244, 208, 63, 0.95)',
+                borderWidth: 1.5,
+                tension: 0,
+                pointRadius: 4,
+                pointHoverRadius: 6,
+                pointStyle: 'rectRot',
+                fill: false,
+                spanGaps: false,
+            });
+        }
+
+        if (obsSpeciPts.length) {
+            datasets.push({
+                label: 'NOAA SPECI (obs time)',
+                data: obsSpeciPts,
+                borderColor: 'rgba(56, 189, 248, 0.98)',
+                backgroundColor: 'rgba(56, 189, 248, 0.98)',
+                borderWidth: 1.4,
+                tension: 0,
+                pointRadius: 4.5,
+                pointHoverRadius: 6.5,
+                pointStyle: 'triangle',
+                fill: false,
+                spanGaps: false,
+            });
+        }
+
         const ctx = canvas.getContext('2d');
         hourlyChart = new Chart(ctx, {
             type: 'line',
             data: {
-                datasets: [
-                    {
-                        label: `Base (${data?.base_forecast_source || 'N/A'})`,
-                        data: basePts,
-                        borderColor: 'rgba(0, 212, 255, 0.70)',
-                        backgroundColor: 'rgba(0, 212, 255, 0.08)',
-                        tension: 0.25,
-                        pointRadius: 0,
-                        spanGaps: true,
-                    },
-                    {
-                        label: 'Nowcast-adjusted',
-                        data: adjPts,
-                        borderColor: 'rgba(16, 185, 129, 0.80)',
-                        backgroundColor: 'rgba(16, 185, 129, 0.08)',
-                        tension: 0.25,
-                        pointRadius: 0,
-                        spanGaps: true,
-                    },
-                    {
-                        label: 'NOAA METAR (obs time)',
-                        data: obsPts,
-                        borderColor: 'rgba(244, 208, 63, 0.95)',
-                        backgroundColor: 'rgba(244, 208, 63, 0.95)',
-                        borderWidth: 1.5,
-                        tension: 0,
-                        pointRadius: 4,
-                        pointHoverRadius: 6,
-                        pointStyle: 'rectRot',
-                        fill: false,
-                        spanGaps: false,
-                    }
-                ]
+                datasets
             },
             options: {
                 responsive: true,
@@ -1339,8 +1376,9 @@
                                 const xVal = Number(ctx?.parsed?.x);
                                 const yVal = Number(ctx?.parsed?.y);
                                 const temp = Number.isFinite(yVal) ? `${yVal.toFixed(1)}${unitSymbol}` : '--';
-                                if (datasetLabel === 'NOAA METAR (obs time)') {
-                                    return `${datasetLabel}: ${temp} @ ${formatHour(xVal)}`;
+                                if (datasetLabel.includes('(obs time)')) {
+                                    const reportType = String(ctx?.raw?.reportType || (datasetLabel.includes('SPECI') ? 'SPECI' : 'METAR')).toUpperCase();
+                                    return `${datasetLabel}: ${temp} @ ${formatHour(xVal)} [${reportType}]`;
                                 }
                                 return `${datasetLabel}: ${temp}`;
                             }
@@ -1385,6 +1423,13 @@
             if (Number.isFinite(nowcastDisplay)) bits.push(`nowcast tmax ${nowcastDisplay.toFixed(1)}${unitSymbol}`);
         }
         if (obsMax !== null) bits.push(`observed max ${obsMax.toFixed(1)}${unitSymbol}`);
+        if (obsAllPts.length) {
+            bits.push(
+                obsSpeciPts.length
+                    ? `obs ${obsAllPts.length} (SPECI ${obsSpeciPts.length})`
+                    : `obs ${obsAllPts.length}`
+            );
+        }
         if (meta) meta.textContent = bits.length ? bits.join(' | ') : '--';
     }
 
