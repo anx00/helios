@@ -1662,7 +1662,8 @@ async def get_replay_dates(station_id: str = None):
     """Get list of dates with recorded data."""
     from core.replay_engine import get_replay_engine
     engine = get_replay_engine()
-    return {"dates": engine.list_available_dates(station_id)}
+    dates = await asyncio.to_thread(engine.list_available_dates, station_id)
+    return {"dates": dates}
 
 
 @app.get("/api/v4/replay/dates/{date_str}/channels")
@@ -1670,7 +1671,8 @@ async def get_replay_channels(date_str: str, station_id: str = None):
     """Get channels available for a date."""
     from core.replay_engine import get_replay_engine
     engine = get_replay_engine()
-    return {"channels": engine.list_channels_for_date(date_str, station_id)}
+    channels = await asyncio.to_thread(engine.list_channels_for_date, date_str, station_id)
+    return {"channels": channels}
 
 
 @app.post("/api/v4/replay/session")
@@ -1681,9 +1683,12 @@ async def create_replay_session(date: str, station_id: str = None):
 
     session = await engine.create_session(date, station_id)
     if not session:
-        channels = engine.list_channels_for_date(date, station_id)
-        all_channels = engine.list_channels_for_date(date, None) if station_id else channels
-        available_dates = engine.list_available_dates(station_id)[:10]
+        channels = await asyncio.to_thread(engine.list_channels_for_date, date, station_id)
+        all_channels = (
+            await asyncio.to_thread(engine.list_channels_for_date, date, None)
+            if station_id else channels
+        )
+        available_dates = (await asyncio.to_thread(engine.list_available_dates, station_id))[:10]
 
         # Build descriptive error
         if not all_channels:

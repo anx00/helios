@@ -1259,6 +1259,18 @@
     let esTimeFormatter = null;
     let localTzLabel = '';
 
+    function isReplayStationFilterVisible() {
+        const select = document.getElementById('station-select');
+        const group = select?.closest('.selector-group');
+        if (!select || !group) return false;
+        return window.getComputedStyle(group).display !== 'none';
+    }
+
+    function getReplayStationFilterValue() {
+        if (!isReplayStationFilterVisible()) return '';
+        return document.getElementById('station-select')?.value || '';
+    }
+
     function currentStationId() {
         const selected = document.getElementById('station-select')?.value || '';
         const globalSelected = window.HeliosStationState?.get?.() || '';
@@ -1474,7 +1486,12 @@
     async function init() {
         const stationSelect = document.getElementById('station-select');
         const globalSelected = window.HeliosStationState?.get?.();
-        if (stationSelect && globalSelected && Array.from(stationSelect.options).some(o => o.value === globalSelected)) {
+        if (
+            isReplayStationFilterVisible() &&
+            stationSelect &&
+            globalSelected &&
+            Array.from(stationSelect.options).some(o => o.value === globalSelected)
+        ) {
             stationSelect.value = globalSelected;
         }
         updateReplayFormatters();  // Default formatters
@@ -1485,7 +1502,7 @@
 
     async function loadAvailableDates() {
         try {
-            const station = document.getElementById('station-select')?.value || '';
+            const station = getReplayStationFilterValue();
             const params = new URLSearchParams();
             if (station) params.append('station_id', station);
             const qs = params.toString();
@@ -1515,7 +1532,7 @@
     function setupEventListeners() {
         document.getElementById('date-select').onchange = updateLoadButton;
         document.getElementById('station-select').onchange = async () => {
-            const station = document.getElementById('station-select').value || '';
+            const station = getReplayStationFilterValue();
             if (station) {
                 window.HeliosStationState?.set?.(station, { source: 'replay' });
             }
@@ -1621,7 +1638,7 @@
 
     async function loadSession() {
         const date = document.getElementById('date-select').value;
-        const station = document.getElementById('station-select').value;
+        const station = getReplayStationFilterValue();
 
         if (!date) return;
 
@@ -3203,6 +3220,7 @@
 
     document.addEventListener('DOMContentLoaded', () => {
         window.addEventListener('helios:stationchange', async (event) => {
+            if (!isReplayStationFilterVisible()) return;
             const nextStation = event?.detail?.stationId;
             const sel = document.getElementById('station-select');
             if (!nextStation || !sel || sel.value === nextStation) return;
