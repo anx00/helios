@@ -31,6 +31,11 @@ from config import STATIONS
 DISCOVERY_URL = "https://api.weather.com/v3/location/near"
 PWS_CURRENT_URL = "https://api.weather.com/v2/pws/observations/current"
 DEFAULT_REGISTRY_PATH = Path("data/wu_pws_station_registry.json")
+DISCOVERY_EXTRA_CENTERS: Dict[str, List[Tuple[float, float]]] = {
+    # Polymarket resolves Paris on LFPG (CDG), but WU discovery near CDG misses many
+    # Paris intra-city PWS that are still close enough to help the local cluster.
+    "LFPG": [(48.8566, 2.3522)],  # Paris city center
+}
 
 
 @dataclass
@@ -188,6 +193,48 @@ async def discover_candidates(
     return candidates
 
 
+def dedupe_candidates(
+    candidates: List[CandidateStation],
+    *,
+    target_lat: float,
+    target_lon: float,
+) -> List[CandidateStation]:
+    deduped: Dict[str, CandidateStation] = {}
+
+    for candidate in candidates:
+        sid = str(candidate.station_id or "").strip().upper()
+        if not sid:
+            continue
+
+        dist = candidate.distance_km
+        if candidate.latitude is not None and candidate.longitude is not None:
+            dist = round(_haversine_km(target_lat, target_lon, candidate.latitude, candidate.longitude), 3)
+
+        normalized = CandidateStation(
+            station_id=sid,
+            station_name=candidate.station_name,
+            qc_status=candidate.qc_status,
+            update_time_utc=candidate.update_time_utc,
+            latitude=candidate.latitude,
+            longitude=candidate.longitude,
+            distance_km=dist,
+        )
+
+        prev = deduped.get(sid)
+        if prev is None:
+            deduped[sid] = normalized
+            continue
+
+        prev_dist = prev.distance_km if prev.distance_km is not None else float("inf")
+        curr_dist = normalized.distance_km if normalized.distance_km is not None else float("inf")
+        if curr_dist < prev_dist:
+            deduped[sid] = normalized
+
+    rows = list(deduped.values())
+    rows.sort(key=lambda c: (c.distance_km if c.distance_km is not None else float("inf"), c.station_id))
+    return rows
+
+
 async def fetch_current_observation(
     client: httpx.AsyncClient,
     *,
@@ -318,13 +365,28 @@ async def run(args: argparse.Namespace) -> int:
             else:
                 lat, lon = _resolve_target(station_id, args.lat, args.lon)
 
-            candidates = await discover_candidates(
-                client,
-                api_key=api_key,
-                lat=lat,
-                lon=lon,
-                limit=args.limit,
-            )
+            discover_centers: List[Tuple[float, float]] = [(lat, lon)]
+            for extra_lat, extra_lon in DISCOVERY_EXTRA_CENTERS.get(station_id, []):
+                key = (round(float(extra_lat), 4), round(float(extra_lon), 4))
+                if any((round(c_lat, 4), round(c_lon, 4)) == key for c_lat, c_lon in discover_centers):
+                    continue
+                discover_centers.append((float(extra_lat), float(extra_lon)))
+
+            all_candidates: List[CandidateStation] = []
+            for d_lat, d_lon in discover_centers:
+                all_candidates.extend(
+                    await discover_candidates(
+                        client,
+                        api_key=api_key,
+                        lat=d_lat,
+                        lon=d_lon,
+                        limit=args.limit,
+                    )
+                )
+
+            candidates = dedupe_candidates(all_candidates, target_lat=lat, target_lon=lon)
+            if args.limit > 0:
+                candidates = candidates[: args.limit]
             valid = await validate_candidates(
                 client,
                 api_key=api_key,
@@ -335,6 +397,8 @@ async def run(args: argparse.Namespace) -> int:
             registry = update_registry(registry, station_id=station_id, lat=lat, lon=lon, valid_stations=valid)
 
             print(f"Station: {station_id} ({lat:.4f}, {lon:.4f})")
+            if len(discover_centers) > 1:
+                print(f"Discovery centers: {len(discover_centers)} (merged)")
             print(f"Candidates discovered: {len(candidates)}")
             print(f"Valid current PWS: {len(valid)}")
             if valid:

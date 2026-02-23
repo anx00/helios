@@ -94,6 +94,8 @@ _WUNDERGROUND_DISCOVERY_URL = "https://api.weather.com/v3/location/near"
 _WUNDERGROUND_DISCOVERY_TTL_SECONDS = 6 * 3600
 _WUNDERGROUND_DISCOVERY_CACHE: Dict[str, Dict[str, Any]] = {}
 _WUNDERGROUND_DISCOVERY_EXTRA_CENTERS: Dict[str, List[Tuple[float, float]]] = {
+    # LFPG resolves "Paris" at CDG; querying Paris center surfaces additional urban PWS.
+    "LFPG": [(48.8566, 2.3522)],
     # LTAC airport area can have sparse private stations; include Ankara city
     # center as an additional discovery seed to improve candidate coverage.
     "LTAC": [(39.9334, 32.8597)],

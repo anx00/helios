@@ -1,0 +1,636 @@
+{% extends "base.html" %}
+
+{% block title %}HELIOS - Market Births{% endblock %}
+
+{% block head_extra %}
+<style>
+    .mb-page {
+        display: grid;
+        gap: 18px;
+    }
+    .mb-card {
+        background: rgba(255,255,255,0.02);
+        border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 14px;
+        padding: 16px;
+    }
+    .mb-controls {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+        gap: 10px;
+        align-items: end;
+    }
+    .mb-field {
+        display: grid;
+        gap: 6px;
+    }
+    .mb-field label {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--text-secondary);
+        font-weight: 700;
+    }
+    .mb-field input,
+    .mb-field select {
+        width: 100%;
+        background: rgba(255,255,255,0.03);
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 8px;
+        color: var(--text-main);
+        padding: 8px 10px;
+        font-size: 13px;
+        font-family: 'JetBrains Mono', monospace;
+    }
+    .mb-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+    }
+    .mb-btn {
+        border: 1px solid rgba(255,255,255,0.12);
+        background: rgba(255,255,255,0.04);
+        color: var(--text-main);
+        border-radius: 8px;
+        padding: 8px 12px;
+        font-size: 12px;
+        font-weight: 700;
+        cursor: pointer;
+    }
+    .mb-btn:hover { border-color: rgba(255,255,255,0.2); }
+    .mb-btn.primary {
+        border-color: rgba(0,120,255,0.4);
+        background: rgba(0,120,255,0.14);
+        color: #9ac8ff;
+    }
+    .mb-btn.danger {
+        border-color: rgba(239,68,68,0.35);
+        background: rgba(239,68,68,0.12);
+        color: #fca5a5;
+    }
+    .mb-check {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--text-secondary);
+        font-size: 12px;
+        margin-top: 4px;
+    }
+    .mb-check input { width: 14px; height: 14px; }
+    .mb-status-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 10px;
+    }
+    .mb-stat {
+        background: rgba(255,255,255,0.02);
+        border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 10px;
+        padding: 12px;
+    }
+    .mb-stat .label {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--text-muted);
+        margin-bottom: 6px;
+    }
+    .mb-stat .value {
+        font-size: 13px;
+        font-weight: 700;
+        color: var(--text-main);
+        word-break: break-word;
+    }
+    .mb-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        border-radius: 999px;
+        padding: 5px 10px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        border: 1px solid rgba(255,255,255,0.12);
+    }
+    .mb-badge.running {
+        background: rgba(16,185,129,0.14);
+        border-color: rgba(16,185,129,0.35);
+        color: #6ee7b7;
+    }
+    .mb-badge.stopped {
+        background: rgba(148,163,184,0.10);
+        border-color: rgba(148,163,184,0.20);
+        color: #cbd5e1;
+    }
+    .mb-layout {
+        display: grid;
+        grid-template-columns: 1.2fr 1fr;
+        gap: 16px;
+    }
+    .mb-table-wrap {
+        max-height: 520px;
+        overflow: auto;
+        border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 10px;
+    }
+    .mb-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+    }
+    .mb-table th, .mb-table td {
+        padding: 10px 8px;
+        border-bottom: 1px solid rgba(255,255,255,0.05);
+        text-align: left;
+        vertical-align: top;
+    }
+    .mb-table th {
+        position: sticky;
+        top: 0;
+        background: #10182a;
+        z-index: 1;
+        color: var(--text-secondary);
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+    }
+    .mb-record-row {
+        cursor: pointer;
+    }
+    .mb-record-row:hover {
+        background: rgba(255,255,255,0.02);
+    }
+    .mb-record-row.active {
+        background: rgba(0,120,255,0.08);
+        box-shadow: inset 2px 0 0 var(--accent-blue);
+    }
+    .mb-mono {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 11px;
+    }
+    .mb-muted {
+        color: var(--text-secondary);
+    }
+    .mb-small {
+        font-size: 11px;
+    }
+    .mb-detail-empty {
+        color: var(--text-secondary);
+        font-size: 13px;
+    }
+    .mb-detail-head {
+        display: grid;
+        gap: 8px;
+        margin-bottom: 12px;
+    }
+    .mb-detail-title {
+        font-size: 15px;
+        font-weight: 700;
+        color: var(--text-main);
+    }
+    .mb-detail-meta {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+        gap: 8px;
+    }
+    .mb-pill {
+        background: rgba(255,255,255,0.03);
+        border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 8px;
+        padding: 8px;
+    }
+    .mb-pill .k {
+        color: var(--text-muted);
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        margin-bottom: 4px;
+    }
+    .mb-pill .v {
+        font-size: 12px;
+        font-weight: 600;
+        word-break: break-word;
+    }
+    .mb-snapshots {
+        display: grid;
+        gap: 10px;
+        margin-top: 12px;
+    }
+    .mb-snapshot {
+        border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 10px;
+        padding: 10px;
+        background: rgba(255,255,255,0.015);
+    }
+    .mb-snapshot-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 8px;
+        flex-wrap: wrap;
+        font-size: 11px;
+        color: var(--text-secondary);
+    }
+    .mb-brackets {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 11px;
+    }
+    .mb-brackets th, .mb-brackets td {
+        padding: 6px 6px;
+        border-bottom: 1px solid rgba(255,255,255,0.04);
+        text-align: left;
+    }
+    .mb-brackets th {
+        color: var(--text-muted);
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+    }
+    .mb-top {
+        color: #93c5fd;
+        font-weight: 700;
+    }
+    .mb-flash {
+        color: #fca5a5;
+        font-size: 12px;
+        min-height: 18px;
+    }
+    @media (max-width: 1200px) {
+        .mb-layout { grid-template-columns: 1fr; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title"><span>⏱️</span> Polymarket Market Births</h1>
+    <div class="breadcrumbs"><span>Polymarket</span> <span>/</span> <span>Market Births</span></div>
+</div>
+
+<div class="page-content">
+    <div class="mb-page">
+        <div class="mb-card">
+            <div class="mb-controls">
+                <div class="mb-field">
+                    <label>Station</label>
+                    <select id="mbStation">
+                        <option value="ALL">ALL (active stations)</option>
+                        {% for opt in station_selector_options %}
+                        <option value="{{ opt.id }}">{{ opt.label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="mb-field">
+                    <label>Min Days Ahead</label>
+                    <input id="mbMinDays" type="number" min="0" step="1" value="2">
+                </div>
+                <div class="mb-field">
+                    <label>Max Days Ahead</label>
+                    <input id="mbMaxDays" type="number" min="0" step="1" value="2">
+                </div>
+                <div class="mb-field">
+                    <label>Poll (sec)</label>
+                    <input id="mbPollSeconds" type="number" min="5" step="1" value="15">
+                </div>
+                <div class="mb-field">
+                    <label>Capture (min)</label>
+                    <input id="mbCaptureMinutes" type="number" min="1" step="1" value="10">
+                </div>
+                <div class="mb-field">
+                    <label>Calendar TZ</label>
+                    <input id="mbCalendarTz" type="text" value="Europe/Madrid">
+                </div>
+            </div>
+            <label class="mb-check">
+                <input id="mbBackfill" type="checkbox">
+                <span>Backfill existing visibles on first start (si quieres capturar hoy/mañana al arrancar)</span>
+            </label>
+            <div class="mb-actions" style="margin-top: 12px;">
+                <button class="mb-btn primary" onclick="mbStart()">Start Tracker</button>
+                <button class="mb-btn danger" onclick="mbStop()">Stop</button>
+                <button class="mb-btn" onclick="mbScanOnce()">Scan Once</button>
+                <button class="mb-btn" onclick="mbRefresh()">Refresh</button>
+                <span id="mbStatusBadge" class="mb-badge stopped">Stopped</span>
+                <span id="mbFlash" class="mb-flash"></span>
+            </div>
+        </div>
+
+        <div class="mb-card">
+            <div class="mb-status-grid" id="mbStatusGrid"></div>
+        </div>
+
+        <div class="mb-layout">
+            <div class="mb-card">
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:10px;">
+                    <div style="font-weight:700;">Detecciones recientes</div>
+                    <div class="mb-small mb-muted" id="mbRecordsMeta"></div>
+                </div>
+                <div class="mb-table-wrap">
+                    <table class="mb-table">
+                        <thead>
+                            <tr>
+                                <th>Station</th>
+                                <th>Target</th>
+                                <th>Created (Madrid)</th>
+                                <th>Latency</th>
+                                <th>Snaps</th>
+                                <th>Top inicial</th>
+                            </tr>
+                        </thead>
+                        <tbody id="mbRecordsBody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="mb-card">
+                <div style="font-weight:700; margin-bottom:10px;">Detalle de record</div>
+                <div id="mbDetail" class="mb-detail-empty">Selecciona una detección para ver los snapshots iniciales (primeros 10 minutos).</div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let mbState = { status: null, selectedRelpath: null, selectedRecord: null };
+let mbRefreshTimer = null;
+
+function mbFlash(msg, isError=false) {
+    const el = document.getElementById('mbFlash');
+    el.textContent = msg || '';
+    el.style.color = isError ? '#fca5a5' : '#86efac';
+    if (msg) {
+        setTimeout(() => {
+            if (el.textContent === msg) el.textContent = '';
+        }, 5000);
+    }
+}
+
+function mbFmtTs(v) {
+    if (!v) return '—';
+    try {
+        const d = new Date(v);
+        if (!Number.isNaN(d.getTime())) return d.toLocaleString('es-ES');
+    } catch (_) {}
+    return String(v);
+}
+
+function mbFmtSec(v) {
+    if (v === null || v === undefined) return '—';
+    const n = Number(v);
+    if (!Number.isFinite(n)) return '—';
+    if (Math.abs(n) >= 60) return `${(n/60).toFixed(1)}m`;
+    return `${n.toFixed(0)}s`;
+}
+
+function mbFmtCent(v) {
+    if (v === null || v === undefined) return '—';
+    const n = Number(v);
+    if (!Number.isFinite(n)) return '—';
+    return `${Math.round(n * 100)}¢`;
+}
+
+function mbStatusBadge(running) {
+    const badge = document.getElementById('mbStatusBadge');
+    badge.className = `mb-badge ${running ? 'running' : 'stopped'}`;
+    badge.textContent = running ? 'Running' : 'Stopped';
+}
+
+function mbGetControlPayload() {
+    return {
+        station_id: document.getElementById('mbStation').value || 'ALL',
+        min_days_ahead: Number(document.getElementById('mbMinDays').value || 2),
+        max_days_ahead: Number(document.getElementById('mbMaxDays').value || 2),
+        poll_seconds: Number(document.getElementById('mbPollSeconds').value || 15),
+        capture_minutes: Number(document.getElementById('mbCaptureMinutes').value || 10),
+        calendar_tz: document.getElementById('mbCalendarTz').value || 'Europe/Madrid',
+        backfill_existing: !!document.getElementById('mbBackfill').checked,
+    };
+}
+
+function mbApplyConfig(cfg) {
+    if (!cfg) return;
+    if (cfg.station_id) document.getElementById('mbStation').value = cfg.station_id;
+    if (cfg.min_days_ahead !== undefined) document.getElementById('mbMinDays').value = cfg.min_days_ahead;
+    if (cfg.max_days_ahead !== undefined) document.getElementById('mbMaxDays').value = cfg.max_days_ahead;
+    if (cfg.poll_seconds !== undefined) document.getElementById('mbPollSeconds').value = cfg.poll_seconds;
+    if (cfg.capture_minutes !== undefined) document.getElementById('mbCaptureMinutes').value = cfg.capture_minutes;
+    if (cfg.calendar_tz) document.getElementById('mbCalendarTz').value = cfg.calendar_tz;
+    document.getElementById('mbBackfill').checked = !!cfg.backfill_existing;
+}
+
+function mbRenderStatusGrid(status) {
+    const grid = document.getElementById('mbStatusGrid');
+    const storage = (status && status.storage) || {};
+    const runtime = (status && status.runtime) || {};
+    const cfg = (status && status.config) || {};
+    const items = [
+        ['Tracker', status?.running ? 'RUNNING' : 'STOPPED'],
+        ['Task State', status?.task_state || 'stopped'],
+        ['Monitor Scope', `${cfg.station_id || 'ALL'} | d+${cfg.min_days_ahead ?? '-'}..d+${cfg.max_days_ahead ?? '-'}`],
+        ['Polling', `${cfg.poll_seconds ?? '-'}s / capture ${cfg.capture_minutes ?? '-'}m`],
+        ['Calendar TZ', cfg.calendar_tz || 'Europe/Madrid'],
+        ['State Updated', mbFmtTs(storage.updated_at_madrid || storage.updated_at_utc)],
+        ['Known Events', String(storage.known_events_count ?? 0)],
+        ['Last Start', mbFmtTs(runtime.started_at_utc)],
+        ['Last Stop', mbFmtTs(runtime.stopped_at_utc)],
+        ['Last Error', runtime.last_error || '—'],
+        ['Out Dir', cfg.out_dir || 'data/polymarket_market_births'],
+        ['Last Action', runtime.last_control_action || '—'],
+    ];
+    grid.innerHTML = items.map(([k, v]) => `
+        <div class="mb-stat">
+            <div class="label">${k}</div>
+            <div class="value">${String(v).replace(/</g, '&lt;')}</div>
+        </div>
+    `).join('');
+}
+
+function mbRenderRecords(records) {
+    const tbody = document.getElementById('mbRecordsBody');
+    const meta = document.getElementById('mbRecordsMeta');
+    meta.textContent = `${records.length} records`;
+    tbody.innerHTML = '';
+
+    if (!records.length) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td colspan="6" class="mb-muted">Sin detecciones guardadas todavía.</td>`;
+        tbody.appendChild(tr);
+        return;
+    }
+
+    records.forEach((r) => {
+        const tr = document.createElement('tr');
+        tr.className = 'mb-record-row' + (mbState.selectedRelpath === r.record_relpath ? ' active' : '');
+        tr.addEventListener('click', () => mbLoadRecord(r.record_relpath));
+
+        const top = r.initial_top_bracket || {};
+        const topText = top.label ? `${top.label} @ ${mbFmtCent(top.yes_price)}` : '—';
+        tr.innerHTML = `
+            <td>
+                <div><strong>${r.station_id || '—'}</strong></div>
+                <div class="mb-small mb-muted">${(r.station_name || '').replace(/</g, '&lt;')}</div>
+            </td>
+            <td class="mb-mono">${r.target_date || '—'}</td>
+            <td>
+                <div>${mbFmtTs(r.event_created_at_madrid || r.event_created_at_utc)}</div>
+                <div class="mb-small mb-muted">${r.capture_completed ? 'closed' : 'open'}</div>
+            </td>
+            <td class="mb-mono">${mbFmtSec(r.detection_latency_seconds_vs_event_created)}</td>
+            <td class="mb-mono">${r.snapshots_count ?? 0}</td>
+            <td class="mb-small ${top.label ? 'mb-top' : 'mb-muted'}">${topText.replace(/</g, '&lt;')}</td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+function mbRenderDetail(payload) {
+    const el = document.getElementById('mbDetail');
+    if (!payload || !payload.ok) {
+        el.className = 'mb-detail-empty';
+        el.textContent = payload && payload.error ? `Error: ${payload.error}` : 'No data';
+        return;
+    }
+    const rec = payload.record || {};
+    const summary = payload.summary || {};
+    const snaps = Array.isArray(rec.snapshots) ? rec.snapshots : [];
+    el.className = '';
+
+    const notes = Array.isArray(rec.notes) ? rec.notes : [];
+    const notesHtml = notes.length
+        ? `<div class="mb-pill"><div class="k">Notes</div><div class="v">${notes.map(n => String(n).replace(/</g, '&lt;')).join('<br>')}</div></div>`
+        : '';
+
+    const snapshotsHtml = snaps.length
+        ? snaps.slice(0, 6).map((snap, idx) => {
+            const rows = Array.isArray(snap.brackets) ? snap.brackets : [];
+            const ranked = rows
+                .filter(r => r && r.label)
+                .slice()
+                .sort((a, b) => (Number(b.yes_price ?? -1) - Number(a.yes_price ?? -1)));
+            const topLabel = ranked[0]?.label || '—';
+            const topPrice = ranked[0]?.yes_price;
+            const rowHtml = rows.slice(0, 18).map(r => `
+                <tr>
+                    <td>${String(r.label || '—').replace(/</g, '&lt;')}</td>
+                    <td class="mb-mono">${mbFmtCent(r.yes_price)}</td>
+                    <td class="mb-mono">${mbFmtCent(r.best_bid)}</td>
+                    <td class="mb-mono">${mbFmtCent(r.best_ask)}</td>
+                    <td class="mb-mono">${mbFmtCent(r.last_trade_price)}</td>
+                </tr>
+            `).join('');
+            return `
+                <div class="mb-snapshot">
+                    <div class="mb-snapshot-head">
+                        <div>#${idx + 1} · ${mbFmtTs(snap.captured_at_madrid || snap.captured_at_utc)}</div>
+                        <div>Top: <span class="mb-top">${String(topLabel).replace(/</g, '&lt;')}</span> (${mbFmtCent(topPrice)})</div>
+                        <div>${snap.markets_count ?? 0} brackets</div>
+                    </div>
+                    <table class="mb-brackets">
+                        <thead>
+                            <tr><th>Bracket</th><th>Yes</th><th>Bid</th><th>Ask</th><th>Last</th></tr>
+                        </thead>
+                        <tbody>${rowHtml}</tbody>
+                    </table>
+                </div>
+            `;
+        }).join('')
+        : `<div class="mb-detail-empty">Este record aún no tiene snapshots (o la ventana de 10 min ya había expirado al detectar).</div>`;
+
+    el.innerHTML = `
+        <div class="mb-detail-head">
+            <div class="mb-detail-title">${String(rec.event_title || summary.event_slug || 'Market').replace(/</g, '&lt;')}</div>
+            <div class="mb-detail-meta">
+                <div class="mb-pill"><div class="k">Station / Target</div><div class="v">${(rec.station_id || '—')} · ${(rec.target_date || '—')}</div></div>
+                <div class="mb-pill"><div class="k">Event Created (Madrid)</div><div class="v">${mbFmtTs(rec.event_created_at_madrid || rec.event_created_at_utc)}</div></div>
+                <div class="mb-pill"><div class="k">Detected (Madrid)</div><div class="v">${mbFmtTs(rec.detected_first_seen_at_madrid || rec.detected_first_seen_at_utc)}</div></div>
+                <div class="mb-pill"><div class="k">Detection Latency</div><div class="v">${mbFmtSec(rec.detection_latency_seconds_vs_event_created)}</div></div>
+                <div class="mb-pill"><div class="k">Capture Window End</div><div class="v">${mbFmtTs(rec.capture_window_end_madrid || rec.capture_window_end_utc)}</div></div>
+                <div class="mb-pill"><div class="k">Snapshots</div><div class="v">${snaps.length} ${rec.capture_completed ? '(closed)' : '(open)'}</div></div>
+                ${notesHtml}
+            </div>
+        </div>
+        <div class="mb-snapshots">${snapshotsHtml}</div>
+    `;
+}
+
+async function mbRefresh(keepSelection=true) {
+    try {
+        const resp = await fetch('/api/v7/market_births/status?limit=80');
+        const data = await resp.json();
+        if (!data.ok) throw new Error(data.error || 'status failed');
+        mbState.status = data;
+        mbApplyConfig(data.config);
+        mbStatusBadge(!!data.running);
+        mbRenderStatusGrid(data);
+        mbRenderRecords(Array.isArray(data.records) ? data.records : []);
+        if (keepSelection && mbState.selectedRelpath) {
+            const exists = (data.records || []).some(r => r.record_relpath === mbState.selectedRelpath);
+            if (exists) {
+                await mbLoadRecord(mbState.selectedRelpath, false);
+            }
+        }
+    } catch (e) {
+        mbFlash(`Refresh error: ${e}`, true);
+    }
+}
+
+async function mbLoadRecord(relpath, setSelected=true) {
+    try {
+        const resp = await fetch(`/api/v7/market_births/record?relpath=${encodeURIComponent(relpath)}`);
+        const data = await resp.json();
+        if (setSelected) mbState.selectedRelpath = relpath;
+        mbState.selectedRecord = data;
+        mbRenderDetail(data);
+        mbRenderRecords(Array.isArray((mbState.status || {}).records) ? mbState.status.records : []);
+    } catch (e) {
+        mbFlash(`Record error: ${e}`, true);
+    }
+}
+
+async function mbPost(url, payload) {
+    const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload || {})
+    });
+    return await resp.json();
+}
+
+async function mbStart() {
+    const data = await mbPost('/api/v7/market_births/start', mbGetControlPayload());
+    if (!data.ok) {
+        mbFlash(`Start failed: ${data.error || 'unknown'}`, true);
+    } else {
+        mbFlash('Tracker arrancado');
+    }
+    await mbRefresh(false);
+}
+
+async function mbStop() {
+    const data = await mbPost('/api/v7/market_births/stop', {});
+    if (!data.ok) mbFlash(`Stop failed: ${data.error || 'unknown'}`, true);
+    else mbFlash('Tracker parado');
+    await mbRefresh(false);
+}
+
+async function mbScanOnce() {
+    const data = await mbPost('/api/v7/market_births/scan_once', mbGetControlPayload());
+    if (!data.ok) mbFlash(`Scan failed: ${data.error || 'unknown'}`, true);
+    else mbFlash('Scan completado');
+    await mbRefresh(false);
+}
+
+function mbBoot() {
+    mbRefresh(false);
+    if (mbRefreshTimer) clearInterval(mbRefreshTimer);
+    mbRefreshTimer = setInterval(() => mbRefresh(true), 10000);
+}
+
+document.addEventListener('DOMContentLoaded', mbBoot);
+</script>
+{% endblock %}
