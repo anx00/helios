@@ -6,7 +6,6 @@ load_dotenv()
 
 import os
 import re
-import json
 from fastapi import FastAPI, Request, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -15,8 +14,6 @@ from pydantic import BaseModel
 import asyncio
 import logging
 from typing import Any, Dict, List, Optional, Tuple
-from pathlib import Path
-from types import SimpleNamespace
 
 # Silence verbose loggers
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -44,7 +41,6 @@ from main import collect_and_predict
 from market.polymarket_checker import build_event_slug, fetch_event_data, check_market_resolution
 from market.discovery import fetch_market_token_ids, fetch_market_token_ids_for_station_date, fetch_event_for_station_date
 from market.polymarket_ws import get_ws_client
-from market.new_market_tracker import run_tracker as run_market_birth_tracker
 from opportunity import check_bet_opportunity
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -312,361 +308,6 @@ class StationConfig(BaseModel):
     name: str
     timezone: str
 
-
-class MarketBirthTrackerStartRequest(BaseModel):
-    station_id: str = "ALL"  # "ALL" or one ICAO
-    min_days_ahead: int = 2
-    max_days_ahead: int = 2
-    poll_seconds: int = 15
-    capture_minutes: int = 10
-    calendar_tz: str = "Europe/Madrid"
-    backfill_existing: bool = False
-    out_dir: str = "data/polymarket_market_births"
-
-
-class MarketBirthTrackerScanRequest(BaseModel):
-    station_id: Optional[str] = None
-    min_days_ahead: Optional[int] = None
-    max_days_ahead: Optional[int] = None
-    poll_seconds: Optional[int] = None
-    capture_minutes: Optional[int] = None
-    calendar_tz: Optional[str] = None
-    backfill_existing: Optional[bool] = None
-    out_dir: Optional[str] = None
-
-
-_MARKET_BIRTH_TRACKER_TASK: Optional[asyncio.Task] = None
-_MARKET_BIRTH_TRACKER_LOCK = asyncio.Lock()
-_MARKET_BIRTH_TRACKER_RUNTIME: Dict[str, Any] = {
-    "started_at_utc": None,
-    "stopped_at_utc": None,
-    "last_exit_code": None,
-    "last_error": None,
-    "last_control_action": None,
-    "config": {
-        "station_id": "ALL",
-        "min_days_ahead": 2,
-        "max_days_ahead": 2,
-        "poll_seconds": 15,
-        "capture_minutes": 10,
-        "calendar_tz": "Europe/Madrid",
-        "backfill_existing": False,
-        "out_dir": "data/polymarket_market_births",
-    },
-}
-
-
-def _web_parse_iso(ts: Optional[str]) -> Optional[datetime]:
-    if not ts:
-        return None
-    try:
-        return datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
-    except Exception:
-        return None
-
-
-def _market_birth_tracker_now_utc_iso() -> str:
-    return datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
-
-
-def _market_birth_tracker_defaults() -> Dict[str, Any]:
-    return dict(_MARKET_BIRTH_TRACKER_RUNTIME.get("config") or {})
-
-
-def _market_birth_tracker_env_bool(name: str, default: bool) -> bool:
-    raw = os.environ.get(name)
-    if raw is None:
-        return bool(default)
-    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _market_birth_tracker_env_int(name: str, default: int) -> int:
-    raw = os.environ.get(name)
-    if raw is None or str(raw).strip() == "":
-        return int(default)
-    try:
-        return int(raw)
-    except Exception:
-        return int(default)
-
-
-def _market_birth_tracker_autostart_enabled() -> bool:
-    return _market_birth_tracker_env_bool("MARKET_BIRTH_TRACKER_AUTOSTART", True)
-
-
-def _market_birth_tracker_autostart_config() -> Dict[str, Any]:
-    base = _market_birth_tracker_defaults()
-    raw = dict(base)
-    station_id = os.environ.get("MARKET_BIRTH_TRACKER_STATION_ID")
-    if station_id:
-        raw["station_id"] = str(station_id).strip().upper()
-    raw["min_days_ahead"] = _market_birth_tracker_env_int(
-        "MARKET_BIRTH_TRACKER_MIN_DAYS_AHEAD",
-        int(raw.get("min_days_ahead", 2)),
-    )
-    raw["max_days_ahead"] = _market_birth_tracker_env_int(
-        "MARKET_BIRTH_TRACKER_MAX_DAYS_AHEAD",
-        int(raw.get("max_days_ahead", 2)),
-    )
-    raw["poll_seconds"] = _market_birth_tracker_env_int(
-        "MARKET_BIRTH_TRACKER_POLL_SECONDS",
-        int(raw.get("poll_seconds", 15)),
-    )
-    raw["capture_minutes"] = _market_birth_tracker_env_int(
-        "MARKET_BIRTH_TRACKER_CAPTURE_MINUTES",
-        int(raw.get("capture_minutes", 10)),
-    )
-    raw["backfill_existing"] = _market_birth_tracker_env_bool(
-        "MARKET_BIRTH_TRACKER_BACKFILL_EXISTING",
-        bool(raw.get("backfill_existing", False)),
-    )
-    if os.environ.get("MARKET_BIRTH_TRACKER_CALENDAR_TZ"):
-        raw["calendar_tz"] = str(os.environ.get("MARKET_BIRTH_TRACKER_CALENDAR_TZ") or "").strip() or raw.get("calendar_tz")
-    if os.environ.get("MARKET_BIRTH_TRACKER_OUT_DIR"):
-        raw["out_dir"] = str(os.environ.get("MARKET_BIRTH_TRACKER_OUT_DIR") or "").strip() or raw.get("out_dir")
-    return _market_birth_tracker_config_from_start(MarketBirthTrackerStartRequest(**raw))
-
-
-def _market_birth_tracker_is_running() -> bool:
-    global _MARKET_BIRTH_TRACKER_TASK
-    return _MARKET_BIRTH_TRACKER_TASK is not None and not _MARKET_BIRTH_TRACKER_TASK.done()
-
-
-def _market_birth_tracker_current_out_dir() -> Path:
-    cfg = _MARKET_BIRTH_TRACKER_RUNTIME.get("config") or {}
-    out_dir = str(cfg.get("out_dir") or "data/polymarket_market_births").strip()
-    return Path(out_dir)
-
-
-def _market_birth_tracker_build_namespace(config: Dict[str, Any], *, run_once: bool) -> SimpleNamespace:
-    station_id = str(config.get("station_id") or "ALL").strip().upper()
-    station = None if station_id in {"", "ALL"} else station_id
-    return SimpleNamespace(
-        station=station,
-        stations=None,
-        min_days_ahead=int(config.get("min_days_ahead", 2)),
-        max_days_ahead=int(config.get("max_days_ahead", 2)),
-        poll_seconds=int(config.get("poll_seconds", 15)),
-        capture_minutes=int(config.get("capture_minutes", 10)),
-        out_dir=str(config.get("out_dir") or "data/polymarket_market_births"),
-        backfill_existing=bool(config.get("backfill_existing", False)),
-        run_once=bool(run_once),
-        verbose=False,
-        calendar_tz=str(config.get("calendar_tz") or "Europe/Madrid"),
-    )
-
-
-def _market_birth_tracker_task_done(task: asyncio.Task) -> None:
-    global _MARKET_BIRTH_TRACKER_TASK
-    _MARKET_BIRTH_TRACKER_RUNTIME["stopped_at_utc"] = _market_birth_tracker_now_utc_iso()
-    if task.cancelled():
-        _MARKET_BIRTH_TRACKER_RUNTIME["last_control_action"] = "cancelled"
-        _MARKET_BIRTH_TRACKER_RUNTIME["last_exit_code"] = None
-        _MARKET_BIRTH_TRACKER_TASK = None
-        return
-    try:
-        result = task.result()
-        _MARKET_BIRTH_TRACKER_RUNTIME["last_exit_code"] = result
-        _MARKET_BIRTH_TRACKER_RUNTIME["last_error"] = None if result == 0 else _MARKET_BIRTH_TRACKER_RUNTIME.get("last_error")
-    except Exception as exc:
-        _MARKET_BIRTH_TRACKER_RUNTIME["last_error"] = str(exc)
-        _MARKET_BIRTH_TRACKER_RUNTIME["last_exit_code"] = None
-        logger.warning("Market birth tracker task ended with error: %s", exc)
-    _MARKET_BIRTH_TRACKER_TASK = None
-
-
-def _market_birth_tracker_config_from_start(req: MarketBirthTrackerStartRequest) -> Dict[str, Any]:
-    station_id = str(req.station_id or "ALL").strip().upper() or "ALL"
-    if station_id != "ALL" and station_id not in STATIONS:
-        raise ValueError(f"Unknown station_id: {station_id}")
-    min_days_ahead = max(0, int(req.min_days_ahead))
-    max_days_ahead = max(min_days_ahead, int(req.max_days_ahead))
-    poll_seconds = max(5, int(req.poll_seconds))
-    capture_minutes = max(1, int(req.capture_minutes))
-    out_dir = str(req.out_dir or "data/polymarket_market_births").strip() or "data/polymarket_market_births"
-    calendar_tz = str(req.calendar_tz or "Europe/Madrid").strip() or "Europe/Madrid"
-
-    return {
-        "station_id": station_id,
-        "min_days_ahead": min_days_ahead,
-        "max_days_ahead": max_days_ahead,
-        "poll_seconds": poll_seconds,
-        "capture_minutes": capture_minutes,
-        "calendar_tz": calendar_tz,
-        "backfill_existing": bool(req.backfill_existing),
-        "out_dir": out_dir,
-    }
-
-
-def _market_birth_tracker_merge_scan_request(req: Optional[MarketBirthTrackerScanRequest]) -> Dict[str, Any]:
-    cfg = _market_birth_tracker_defaults()
-    if req is None:
-        return cfg
-    if hasattr(req, "model_dump"):
-        patch = req.model_dump(exclude_none=True)
-    else:
-        patch = req.dict(exclude_none=True)
-    if "station_id" in patch and patch["station_id"] is not None:
-        patch["station_id"] = str(patch["station_id"]).strip().upper() or "ALL"
-    merged = dict(cfg)
-    merged.update(patch)
-    # Reuse validation from start model by reconstructing.
-    validated = _market_birth_tracker_config_from_start(
-        MarketBirthTrackerStartRequest(**merged)
-    )
-    return validated
-
-
-def _market_birth_tracker_load_json(path: Path, default: Any) -> Any:
-    if not path.exists():
-        return default
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return default
-
-
-def _market_birth_tracker_state_payload(out_dir: Path) -> Dict[str, Any]:
-    state_path = out_dir / "state.json"
-    state = _market_birth_tracker_load_json(state_path, {})
-    if not isinstance(state, dict):
-        state = {}
-    known_events = state.get("known_events")
-    known_count = len(known_events) if isinstance(known_events, dict) else 0
-    return {
-        "exists": state_path.exists(),
-        "path": str(state_path),
-        "initialized": bool(state.get("initialized")),
-        "updated_at_utc": state.get("updated_at_utc"),
-        "updated_at_madrid": state.get("updated_at_madrid"),
-        "bootstrapped_at_utc": state.get("bootstrapped_at_utc"),
-        "bootstrapped_at_madrid": state.get("bootstrapped_at_madrid"),
-        "known_events_count": known_count,
-    }
-
-
-def _market_birth_tracker_record_summary(record: Dict[str, Any], relpath: str) -> Dict[str, Any]:
-    snapshots = record.get("snapshots") if isinstance(record.get("snapshots"), list) else []
-    first_snapshot = snapshots[0] if snapshots else {}
-    last_snapshot = snapshots[-1] if snapshots else {}
-    first_brackets = first_snapshot.get("brackets") if isinstance(first_snapshot, dict) else []
-    first_top = None
-    if isinstance(first_brackets, list) and first_brackets:
-        valid_rows = [r for r in first_brackets if isinstance(r, dict) and r.get("yes_price") is not None]
-        if valid_rows:
-            top_row = max(valid_rows, key=lambda r: float(r.get("yes_price") or 0.0))
-            first_top = {
-                "label": top_row.get("label"),
-                "yes_price": top_row.get("yes_price"),
-                "best_bid": top_row.get("best_bid"),
-                "best_ask": top_row.get("best_ask"),
-            }
-
-    return {
-        "record_relpath": relpath.replace("\\", "/"),
-        "station_id": record.get("station_id"),
-        "station_name": record.get("station_name"),
-        "target_date": record.get("target_date"),
-        "event_id": record.get("event_id"),
-        "event_slug": record.get("event_slug"),
-        "event_title": record.get("event_title"),
-        "event_created_at_utc": record.get("event_created_at_utc"),
-        "event_created_at_madrid": record.get("event_created_at_madrid"),
-        "detected_first_seen_at_utc": record.get("detected_first_seen_at_utc"),
-        "detected_first_seen_at_madrid": record.get("detected_first_seen_at_madrid"),
-        "detection_latency_seconds_vs_event_created": record.get("detection_latency_seconds_vs_event_created"),
-        "capture_window_minutes": record.get("capture_window_minutes"),
-        "capture_window_end_madrid": record.get("capture_window_end_madrid"),
-        "capture_completed": bool(record.get("capture_completed")),
-        "snapshots_count": len(snapshots),
-        "first_snapshot_at_madrid": first_snapshot.get("captured_at_madrid") if isinstance(first_snapshot, dict) else None,
-        "last_snapshot_at_madrid": last_snapshot.get("captured_at_madrid") if isinstance(last_snapshot, dict) else None,
-        "initial_top_bracket": first_top,
-        "notes": record.get("notes") if isinstance(record.get("notes"), list) else [],
-    }
-
-
-def _market_birth_tracker_list_records(out_dir: Path, limit: int = 50) -> List[Dict[str, Any]]:
-    if not out_dir.exists():
-        return []
-    rows: List[Tuple[Optional[datetime], Dict[str, Any]]] = []
-    for path in out_dir.rglob("*.json"):
-        if path.name == "state.json":
-            continue
-        relpath = str(path.relative_to(out_dir))
-        payload = _market_birth_tracker_load_json(path, {})
-        if not isinstance(payload, dict) or not payload:
-            continue
-        summary = _market_birth_tracker_record_summary(payload, relpath=relpath)
-        sort_key = str(summary.get("event_created_at_utc") or summary.get("detected_first_seen_at_utc") or "")
-        rows.append((sort_key, summary))
-    rows.sort(key=lambda x: x[0], reverse=True)
-    return [summary for _, summary in rows[: max(1, int(limit))]]
-
-
-def _market_birth_tracker_load_record(out_dir: Path, relpath: str) -> Dict[str, Any]:
-    safe_rel = str(relpath or "").strip().replace("\\", "/")
-    if not safe_rel or ".." in safe_rel or safe_rel.startswith("/"):
-        raise ValueError("Invalid record path.")
-    path = (out_dir / safe_rel).resolve()
-    try:
-        out_dir_resolved = out_dir.resolve()
-    except Exception:
-        out_dir_resolved = out_dir
-    if out_dir_resolved not in path.parents and path != out_dir_resolved:
-        raise ValueError("Invalid record path.")
-    payload = _market_birth_tracker_load_json(path, {})
-    if not isinstance(payload, dict) or not payload:
-        raise FileNotFoundError(safe_rel)
-    return payload
-
-
-def _market_birth_tracker_status(limit: int = 50) -> Dict[str, Any]:
-    out_dir = _market_birth_tracker_current_out_dir()
-    running = _market_birth_tracker_is_running()
-    task_state = None
-    if _MARKET_BIRTH_TRACKER_TASK is not None:
-        if _MARKET_BIRTH_TRACKER_TASK.cancelled():
-            task_state = "cancelled"
-        elif _MARKET_BIRTH_TRACKER_TASK.done():
-            task_state = "done"
-        else:
-            task_state = "running"
-
-    return {
-        "running": running,
-        "task_state": task_state or ("running" if running else "stopped"),
-        "runtime": {
-            "started_at_utc": _MARKET_BIRTH_TRACKER_RUNTIME.get("started_at_utc"),
-            "stopped_at_utc": _MARKET_BIRTH_TRACKER_RUNTIME.get("stopped_at_utc"),
-            "last_exit_code": _MARKET_BIRTH_TRACKER_RUNTIME.get("last_exit_code"),
-            "last_error": _MARKET_BIRTH_TRACKER_RUNTIME.get("last_error"),
-            "last_control_action": _MARKET_BIRTH_TRACKER_RUNTIME.get("last_control_action"),
-        },
-        "config": dict(_MARKET_BIRTH_TRACKER_RUNTIME.get("config") or {}),
-        "storage": _market_birth_tracker_state_payload(out_dir),
-        "records": _market_birth_tracker_list_records(out_dir, limit=limit),
-    }
-
-
-async def _market_birth_tracker_start_internal(config: Dict[str, Any], *, source: str) -> Tuple[bool, str]:
-    global _MARKET_BIRTH_TRACKER_TASK
-    async with _MARKET_BIRTH_TRACKER_LOCK:
-        if _market_birth_tracker_is_running():
-            return (False, "tracker_already_running")
-
-        args = _market_birth_tracker_build_namespace(config, run_once=False)
-        _MARKET_BIRTH_TRACKER_RUNTIME["config"] = dict(config)
-        _MARKET_BIRTH_TRACKER_RUNTIME["last_error"] = None
-        _MARKET_BIRTH_TRACKER_RUNTIME["last_control_action"] = source
-        _MARKET_BIRTH_TRACKER_RUNTIME["started_at_utc"] = _market_birth_tracker_now_utc_iso()
-        _MARKET_BIRTH_TRACKER_RUNTIME["stopped_at_utc"] = None
-
-        task = asyncio.create_task(run_market_birth_tracker(args), name="market_birth_tracker")
-        task.add_done_callback(_market_birth_tracker_task_done)
-        _MARKET_BIRTH_TRACKER_TASK = task
-        return (True, "started")
-
 @app.get("/api/stations")
 def get_stations():
     """Return list of active stations."""
@@ -865,27 +506,6 @@ async def startup_event():
     if telegram_bot:
         asyncio.create_task(telegram_bot.run_forever())
         logger.info("Telegram bot enabled")
-    # Task 9: Polymarket "market birth" tracker (continuous monitoring of new weather markets)
-    try:
-        if _market_birth_tracker_autostart_enabled():
-            cfg = _market_birth_tracker_autostart_config()
-            started, reason = await _market_birth_tracker_start_internal(cfg, source="startup_autostart")
-            if started:
-                logger.info(
-                    "Market birth tracker autostart enabled (station=%s d+%s..d+%s poll=%ss capture=%sm tz=%s)",
-                    cfg.get("station_id"),
-                    cfg.get("min_days_ahead"),
-                    cfg.get("max_days_ahead"),
-                    cfg.get("poll_seconds"),
-                    cfg.get("capture_minutes"),
-                    cfg.get("calendar_tz"),
-                )
-            else:
-                logger.info("Market birth tracker autostart skipped: %s", reason)
-        else:
-            logger.info("Market birth tracker autostart disabled via env")
-    except Exception as e:
-        logger.warning("Market birth tracker autostart failed: %s", e)
 
 async def _resolve_station_tokens(
     station_id: str,
@@ -1522,13 +1142,19 @@ async def recorder_loop():
                     obs_time_utc=obs.obs_time_utc,
                     dewpoint_c=obs.dewpoint_c,
                     wind_dir=obs.wind_dir,
-                    wind_speed=obs.wind_speed
+                    wind_speed=obs.wind_speed,
+                    source=getattr(obs, 'source', 'METAR'),
+                    report_type=getattr(obs, 'report_type', 'METAR'),
+                    is_speci=bool(getattr(obs, 'is_speci', False)),
                 ))
                 try:
+                    obs_source = getattr(obs, 'source', 'METAR')
+                    obs_report_type = str(getattr(obs, 'report_type', 'METAR') or 'METAR').upper()
+                    source_label = f"{obs_source}[SPECI]" if obs_report_type == "SPECI" else obs_source
                     asyncio.create_task(window_manager.on_metar(
                         station_id=obs.station_id,
                         temp_f=obs.temp_f,
-                        source=getattr(obs, 'source', 'METAR')
+                        source=source_label
                     ))
                     qc_flags = getattr(obs, 'qc_flags', []) or []
                     if qc_flags or not getattr(obs, 'qc_passed', True):
@@ -2019,12 +1645,16 @@ async def trigger_nowcast_update(station_id: str):
                 dewpoint_c=metar.dewpoint_c,
                 wind_dir=metar.wind_dir_degrees,
                 wind_speed=metar.wind_speed_kt,
-                sky_condition=metar.sky_condition
+                sky_condition=metar.sky_condition,
+                report_type=getattr(metar, "report_type", "METAR"),
+                is_speci=bool(getattr(metar, "is_speci", False)),
             )
             distribution = integration.on_metar(obs)
             return {
                 "success": True,
                 "metar_temp_f": metar.temp_f,
+                "metar_report_type": getattr(metar, "report_type", "METAR"),
+                "metar_is_speci": bool(getattr(metar, "is_speci", False)),
                 "distribution": distribution.to_dict() if distribution else None
             }
     except Exception as e:
@@ -2343,6 +1973,8 @@ async def get_world_metar_history(station_id: str):
             "wind_dir": h.wind_dir_degrees,
             "wind_speed": h.wind_speed_kt,
             "sky": h.sky_condition,
+            "report_type": getattr(h, "report_type", "METAR"),
+            "is_speci": bool(getattr(h, "is_speci", False)),
             "raw_metar": h.raw_metar,
         })
 
@@ -2433,6 +2065,9 @@ async def get_realtime_data(station_id: str):
             "json_api": racing.get("NOAA_JSON_API"),
             "tds_xml": racing.get("AWC_TDS_XML"),
             "tgftp_txt": racing.get("NOAA_TG_FTP_TXT"),
+            "report_type": getattr(current, "report_type", "METAR"),
+            "is_speci": bool(getattr(current, "is_speci", False)),
+            "racing_report_types": getattr(current, "racing_report_types", None),
             "observation_time": current.observation_time.isoformat() if current.observation_time else None,
             "timestamp": datetime.now(ZoneInfo("UTC")).isoformat()
         }
@@ -2862,6 +2497,8 @@ async def get_v12_debug(station_id: str):
             "wind_speed_kt": current.wind_speed_kt if current else 0,
             "wind_dir_degrees": current.wind_dir_degrees if current else 0,
             "wind_trend": current.wind_trend if current else "N/A",
+            "metar_report_type": getattr(current, "report_type", "METAR") if current else None,
+            "metar_is_speci": bool(getattr(current, "is_speci", False)) if current else False,
             "advection_rate_c_h": advection_report.rate_c_per_hour if advection_report else 0.0,
             "upstream_temp_c": upstream_temp_c,
             "description": advection_report.description if advection_report else "No data",
@@ -2872,6 +2509,8 @@ async def get_v12_debug(station_id: str):
         # Inputs
         "inputs": {
             "metar_current_f": metar_current,
+            "metar_report_type": getattr(current, "report_type", "METAR") if current else None,
+            "metar_is_speci": bool(getattr(current, "is_speci", False)) if current else False,
             "observed_max_f": observed_max,
             "hrrr_max_f": hrrr_val,
             "nbm_max_f": nbm_data.max_temp_f if nbm_data else None,
@@ -5014,99 +4653,6 @@ async def atenea_get_history():
         }
     except Exception as e:
         return {"success": False, "error": str(e)}
-
-
-@app.get("/api/v7/market_births/status")
-async def market_births_status(limit: int = 50):
-    limit = max(1, min(int(limit), 500))
-    return {"ok": True, **_market_birth_tracker_status(limit=limit)}
-
-
-@app.get("/api/v7/market_births/record")
-async def market_births_record(relpath: str):
-    try:
-        out_dir = _market_birth_tracker_current_out_dir()
-        record = _market_birth_tracker_load_record(out_dir, relpath)
-        summary = _market_birth_tracker_record_summary(record, relpath)
-        return {
-            "ok": True,
-            "record_relpath": relpath,
-            "summary": summary,
-            "record": record,
-        }
-    except FileNotFoundError:
-        return {"ok": False, "error": "record_not_found"}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
-
-
-@app.post("/api/v7/market_births/start")
-async def market_births_start(req: MarketBirthTrackerStartRequest):
-    try:
-        config = _market_birth_tracker_config_from_start(req)
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
-
-    started, reason = await _market_birth_tracker_start_internal(config, source="start")
-    if not started:
-        return {
-            "ok": False,
-            "error": reason,
-            "status": _market_birth_tracker_status(limit=50),
-        }
-
-    return {"ok": True, "status": _market_birth_tracker_status(limit=50)}
-
-
-@app.post("/api/v7/market_births/stop")
-async def market_births_stop():
-    global _MARKET_BIRTH_TRACKER_TASK
-    async with _MARKET_BIRTH_TRACKER_LOCK:
-        task = _MARKET_BIRTH_TRACKER_TASK
-        if task is None or task.done():
-            _MARKET_BIRTH_TRACKER_RUNTIME["last_control_action"] = "stop_noop"
-            return {"ok": True, "status": _market_birth_tracker_status(limit=50)}
-
-        _MARKET_BIRTH_TRACKER_RUNTIME["last_control_action"] = "stop"
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            _MARKET_BIRTH_TRACKER_RUNTIME["last_error"] = str(e)
-
-    return {"ok": True, "status": _market_birth_tracker_status(limit=50)}
-
-
-@app.post("/api/v7/market_births/scan_once")
-async def market_births_scan_once(req: Optional[MarketBirthTrackerScanRequest] = None):
-    if _market_birth_tracker_is_running():
-        return {"ok": False, "error": "tracker_running_stop_first", "status": _market_birth_tracker_status(limit=50)}
-    try:
-        config = _market_birth_tracker_merge_scan_request(req)
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
-
-    args = _market_birth_tracker_build_namespace(config, run_once=True)
-    _MARKET_BIRTH_TRACKER_RUNTIME["config"] = dict(config)
-    _MARKET_BIRTH_TRACKER_RUNTIME["last_control_action"] = "scan_once"
-    _MARKET_BIRTH_TRACKER_RUNTIME["last_error"] = None
-    try:
-        code = await run_market_birth_tracker(args)
-    except Exception as e:
-        _MARKET_BIRTH_TRACKER_RUNTIME["last_error"] = str(e)
-        return {"ok": False, "error": str(e), "status": _market_birth_tracker_status(limit=50)}
-    _MARKET_BIRTH_TRACKER_RUNTIME["last_exit_code"] = code
-    _MARKET_BIRTH_TRACKER_RUNTIME["stopped_at_utc"] = _market_birth_tracker_now_utc_iso()
-    return {"ok": code == 0, "exit_code": code, "status": _market_birth_tracker_status(limit=50)}
-
-
-@app.get("/market-births", response_class=HTMLResponse)
-async def market_births_dashboard(request: Request):
-    return _render_template(request, "market_births.html", {
-        "active_page": "market_births"
-    })
 
 
 # Phase 5: Backtest Dashboard

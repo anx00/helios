@@ -1314,6 +1314,8 @@ class ReplaySession:
                 "metar_aligned_f": _as_float(world.get("temp_aligned_f")),
                 "metar_ts_nyc": world.get("ts_nyc"),
                 "metar_source": world.get("source"),
+                "metar_report_type": world.get("report_type"),
+                "metar_is_speci": bool(world.get("is_speci")),
                 "pws_vs_metar_f": delta,
             }
 
@@ -1334,6 +1336,8 @@ class ReplaySession:
                         "temp_f": data.get("temp_f"),
                         "temp_aligned_f": data.get("temp_aligned"),
                         "source": data.get("src"),
+                        "report_type": data.get("report_type"),
+                        "is_speci": data.get("is_speci"),
                     }
                     src = str(data.get("src") or "").upper()
                     if src == "METAR":

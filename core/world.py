@@ -309,6 +309,8 @@ class WorldState:
             "wind_speed": obs.wind_speed,
             "sky_condition": obs.sky_condition,
             "source": obs.source,
+            "report_type": getattr(obs, "report_type", "METAR"),
+            "is_speci": bool(getattr(obs, "is_speci", False)),
             "obs_time_utc": obs.obs_time_utc.isoformat(),
             "obs_time_nyc": obs.obs_time_nyc.strftime("%Y-%m-%d %H:%M:%S"),
             "obs_time_madrid": obs.obs_time_madrid.strftime("%Y-%m-%d %H:%M:%S"),

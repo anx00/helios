@@ -64,6 +64,8 @@ class OfficialObs(ObservationEvent):
     wind_dir: Optional[int] = None
     wind_speed: Optional[int] = None
     sky_condition: str = "CLR"
+    report_type: str = "METAR"  # "METAR" or "SPECI"
+    is_speci: bool = False
 
     # Validation flags
     qc_passed: bool = False

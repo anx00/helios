@@ -318,7 +318,7 @@ class HeliosTelegramBot:
             "/helios [ICAO] - Prediccion actual HELIOS\n"
             "/pws [ICAO] - PWS tipo dashboard (compacto)\n"
             "/pwsraw [ICAO] - PWS completo JSON (debug)\n"
-            "/metar [ICAO] - NOAA METAR actual\n"
+            "/metar [ICAO] - NOAA METAR/SPECI actual\n"
             "/resumen [ICAO] - HELIOS + METAR + resumen PWS\n"
             "/stations - Lista de estaciones\n"
             "/station ICAO - Cambiar estacion\n\n"
@@ -411,15 +411,19 @@ class HeliosTelegramBot:
         obs_utc = metar.observation_time.astimezone(ZoneInfo("UTC"))
         obs_local = metar.observation_time.astimezone(ZoneInfo(station.timezone))
         racing = metar.racing_results or {}
+        racing_types = getattr(metar, "racing_report_types", {}) or {}
+        report_type = str(getattr(metar, "report_type", "METAR") or "METAR").upper()
+        metar_title = "NOAA SPECI actual" if report_type == "SPECI" else "NOAA METAR actual"
         race_line = ", ".join(
-            f"{src}={_fmt_station_temp_from_f(temp, station_id, 1)}"
+            f"{src}{'[SPECI]' if str(racing_types.get(src, 'METAR')).upper() == 'SPECI' else ''}={_fmt_station_temp_from_f(temp, station_id, 1)}"
             for src, temp in sorted(racing.items(), key=lambda x: x[0])
         ) if racing else "n/a"
 
         lines = [
-            f"NOAA METAR actual - {station_id} ({station.name})",
+            f"{metar_title} - {station_id} ({station.name})",
             f"Obs UTC:   {obs_utc.isoformat()}",
             f"Obs local: {obs_local.isoformat()}",
+            f"Tipo:      {report_type}",
             "",
             f"Temp:      {_fmt_station_temp_from_c(metar.temp_c, station_id, 1)}",
             f"Dewpoint:  {_fmt(metar.dewpoint_c, 2, 'C')}",
@@ -671,8 +675,10 @@ class HeliosTelegramBot:
             lines.append("HELIOS: n/a")
 
         if metar:
+            report_type = str(getattr(metar, "report_type", "METAR") or "METAR").upper()
+            metar_label = "NOAA SPECI" if report_type == "SPECI" else "NOAA METAR"
             lines.append(
-                f"NOAA METAR: {_fmt_station_temp_from_c(metar.temp_c, station_id, 1)} "
+                f"{metar_label}: {_fmt_station_temp_from_c(metar.temp_c, station_id, 1)} "
                 f"(obs={metar.observation_time.isoformat()})"
             )
         else:

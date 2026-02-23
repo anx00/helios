@@ -116,6 +116,8 @@ class NowcastIntegration:
         self._record_update("metar", obs.station_id, {
             "temp_f": obs.temp_f,
             "source": obs.source,
+            "report_type": getattr(obs, "report_type", "METAR"),
+            "is_speci": bool(getattr(obs, "is_speci", False)),
             "qc_status": qc_status
         })
 

@@ -9,6 +9,7 @@ from typing import Optional
 import logging
 
 from collector.metar.temperature_parser import decode_temperature_from_raw
+from collector.metar.report_type import normalize_metar_report_type, is_speci_report
 
 logger = logging.getLogger("metar_tds")
 
@@ -91,6 +92,8 @@ async def fetch_metar_tds(station_id: str) -> Optional[dict]:
                 "altim": safe_float(altim),
                 "visib": safe_float(visib),
                 "clouds": sky_conds,
+                "report_type": normalize_metar_report_type(None, raw_ob),
+                "is_speci": is_speci_report(None, raw_ob),
                 "source": "AWC_TDS_XML"
             }
             

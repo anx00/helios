@@ -8,6 +8,7 @@ from typing import Optional
 import logging
 
 from collector.metar.temperature_parser import decode_temperature_from_raw
+from collector.metar.report_type import normalize_metar_report_type, is_speci_report
 
 logger = logging.getLogger("metar_tgftp")
 
@@ -49,6 +50,8 @@ async def fetch_metar_tgftp(station_id: str) -> Optional[dict]:
                 "settlement_f_low": parsed["settlement_f_low"],
                 "settlement_f_high": parsed["settlement_f_high"],
                 "has_t_group": parsed["has_t_group"],
+                "report_type": normalize_metar_report_type(None, raw_ob),
+                "is_speci": is_speci_report(None, raw_ob),
                 "source": "NOAA_TG_FTP_TXT"
             }
             

@@ -16,6 +16,7 @@ import logging
 from config import NOAA_METAR_URL
 from collector.metar.tds_fetcher import fetch_metar_tds
 from collector.metar.tgftp_fetcher import fetch_metar_tgftp
+from collector.metar.report_type import normalize_metar_report_type
 from collector.metar.temperature_parser import decode_temperature_from_raw
 
 import time
@@ -43,7 +44,10 @@ class MetarData:
     altimeter_hg: Optional[float]
     wind_trend: str                  # NEW: "Estable" or "Girando al [Dir]"
     raw_metar: str
+    report_type: str = "METAR"       # "METAR" or "SPECI"
+    is_speci: bool = False
     racing_results: Optional[dict] = None  # NEW: Store all sources {source: temp_f}
+    racing_report_types: Optional[dict] = None  # Store all sources {source: report_type}
     temp_c_low: Optional[float] = None
     temp_c_high: Optional[float] = None
     temp_f_low: Optional[float] = None
@@ -163,6 +167,8 @@ async def fetch_metar_json(station_id: str) -> Optional[dict]:
                 "altim": obs.get("altim"),
                 "clouds": obs.get("clouds", []),
                 "raw_ob": raw_ob,
+                "report_type": normalize_metar_report_type(obs.get("metarType"), raw_ob),
+                "is_speci": normalize_metar_report_type(obs.get("metarType"), raw_ob) == "SPECI",
                 "source": "NOAA_JSON_API"
             }
     except Exception:
@@ -204,11 +210,15 @@ async def fetch_metar(station_id: str) -> Optional[MetarData]:
 
     valid_results = []
     racing_log = {}
+    racing_report_types = {}
 
     for task in done:
         try:
             res = task.result()
             if res and res.get("temp") is not None:
+                report_type = normalize_metar_report_type(res.get("report_type"), res.get("raw_ob"))
+                res["report_type"] = report_type
+                res["is_speci"] = (report_type == "SPECI")
                 res["temp_f"] = round((res["temp"] * 9/5) + 32, 1)
                 if res.get("temp_f_low") is None:
                     res["temp_f_low"] = res["temp_f"]
@@ -234,6 +244,7 @@ async def fetch_metar(station_id: str) -> Optional[MetarData]:
 
                 valid_results.append(res)
                 racing_log[res["source"]] = res["temp_f"]
+                racing_report_types[res["source"]] = report_type
         except asyncio.CancelledError:
             continue
         except Exception:
@@ -265,10 +276,19 @@ async def fetch_metar(station_id: str) -> Optional[MetarData]:
         low = route.get("settlement_f_low")
         high = route.get("settlement_f_high")
         range_tag = f"[{low}-{high}F]" if low is not None and high is not None and low != high else ""
-        return f"{route['source']}={route['temp_f']}{range_tag}({route.get('_route_latency_ms',0):.0f}ms)"
+        report_tag = "[SPECI]" if str(route.get("report_type") or "").upper() == "SPECI" else ""
+        return f"{route['source']}{report_tag}={route['temp_f']}{range_tag}({route.get('_route_latency_ms',0):.0f}ms)"
 
     sources_str = ", ".join([_format_route_temp(r) for r in valid_results])
-    logger.info(f"METAR Race {station_id}: {sources_str} | Winner: {winner['source']}")
+    winner_report_type = normalize_metar_report_type(winner.get("report_type"), winner.get("raw_ob"))
+    winner_is_speci = (winner_report_type == "SPECI")
+    logger.info(
+        "METAR Race %s: %s | Winner: %s%s",
+        station_id,
+        sources_str,
+        winner["source"],
+        " [SPECI]" if winner_is_speci else "",
+    )
 
     # Phase 2: Dedupe — skip if same obs_time already published
     winner_obs_time = winner.get("dt")
@@ -368,6 +388,8 @@ async def fetch_metar(station_id: str) -> Optional[MetarData]:
                 wind_dir=winner.get("wdir"),
                 wind_speed=winner.get("wspd"),
                 sky_condition=sky_aligned,
+                report_type=winner_report_type,
+                is_speci=winner_is_speci,
                 qc_passed=qc_result.is_valid,
                 qc_flags=qc_result.flags,
             )
@@ -405,7 +427,10 @@ async def fetch_metar(station_id: str) -> Optional[MetarData]:
         altimeter_hg=winner.get("altim"),
         wind_trend=wind_trend,
         raw_metar=winner.get("raw_ob", ""),
+        report_type=winner_report_type,
+        is_speci=winner_is_speci,
         racing_results=racing_log,
+        racing_report_types=racing_report_types or None,
         temp_c_low=winner.get("temp_c_low"),
         temp_c_high=winner.get("temp_c_high"),
         temp_f_low=winner.get("temp_f_low"),
@@ -459,6 +484,7 @@ async def fetch_metar_history(station_id: str, hours: int = 24) -> List[MetarDat
                         obs_time = datetime.now(timezone.utc)
                     
                     raw_ob = obs.get("rawOb", "")
+                    report_type = normalize_metar_report_type(obs.get("metarType"), raw_ob)
                     parsed = decode_temperature_from_raw(
                         raw_ob,
                         fallback_temp_c=obs.get("temp"),
@@ -486,6 +512,8 @@ async def fetch_metar_history(station_id: str, hours: int = 24) -> List[MetarDat
                         altimeter_hg=obs.get("altim"),
                         wind_trend="Capturando...",  # Placeholder for history loop
                         raw_metar=raw_ob,
+                        report_type=report_type,
+                        is_speci=(report_type == "SPECI"),
                         temp_c_low=parsed["temp_c_low"],
                         temp_c_high=parsed["temp_c_high"],
                         temp_f_low=parsed["temp_f_low"],

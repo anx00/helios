@@ -377,6 +377,8 @@ class Recorder:
         sky_condition: Optional[str] = None,
         qc_state: str = "OK",
         source: str = "METAR",
+        report_type: str = "METAR",
+        is_speci: bool = False,
         correlation_id: Optional[str] = None
     ):
         """Record a METAR observation (Section 4.3 B.1)."""
@@ -390,7 +392,9 @@ class Recorder:
             "wind_dir": wind_dir,
             "wind_speed": wind_speed,
             "sky": sky_condition,
-            "qc": qc_state
+            "qc": qc_state,
+            "report_type": report_type,
+            "is_speci": bool(is_speci),
         }
         await self.record(
             channel="world",

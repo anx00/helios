@@ -408,7 +408,9 @@ class ContextBuilder:
         if channel == "metar":
             temp = event.get("temp_f", event.get("temp_c", "?"))
             raw = event.get("raw", "")[:50]
-            return f"METAR temp={temp}°F raw='{raw}...'"
+            report_type = str(event.get("report_type") or "METAR").upper()
+            kind = "SPECI" if report_type == "SPECI" else "METAR"
+            return f"{kind} temp={temp}?F raw='{raw}...'"
 
         elif channel == "pws_agg":
             median = event.get("median", "?")
