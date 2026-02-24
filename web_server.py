@@ -610,29 +610,64 @@ def _parse_market_info(raw_info: str) -> Tuple[str, str, str]:
 
 
 async def pws_loop():
-    """Fetch PWS cluster data immediately and every 2 minutes."""
+    """Fetch PWS cluster data on a fast cadence without forcing NOAA METAR every cycle."""
     from config import get_active_stations
     from collector.pws_fetcher import fetch_and_publish_pws
     from collector.metar_fetcher import fetch_metar_race
     from core.recorder import get_recorder
+    from core.world import get_world
     logger = logging.getLogger("pws_loop")
-    logger.info("Starting PWS loop (immediate + 2-min intervals)...")
+    pws_interval_s = max(10, int(os.getenv("PWS_LOOP_INTERVAL_SECONDS", "15")))
+    official_max_age_s = max(30, int(os.getenv("PWS_OFFICIAL_MAX_AGE_SECONDS", "300")))
+    official_fetch_cooldown_s = max(30, int(os.getenv("PWS_OFFICIAL_FETCH_COOLDOWN_SECONDS", "90")))
+    logger.info(
+        "Starting PWS loop (interval=%ss, official_max_age=%ss, official_fetch_cooldown=%ss)",
+        pws_interval_s,
+        official_max_age_s,
+        official_fetch_cooldown_s,
+    )
     recorder = get_recorder()
+    world = get_world()
+    last_forced_official_fetch_utc: Dict[str, datetime] = {}
 
     while True:
+        cycle_t0 = asyncio.get_running_loop().time()
         try:
             active = get_active_stations()
             for station_id in active.keys():
                 # Get current METAR for drift calculation
                 official_temp_c = None
                 official_obs_time_utc = None
+
+                # Prefer the latest OfficialObs already published into WorldState.
                 try:
-                    metar = await fetch_metar_race(station_id)
-                    if metar:
-                        official_temp_c = metar.temp_c
-                        official_obs_time_utc = metar.observation_time
+                    world_obs = world.latest_official.get(station_id)
+                    if world_obs and world_obs.obs_time_utc:
+                        now_utc = datetime.now(ZoneInfo("UTC"))
+                        obs_age_s = max(0.0, (now_utc - world_obs.obs_time_utc).total_seconds())
+                        if obs_age_s <= official_max_age_s:
+                            official_temp_c = world_obs.temp_c
+                            official_obs_time_utc = world_obs.obs_time_utc
                 except Exception as e:
-                    logger.debug(f"METAR fetch for PWS drift failed: {e}")
+                    logger.debug(f"WorldState official read failed for PWS drift ({station_id}): {e}")
+
+                # Fallback: only force a NOAA METAR fetch occasionally if official is missing/stale.
+                if official_temp_c is None:
+                    now_utc = datetime.now(ZoneInfo("UTC"))
+                    last_forced = last_forced_official_fetch_utc.get(station_id)
+                    can_force_fetch = (
+                        last_forced is None
+                        or (now_utc - last_forced).total_seconds() >= official_fetch_cooldown_s
+                    )
+                    if can_force_fetch:
+                        try:
+                            metar = await fetch_metar_race(station_id)
+                            last_forced_official_fetch_utc[station_id] = now_utc
+                            if metar:
+                                official_temp_c = metar.temp_c
+                                official_obs_time_utc = metar.observation_time
+                        except Exception as e:
+                            logger.debug(f"Fallback METAR fetch for PWS drift failed ({station_id}): {e}")
 
                 logger.info(f"PWS fetch for {station_id}...")
                 consensus = await fetch_and_publish_pws(
@@ -699,7 +734,9 @@ async def pws_loop():
                         obs_time_utc=consensus.obs_time_utc
                     ))
 
-            await asyncio.sleep(120)  # Every 2 minutes
+            elapsed_s = asyncio.get_running_loop().time() - cycle_t0
+            sleep_s = max(1.0, float(pws_interval_s) - elapsed_s)
+            await asyncio.sleep(sleep_s)
         except Exception as e:
             logger.error(f"PWS loop error: {e}")
             await asyncio.sleep(30)
@@ -2423,16 +2460,24 @@ async def snapshot_loop():
     """Capture market and reality snapshots every 1 minute."""
     from monitor import snapshot_current_state, reconcile_history
     logger = logging.getLogger("snapshot_loop")
-    logger.info("Starting background snapshot loop (3-sec intervals for near-realtime)...")
+    snapshot_interval_s = max(5, int(os.getenv("MONITOR_SNAPSHOT_INTERVAL_SECONDS", "30")))
+    logger.info(
+        "Starting background snapshot loop (%.0f-sec interval, monitor analytics path)...",
+        float(snapshot_interval_s),
+    )
+    last_reconcile_hour_key = None
     while True:
         try:
             await snapshot_current_state()
             
-            # Reconcile history once an hour at :05
-            if datetime.now().minute == 5 and datetime.now().second < 10:
+            # Reconcile history once per hour after minute 05 (robust to slower loop intervals).
+            now = datetime.now()
+            hour_key = now.strftime("%Y-%m-%dT%H")
+            if now.minute >= 5 and last_reconcile_hour_key != hour_key:
                 await reconcile_history()
+                last_reconcile_hour_key = hour_key
                 
-            await asyncio.sleep(3)  # Ultra-fast polling
+            await asyncio.sleep(snapshot_interval_s)
         except Exception as e:
             logger.error(f"Snapshot loop error: {e}")
             await asyncio.sleep(5)

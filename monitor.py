@@ -4,9 +4,10 @@ Background worker for logging real-time performance and reconciling historical d
 """
 
 import asyncio
+import os
 from datetime import datetime, timedelta
 import logging
-from typing import Optional
+from typing import Any, Dict, Optional, Tuple
 
 from config import STATIONS, get_active_stations
 from database import insert_performance_log, get_pending_reconciliation_logs, update_performance_wu_final, get_latest_prediction, get_latest_prediction_for_date, get_latest_performance_log
@@ -24,6 +25,8 @@ _state_cache = {
     for sid in get_active_stations().keys()
 }
 _weather_cache_time = {}  # station_id -> datetime (for TTL tracking)
+_ensemble_inputs_cache: Dict[Tuple[str, str], Dict[str, Any]] = {}  # (station_id, target_date) -> cached NBM/LAMP
+_ENSEMBLE_INPUTS_TTL_SECONDS = max(60, int(os.getenv("MONITOR_ENSEMBLE_INPUTS_TTL_SECONDS", "600")))
 
 
 def _ensure_station_cache(station_id: str) -> None:
@@ -34,6 +37,49 @@ def _ensure_station_cache(station_id: str) -> None:
             "market_today": None,
             "market_tmr": None,
         }
+
+
+async def _get_cached_ensemble_inputs(station_id: str, target_date) -> Tuple[Any, Any]:
+    """
+    Return (nbm_data, lamp_data) using a shared TTL cache.
+    This keeps monitor snapshots responsive while preserving ensemble fields.
+    """
+    target_date_key = target_date.isoformat() if hasattr(target_date, "isoformat") else str(target_date)
+    cache_key = (station_id, target_date_key)
+    now = datetime.now()
+    cached = _ensemble_inputs_cache.get(cache_key)
+    if cached:
+        age_s = (now - cached.get("fetched_at", now)).total_seconds()
+        if age_s <= _ENSEMBLE_INPUTS_TTL_SECONDS:
+            return cached.get("nbm_data"), cached.get("lamp_data")
+
+    from collector.nbm_fetcher import fetch_nbm
+    from collector.lamp_fetcher import fetch_lamp
+
+    nbm_res, lamp_res = await asyncio.gather(
+        fetch_nbm(station_id, target_date),
+        fetch_lamp(station_id),
+        return_exceptions=True,
+    )
+
+    nbm_data = None if isinstance(nbm_res, Exception) else nbm_res
+    lamp_data = None if isinstance(lamp_res, Exception) else lamp_res
+
+    # Reuse stale cache values if only one source failed this cycle.
+    if cached:
+        if nbm_data is None:
+            nbm_data = cached.get("nbm_data")
+        if lamp_data is None:
+            lamp_data = cached.get("lamp_data")
+
+    if nbm_data is not None or lamp_data is not None:
+        _ensemble_inputs_cache[cache_key] = {
+            "fetched_at": now,
+            "nbm_data": nbm_data,
+            "lamp_data": lamp_data,
+        }
+
+    return nbm_data, lamp_data
 
 async def background_slow_refresh(station_id, today_local, tomorrow_local):
     """Refreshes slow data sources in the background without blocking the fast METAR line."""
@@ -218,13 +264,10 @@ async def snapshot_current_state():
                 ensemble_args = {}
                 if offset == 0:
                     try:
-                        from collector.nbm_fetcher import fetch_nbm
-                        from collector.lamp_fetcher import fetch_lamp
                         from synthesizer.ensemble import calculate_ensemble_v11
                         from zoneinfo import ZoneInfo
-                        
-                        nbm_data = await fetch_nbm(station_id, target_date)
-                        lamp_data = await fetch_lamp(station_id)
+
+                        nbm_data, lamp_data = await _get_cached_ensemble_inputs(station_id, target_date)
                         
                         hrrr_val = pred.get("hrrr_max_raw_f") if pred else None
                         sky_cond = pred.get("sky_condition") if pred else "SCT"

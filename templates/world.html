@@ -937,6 +937,8 @@
     let lastSnapshotHash = '';  // Fingerprint to skip redundant re-renders
     let sseConnected = false;
     let metarObsTimeUtc = null;  // Store obs time for live age calculation
+    let initialSseSnapshotReceived = false;
+    let initialSnapshotFallbackTimer = null;
     let currentStation = (window.HeliosStationState && window.HeliosStationState.get())
         ? window.HeliosStationState.get()
         : 'KLGA';  // Default station
@@ -1172,10 +1174,29 @@
         const sseDot = document.getElementById('sse-dot');
         const sseLabel = document.getElementById('sse-label');
 
+        if (initialSnapshotFallbackTimer) {
+            clearTimeout(initialSnapshotFallbackTimer);
+            initialSnapshotFallbackTimer = null;
+        }
+
         evtSource = new EventSource('/api/v2/world/stream');
+
+        // SSE sends a full snapshot on connect. Only use HTTP snapshot as fallback if it stalls.
+        if (!lastSnapshot) {
+            initialSnapshotFallbackTimer = setTimeout(() => {
+                if (!lastSnapshot && !initialSseSnapshotReceived) {
+                    fetchSnapshot();
+                }
+            }, 1500);
+        }
 
         evtSource.addEventListener('snapshot', (e) => {
             try {
+                initialSseSnapshotReceived = true;
+                if (initialSnapshotFallbackTimer) {
+                    clearTimeout(initialSnapshotFallbackTimer);
+                    initialSnapshotFallbackTimer = null;
+                }
                 lastSnapshot = JSON.parse(e.data);
                 renderAll(lastSnapshot);
             } catch(err) { console.error('SSE snapshot parse error:', err); }
@@ -2259,9 +2280,6 @@
 
         // Try SSE first
         connectSSE();
-
-        // Also do an immediate fetch
-        fetchSnapshot();
 
         // Fetch METAR history for today
         fetchMetarHistory();
