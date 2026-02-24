@@ -22,6 +22,7 @@ from database import (
 )
 
 logger = logging.getLogger("telegram_bot")
+_LIVE_TELEGRAM_BOT: Optional["HeliosTelegramBot"] = None
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -184,6 +185,28 @@ class HeliosTelegramBot:
         if self.settings.allowed_chat_ids:
             return sorted(str(chat_id) for chat_id in self.settings.allowed_chat_ids)
         return sorted(self._known_chat_ids)
+
+    async def broadcast_system_message(self, text: str) -> int:
+        """
+        Broadcast a control/system message to subscription recipients.
+        Returns count of successful chats.
+        """
+        if not text:
+            return 0
+        recipients = self._subscription_recipients()
+        if not recipients or self._session is None:
+            return 0
+        results = await asyncio.gather(
+            *(self._send_text(chat_id, text) for chat_id in recipients),
+            return_exceptions=True,
+        )
+        sent_ok = 0
+        for res in results:
+            if isinstance(res, Exception):
+                logger.warning("Telegram system broadcast failed: %s", res)
+            else:
+                sent_ok += 1
+        return sent_ok
 
     def _format_subscription_metar_message(self, data: Dict[str, Any]) -> Optional[str]:
         station_id = str(data.get("station_id") or "").upper().strip()
@@ -908,7 +931,15 @@ class HeliosTelegramBot:
 
 
 def build_telegram_bot_from_env() -> Optional[HeliosTelegramBot]:
+    global _LIVE_TELEGRAM_BOT
     settings = TelegramBotSettings.from_env()
     if not settings:
+        _LIVE_TELEGRAM_BOT = None
         return None
-    return HeliosTelegramBot(settings)
+    _LIVE_TELEGRAM_BOT = HeliosTelegramBot(settings)
+    return _LIVE_TELEGRAM_BOT
+
+
+def get_live_telegram_bot() -> Optional[HeliosTelegramBot]:
+    """Return the bot instance created at startup, if enabled."""
+    return _LIVE_TELEGRAM_BOT

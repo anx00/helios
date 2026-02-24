@@ -1962,12 +1962,33 @@ async def set_world_metar_subscription(station_id: str, payload: TelegramMetarSu
     station_id = str(station_id or "").upper().strip()
     if station_id not in STATIONS:
         return {"error": "Invalid station"}
+    prev_state = get_telegram_station_subscription(station_id)
     state = set_telegram_station_subscription(
         station_id,
         bool(payload.enabled),
         updated_by="world_ui",
     )
     state["station_id"] = station_id
+    state["changed"] = bool(prev_state.get("enabled")) != bool(state.get("enabled"))
+    state["telegram_notice_sent_to"] = 0
+
+    # Best-effort broadcast to Telegram via the running bot instance.
+    try:
+        from core.telegram_bot import get_live_telegram_bot
+        bot = get_live_telegram_bot()
+        if bot and state["changed"]:
+            station_name = STATIONS[station_id].name
+            if bool(state.get("enabled")):
+                msg = (
+                    f"Subscription METAR iniciada: {station_id} ({station_name})\n"
+                    "HELIOS publicara METAR/SPECI en cuanto entren."
+                )
+            else:
+                msg = f"Subscription METAR detenida: {station_id} ({station_name})"
+            state["telegram_notice_sent_to"] = await bot.broadcast_system_message(msg)
+    except Exception as exc:
+        logger.warning("Failed to broadcast Telegram subscription control message: %s", exc)
+
     return state
 
 
