@@ -1,0 +1,1 @@
+Crear un módulo parecido al que tenemos en autotrade, pero que realmetne busque probabilidades de ocurrencia de los brackets. Sería interesante que analizara el orderbook y diera señales de posibles ordenes limite a que precio y cuando viendo así oportunidades.

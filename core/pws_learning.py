@@ -3,9 +3,9 @@ Online learning for PWS station reliability by market.
 
 Dual-score model:
 - now_score: accuracy against METAR at aligned timestamps.
-- lead_score: predictive signal quality when PWS leads METAR by ~1 hour.
+- lead_score: cumulative lead hits when PWS leads METAR (short horizon, 5-30m by default).
 
-The consensus weight uses now_score as primary signal and lead_score as a
+The consensus weight uses now_score as primary signal and lead reliability as a
 bounded modifier, so a station that is "early" is not treated as accurate
 "right now".
 """
@@ -103,13 +103,14 @@ class PWSLearningStore:
         alpha_lead: float = 0.12,
         now_error_scale_c: float = 1.5,
         lead_error_scale_c: float = 2.0,
+        lead_hit_tolerance_c: Optional[float] = None,
         min_weight: float = 0.25,
         max_weight: float = 3.5,
         confidence_samples_now: int = 24,
         confidence_samples_lead: int = 12,
         now_alignment_minutes: int = 22,
-        lead_min_minutes: int = 35,
-        lead_max_minutes: int = 85,
+        lead_min_minutes: int = 5,
+        lead_max_minutes: int = 30,
         lead_target_minutes: Optional[int] = None,
         ranking_min_now_samples: int = 2,
         ranking_min_lead_samples: int = 1,
@@ -123,6 +124,9 @@ class PWSLearningStore:
 
         self.now_error_scale_c = float(now_error_scale_c)
         self.lead_error_scale_c = float(lead_error_scale_c)
+        if lead_hit_tolerance_c is None:
+            lead_hit_tolerance_c = self.lead_error_scale_c
+        self.lead_hit_tolerance_c = max(0.1, float(lead_hit_tolerance_c))
 
         self.min_weight = float(min_weight)
         self.max_weight = float(max_weight)
@@ -266,7 +270,19 @@ class PWSLearningStore:
         lead_samples = int(rec.get("lead_samples", 0) or 0)
 
         now_rel = self._calc_rel(rec.get("now_ema_abs_error_c"), self.now_error_scale_c)
-        lead_rel = self._calc_rel(rec.get("lead_ema_abs_error_c"), self.lead_error_scale_c)
+        lead_ema_rel = self._calc_rel(rec.get("lead_ema_abs_error_c"), self.lead_error_scale_c)
+        lead_hits_raw = rec.get("lead_hits")
+        try:
+            lead_hits = int(lead_hits_raw)
+        except Exception:
+            lead_hits = None
+        if lead_samples <= 0:
+            lead_hits = 0
+        elif lead_hits is None:
+            # Backfill legacy records approximately from historical EMA score.
+            lead_hits = int(round(float(lead_ema_rel) * float(lead_samples)))
+        lead_hits = max(0, min(int(lead_hits), int(lead_samples))) if lead_samples > 0 else 0
+        lead_rel = (float(lead_hits) / float(lead_samples)) if lead_samples > 0 else float(lead_ema_rel)
 
         now_conf = min(1.0, now_samples / float(self.confidence_samples_now))
         lead_conf = min(1.0, lead_samples / float(self.confidence_samples_lead))
@@ -305,7 +321,9 @@ class PWSLearningStore:
         rec["weight_predictive"] = round(float(weight_pred), 4)
 
         rec["now_score"] = round(float(100.0 * now_rel), 2)
-        rec["lead_score"] = round(float(100.0 * lead_rel), 2)
+        rec["lead_hits"] = int(lead_hits)
+        rec["lead_score"] = int(lead_hits)
+        rec["lead_hit_rate"] = round(float(100.0 * lead_rel), 2) if lead_samples > 0 else None
         rec["predictive_score"] = round(float(100.0 * rel_pred), 2)
         rec["quality_band"] = _quality_band(rec["predictive_score"])
         rec.update(self._rank_eligibility(now_samples=now_samples, lead_samples=lead_samples))
@@ -318,6 +336,7 @@ class PWSLearningStore:
                 "source": source,
                 "now_samples": 0,
                 "lead_samples": 0,
+                "lead_hits": 0,
             }
             stations[sid] = rec
         elif not rec.get("source"):
@@ -475,6 +494,7 @@ class PWSLearningStore:
                     "predictive_score": None,
                     "now_samples": 0,
                     "lead_samples": 0,
+                    "lead_hits": 0,
                     "quality_band": "INIT",
                     **rank_meta,
                 }
@@ -607,8 +627,8 @@ class PWSLearningStore:
         - compares only readings close to official obs timestamp.
 
         lead_score update:
-        - compares pending readings whose timestamp is 35-85 minutes before
-          official obs timestamp.
+        - counts cumulative lead hits from pending readings whose timestamp is
+          5-30 minutes before official obs timestamp.
         """
         readings_list = list(readings)
         fallback_ts = _as_utc(obs_time_utc) or _utc_now()
@@ -672,7 +692,7 @@ class PWSLearningStore:
                 rec["updated_at"] = _utc_now_iso()
                 touched_ids.add(sid)
 
-            # LEAD labels: pending queue resolution (35-85 min before official).
+            # LEAD labels: pending queue resolution (5-30 min before official).
             # Use at most ONE lead sample per station per official METAR timestamp:
             # choose the candidate closest to lead_target_minutes.
             pending = market.get("pending", [])
@@ -740,7 +760,10 @@ class PWSLearningStore:
                 rec["lead_ema_abs_error_c"] = round(
                     self._update_ema(rec.get("lead_ema_abs_error_c"), err, self.alpha_lead), 4
                 )
+                lead_hit = bool(err <= float(self.lead_hit_tolerance_c))
+                rec["lead_hits"] = int(rec.get("lead_hits", 0) or 0) + (1 if lead_hit else 0)
                 rec["last_lead_abs_error_c"] = round(float(err), 4)
+                rec["last_lead_hit"] = lead_hit
                 rec["last_lead_minutes"] = round(float(lead_min), 2)
                 rec["last_lead_official_obs_time_utc"] = official_iso
                 rec["last_lead_sample_obs_time_utc"] = row.get("obs_time_utc")

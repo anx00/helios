@@ -35,7 +35,7 @@ class TestPwsLearning(unittest.TestCase):
             store = PWSLearningStore(path=Path(td) / "weights.json")
 
             pws_t = datetime(2026, 2, 17, 16, 0, tzinfo=timezone.utc)
-            metar_t = datetime(2026, 2, 17, 16, 51, tzinfo=timezone.utc)
+            metar_t = datetime(2026, 2, 17, 16, 25, tzinfo=timezone.utc)
 
             reading = _Reading(
                 label="P1",
@@ -54,6 +54,8 @@ class TestPwsLearning(unittest.TestCase):
             profile = store.get_station_profile("KLGA", "P1", "SYNOPTIC")
             self.assertEqual(profile.get("now_samples"), 0)
             self.assertEqual(profile.get("lead_samples"), 1)
+            self.assertEqual(profile.get("lead_hits"), 1)
+            self.assertEqual(profile.get("lead_score"), 1)
             self.assertFalse(profile.get("rank_eligible"))
 
     def test_now_accuracy_drives_weight_ordering(self):
@@ -107,7 +109,7 @@ class TestPwsLearning(unittest.TestCase):
         with TemporaryDirectory() as td:
             store = PWSLearningStore(path=Path(td) / "weights.json")
             pws_t = datetime(2026, 2, 17, 10, 0, tzinfo=timezone.utc)
-            metar_t = datetime(2026, 2, 17, 10, 55, tzinfo=timezone.utc)
+            metar_t = datetime(2026, 2, 17, 10, 20, tzinfo=timezone.utc)
 
             store.ingest_pending(
                 market_station_id="KLGA",
@@ -131,7 +133,7 @@ class TestPwsLearning(unittest.TestCase):
             store = PWSLearningStore(path=Path(td) / "weights.json")
 
             pws_t0 = datetime(2026, 2, 17, 10, 0, tzinfo=timezone.utc)
-            metar_t0 = datetime(2026, 2, 17, 10, 55, tzinfo=timezone.utc)
+            metar_t0 = datetime(2026, 2, 17, 10, 25, tzinfo=timezone.utc)
             store.update_with_official(
                 market_station_id="KLGA",
                 official_temp_c=20.0,
@@ -140,7 +142,7 @@ class TestPwsLearning(unittest.TestCase):
                 official_obs_time_utc=metar_t0,
             )
 
-            pws_t1 = datetime(2026, 2, 17, 11, 55, tzinfo=timezone.utc)
+            pws_t1 = datetime(2026, 2, 17, 12, 0, tzinfo=timezone.utc)
             metar_t1 = datetime(2026, 2, 17, 12, 0, tzinfo=timezone.utc)
             store.update_with_official(
                 market_station_id="KLGA",
@@ -155,7 +157,7 @@ class TestPwsLearning(unittest.TestCase):
             self.assertEqual(profile.get("now_samples"), 1)
             self.assertFalse(profile.get("rank_eligible"))
 
-            pws_t2 = datetime(2026, 2, 17, 12, 55, tzinfo=timezone.utc)
+            pws_t2 = datetime(2026, 2, 17, 13, 0, tzinfo=timezone.utc)
             metar_t2 = datetime(2026, 2, 17, 13, 0, tzinfo=timezone.utc)
             store.update_with_official(
                 market_station_id="KLGA",
@@ -176,7 +178,7 @@ class TestPwsLearning(unittest.TestCase):
             base = datetime(2026, 2, 17, 10, 0, tzinfo=timezone.utc)
             station = "L1"
 
-            # Three pending snapshots for same station in the 35-85 min window.
+            # Three pending snapshots for same station in the 5-30 min lead window.
             rows = [
                 _Reading(station, 18.0, "SYNOPTIC", base),
                 _Reading(station, 18.0, "SYNOPTIC", base + timedelta(minutes=10)),
@@ -184,7 +186,7 @@ class TestPwsLearning(unittest.TestCase):
             ]
             store.ingest_pending("KLGA", rows, obs_time_utc=base + timedelta(minutes=20))
 
-            official_t = datetime(2026, 2, 17, 11, 0, tzinfo=timezone.utc)
+            official_t = datetime(2026, 2, 17, 10, 30, tzinfo=timezone.utc)
             store.update_with_official(
                 market_station_id="KLGA",
                 official_temp_c=18.0,
@@ -196,6 +198,34 @@ class TestPwsLearning(unittest.TestCase):
             profile = store.get_station_profile("KLGA", station, "SYNOPTIC")
             self.assertEqual(profile.get("lead_samples"), 1)
             self.assertGreaterEqual(int(profile.get("last_lead_candidates_in_window") or 0), 3)
+
+    def test_lead_score_counts_cumulative_hits(self):
+        with TemporaryDirectory() as td:
+            store = PWSLearningStore(path=Path(td) / "weights.json")
+            pws_t0 = datetime(2026, 2, 17, 10, 0, tzinfo=timezone.utc)
+            metar_t0 = datetime(2026, 2, 17, 10, 25, tzinfo=timezone.utc)
+            pws_t1 = datetime(2026, 2, 17, 11, 0, tzinfo=timezone.utc)
+            metar_t1 = datetime(2026, 2, 17, 11, 25, tzinfo=timezone.utc)
+
+            store.update_with_official(
+                market_station_id="KLGA",
+                official_temp_c=20.0,
+                readings=[_Reading("LEAD_CNT", 20.0, "SYNOPTIC", pws_t0)],
+                obs_time_utc=metar_t0,
+                official_obs_time_utc=metar_t0,
+            )
+            store.update_with_official(
+                market_station_id="KLGA",
+                official_temp_c=20.0,
+                readings=[_Reading("LEAD_CNT", 27.0, "SYNOPTIC", pws_t1)],
+                obs_time_utc=metar_t1,
+                official_obs_time_utc=metar_t1,
+            )
+
+            profile = store.get_station_profile("KLGA", "LEAD_CNT", "SYNOPTIC")
+            self.assertEqual(profile.get("lead_samples"), 2)
+            self.assertEqual(profile.get("lead_hits"), 1)
+            self.assertEqual(profile.get("lead_score"), 1)
 
     def test_source_prior_fades_with_strong_historical_evidence(self):
         with TemporaryDirectory() as td:
