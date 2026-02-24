@@ -1,0 +1,14 @@
+[Unit]
+Description=Run Helios housekeeping daily (7-day retention)
+
+[Timer]
+# Run after boot and then every day.
+OnBootSec=10min
+OnCalendar=daily
+Persistent=true
+
+Unit=helios-housekeeping.service
+
+[Install]
+WantedBy=timers.target
+

@@ -1,0 +1,14 @@
+/opt/helios/logs/*.log /opt/helios/logs/*.out /opt/helios/logs/*.err {
+    daily
+    rotate 7
+    maxage 7
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+    dateext
+    dateformat -%Y%m%d
+    su ubuntu ubuntu
+}
+

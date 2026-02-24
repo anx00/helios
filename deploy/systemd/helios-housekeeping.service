@@ -1,0 +1,20 @@
+[Unit]
+Description=Helios housekeeping (cleanup old logs/data)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/opt/helios
+Environment=PATH=/usr/bin:/bin
+
+# Ensure log directory exists for this task's own output
+ExecStartPre=/bin/mkdir -p /opt/helios/logs
+
+# Retain only 7 days of HELIOS logs/recordings/parquet partitions.
+ExecStart=/usr/bin/python3 /opt/helios/scripts/helios_housekeeping.py --retention-days 7
+
+StandardOutput=append:/opt/helios/logs/housekeeping.log
+StandardError=append:/opt/helios/logs/housekeeping_error.log
+

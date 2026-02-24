@@ -1445,6 +1445,13 @@
     let pwsSortState = { column: 'distance_km', direction: 'asc' };
     let pwsExpandedState = {}; // Track expanded state per station
     let pwsSourceFilters = { SYNOPTIC: true, MADIS: true, OPEN_METEO: true, WUNDERGROUND: true };
+    let pwsPresetFilter = 'ALL';
+    const pwsPresetChips = [
+        { key: 'ALL', label: 'All visible' },
+        { key: 'TOP10_WEIGHTED', label: 'Top 10 weighted' },
+        { key: 'TOP10_NOW', label: 'Top 10 now' },
+        { key: 'TOP10_LEAD', label: 'Top 10 lead' },
+    ];
 
     function normalizeSource(src) {
         return String(src || '').trim().toUpperCase().replace(/-/g, '_');
@@ -1491,6 +1498,135 @@
     function mean(values) {
         if (!values || values.length === 0) return null;
         return values.reduce((acc, v) => acc + v, 0) / values.length;
+    }
+
+    function weightedMean(entries) {
+        if (!entries || entries.length === 0) return null;
+        let weightedSum = 0;
+        let weightSum = 0;
+        for (const item of entries) {
+            const value = Number(item && item.value);
+            const weight = Number(item && item.weight);
+            if (!Number.isFinite(value) || !Number.isFinite(weight) || weight <= 0) continue;
+            weightedSum += value * weight;
+            weightSum += weight;
+        }
+        if (weightSum <= 0) return null;
+        return weightedSum / weightSum;
+    }
+
+    function weightedMedian(entries) {
+        if (!entries || entries.length === 0) return null;
+        const valid = entries
+            .map(item => ({ value: Number(item && item.value), weight: Number(item && item.weight) }))
+            .filter(item => Number.isFinite(item.value) && Number.isFinite(item.weight) && item.weight > 0)
+            .sort((a, b) => a.value - b.value);
+        if (valid.length === 0) return null;
+
+        const totalWeight = valid.reduce((acc, item) => acc + item.weight, 0);
+        if (!(totalWeight > 0)) return null;
+
+        const target = totalWeight / 2;
+        let cumulative = 0;
+        for (const item of valid) {
+            cumulative += item.weight;
+            if (cumulative >= target) return item.value;
+        }
+        return valid[valid.length - 1].value;
+    }
+
+    function pwsRowKey(row) {
+        return `${row.station_id || ''}|${normalizeSource(row.source)}|${row.obs_time_utc || ''}`;
+    }
+
+    function pwsUiApproxWeight(row) {
+        const w = numericOrNaN(row && row.learning_weight);
+        if (Number.isFinite(w) && w > 0) return Math.max(0.05, w);
+        return 1.0;
+    }
+
+    function isPWSRowValidForConsensus(row) {
+        return Boolean(row && row.valid) && Number.isFinite(Number(row.temp_c));
+    }
+
+    function pwsPresetLabel(key) {
+        const hit = pwsPresetChips.find(chip => chip.key === key);
+        return hit ? hit.label : key;
+    }
+
+    function applyPWSPreset(details) {
+        if (!Array.isArray(details) || details.length === 0) return [];
+        if (pwsPresetFilter === 'ALL') return details;
+
+        const validRows = details.filter(isPWSRowValidForConsensus);
+        if (validRows.length === 0) return [];
+
+        let metricGetter = null;
+        if (pwsPresetFilter === 'TOP10_WEIGHTED') {
+            metricGetter = (row) => numericOrNaN(row.learning_weight);
+        } else if (pwsPresetFilter === 'TOP10_NOW') {
+            metricGetter = (row) => numericOrNaN(row.learning_now_score);
+        } else if (pwsPresetFilter === 'TOP10_LEAD') {
+            metricGetter = (row) => numericOrNaN(row.learning_lead_score);
+        } else {
+            return details;
+        }
+
+        const ranked = [...validRows].sort((a, b) => {
+            const av = metricGetter(a);
+            const bv = metricGetter(b);
+            const aFinite = Number.isFinite(av);
+            const bFinite = Number.isFinite(bv);
+            if (aFinite && bFinite && av !== bv) return bv - av;
+            if (aFinite !== bFinite) return aFinite ? -1 : 1;
+
+            const aWeight = numericOrNaN(a.learning_weight);
+            const bWeight = numericOrNaN(b.learning_weight);
+            if (Number.isFinite(aWeight) && Number.isFinite(bWeight) && aWeight !== bWeight) return bWeight - aWeight;
+            if (Number.isFinite(aWeight) !== Number.isFinite(bWeight)) return Number.isFinite(aWeight) ? -1 : 1;
+
+            const aDist = Number(a.distance_km);
+            const bDist = Number(b.distance_km);
+            if (Number.isFinite(aDist) && Number.isFinite(bDist) && aDist !== bDist) return aDist - bDist;
+
+            return String(a.station_id || '').localeCompare(String(b.station_id || ''));
+        });
+
+        const selectedKeys = new Set(ranked.slice(0, 10).map(pwsRowKey));
+        return details.filter(row => selectedKeys.has(pwsRowKey(row)));
+    }
+
+    function computeFilteredPWSConsensus(details, officialTempC) {
+        const valid = (details || []).filter(isPWSRowValidForConsensus);
+        if (valid.length === 0) {
+            return {
+                weighted_median_c: null,
+                weighted_median_f: null,
+                weighted_mean_c: null,
+                weighted_mean_f: null,
+                support: 0,
+                weight_sum: null,
+                drift_c: null,
+            };
+        }
+
+        const weightedEntries = valid.map(row => ({
+            value: Number(row.temp_c),
+            weight: pwsUiApproxWeight(row),
+        }));
+        const weightedMedianC = weightedMedian(weightedEntries);
+        const weightedMeanC = weightedMean(weightedEntries);
+        const weightSum = weightedEntries.reduce((acc, item) => acc + (Number.isFinite(item.weight) ? item.weight : 0), 0);
+
+        return {
+            weighted_median_c: weightedMedianC,
+            weighted_median_f: weightedMedianC == null ? null : ((weightedMedianC * 9 / 5) + 32),
+            weighted_mean_c: weightedMeanC,
+            weighted_mean_f: weightedMeanC == null ? null : ((weightedMeanC * 9 / 5) + 32),
+            support: valid.length,
+            weight_sum: weightSum > 0 ? weightSum : null,
+            drift_c: (officialTempC != null && weightedMedianC != null) ? (weightedMedianC - officialTempC) : null,
+        };
     }
 
     function computeFilteredPWSStats(details, officialTempC) {
@@ -1542,11 +1678,36 @@
             { key: 'OPEN_METEO', label: `Open-Meteo (${counts.OPEN_METEO})` },
             { key: 'WUNDERGROUND', label: `Wunderground (${counts.WUNDERGROUND})` },
         ];
+        const sourceFiltered = (rawDetails || []).filter(r => sourceEnabled(r.source));
+        const validSourceFiltered = sourceFiltered.filter(isPWSRowValidForConsensus);
+        const presetCounts = {
+            ALL: sourceFiltered.length,
+            TOP10_WEIGHTED: Math.min(10, validSourceFiltered.length),
+            TOP10_NOW: Math.min(10, validSourceFiltered.length),
+            TOP10_LEAD: Math.min(10, validSourceFiltered.length),
+        };
 
-        filtersEl.innerHTML = chips.map(c => {
+        const sourceChipsHtml = chips.map(c => {
             const active = pwsSourceFilters[c.key] ? 'active' : '';
             return `<button class="pws-filter-chip ${active}" onclick="togglePWSFilter('${c.key}')">${c.label}</button>`;
-        }).join('') + '<span class="pws-filter-help">Filtros activos recalculan metricas y tabla.</span>';
+        }).join('');
+
+        const presetChipsHtml = pwsPresetChips.map(c => {
+            const active = pwsPresetFilter === c.key ? 'active' : '';
+            const count = presetCounts[c.key];
+            const countLabel = Number.isFinite(count) ? ` (${count})` : '';
+            return `<button class="pws-filter-chip ${active}" onclick="togglePWSPreset('${c.key}')">${c.label}${countLabel}</button>`;
+        }).join('');
+
+        filtersEl.innerHTML = `
+            <div class="pws-filter-row" style="width:100%; margin-bottom:6px;">
+                ${sourceChipsHtml}
+            </div>
+            <div class="pws-filter-row" style="width:100%; margin-bottom:0;">
+                <span class="pws-filter-help">Preset:</span>
+                ${presetChipsHtml}
+                <span class="pws-filter-help">Fuente + preset recalculan metricas, tabla y consenso what-if.</span>
+            </div>`;
     }
 
     window.togglePWSFilter = function(key) {
@@ -1558,6 +1719,14 @@
             pwsSourceFilters[key] = true;
         }
 
+        lastPWSFingerprint = '';
+        if (lastSnapshot) renderAll(lastSnapshot);
+    };
+
+    window.togglePWSPreset = function(key) {
+        if (!pwsPresetChips.some(chip => chip.key === key)) return;
+        if (pwsPresetFilter === key) return;
+        pwsPresetFilter = key;
         lastPWSFingerprint = '';
         if (lastSnapshot) renderAll(lastSnapshot);
     };
@@ -1834,7 +2003,7 @@
             const lSig = Number.isFinite(numericOrNaN(r.learning_lead_score)) ? numericOrNaN(r.learning_lead_score).toFixed(0) : '--';
             return `${r.station_id || ''}|${normalizeSource(r.source)}|${r.valid ? 1 : 0}|${r.qc_flag || ''}|${tempSig}|${r.obs_time_utc || ''}|${wSig}|${nSig}|${lSig}`;
         }).join(';');
-        const fp = `${currentStation}:${p.temp_f}:${p.support}:${p.drift}:${detailSig}:${JSON.stringify(pwsSourceFilters)}:${metricSig}`;
+        const fp = `${currentStation}:${p.temp_f}:${p.support}:${p.drift}:${detailSig}:${JSON.stringify(pwsSourceFilters)}:${pwsPresetFilter}:${metricSig}`;
         if (fp === lastPWSFingerprint) return;  // Skip re-render
         lastPWSFingerprint = fp;
 
@@ -1843,11 +2012,13 @@
 
         let html = '';
         for (const [, pEntry] of pwsEntries) {
-            const filteredDetails = rawDetails.filter(r => sourceEnabled(r.source));
+            const sourceFilteredDetails = rawDetails.filter(r => sourceEnabled(r.source));
+            const filteredDetails = applyPWSPreset(sourceFilteredDetails);
             const officialTempC = official && official[stationName] && official[stationName].temp_c != null
                 ? Number(official[stationName].temp_c)
                 : null;
             const stats = computeFilteredPWSStats(filteredDetails, officialTempC);
+            const filteredConsensus = computeFilteredPWSConsensus(filteredDetails, officialTempC);
 
             const driftVal = stats.drift_c != null ? stats.drift_c : pEntry.drift;
             const driftClass = driftVal > 0.5 ? 'positive' : (driftVal < -0.5 ? 'negative' : 'neutral');
@@ -1856,12 +2027,28 @@
             // Main headline: weighted consensus actually used by prediction.
             const headerTempF = Number.isFinite(Number(pEntry.temp_f))
                 ? Number(pEntry.temp_f)
-                : (stats.mean_f != null ? stats.mean_f : (stats.median_f != null ? stats.median_f : null));
+                : (filteredConsensus.weighted_median_f != null
+                    ? filteredConsensus.weighted_median_f
+                    : (stats.mean_f != null ? stats.mean_f : (stats.median_f != null ? stats.median_f : null)));
             const headerTempDisplay = convertTempFromF(headerTempF);
+            const filteredConsensusF = filteredConsensus.weighted_median_f;
+            const filteredConsensusDisplay = convertTempFromF(filteredConsensusF);
+            const whatIfDeltaF = (Number.isFinite(headerTempF) && Number.isFinite(filteredConsensusF))
+                ? (filteredConsensusF - headerTempF)
+                : null;
+            const whatIfDeltaDisplay = whatIfDeltaF == null
+                ? null
+                : (usesCelsius() ? (whatIfDeltaF * 5 / 9) : whatIfDeltaF);
+            const whatIfDeltaClass = whatIfDeltaDisplay > 0.05
+                ? 'positive'
+                : (whatIfDeltaDisplay < -0.05 ? 'negative' : 'neutral');
+            const whatIfDeltaSign = whatIfDeltaDisplay > 0 ? '+' : '';
             const headerMedianC = stats.median_c;
             const headerMeanC = stats.mean_c;
             const headerSupport = stats.support;
             const headerAge = stats.source_age_s != null ? stats.source_age_s : pEntry.source_age_s;
+            const filteredConsensusDrift = filteredConsensus.drift_c;
+            const presetLabel = pwsPresetLabel(pwsPresetFilter);
             const learningMetric = (pwsMetrics && pwsMetrics[stationName] && pwsMetrics[stationName].learning)
                 ? pwsMetrics[stationName].learning
                 : {};
@@ -1909,13 +2096,25 @@
                     <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
                         <div>
                             <span style="font-weight:700; font-size:15px; font-family:'JetBrains Mono',monospace;">${stationName}</span>
-                            <span style="font-size:11px; color:var(--text-muted); margin-left:8px;">Weighted Consensus (prediction input)</span>
+                            <span style="font-size:11px; color:var(--text-muted); margin-left:8px;">Weighted Consensus (prediction input, backend)</span>
                         </div>
                         <div style="text-align:right;">
                             <span style="font-size:28px; font-weight:700; font-family:'Space Grotesk',sans-serif; color: #8B5CF6;">
                                 ${headerTempDisplay != null ? headerTempDisplay.toFixed(1) : '--'}
                             </span>
                             <span style="font-size:14px; color:var(--text-secondary);">${usesCelsius() ? 'C' : 'F'}</span>
+                            <div style="margin-top:4px; font-size:11px; color:var(--text-muted);">
+                                Filtered Consensus (${presetLabel})
+                            </div>
+                            <div style="font-family:'JetBrains Mono',monospace; font-size:13px; color:#C4B5FD;">
+                                ${filteredConsensusDisplay != null ? filteredConsensusDisplay.toFixed(1) : '--'} ${usesCelsius() ? 'C' : 'F'}
+                                <span class="aux-drift ${whatIfDeltaClass}" style="font-size:11px; margin-left:8px;">
+                                    ${whatIfDeltaDisplay != null ? `Δ ${whatIfDeltaSign}${whatIfDeltaDisplay.toFixed(2)} ${usesCelsius() ? 'C' : 'F'}` : ''}
+                                </span>
+                            </div>
+                            <div style="font-size:10px; color:var(--text-muted);">
+                                UI what-if (learning-weight approx.)
+                            </div>
                         </div>
                     </div>
                     <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap:12px; margin-bottom:10px;">
@@ -1938,6 +2137,18 @@
                         <div class="detail-item">
                             <span class="detail-label">Source Age</span>
                             <span class="detail-value">${formatAge(headerAge)}</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Consensus filtro (pond.)</span>
+                            <span class="detail-value" title="What-if UI con learning_weight; puede diferir del backend por multiplicadores de fuente.">
+                                ${filteredConsensus.weighted_median_c != null ? filteredConsensus.weighted_median_c.toFixed(2) : '--'} C
+                            </span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Drift filtro pond. vs METAR</span>
+                            <span class="detail-value aux-drift ${filteredConsensusDrift > 0.5 ? 'positive' : (filteredConsensusDrift < -0.5 ? 'negative' : 'neutral')}">
+                                ${filteredConsensusDrift != null ? `${filteredConsensusDrift > 0 ? '+' : ''}${filteredConsensusDrift.toFixed(2)} C` : '--'}
+                            </span>
                         </div>
                     </div>
                     <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap:12px; margin-bottom:10px; padding:10px; border:1px solid rgba(59,130,246,0.25); background:rgba(59,130,246,0.06); border-radius:10px;">
