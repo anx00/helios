@@ -390,6 +390,7 @@ async def fetch_metar(station_id: str) -> Optional[MetarData]:
                 sky_condition=sky_aligned,
                 report_type=winner_report_type,
                 is_speci=winner_is_speci,
+                raw_metar=winner.get("raw_ob", ""),
                 qc_passed=qc_result.is_valid,
                 qc_flags=qc_result.flags,
             )

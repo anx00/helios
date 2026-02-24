@@ -167,6 +167,17 @@ CREATE TABLE IF NOT EXISTS market_velocity (
 CREATE INDEX IF NOT EXISTS idx_market_velocity_lookup
 ON market_velocity(station_id, target_date, bracket_name, timestamp);
 
+-- v8.4: Telegram METAR/SPECI push subscriptions (per station, controlled from /world)
+CREATE TABLE IF NOT EXISTS telegram_station_subscriptions (
+    station_id TEXT PRIMARY KEY,
+    enabled INTEGER NOT NULL DEFAULT 0,
+    updated_at DATETIME NOT NULL,
+    updated_by TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_telegram_station_subscriptions_enabled
+ON telegram_station_subscriptions(enabled);
+
 """
 
 
@@ -776,3 +787,89 @@ def get_latest_alert_type(station_id: str, target_date: str) -> Optional[str]:
         )
         row = cursor.fetchone()
         return row["alert_type"] if row else None
+
+
+# ============================================================================
+# TELEGRAM METAR/SPECI SUBSCRIPTIONS (v8.4)
+# ============================================================================
+
+def get_telegram_station_subscription(station_id: str) -> Dict[str, Any]:
+    """Get subscription state for a station (default disabled if no row exists)."""
+    sid = str(station_id or "").upper().strip()
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            SELECT station_id, enabled, updated_at, updated_by
+            FROM telegram_station_subscriptions
+            WHERE station_id = ?
+            """,
+            (sid,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return {
+                "station_id": sid,
+                "enabled": False,
+                "updated_at": None,
+                "updated_by": None,
+            }
+        return {
+            "station_id": row["station_id"],
+            "enabled": bool(row["enabled"]),
+            "updated_at": row["updated_at"],
+            "updated_by": row["updated_by"],
+        }
+
+
+def set_telegram_station_subscription(
+    station_id: str,
+    enabled: bool,
+    updated_by: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Create/update subscription state for a station."""
+    sid = str(station_id or "").upper().strip()
+    ts = datetime.utcnow().isoformat()
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO telegram_station_subscriptions (station_id, enabled, updated_at, updated_by)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(station_id) DO UPDATE SET
+                enabled = excluded.enabled,
+                updated_at = excluded.updated_at,
+                updated_by = excluded.updated_by
+            """,
+            (sid, 1 if enabled else 0, ts, updated_by),
+        )
+    return get_telegram_station_subscription(sid)
+
+
+def is_telegram_station_subscription_enabled(station_id: str) -> bool:
+    """Fast helper used by the Telegram bot listener."""
+    sid = str(station_id or "").upper().strip()
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            SELECT enabled
+            FROM telegram_station_subscriptions
+            WHERE station_id = ?
+            LIMIT 1
+            """,
+            (sid,),
+        )
+        row = cursor.fetchone()
+        return bool(row["enabled"]) if row else False
+
+
+def list_enabled_telegram_station_subscriptions() -> List[str]:
+    """Return all station IDs with subscription enabled."""
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            SELECT station_id
+            FROM telegram_station_subscriptions
+            WHERE enabled = 1
+            ORDER BY station_id ASC
+            """
+        )
+        return [str(row["station_id"]).upper() for row in cursor.fetchall()]

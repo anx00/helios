@@ -26,6 +26,8 @@ from database import (
     get_latest_prediction,
     get_observed_max_for_target_date,
     iter_performance_history_by_target_date,
+    get_telegram_station_subscription,
+    set_telegram_station_subscription,
 )
 from config import STATIONS, get_active_stations, get_polymarket_temp_unit
 import sys
@@ -307,6 +309,10 @@ class StationConfig(BaseModel):
     id: str
     name: str
     timezone: str
+
+
+class TelegramMetarSubscriptionToggle(BaseModel):
+    enabled: bool
 
 @app.get("/api/stations")
 def get_stations():
@@ -1937,6 +1943,32 @@ async def get_world_snapshot():
     """
     from core.world import get_world
     return get_world().get_snapshot()
+
+
+@app.get("/api/v2/world/metar_subscription/{station_id}")
+async def get_world_metar_subscription(station_id: str):
+    """Get Telegram METAR/SPECI push subscription state for a station."""
+    station_id = str(station_id or "").upper().strip()
+    if station_id not in STATIONS:
+        return {"error": "Invalid station"}
+    state = get_telegram_station_subscription(station_id)
+    state["station_id"] = station_id
+    return state
+
+
+@app.post("/api/v2/world/metar_subscription/{station_id}")
+async def set_world_metar_subscription(station_id: str, payload: TelegramMetarSubscriptionToggle):
+    """Enable/disable Telegram METAR/SPECI push subscription for a station."""
+    station_id = str(station_id or "").upper().strip()
+    if station_id not in STATIONS:
+        return {"error": "Invalid station"}
+    state = set_telegram_station_subscription(
+        station_id,
+        bool(payload.enabled),
+        updated_by="world_ui",
+    )
+    state["station_id"] = station_id
+    return state
 
 
 @app.get("/api/v2/world/metar_history/{station_id}")

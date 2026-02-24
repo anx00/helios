@@ -66,6 +66,7 @@ class OfficialObs(ObservationEvent):
     sky_condition: str = "CLR"
     report_type: str = "METAR"  # "METAR" or "SPECI"
     is_speci: bool = False
+    raw_metar: str = ""
 
     # Validation flags
     qc_passed: bool = False

@@ -13,9 +13,13 @@ import aiohttp
 
 from collector.metar_fetcher import fetch_metar_race
 from collector.pws_fetcher import fetch_and_publish_pws
-from config import STATIONS, get_active_stations, get_polymarket_temp_unit
+from config import STATIONS, get_polymarket_temp_unit
 from core.world import get_world
-from database import get_latest_prediction, get_latest_prediction_for_date
+from database import (
+    get_latest_prediction,
+    get_latest_prediction_for_date,
+    is_telegram_station_subscription_enabled,
+)
 
 logger = logging.getLogger("telegram_bot")
 
@@ -168,32 +172,172 @@ class HeliosTelegramBot:
         self._offset: Optional[int] = None
         self._session: Optional[aiohttp.ClientSession] = None
         self._chat_station: Dict[str, str] = {}
+        self._known_chat_ids: Set[str] = set()
         self._unauthorized_warned: Set[str] = set()
+        self._last_subscription_push_key_by_station: Dict[str, str] = {}
+
+    def _bot_station_ids(self) -> List[str]:
+        """Stations exposed in Telegram bot (all configured stations, not only market-active)."""
+        return list(STATIONS.keys())
+
+    def _subscription_recipients(self) -> List[str]:
+        if self.settings.allowed_chat_ids:
+            return sorted(str(chat_id) for chat_id in self.settings.allowed_chat_ids)
+        return sorted(self._known_chat_ids)
+
+    def _format_subscription_metar_message(self, data: Dict[str, Any]) -> Optional[str]:
+        station_id = str(data.get("station_id") or "").upper().strip()
+        if not station_id:
+            return None
+        station = STATIONS.get(station_id)
+        station_name = station.name if station else station_id
+        station_tz = ZoneInfo(station.timezone) if station else ZoneInfo("UTC")
+
+        report_type = str(data.get("report_type") or ("SPECI" if data.get("is_speci") else "METAR")).upper()
+        source = str(data.get("source") or "UNKNOWN")
+        obs_utc = _parse_iso_utc(data.get("obs_time_utc"))
+        obs_local = obs_utc.astimezone(station_tz) if obs_utc else None
+
+        temp_f_display = data.get("temp_f_raw", data.get("temp_f"))
+        settlement_f = data.get("temp_f")
+        wind_dir = data.get("wind_dir")
+        wind_speed = data.get("wind_speed")
+        if wind_dir is not None and wind_speed is not None:
+            wind_text = f"{wind_dir}@{wind_speed}kt"
+        else:
+            wind_text = "n/a"
+
+        qc_passed = data.get("qc_passed")
+        if qc_passed is True:
+            qc_text = "PASS"
+        elif qc_passed is False:
+            qc_text = "FAIL"
+        else:
+            qc_text = "n/a"
+        qc_flags = data.get("qc_flags") or []
+        if isinstance(qc_flags, list) and qc_flags:
+            qc_text = f"{qc_text} ({', '.join(str(x) for x in qc_flags[:4])})"
+
+        source_age = data.get("source_age_s")
+        source_age_text = f"{int(float(source_age))}s" if _safe_float(source_age) is not None else "n/a"
+        source_prefix = "NOAA" if source.upper().startswith("NOAA") else "Official"
+        label = f"{source_prefix} {report_type}"
+        settlement_text = _fmt_station_temp_from_f(settlement_f, station_id, 0)
+        raw_metar = str(data.get("raw_metar") or "").strip()
+
+        lines = [
+            f"{label} [Subscription] - {station_id} ({station_name})",
+            f"Obs UTC:   {obs_utc.isoformat() if obs_utc else (data.get('obs_time_utc') or 'n/a')}",
+            f"Obs local: {obs_local.isoformat() if obs_local else 'n/a'}",
+            f"Source:    {source} (age={source_age_text})",
+            "",
+            f"Temp:      {_fmt_station_temp_from_f(temp_f_display, station_id, 1)}",
+            f"Settlement:{settlement_text}",
+            f"Dewpoint:  {_fmt(data.get('dewpoint_c'), 1, 'C')}",
+            f"Wind:      {wind_text}",
+            f"Sky:       {data.get('sky_condition') or 'n/a'}",
+            f"QC:        {qc_text}",
+        ]
+        if raw_metar:
+            lines.extend(["", f"RAW: {raw_metar}"])
+        return "\n".join(lines)
+
+    async def _run_world_subscription_publisher(self) -> None:
+        """Listen to WorldState updates and push subscribed official METAR/SPECI to Telegram."""
+        world = get_world()
+        queue = world.subscribe_sse()
+        logger.info("Telegram METAR subscription listener started")
+        try:
+            while True:
+                payload = await queue.get()
+                try:
+                    if not isinstance(payload, dict):
+                        continue
+                    if payload.get("type") != "official":
+                        continue
+                    data = payload.get("data")
+                    if not isinstance(data, dict):
+                        continue
+
+                    station_id = str(data.get("station_id") or "").upper().strip()
+                    if not station_id:
+                        continue
+                    if not is_telegram_station_subscription_enabled(station_id):
+                        continue
+
+                    report_type = str(data.get("report_type") or ("SPECI" if data.get("is_speci") else "METAR")).upper()
+                    dedupe_key = "|".join(
+                        [
+                            station_id,
+                            str(data.get("obs_time_utc") or ""),
+                            report_type,
+                            str(data.get("temp_f_raw", data.get("temp_f")) or ""),
+                            str(data.get("source") or ""),
+                        ]
+                    )
+                    if self._last_subscription_push_key_by_station.get(station_id) == dedupe_key:
+                        continue
+
+                    recipients = self._subscription_recipients()
+                    if not recipients:
+                        continue
+
+                    message = self._format_subscription_metar_message(data)
+                    if not message:
+                        continue
+
+                    results = await asyncio.gather(
+                        *(self._send_text(chat_id, message) for chat_id in recipients),
+                        return_exceptions=True,
+                    )
+                    failures = [r for r in results if isinstance(r, Exception)]
+                    if failures:
+                        for err in failures[:3]:
+                            logger.warning("Telegram subscription push failed: %s", err)
+                    self._last_subscription_push_key_by_station[station_id] = dedupe_key
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    logger.warning("Telegram subscription listener event error: %s", exc)
+        except asyncio.CancelledError:
+            logger.info("Telegram METAR subscription listener cancelled")
+            raise
+        finally:
+            world.unsubscribe_sse(queue)
 
     async def run_forever(self) -> None:
         timeout = aiohttp.ClientTimeout(total=self.settings.poll_timeout_seconds + 15)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             self._session = session
-            me = await self._safe_get_me()
-            if me:
-                logger.info("Telegram bot online as @%s", me.get("username", "unknown"))
-            else:
-                logger.info("Telegram bot online")
+            world_push_task = asyncio.create_task(self._run_world_subscription_publisher())
+            try:
+                me = await self._safe_get_me()
+                if me:
+                    logger.info("Telegram bot online as @%s", me.get("username", "unknown"))
+                else:
+                    logger.info("Telegram bot online")
 
-            while True:
+                while True:
+                    try:
+                        updates = await self._fetch_updates()
+                        for update in updates:
+                            update_id = update.get("update_id")
+                            if isinstance(update_id, int):
+                                self._offset = update_id + 1
+                            await self._handle_update(update)
+                    except asyncio.CancelledError:
+                        logger.info("Telegram bot loop cancelled")
+                        raise
+                    except Exception as exc:
+                        logger.warning("Telegram polling error: %s", exc)
+                        await asyncio.sleep(3)
+            finally:
+                world_push_task.cancel()
                 try:
-                    updates = await self._fetch_updates()
-                    for update in updates:
-                        update_id = update.get("update_id")
-                        if isinstance(update_id, int):
-                            self._offset = update_id + 1
-                        await self._handle_update(update)
+                    await world_push_task
                 except asyncio.CancelledError:
-                    logger.info("Telegram bot loop cancelled")
-                    raise
-                except Exception as exc:
-                    logger.warning("Telegram polling error: %s", exc)
-                    await asyncio.sleep(3)
+                    pass
+                self._session = None
 
     async def _safe_get_me(self) -> Optional[Dict[str, Any]]:
         try:
@@ -253,6 +397,7 @@ class HeliosTelegramBot:
                 self._unauthorized_warned.add(chat_id)
                 await self._send_text(chat_id, "Chat no autorizado para este bot.")
             return
+        self._known_chat_ids.add(chat_id)
 
         text = str(message.get("text") or "").strip()
         if not text:
@@ -264,7 +409,7 @@ class HeliosTelegramBot:
         return not allowed or chat_id in allowed
 
     async def _dispatch_text(self, chat_id: str, text: str) -> None:
-        active_ids = list(get_active_stations().keys())
+        active_ids = self._bot_station_ids()
         upper_text = text.upper()
         if upper_text in active_ids:
             self._chat_station[chat_id] = upper_text
@@ -329,7 +474,7 @@ class HeliosTelegramBot:
 
     async def _cmd_stations(self, chat_id: str, active_ids: Sequence[str]) -> None:
         selected = self._current_station_for_chat(chat_id, active_ids)
-        lines = ["Estaciones activas:"]
+        lines = ["Estaciones disponibles en el bot:"]
         for sid in active_ids:
             station = STATIONS[sid]
             marker = "->" if sid == selected else "  "
@@ -365,7 +510,7 @@ class HeliosTelegramBot:
     async def _cmd_helios(self, chat_id: str, args: Sequence[str]) -> None:
         station_id = self._resolve_station_from_args(chat_id, args)
         if not station_id:
-            await self._send_text(chat_id, "No hay estaciones activas disponibles.")
+            await self._send_text(chat_id, "No hay estaciones disponibles en el bot.")
             return
 
         station = STATIONS[station_id]
@@ -399,7 +544,7 @@ class HeliosTelegramBot:
     async def _cmd_metar(self, chat_id: str, args: Sequence[str]) -> None:
         station_id = self._resolve_station_from_args(chat_id, args)
         if not station_id:
-            await self._send_text(chat_id, "No hay estaciones activas disponibles.")
+            await self._send_text(chat_id, "No hay estaciones disponibles en el bot.")
             return
 
         station = STATIONS[station_id]
@@ -439,7 +584,7 @@ class HeliosTelegramBot:
     async def _cmd_pws(self, chat_id: str, args: Sequence[str]) -> None:
         station_id = self._resolve_station_from_args(chat_id, args)
         if not station_id:
-            await self._send_text(chat_id, "No hay estaciones activas disponibles.")
+            await self._send_text(chat_id, "No hay estaciones disponibles en el bot.")
             return
 
         await self._send_text(chat_id, f"Actualizando PWS para {station_id}...")
@@ -592,7 +737,7 @@ class HeliosTelegramBot:
     async def _cmd_pwsraw(self, chat_id: str, args: Sequence[str]) -> None:
         station_id = self._resolve_station_from_args(chat_id, args)
         if not station_id:
-            await self._send_text(chat_id, "No hay estaciones activas disponibles.")
+            await self._send_text(chat_id, "No hay estaciones disponibles en el bot.")
             return
 
         await self._send_text(chat_id, f"Actualizando PWS RAW para {station_id}...")
@@ -650,7 +795,7 @@ class HeliosTelegramBot:
     async def _cmd_resumen(self, chat_id: str, args: Sequence[str]) -> None:
         station_id = self._resolve_station_from_args(chat_id, args)
         if not station_id:
-            await self._send_text(chat_id, "No hay estaciones activas disponibles.")
+            await self._send_text(chat_id, "No hay estaciones disponibles en el bot.")
             return
 
         station = STATIONS[station_id]
@@ -691,7 +836,7 @@ class HeliosTelegramBot:
         await self._send_text(chat_id, "\n".join(lines))
 
     def _resolve_station_from_args(self, chat_id: str, args: Sequence[str]) -> Optional[str]:
-        active = list(get_active_stations().keys())
+        active = self._bot_station_ids()
         if not active:
             return None
 
