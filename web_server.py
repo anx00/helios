@@ -2029,6 +2029,87 @@ async def set_world_metar_subscription(station_id: str, payload: TelegramMetarSu
     return state
 
 
+@app.post("/api/v2/world/metar_refresh/{station_id}")
+async def refresh_world_metar(station_id: str):
+    """Force an immediate NOAA METAR/SPECI fetch for a station and return the latest official payload."""
+    station_id = str(station_id or "").upper().strip()
+    if station_id not in STATIONS:
+        return {"error": "Invalid station"}
+
+    from collector.metar_fetcher import fetch_metar
+    from core.world import get_world
+
+    now_utc = datetime.now(ZoneInfo("UTC"))
+    try:
+        metar = await fetch_metar(station_id)
+        if not metar:
+            return {"error": f"No se pudo obtener METAR NOAA para {station_id}", "station_id": station_id}
+
+        world = get_world()
+        world_obs = world.latest_official.get(station_id)
+        official_payload = world._serialize_official(world_obs) if world_obs else None
+
+        # Fallback minimal payload for UI if WorldState publish was deduped or unavailable.
+        if official_payload is None:
+            temp_f_raw = float(getattr(metar, "temp_f", 0.0))
+            settlement_f = None
+            low = getattr(metar, "settlement_f_low", None)
+            high = getattr(metar, "settlement_f_high", None)
+            if low is not None and high is not None and low == high:
+                settlement_f = int(low)
+            elif temp_f_raw is not None:
+                settlement_f = int(round(temp_f_raw))
+
+            source_age_s = None
+            if getattr(metar, "observation_time", None):
+                try:
+                    source_age_s = max(
+                        0.0,
+                        round((now_utc - metar.observation_time.astimezone(ZoneInfo("UTC"))).total_seconds(), 1),
+                    )
+                except Exception:
+                    source_age_s = None
+
+            official_payload = {
+                "station_id": station_id,
+                "temp_c": getattr(metar, "temp_c", None),
+                "temp_f": settlement_f,
+                "temp_f_raw": temp_f_raw,
+                "temp_f_low": getattr(metar, "temp_f_low", None),
+                "temp_f_high": getattr(metar, "temp_f_high", None),
+                "settlement_f_low": getattr(metar, "settlement_f_low", None),
+                "settlement_f_high": getattr(metar, "settlement_f_high", None),
+                "has_t_group": bool(getattr(metar, "has_t_group", False)),
+                "dewpoint_c": getattr(metar, "dewpoint_c", None),
+                "wind_dir": getattr(metar, "wind_dir_degrees", None),
+                "wind_speed": getattr(metar, "wind_speed_kt", None),
+                "sky_condition": getattr(metar, "sky_condition", None),
+                "source": getattr(metar, "source", "NOAA_MANUAL"),
+                "report_type": getattr(metar, "report_type", "METAR"),
+                "is_speci": bool(getattr(metar, "is_speci", False)),
+                "raw_metar": getattr(metar, "raw_metar", ""),
+                "obs_time_utc": metar.observation_time.isoformat() if getattr(metar, "observation_time", None) else None,
+                "ingest_time_utc": now_utc.isoformat(),
+                "source_age_s": source_age_s,
+                "qc_passed": None,
+                "qc_flags": [],
+            }
+
+        return {
+            "ok": True,
+            "station_id": station_id,
+            "official": official_payload,
+            "observation_time_utc": metar.observation_time.isoformat() if getattr(metar, "observation_time", None) else None,
+            "report_type": getattr(metar, "report_type", "METAR"),
+            "is_speci": bool(getattr(metar, "is_speci", False)),
+            "source": getattr(metar, "source", None),
+            "fetched_at_utc": now_utc.isoformat(),
+        }
+    except Exception as exc:
+        logger.exception("Manual METAR refresh failed for %s", station_id)
+        return {"error": str(exc), "station_id": station_id}
+
+
 @app.get("/api/v2/world/metar_history/{station_id}")
 async def get_world_metar_history(station_id: str):
     """Return today's METAR observations (NYC settlement day) from NOAA."""

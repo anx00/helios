@@ -709,6 +709,12 @@
                     <button
                         type="button"
                         class="metar-subscription-btn"
+                        id="metar-refresh-btn"
+                        title="Force immediate NOAA METAR/SPECI refresh for this station"
+                    >Refresh</button>
+                    <button
+                        type="button"
+                        class="metar-subscription-btn"
                         id="metar-subscription-btn"
                         title="Telegram push subscription for METAR/SPECI updates"
                     >Subscription</button>
@@ -945,6 +951,8 @@
     const metarSubscriptionState = {};  // stationId -> bool
     let metarSubscriptionLoading = false;
     let metarSubscriptionReqSeq = 0;
+    let metarRefreshLoading = false;
+    let metarRefreshReqSeq = 0;
 
     // Station timezone + market-unit info
     const stationTimezones = {};    // stationId -> IANA timezone
@@ -978,6 +986,17 @@
             : (enabled ? 'Subscription ON' : 'Subscription OFF');
         btn.setAttribute('aria-pressed', enabled ? 'true' : 'false');
         btn.title = `Telegram ${enabled ? 'enabled' : 'disabled'} for ${currentStation} METAR/SPECI push`;
+    }
+
+    function refreshMetarRefreshButton() {
+        const btn = document.getElementById('metar-refresh-btn');
+        if (!btn) return;
+        btn.classList.toggle('loading', metarRefreshLoading);
+        btn.disabled = metarRefreshLoading;
+        btn.textContent = metarRefreshLoading ? 'Refreshing...' : 'Refresh';
+        btn.title = metarRefreshLoading
+            ? `Fetching NOAA METAR/SPECI for ${currentStation}...`
+            : `Force immediate NOAA METAR/SPECI refresh for ${currentStation}`;
     }
 
     async function fetchMetarSubscriptionState(stationId = currentStation) {
@@ -1030,6 +1049,59 @@
         } finally {
             metarSubscriptionLoading = false;
             refreshMetarSubscriptionButton();
+        }
+    }
+
+    async function refreshMetarNow() {
+        if (metarRefreshLoading) return;
+        const sid = String(currentStation || '').toUpperCase();
+        if (!sid) return;
+
+        const reqSeq = ++metarRefreshReqSeq;
+        const prevObsTime = lastSnapshot && lastSnapshot.official && lastSnapshot.official[sid]
+            ? lastSnapshot.official[sid].obs_time_utc
+            : null;
+
+        metarRefreshLoading = true;
+        refreshMetarRefreshButton();
+
+        try {
+            const resp = await fetch(`/api/v2/world/metar_refresh/${encodeURIComponent(sid)}`, {
+                method: 'POST',
+                cache: 'no-store',
+            });
+            const data = await resp.json();
+            if (!resp.ok || (data && data.error)) {
+                throw new Error((data && data.error) || `HTTP ${resp.status}`);
+            }
+
+            if (!lastSnapshot) lastSnapshot = {};
+            if (!lastSnapshot.official) lastSnapshot.official = {};
+
+            if (data && data.official && data.official.station_id) {
+                lastSnapshot.official[sid] = data.official;
+                renderMetar(lastSnapshot.official);
+                if (lastSnapshot.aux) {
+                    renderPWS(lastSnapshot.aux, lastSnapshot.pws_details, lastSnapshot.official, lastSnapshot.pws_metrics);
+                }
+            } else {
+                // Fallback to full snapshot if backend couldn't return a world-formatted official payload.
+                fetchSnapshot();
+            }
+
+            const nextObsTime = (data && data.official && data.official.obs_time_utc)
+                ? data.official.obs_time_utc
+                : (data ? data.observation_time_utc : null);
+            if (nextObsTime && nextObsTime !== prevObsTime && sid === currentStation) {
+                fetchMetarHistory();
+            }
+        } catch (e) {
+            console.error('Manual METAR refresh failed:', e);
+        } finally {
+            if (reqSeq === metarRefreshReqSeq) {
+                metarRefreshLoading = false;
+                refreshMetarRefreshButton();
+            }
         }
     }
 
@@ -1165,6 +1237,7 @@
 
         // Reload METAR history for new station
         fetchMetarHistory();
+        refreshMetarRefreshButton();
         refreshMetarSubscriptionButton();
         fetchMetarSubscriptionState(currentStation);
     }
@@ -2481,9 +2554,12 @@
         // Set up default formatters
         updateTimezoneFormatters();
         refreshMetarSubscriptionButton();
+        refreshMetarRefreshButton();
 
         const subBtn = document.getElementById('metar-subscription-btn');
         if (subBtn) subBtn.addEventListener('click', toggleMetarSubscription);
+        const refreshBtn = document.getElementById('metar-refresh-btn');
+        if (refreshBtn) refreshBtn.addEventListener('click', refreshMetarNow);
 
         // Load stations for selector
         await loadStations();
