@@ -12,7 +12,7 @@ Objetivo:
 - `docs/system/`: vision general, arquitectura y decisiones de evolucion
 - `docs/weather/`: METAR, PWS, fuentes, nowcast, prediccion y matematicas
 - `docs/market/`: integracion con Polymarket y notas de alta de mercados
-- `docs/trading/`: replay, backtest, autotrader y notas de ejecucion
+- `docs/trading/`: replay, backtest y notas de ejecucion
 - `docs/ai/`: Atenea
 - `docs/operations/`: despliegue y runbooks operativos
 - `docs/engineering/`: journal cronologico de cambios
@@ -35,7 +35,6 @@ Objetivo:
 - `docs/market/POLYMARKET_TOKEN_IDS.md`
 
 ### Trading
-- `docs/trading/AUTOTRADER.md`
 - `docs/trading/BACKTEST_REPLAY.md`
 - `docs/trading/STORAGE_REPLAY_IMPLEMENTATION.md`
 
@@ -73,7 +72,6 @@ Objetivo:
 - `docs/NOAA.md` -> `docs/weather/METAR_RACING.md`
 - `docs/WUNDERGROUND_PWS.md` -> `docs/weather/PWS_WUNDERGROUND.md`
 - `docs/TOKEN_ID.md` -> `docs/market/POLYMARKET_TOKEN_IDS.md`
-- `docs/AUTOTRADER_GUIDE.md` -> `docs/trading/AUTOTRADER.md`
 - `docs/BACKTEST_REPLAY_GUIDE.md` -> `docs/trading/BACKTEST_REPLAY.md`
 - `docs/ATENEA.md` -> `docs/ai/ATENEA.md`
 - `docs/PHASES.md` -> `docs/system/ARCHITECTURE_EVOLUTION.md`

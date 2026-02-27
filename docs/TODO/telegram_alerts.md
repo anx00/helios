@@ -7,3 +7,4 @@ Por ejemplo, lo ue ocurrió hoy:
 Es decir, algun tipo de alerta que detecte:
 - Si el pws de una estación esta marcando el siguiente bracket unos miuntos antes del nuevo METAR y de la posible hora peak.
 - Que este nuevo bracket este underprice.
+- Que este nuevo bracket este underprice.

@@ -687,23 +687,7 @@
                 <option value="aggressive">Aggressive</option>
                 <option value="fade">Fade Event QC</option>
                 <option value="maker_passive">Maker Passive</option>
-                <option value="multi_bandit">Multi Bandit</option>
                 <option value="toy_debug">Toy Debug</option>
-            </select>
-        </div>
-        <div class="config-group advanced-only">
-            <label class="config-label">Selection Mode</label>
-            <select id="selection-mode-select" class="config-input">
-                <option value="static">Static</option>
-                <option value="linucb">LinUCB</option>
-            </select>
-        </div>
-        <div class="config-group advanced-only">
-            <label class="config-label">Risk Profile</label>
-            <select id="risk-profile-select" class="config-input">
-                <option value="risk_first">Risk First</option>
-                <option value="pnl_first">PnL First</option>
-                <option value="calibration_first">Calibration First</option>
             </select>
         </div>
         <div class="config-group advanced-only">
@@ -952,8 +936,6 @@
         const end = document.getElementById('end-date').value;
         const mode = document.getElementById('mode-select').value;
         const policy = document.getElementById('policy-select').value;
-        const selectionMode = document.getElementById('selection-mode-select').value;
-        const riskProfile = document.getElementById('risk-profile-select').value;
         const reportLevel = document.getElementById('report-level-select').value;
 
         if (!start || !end) {
@@ -1030,8 +1012,6 @@
                     end_date: end,
                     mode: mode,
                     policy: policy,
-                    selection_mode: selectionMode,
-                    risk_profile: riskProfile,
                     report_level: reportLevel
                 });
                 const resp = await fetch(`/api/v5/backtest/run?${params}`, {
@@ -1082,8 +1062,6 @@
         applyUIMode();
         if (req.mode) document.getElementById('mode-select').value = req.mode;
         if (req.policy) document.getElementById('policy-select').value = req.policy;
-        if (req.selection_mode) document.getElementById('selection-mode-select').value = req.selection_mode;
-        if (req.risk_profile) document.getElementById('risk-profile-select').value = req.risk_profile;
         document.getElementById('report-level-select').value = req.report_level || 'summary';
     }
 

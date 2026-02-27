@@ -24,8 +24,6 @@ logger = logging.getLogger("web_server")
 from database import (
     get_accuracy_report,
     get_latest_prediction,
-    get_observed_max_for_target_date,
-    iter_performance_history_by_target_date,
     get_telegram_station_subscription,
     set_telegram_station_subscription,
 )
@@ -46,13 +44,11 @@ from market.polymarket_ws import get_ws_client
 from opportunity import check_bet_opportunity
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-from core.polymarket_labels import normalize_label, parse_label
 from core.hourly_curve import (
     infer_synthetic_peak_hour,
     nudge_curve_to_target_max,
     shift_curve_toward_peak,
 )
-from core.market_pricing import select_probability_01_from_quotes
 
 def build_synthetic_hourly_curve_f(
     now_utc: datetime,
@@ -503,11 +499,7 @@ async def startup_event():
     asyncio.create_task(nowcast_loop())
     # Task 5: Phase 4 Recorder
     asyncio.create_task(recorder_loop())
-    # Task 6: Phase 6 Autotrader (paper-first)
-    asyncio.create_task(autotrader_loop())
-    # Task 7: Nightly offline learning cycle
-    asyncio.create_task(learning_nightly_loop())
-    # Task 8: Telegram bot (optional, enabled with TELEGRAM_BOT_TOKEN)
+    # Task 6: Telegram bot (optional, enabled with TELEGRAM_BOT_TOKEN)
     telegram_bot = build_telegram_bot_from_env()
     if telegram_bot:
         asyncio.create_task(telegram_bot.run_forever())
@@ -1416,45 +1408,6 @@ async def recorder_loop():
 
     except Exception as e:
         logger.error(f"Recorder initialization failed: {e}")
-
-
-async def autotrader_loop():
-    """Phase 6: Autotrader runtime (paper-first, KLGA)."""
-    logger = logging.getLogger("autotrader_loop")
-    try:
-        from core.autotrader import get_autotrader_service
-        service = get_autotrader_service()
-        await service.start()
-        logger.info("Autotrader service started")
-        while True:
-            await asyncio.sleep(3600)
-    except Exception as e:
-        logger.error(f"Autotrader loop failed: {e}")
-
-
-async def learning_nightly_loop():
-    """Nightly offline learning cycle (NYC schedule)."""
-    logger = logging.getLogger("learning_nightly_loop")
-    last_run_date = None
-    while True:
-        try:
-            now_nyc = datetime.now(ZoneInfo("America/New_York"))
-            should_run = (
-                now_nyc.hour == 3
-                and now_nyc.minute >= 15
-                and last_run_date != now_nyc.date()
-            )
-            if should_run:
-                from core.autotrader import get_autotrader_service
-                service = get_autotrader_service()
-                result = await asyncio.to_thread(service.run_learning_once)
-                last_run_date = now_nyc.date()
-                logger.info("Nightly learning completed: %s", result.get("learning_run", {}).get("status"))
-        except Exception as e:
-            logger.error(f"Nightly learning failed: {e}")
-        await asyncio.sleep(60)
-
-
 # =============================================================================
 # Phase 3: Nowcast API Endpoints
 # =============================================================================
@@ -3591,7 +3544,7 @@ def _parse_backtest_mode(mode: str):
     return BacktestMode.EXECUTION_AWARE
 
 
-def _build_backtest_policy(policy: str, selection_mode: str, risk_profile: str):
+def _build_backtest_policy(policy: str):
     """Instantiate policy object from request params."""
     from core.backtest import (
         create_conservative_policy,
@@ -3599,25 +3552,21 @@ def _build_backtest_policy(policy: str, selection_mode: str, risk_profile: str):
         create_fade_policy,
         create_maker_passive_policy,
     )
-    from core.autotrader import create_multi_bandit_policy
 
     policy_norm = (policy or "conservative").strip().lower()
 
+    if policy_norm in ("", "conservative"):
+        return create_conservative_policy()
     if policy_norm == "aggressive":
         return create_aggressive_policy()
     if policy_norm == "fade":
         return create_fade_policy()
     if policy_norm == "maker_passive":
         return create_maker_passive_policy()
-    if policy_norm == "multi_bandit":
-        return create_multi_bandit_policy(
-            selection_mode=(selection_mode or "static"),
-            risk_profile=(risk_profile or "risk_first"),
-        )
     if policy_norm == "toy_debug":
         from core.backtest import create_toy_debug_policy
         return create_toy_debug_policy()
-    return create_conservative_policy()
+    raise ValueError(f"Unsupported backtest policy: {policy}")
 
 
 def _trim_backtest_payload(payload: dict, report_level: str):
@@ -3644,8 +3593,6 @@ def _run_backtest_core(
     end_date: str,
     mode: str,
     policy: str,
-    selection_mode: str,
-    risk_profile: str,
     report_level: str,
 ):
     """
@@ -3656,7 +3603,17 @@ def _run_backtest_core(
     from core.backtest import BacktestEngine, get_dataset_builder
 
     bt_mode = _parse_backtest_mode(mode)
-    bt_policy = _build_backtest_policy(policy, selection_mode, risk_profile)
+    try:
+        bt_policy = _build_backtest_policy(policy)
+    except ValueError as exc:
+        return (
+            None,
+            {
+                "error": str(exc),
+                "policy": policy,
+            },
+            422,
+        )
     engine = BacktestEngine(policy=bt_policy, mode=bt_mode)
 
     result = engine.run(
@@ -3687,8 +3644,6 @@ def _run_backtest_core(
     payload["request"] = {
         "mode": mode,
         "policy": policy,
-        "selection_mode": selection_mode,
-        "risk_profile": risk_profile,
         "report_level": report_level,
     }
     return payload, None, 200
@@ -3743,8 +3698,6 @@ async def run_backtest(
     end_date: str,
     mode: str = "signal",
     policy: str = "conservative",
-    selection_mode: str = "static",
-    risk_profile: str = "risk_first",
     report_level: str = "summary",
 ):
     """Run a backtest."""
@@ -3757,8 +3710,6 @@ async def run_backtest(
             end_date=end_date,
             mode=mode,
             policy=policy,
-            selection_mode=selection_mode,
-            risk_profile=risk_profile,
             report_level=report_level,
         )
         if status != 200:
@@ -3799,48 +3750,24 @@ async def run_backtest_suite(
             "label": "Conservative (Execution)",
             "mode": "execution",
             "policy": "conservative",
-            "selection_mode": "static",
-            "risk_profile": "risk_first",
         },
         {
             "run_id": "aggressive_exec",
             "label": "Aggressive (Execution)",
             "mode": "execution",
             "policy": "aggressive",
-            "selection_mode": "static",
-            "risk_profile": "pnl_first",
         },
         {
             "run_id": "fade_exec",
             "label": "Fade Event QC (Execution)",
             "mode": "execution",
             "policy": "fade",
-            "selection_mode": "static",
-            "risk_profile": "risk_first",
         },
         {
             "run_id": "maker_passive_exec",
             "label": "Maker Passive (Execution)",
             "mode": "execution",
             "policy": "maker_passive",
-            "selection_mode": "static",
-            "risk_profile": "risk_first",
-        },
-        {
-            "run_id": "multi_bandit_risk",
-            "label": "Multi-Bandit LinUCB (Risk First)",
-            "mode": "execution",
-            "policy": "multi_bandit",
-            "selection_mode": "linucb",
-            "risk_profile": "risk_first",
-        },
-        {
-            "run_id": "multi_bandit_pnl",
-            "label": "Multi-Bandit LinUCB (PnL First)",
-            "mode": "execution",
-            "policy": "multi_bandit",
-            "selection_mode": "linucb",
-            "risk_profile": "pnl_first",
         },
     ]
 
@@ -3867,8 +3794,6 @@ async def run_backtest_suite(
                 end_date=end_date,
                 mode=run_cfg["mode"],
                 policy=run_cfg["policy"],
-                selection_mode=run_cfg["selection_mode"],
-                risk_profile=run_cfg["risk_profile"],
                 report_level=report_level,
             )
 
@@ -3882,8 +3807,6 @@ async def run_backtest_suite(
                         "request": {
                             "mode": run_cfg["mode"],
                             "policy": run_cfg["policy"],
-                            "selection_mode": run_cfg["selection_mode"],
-                            "risk_profile": run_cfg["risk_profile"],
                         },
                         "status": "error",
                         "error": (err or {}).get("error", "Unknown error"),
@@ -3902,8 +3825,6 @@ async def run_backtest_suite(
                 "request": {
                     "mode": run_cfg["mode"],
                     "policy": run_cfg["policy"],
-                    "selection_mode": run_cfg["selection_mode"],
-                    "risk_profile": run_cfg["risk_profile"],
                 },
                 "status": "ok",
                 "score": score,
@@ -4013,7 +3934,6 @@ async def get_policies():
             {"name": "aggressive", "description": "Looser limits, more trading"},
             {"name": "fade", "description": "Specialized for fading events"},
             {"name": "maker_passive", "description": "Passive maker-style policy with queue-based fills"},
-            {"name": "multi_bandit", "description": "Strategy selector wrapper (static or LinUCB)"},
             {"name": "toy_debug", "description": "Debug policy: 1 taker buy/hour for pipeline testing"}
         ]
     }
@@ -4121,537 +4041,6 @@ async def get_day_detail(
             status_code=500,
             content={"error": str(e), "type": type(e).__name__}
         )
-
-
-# =============================================================================
-# Phase 6: Autotrader + Learning API
-# =============================================================================
-
-
-class AutoTraderControlRequest(BaseModel):
-    action: str
-    station_id: Optional[str] = None
-
-
-class LearningRunRequest(BaseModel):
-    station_id: str = DEFAULT_STATION
-    train_days: int = 53
-    val_days: int = 7
-    max_combinations: int = 50
-    mode: str = "signal_only"
-
-
-class BacktestReplayRequest(BaseModel):
-    station_id: str
-    start_date: str
-    end_date: str
-    mode: str = "execution"
-    selection_mode: str = "linucb"
-    risk_profile: str = "risk_first"
-
-
-def _to_float_or_none(value) -> Optional[float]:
-    try:
-        if value is None:
-            return None
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _first_float(*values) -> Optional[float]:
-    for v in values:
-        out = _to_float_or_none(v)
-        if out is not None:
-            return out
-    return None
-
-
-def _resolve_yes_probability_from_bracket(bracket: Dict[str, Any]) -> Optional[float]:
-    yes_bid_direct = _first_float(bracket.get("ws_yes_best_bid"), bracket.get("ws_best_bid"))
-    yes_ask_direct = _first_float(bracket.get("ws_yes_best_ask"), bracket.get("ws_best_ask"))
-    no_bid = _first_float(bracket.get("ws_no_best_bid"))
-    no_ask = _first_float(bracket.get("ws_no_best_ask"))
-
-    implied_yes_bid_from_no = (1.0 - no_ask) if no_ask is not None else None
-    implied_yes_ask_from_no = (1.0 - no_bid) if no_bid is not None else None
-
-    bid_candidates = [v for v in [yes_bid_direct, implied_yes_bid_from_no] if v is not None]
-    ask_candidates = [v for v in [yes_ask_direct, implied_yes_ask_from_no] if v is not None]
-    yes_bid = max(bid_candidates) if bid_candidates else None
-    yes_ask = min(ask_candidates) if ask_candidates else None
-
-    yes_mid = _first_float(bracket.get("ws_yes_mid"), bracket.get("ws_mid"))
-    yes_price_ref = _first_float(bracket.get("yes_price"))
-    selected = select_probability_01_from_quotes(
-        best_bid=yes_bid,
-        best_ask=yes_ask,
-        mid=yes_mid,
-        reference=yes_price_ref,
-        wide_spread_threshold=0.04,
-        reference_tolerance=0.005,
-    )
-    if selected is None:
-        return None
-    return max(0.0, min(1.0, float(selected)))
-
-
-def _convert_market_label_to_f(label: str, market_unit: str) -> str:
-    """
-    Convert Celsius market labels to Fahrenheit labels so downstream logic
-    (nowcast buckets, calibration, observed-max floor) stays unit-consistent.
-    """
-    clean = str(label or "")
-    for _ in range(2):
-        try:
-            fixed = clean.encode("latin1").decode("utf-8")
-            if fixed == clean:
-                break
-            clean = fixed
-        except Exception:
-            break
-    clean = clean.replace("\u00C2", "")
-    clean = re.sub(r"\s+", " ", clean).strip()
-    if not clean:
-        return ""
-    if str(market_unit or "F").upper() != "C":
-        return clean
-
-    def c_to_f(v: float) -> float:
-        return (v * 9.0 / 5.0) + 32.0
-
-    lower = clean.lower()
-    # If label already carries Fahrenheit, keep as-is.
-    if re.search("\\d\\s*[\\u00B0\\u00BA]?\\s*f\\b", lower):
-        return clean
-
-    range_match = re.search(r"(-?\d+(?:\.\d+)?)\s*-\s*(-?\d+(?:\.\d+)?)", clean)
-    if range_match:
-        low_f = int(round(c_to_f(float(range_match.group(1)))))
-        high_f = int(round(c_to_f(float(range_match.group(2)))))
-        if high_f < low_f:
-            low_f, high_f = high_f, low_f
-        return f"{low_f}-{high_f}°F"
-
-    num_match = re.search(r"-?\d+(?:\.\d+)?", clean)
-    if not num_match:
-        return clean
-
-    threshold_f = int(round(c_to_f(float(num_match.group(0)))))
-    if "or below" in lower:
-        return f"{threshold_f}°F or below"
-    if "or above" in lower or "or higher" in lower:
-        return f"{threshold_f}°F or higher"
-    return f"{threshold_f}°F"
-
-
-def _normalize_prob_dict(raw: Dict[str, float]) -> Dict[str, float]:
-    cleaned: Dict[str, float] = {}
-    for label, prob in raw.items():
-        if not label:
-            continue
-        p = max(0.0, float(prob))
-        cleaned[normalize_label(label)] = p
-    total = sum(cleaned.values())
-    if total <= 0:
-        return {}
-    return {k: v / total for k, v in cleaned.items()}
-
-
-def _bucket_is_impossible_with_observed_max(label: str, observed_max_f: Optional[float]) -> bool:
-    if observed_max_f is None:
-        return False
-    aligned_obs = int(round(float(observed_max_f)))
-    kind, low, high = parse_label(label)
-    if kind == "range" and high is not None:
-        return high < aligned_obs
-    if kind == "below" and high is not None:
-        return high < aligned_obs
-    if kind == "single" and low is not None:
-        return low < aligned_obs
-    return False
-
-
-def _top_bucket_summary(p_bucket: List[Dict[str, Any]]) -> Dict[str, Any]:
-    top_label = ""
-    top_prob = 0.0
-    for b in p_bucket:
-        if not isinstance(b, dict):
-            continue
-        prob = float(b.get("probability", b.get("prob", 0.0)) or 0.0)
-        if prob > top_prob:
-            top_prob = prob
-            top_label = normalize_label(str(b.get("label", b.get("bucket", ""))))
-    return {"label": top_label, "probability": top_prob}
-
-
-def _calibrate_nowcast_with_market(
-    raw_p_bucket: List[Dict[str, Any]],
-    market_probs: Dict[str, float],
-    *,
-    observed_max_f: Optional[float],
-    nowcast_target_date: Optional[str],
-    requested_target_date: str,
-) -> Dict[str, Any]:
-    raw_entries: List[Dict[str, Any]] = []
-    raw_probs: Dict[str, float] = {}
-    for b in raw_p_bucket or []:
-        if not isinstance(b, dict):
-            continue
-        label = normalize_label(str(b.get("label", b.get("bucket", ""))))
-        if not label:
-            continue
-        prob = float(b.get("probability", b.get("prob", 0.0)) or 0.0)
-        raw_entries.append({"label": label, "probability": prob})
-        raw_probs[label] = prob
-
-    raw_probs = _normalize_prob_dict(raw_probs)
-    market_probs = _normalize_prob_dict(market_probs)
-
-    market_top_prob = max(market_probs.values()) if market_probs else 0.0
-    blend_weight = 0.20
-    if market_top_prob >= 0.90:
-        blend_weight += 0.55
-    elif market_top_prob >= 0.80:
-        blend_weight += 0.40
-    elif market_top_prob >= 0.65:
-        blend_weight += 0.25
-    elif market_top_prob >= 0.50:
-        blend_weight += 0.15
-    if observed_max_f is not None:
-        blend_weight += 0.10
-    if nowcast_target_date and nowcast_target_date != requested_target_date:
-        blend_weight += 0.20
-    blend_weight = max(0.0, min(0.90, blend_weight))
-
-    ordered_labels = [e["label"] for e in raw_entries]
-    for label, _ in sorted(market_probs.items(), key=lambda kv: kv[1], reverse=True):
-        if label not in ordered_labels:
-            ordered_labels.append(label)
-
-    filtered_by_floor: List[str] = []
-    blended: Dict[str, float] = {}
-    for label in ordered_labels:
-        p_now = raw_probs.get(label, 0.0)
-        p_mkt = market_probs.get(label, 0.0)
-        p = ((1.0 - blend_weight) * p_now) + (blend_weight * p_mkt)
-        if _bucket_is_impossible_with_observed_max(label, observed_max_f):
-            p = 0.0
-            filtered_by_floor.append(label)
-        blended[label] = p
-
-    total = sum(blended.values())
-    if total <= 0:
-        # Fallback to raw distribution if all got filtered.
-        blended = dict(raw_probs)
-        total = sum(blended.values())
-
-    if total > 0:
-        for k in list(blended.keys()):
-            blended[k] = blended[k] / total
-
-    calibrated_bucket = [
-        {"label": label, "probability": prob}
-        for label, prob in sorted(blended.items(), key=lambda kv: kv[1], reverse=True)
-    ]
-    raw_bucket = [
-        {"label": label, "probability": prob}
-        for label, prob in sorted(raw_probs.items(), key=lambda kv: kv[1], reverse=True)
-    ]
-
-    return {
-        "raw_bucket": raw_bucket,
-        "calibrated_bucket": calibrated_bucket,
-        "blend_weight": blend_weight,
-        "overlap_count": len(set(raw_probs.keys()) & set(market_probs.keys())),
-        "market_count": len(market_probs),
-        "raw_count": len(raw_probs),
-        "filtered_by_observed_max": filtered_by_floor,
-        "raw_top": _top_bucket_summary(raw_bucket),
-        "calibrated_top": _top_bucket_summary(calibrated_bucket),
-    }
-
-
-@app.get("/api/v6/autotrader/nowcast")
-async def autotrader_nowcast(target_day: int = 0):
-    from core.autotrader import get_autotrader_service
-    from core.nowcast_integration import get_nowcast_integration
-
-    service = get_autotrader_service()
-    station_id = service.config.station_id
-    station = STATIONS.get(station_id)
-    if not station:
-        return {"error": f"Unknown station for autotrader: {station_id}"}
-
-    station_tz = ZoneInfo(station.timezone)
-    requested_target_date = (datetime.now(station_tz) + timedelta(days=int(target_day))).date().isoformat()
-
-    integration = get_nowcast_integration()
-    distribution = integration.get_distribution(station_id)
-    if not distribution:
-        # Best effort generation if the engine exists but has no cached distribution yet.
-        try:
-            engine = integration.get_engine(station_id)
-            distribution = engine.generate_distribution()
-        except Exception:
-            distribution = None
-    if not distribution:
-        return {
-            "error": "No nowcast distribution available",
-            "station_id": station_id,
-            "requested_target_date": requested_target_date,
-        }
-
-    raw = distribution.to_dict()
-    market_payload = await get_polymarket_dashboard_data(station_id=station_id, target_day=target_day, depth=5)
-
-    market_probs: Dict[str, float] = {}
-    market_error = None
-    station_market_unit = get_polymarket_temp_unit(station_id)
-    if isinstance(market_payload, dict):
-        market_error = market_payload.get("error")
-        for b in market_payload.get("brackets", []) if isinstance(market_payload.get("brackets"), list) else []:
-            raw_label = str(b.get("name", ""))
-            label = normalize_label(_convert_market_label_to_f(raw_label, station_market_unit))
-            if not label:
-                continue
-            yes_prob = _resolve_yes_probability_from_bracket(b)
-            if yes_prob is None:
-                continue
-            market_probs[label] = yes_prob
-
-    # Prefer nowcast engine state (backfilled from NOAA history) over DB-only observed max.
-    observed_max_f_db = get_observed_max_for_target_date(station_id, requested_target_date)
-    observed_max_f_state: Optional[float] = None
-    try:
-        if raw.get("target_date") == requested_target_date:
-            state = integration.get_engine(station_id).get_or_create_daily_state(target_date=distribution.target_date)
-            if state.max_so_far_aligned_f > -900:
-                observed_max_f_state = float(state.max_so_far_aligned_f)
-    except Exception:
-        observed_max_f_state = None
-
-    observed_max_f = observed_max_f_db
-    if observed_max_f_state is not None:
-        observed_max_f = observed_max_f_state if observed_max_f is None else max(float(observed_max_f), observed_max_f_state)
-    calibrated = _calibrate_nowcast_with_market(
-        raw_p_bucket=raw.get("p_bucket") or [],
-        market_probs=market_probs,
-        observed_max_f=observed_max_f,
-        nowcast_target_date=raw.get("target_date"),
-        requested_target_date=requested_target_date,
-    )
-
-    warnings: List[str] = []
-    if market_error:
-        warnings.append(f"market_error:{market_error}")
-    if raw.get("target_date") and raw.get("target_date") != requested_target_date:
-        warnings.append("nowcast_target_mismatch")
-
-    return {
-        **raw,
-        "station_id": station_id,
-        "target_day": int(target_day),
-        "requested_target_date": requested_target_date,
-        "observed_max_f": observed_max_f,
-        "market_probs": market_probs,
-        "raw_top": calibrated["raw_top"],
-        "calibrated": {
-            "p_bucket": calibrated["calibrated_bucket"],
-            "top": calibrated["calibrated_top"],
-            "blend_weight": calibrated["blend_weight"],
-        },
-        "diagnostics": {
-            "raw_count": calibrated["raw_count"],
-            "market_count": calibrated["market_count"],
-            "overlap_count": calibrated["overlap_count"],
-            "filtered_by_observed_max": calibrated["filtered_by_observed_max"],
-            "warnings": warnings,
-        },
-    }
-
-
-@app.get("/api/v6/autotrader/status")
-async def autotrader_status():
-    from core.autotrader import get_autotrader_service
-    return get_autotrader_service().get_status()
-
-
-@app.post("/api/v6/autotrader/control")
-async def autotrader_control(req: AutoTraderControlRequest):
-    from core.autotrader import get_autotrader_service
-    service = get_autotrader_service()
-    action = (req.action or "").strip().lower()
-
-    if action == "start":
-        await service.start()
-    elif action == "pause":
-        service.pause()
-    elif action == "resume":
-        service.resume()
-    elif action == "risk_off":
-        service.risk_off()
-    elif action == "risk_on":
-        service.risk_on()
-    elif action == "change_station":
-        if not req.station_id:
-            return {"ok": False, "error": "station_id required for change_station"}
-        try:
-            service.change_station(req.station_id)
-        except ValueError as e:
-            return {"ok": False, "error": str(e)}
-    else:
-        return {"ok": False, "error": f"unsupported action: {req.action}"}
-
-    return {"ok": True, "action": action, "status": service.get_status()}
-
-
-@app.get("/api/v6/autotrader/strategies")
-async def autotrader_strategies():
-    from core.autotrader import get_autotrader_service
-    return get_autotrader_service().get_strategies()
-
-
-@app.get("/api/v6/autotrader/positions")
-async def autotrader_positions():
-    from core.autotrader import get_autotrader_service
-    return get_autotrader_service().get_positions()
-
-
-@app.get("/api/v6/autotrader/performance")
-async def autotrader_performance():
-    from core.autotrader import get_autotrader_service
-    return get_autotrader_service().get_performance()
-
-
-@app.get("/api/v6/autotrader/decisions")
-async def autotrader_decisions(limit: int = 200):
-    from core.autotrader import get_autotrader_service
-    return get_autotrader_service().get_decisions(limit=limit)
-
-
-@app.get("/api/v6/autotrader/orders")
-async def autotrader_orders(limit: int = 200):
-    from core.autotrader import get_autotrader_service
-    return get_autotrader_service().get_orders(limit=limit)
-
-
-@app.get("/api/v6/autotrader/fills")
-async def autotrader_fills(limit: int = 200):
-    from core.autotrader import get_autotrader_service
-    return get_autotrader_service().get_fills(limit=limit)
-
-
-@app.get("/api/v6/autotrader/intraday")
-async def autotrader_intraday(target_day: int = 0, limit: int = 2000):
-    from core.autotrader import get_autotrader_service
-
-    service = get_autotrader_service()
-    payload = service.get_intraday_timeline(target_day=target_day, limit=limit)
-
-    station_id = payload.get("station_id")
-    target_date = ((payload.get("window") or {}).get("target_date")) or ""
-    observed_max_f = None
-    market_series: List[Dict[str, Any]] = []
-    if station_id and target_date:
-        observed_max_f_db = get_observed_max_for_target_date(station_id, target_date)
-        observed_max_f = observed_max_f_db
-        try:
-            from core.nowcast_integration import get_nowcast_integration
-            td = date.fromisoformat(str(target_date))
-            state = get_nowcast_integration().get_engine(station_id).get_or_create_daily_state(target_date=td)
-            if state.max_so_far_aligned_f > -900:
-                state_max = float(state.max_so_far_aligned_f)
-                observed_max_f = state_max if observed_max_f is None else max(float(observed_max_f), state_max)
-        except Exception:
-            pass
-        try:
-            for row in iter_performance_history_by_target_date(station_id, target_date):
-                market_series.append(
-                    {
-                        "ts_utc": row.get("timestamp"),
-                        "market_top1_bracket": row.get("market_top1_bracket"),
-                        "market_top1_prob": row.get("market_top1_prob"),
-                        "helios_pred": row.get("helios_pred"),
-                        "cumulative_max_f": row.get("cumulative_max_f"),
-                    }
-                )
-        except Exception:
-            pass
-
-    payload["observed_max_f"] = observed_max_f
-    payload["market_series"] = market_series
-    return payload
-
-
-@app.post("/api/v6/learning/run")
-async def learning_run(req: LearningRunRequest):
-    from core.autotrader import LearningConfig, get_autotrader_service
-
-    cfg = LearningConfig(
-        station_id=req.station_id,
-        train_days=req.train_days,
-        val_days=req.val_days,
-        max_combinations=req.max_combinations,
-        mode=req.mode,
-    )
-    service = get_autotrader_service()
-    return service.learning.run_once(cfg)
-
-
-@app.get("/api/v6/learning/runs")
-async def learning_runs(limit: int = 20):
-    from core.autotrader import get_autotrader_service
-    return get_autotrader_service().get_learning_runs(limit=limit)
-
-
-@app.post("/api/v6/autotrader/backtest/replay")
-async def autotrader_backtest_replay(req: BacktestReplayRequest):
-    from datetime import date
-    from core.backtest import BacktestEngine, BacktestMode, create_conservative_policy
-    from core.autotrader import create_multi_bandit_policy
-
-    bt_mode = BacktestMode.SIGNAL_ONLY if req.mode == "signal" else BacktestMode.EXECUTION_AWARE
-    start_date = date.fromisoformat(req.start_date)
-    end_date = date.fromisoformat(req.end_date)
-
-    baseline_engine = BacktestEngine(
-        policy=create_conservative_policy(),
-        mode=bt_mode,
-    )
-    baseline = baseline_engine.run(req.station_id, start_date, end_date)
-
-    bandit_engine = BacktestEngine(
-        policy=create_multi_bandit_policy(
-            selection_mode=req.selection_mode,
-            risk_profile=req.risk_profile,
-        ),
-        mode=bt_mode,
-    )
-    bandit = bandit_engine.run(req.station_id, start_date, end_date)
-
-    return {
-        "config": {
-            "station_id": req.station_id,
-            "start_date": req.start_date,
-            "end_date": req.end_date,
-            "mode": req.mode,
-            "selection_mode": req.selection_mode,
-            "risk_profile": req.risk_profile,
-        },
-        "baseline": {
-            "policy": "conservative",
-            "trading_summary": baseline.to_dict().get("trading_summary"),
-            "aggregated_metrics": baseline.to_dict().get("aggregated_metrics"),
-            "coverage": baseline.to_dict().get("coverage"),
-        },
-        "candidate": {
-            "policy": "multi_bandit",
-            "trading_summary": bandit.to_dict().get("trading_summary"),
-            "aggregated_metrics": bandit.to_dict().get("aggregated_metrics"),
-            "coverage": bandit.to_dict().get("coverage"),
-        },
-    }
 
 
 # =============================================================================
@@ -4843,20 +4232,6 @@ async def backtest_dashboard(request: Request):
     })
 
 
-@app.get("/autotrader", response_class=HTMLResponse)
-async def autotrader_dashboard(request: Request):
-    """Phase 6 Autotrader Dashboard - realtime signals, risk, and execution."""
-    return _render_template(request, "autotrader.html", {
-        "active_page": "autotrader"
-    })
-
-
-@app.get("/autotrader/tutorial", response_class=HTMLResponse)
-async def autotrader_tutorial(request: Request):
-    """Autotrader tutorial page with architecture, concepts, and operating guide."""
-    return _render_template(request, "autotrader_tutorial.html", {
-        "active_page": "autotrader"
-    })
 
 
 @app.get("/nowcast", response_class=HTMLResponse)

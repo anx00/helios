@@ -7,13 +7,13 @@ Scope:
 - token ID extraction
 - live orderbook ingestion
 - local L2 mirror
-- internal API endpoints used by UI/autotrader
+- internal API endpoints used by UI and backtest tooling
 - market-specific pitfalls (YES/NO, units, labels, maturity/target day)
 
 Use this as the primary reference before touching:
 - `market/`
 - Polymarket-related routes in `web_server.py`
-- autotrader market context logic
+- market context logic used by dashboards, replay, or backtest
 
 ## 1. Integration architecture (critical design rule)
 
@@ -211,7 +211,7 @@ HELIOS keeps an in-memory `LocalOrderBook` per token ID.
 
 ### Why this exists
 
-- low-latency reads for UI and autotrader
+- low-latency reads for UI and other local consumers
 - decouple fast WS ingestion from API reads
 - preserve top-of-book and small L2 views without querying external APIs
 
@@ -301,7 +301,7 @@ This is necessary because:
 ### Unit handling (F vs C)
 
 Not all Polymarket temperature markets use Fahrenheit.
-HELIOS tracks market unit per station via config (`F` or `C`) and converts labels when needed for internal comparisons (especially nowcast/autotrader logic).
+HELIOS tracks market unit per station via config (`F` or `C`) and converts labels when needed for internal comparisons against nowcast output.
 
 ## 11. Quote selection policy (important for trading)
 
@@ -320,19 +320,11 @@ Policy summary:
 
 This avoids overestimating tradable edge in wide books.
 
-## 12. Autotrader integration (current state)
+## 12. Current consumers
 
-### What is implemented
-
-- Autotrader consumes market context from local WS mirror and normalized labels.
-- Paper broker simulates execution using orderbook-derived prices and execution models.
-- REST endpoints expose autotrader status, positions, orders, fills, and diagnostics.
-
-### What is not implemented yet
-
-- Real order submission to Polymarket CLOB is not fully wired.
-- `core/autotrader/execution_adapter_live.py` is a feature-flagged stub.
-- `py_clob_client` dependency exists, but live adapter integration is pending.
+- Dashboards read normalized market context and local WS mirror state.
+- Replay/backtest tooling reuses the same market primitives for historical evaluation.
+- No live autotrading runtime is currently part of HELIOS.
 
 ## 13. Operational pitfalls and regression checklist
 
@@ -350,7 +342,6 @@ When touching Polymarket code, check these first:
 
 - `docs/market/POLYMARKET_TOKEN_IDS.md`
 - `docs/system/ARCHITECTURE_EVOLUTION.md`
-- `docs/trading/AUTOTRADER.md`
 - `docs/market/rollouts/`
 - `docs/weather/`
 - `docs/trading/`

@@ -24,7 +24,6 @@ The project combines:
 - nowcast generation (distribution, not only point forecast)
 - live market data ingestion (Polymarket CLOB WS + local orderbook mirror)
 - replay/backtest infrastructure
-- paper-first autotrader runtime
 - web dashboards and API endpoints
 - Atenea (AI copilot with evidence-based context)
 
@@ -51,14 +50,13 @@ The current architecture is split into logical layers:
 - Replays historical sessions with a virtual clock.
 - Builds backtest datasets and execution-aware simulations.
 
-5. Trading / decision layer
-- Autotrader consumes nowcast + market orderbook + risk gates.
-- Paper broker simulates execution.
-- Live execution adapter exists but is still a stub (feature-flagged).
+5. Trading research layer
+- Backtest policies consume nowcast + market context for signal and execution-aware evaluation.
+- Execution simulation remains available through replay/backtest tooling.
 
 6. Presentation / API layer
 - FastAPI server exposes dashboards and internal APIs (`/api/...`).
-- Frontends consume nowcast, market, replay, autotrader, and diagnostics endpoints.
+- Frontends consume nowcast, market, replay, backtest, and diagnostics endpoints.
 
 ## 3. Runtime loops and cadences (operationally relevant)
 
@@ -90,12 +88,6 @@ These are the loops you should check first when data looks stale.
 
 - `recorder_loop()`:
   - records event streams for replay/backtest
-
-- `autotrader_loop()`:
-  - paper-first trading runtime
-
-- `learning_nightly_loop()`:
-  - offline learning cycle
 
 ## 4. Data source hierarchy (source of truth by function)
 
@@ -181,7 +173,7 @@ Canonical docs:
 - `docs/market/POLYMARKET_TOKEN_IDS.md`
 - `docs/system/ARCHITECTURE_EVOLUTION.md`
 
-## 7. Replay, backtest, and autotrader (how development and trading loop closes)
+## 7. Replay and backtest (how development and trading loop closes)
 
 ### Replay / recorder / compactor
 - live events are captured and later replayed for debugging and development
@@ -191,15 +183,8 @@ Canonical docs:
 - supports signal-only and execution-aware evaluation
 - focuses on label correctness, as-of joins, policy simulation, and calibration
 
-### Autotrader
-- paper-first runtime
-- combines nowcast, live orderbook, risk gates, strategy selection (LinUCB)
-- persists decisions/orders/fills to SQLite
-- live execution adapter is currently a stub
-
 Canonical docs:
 - `docs/trading/BACKTEST_REPLAY.md`
-- `docs/trading/AUTOTRADER.md`
 - `docs/trading/STORAGE_REPLAY_IMPLEMENTATION.md`
 - `docs/trading/BACKTEST_CALIBRATION_IMPLEMENTATION.md`
 
@@ -212,7 +197,6 @@ Common categories:
 - nowcast outputs
 - Polymarket snapshots + orderbook context
 - replay sessions
-- autotrader status / positions / performance / fills
 - Atenea context endpoints
 
 For Polymarket specifically, the important internal endpoints are documented in:
@@ -248,7 +232,7 @@ For Polymarket specifically, the important internal endpoints are documented in:
 3. Read `docs/weather/DATA_SOURCES.md`
 4. Update `docs/engineering/CHANGE_JOURNAL.md`
 
-### If you change replay/backtest/autotrader
-1. Read `docs/trading/BACKTEST_REPLAY.md` and/or `docs/trading/AUTOTRADER.md`
+### If you change replay/backtest
+1. Read `docs/trading/BACKTEST_REPLAY.md`
 2. Check implementation notes in `docs/trading/`
 3. Add a note near the affected subsystem and update `docs/engineering/CHANGE_JOURNAL.md`
