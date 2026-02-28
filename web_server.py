@@ -2513,6 +2513,8 @@ async def get_polymarket_dashboard_data(station_id: str, target_day: int = 0, de
 
 
 @app.get("/api/v3/trading/{station_id}")
+@app.get("/api/trading/{station_id}")
+@app.get("/api/trade/{station_id}")
 async def get_trading_signal_api(station_id: str, target_day: int = 0, depth: int = 5):
     """Trading-focused signal: fair buckets, edge and tactical next-METAR pressure."""
     payload = await get_polymarket_dashboard_data(station_id, target_day=target_day, depth=depth)
