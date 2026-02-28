@@ -26,6 +26,9 @@ logger = logging.getLogger("metar_fetcher")
 # --- Phase 2: METAR Race Dedupe + Latency Registry ---
 _last_published_obs: dict = {}  # station_id -> obs_time_utc (dedupe)
 _race_latency_log: list = []    # List of {station, route, latency_ms, won}
+_METAR_RACE_TIMEOUT_SECONDS = 3.0
+_METAR_RACE_STALE_JSON_GRACE_SECONDS = 2.5
+_METAR_JSON_STALE_AGE_MINUTES = 20.0
 
 
 @dataclass
@@ -199,56 +202,88 @@ async def fetch_metar(station_id: str) -> Optional[MetarData]:
         asyncio.create_task(timed_fetch(fetch_metar_tgftp(station_id)))
     ]
 
-    # Aggressive 3s timeout
-    done, pending = await asyncio.wait(tasks, timeout=3.0, return_when=asyncio.ALL_COMPLETED)
+    def _collect_valid_results(done_tasks):
+        valid = []
+        log = {}
+        report_types = {}
+        for task in done_tasks:
+            try:
+                res = task.result()
+                if res and res.get("temp") is not None:
+                    report_type = normalize_metar_report_type(res.get("report_type"), res.get("raw_ob"))
+                    res["report_type"] = report_type
+                    res["is_speci"] = (report_type == "SPECI")
+                    res["temp_f"] = round((res["temp"] * 9/5) + 32, 1)
+                    if res.get("temp_f_low") is None:
+                        res["temp_f_low"] = res["temp_f"]
+                    if res.get("temp_f_high") is None:
+                        res["temp_f_high"] = res["temp_f"]
+                    if res.get("temp_c_low") is None:
+                        res["temp_c_low"] = res.get("temp")
+                    if res.get("temp_c_high") is None:
+                        res["temp_c_high"] = res.get("temp")
+
+                    obs_time = res.get("obs_time")
+                    if isinstance(obs_time, str):
+                        try:
+                            if "T" in obs_time:
+                                res["dt"] = datetime.fromisoformat(obs_time.replace("Z", "+00:00"))
+                            else:
+                                res["dt"] = datetime.strptime(obs_time, "%Y/%m/%d %H:%M").replace(tzinfo=timezone.utc)
+                        except Exception:
+                            res["dt"] = datetime.now(timezone.utc)
+                    else:
+                        res["dt"] = obs_time or datetime.now(timezone.utc)
+
+                    valid.append(res)
+                    log[res["source"]] = res["temp_f"]
+                    report_types[res["source"]] = report_type
+            except asyncio.CancelledError:
+                continue
+            except Exception:
+                continue
+        return valid, log, report_types
+
+    done, pending = await asyncio.wait(
+        tasks,
+        timeout=_METAR_RACE_TIMEOUT_SECONDS,
+        return_when=asyncio.ALL_COMPLETED,
+    )
+    for p in list(pending):
+        if p.done():
+            done.add(p)
+            pending.discard(p)
+
+    valid_results, racing_log, racing_report_types = _collect_valid_results(done)
+    provisional_winner = None
+    if valid_results:
+        provisional_winner = max(valid_results, key=lambda x: (x["dt"], x["temp_f"]))
+
+    if provisional_winner and pending and provisional_winner.get("source") == "NOAA_JSON_API":
+        winner_dt = provisional_winner.get("dt")
+        winner_age_minutes = None
+        if isinstance(winner_dt, datetime):
+            winner_age_minutes = max(0.0, (datetime.now(timezone.utc) - winner_dt).total_seconds() / 60.0)
+        if winner_age_minutes is not None and winner_age_minutes >= _METAR_JSON_STALE_AGE_MINUTES:
+            logger.info(
+                "METAR Race %s: NOAA_JSON_API provisional winner is stale (age=%.1fm), waiting %.1fs grace for fresher routes",
+                station_id,
+                winner_age_minutes,
+                _METAR_RACE_STALE_JSON_GRACE_SECONDS,
+            )
+            extra_done, pending = await asyncio.wait(
+                pending,
+                timeout=_METAR_RACE_STALE_JSON_GRACE_SECONDS,
+                return_when=asyncio.ALL_COMPLETED,
+            )
+            done |= extra_done
+            valid_results, racing_log, racing_report_types = _collect_valid_results(done)
 
     for p in pending:
         if p.done():
             done.add(p)
         else:
             p.cancel()
-
-    valid_results = []
-    racing_log = {}
-    racing_report_types = {}
-
-    for task in done:
-        try:
-            res = task.result()
-            if res and res.get("temp") is not None:
-                report_type = normalize_metar_report_type(res.get("report_type"), res.get("raw_ob"))
-                res["report_type"] = report_type
-                res["is_speci"] = (report_type == "SPECI")
-                res["temp_f"] = round((res["temp"] * 9/5) + 32, 1)
-                if res.get("temp_f_low") is None:
-                    res["temp_f_low"] = res["temp_f"]
-                if res.get("temp_f_high") is None:
-                    res["temp_f_high"] = res["temp_f"]
-                if res.get("temp_c_low") is None:
-                    res["temp_c_low"] = res.get("temp")
-                if res.get("temp_c_high") is None:
-                    res["temp_c_high"] = res.get("temp")
-
-                # Normalize time for comparison
-                obs_time = res.get("obs_time")
-                if isinstance(obs_time, str):
-                    try:
-                        if "T" in obs_time:
-                            res["dt"] = datetime.fromisoformat(obs_time.replace("Z", "+00:00"))
-                        else:
-                            res["dt"] = datetime.strptime(obs_time, "%Y/%m/%d %H:%M").replace(tzinfo=timezone.utc)
-                    except:
-                        res["dt"] = datetime.now(timezone.utc)
-                else:
-                    res["dt"] = obs_time or datetime.now(timezone.utc)
-
-                valid_results.append(res)
-                racing_log[res["source"]] = res["temp_f"]
-                racing_report_types[res["source"]] = report_type
-        except asyncio.CancelledError:
-            continue
-        except Exception:
-            continue
 
     if not valid_results:
         logger.warning(f"METAR Race failed for {station_id}: No valid sources returned in time")
