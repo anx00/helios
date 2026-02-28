@@ -129,6 +129,7 @@ def _gaussian_mass_for_label(
     sigma: float,
     *,
     market_floor: Optional[int] = None,
+    market_ceiling: Optional[int] = None,
 ) -> float:
     kind, low, high = parse_label(label)
     if kind == "range" and low is not None and high is not None:
@@ -136,6 +137,8 @@ def _gaussian_mass_for_label(
         hi = int(high)
         if market_floor is not None:
             lo = max(lo, int(market_floor))
+        if market_ceiling is not None:
+            hi = min(hi, int(market_ceiling))
         if lo > hi:
             return 0.0
         return sum(_discrete_prob(temp, mean, sigma) for temp in range(lo, hi + 1))
@@ -144,11 +147,16 @@ def _gaussian_mass_for_label(
         value = int(low)
         if market_floor is not None and value < int(market_floor):
             return 0.0
+        if market_ceiling is not None and value > int(market_ceiling):
+            return 0.0
         return _discrete_prob(value, mean, sigma)
 
     if kind == "below" and high is not None:
         lower_bound = float("-inf") if market_floor is None else (float(int(market_floor)) - 0.5)
-        upper_bound = float(int(high)) + 0.5
+        upper_value = int(high)
+        if market_ceiling is not None:
+            upper_value = min(upper_value, int(market_ceiling))
+        upper_bound = float(upper_value) + 0.5
         if lower_bound >= upper_bound:
             return 0.0
         return max(0.0, _normal_cdf(upper_bound, mean, sigma) - _normal_cdf(lower_bound, mean, sigma))
@@ -157,7 +165,14 @@ def _gaussian_mass_for_label(
         lower_value = int(low)
         if market_floor is not None:
             lower_value = max(lower_value, int(market_floor))
+        if market_ceiling is not None and lower_value > int(market_ceiling):
+            return 0.0
         lower_bound = float(lower_value) - 0.5
+        if market_ceiling is not None:
+            upper_bound = float(int(market_ceiling)) + 0.5
+            if lower_bound >= upper_bound:
+                return 0.0
+            return max(0.0, _normal_cdf(upper_bound, mean, sigma) - _normal_cdf(lower_bound, mean, sigma))
         return max(0.0, 1.0 - _normal_cdf(lower_bound, mean, sigma))
 
     return 0.0
@@ -606,6 +621,30 @@ def _extract_nowcast_model(
                 converted_floor = _convert_f_to_market_unit(raw_floor_f, market_unit)
                 market_floor = _round_half_up(converted_floor)
 
+            peak_hour = int(nowcast_distribution.get("t_peak_expected_hour") or 14)
+            market_ceiling = None
+            exact_market_ceiling = None
+            current_hour = None
+            hours_to_peak = None
+            if isinstance(nowcast_state, dict):
+                breakdown = nowcast_state.get("tmax_breakdown") if isinstance(nowcast_state.get("tmax_breakdown"), dict) else {}
+                peak_hour = int(
+                    _safe_float(breakdown.get("peak_hour"))
+                    or _safe_float(((nowcast_state.get("base_forecast") or {}).get("t_peak_hour") if isinstance(nowcast_state.get("base_forecast"), dict) else None))
+                    or peak_hour
+                )
+                current_hour = _safe_float(breakdown.get("current_hour"))
+                hours_to_peak = _safe_float(breakdown.get("hours_to_peak"))
+
+                post_peak_cap_f = _safe_float(breakdown.get("post_peak_cap_f"))
+                if post_peak_cap_f is None:
+                    remaining_max_f = _safe_float(breakdown.get("remaining_max_f"))
+                    if remaining_max_f is not None and current_hour is not None and current_hour >= peak_hour + 1:
+                        post_peak_cap_f = remaining_max_f
+                if post_peak_cap_f is not None:
+                    exact_market_ceiling = _convert_f_to_market_unit(post_peak_cap_f, market_unit)
+                    market_ceiling = _round_half_up(exact_market_ceiling)
+
             mean_market = _convert_f_to_market_unit(mean_f, market_unit)
             sigma_market = _convert_sigma_f_to_market_unit(sigma_f, market_unit)
             return {
@@ -614,7 +653,11 @@ def _extract_nowcast_model(
                 "sigma_market": round(float(max(0.15, sigma_market or 0.0)), 4) if sigma_market is not None else None,
                 "confidence": round(float(confidence), 4),
                 "market_floor": market_floor,
-                "peak_hour": int(nowcast_distribution.get("t_peak_expected_hour") or 14),
+                "market_ceiling": market_ceiling,
+                "market_ceiling_exact": round(float(exact_market_ceiling), 4) if exact_market_ceiling is not None else None,
+                "peak_hour": peak_hour,
+                "current_hour": round(float(current_hour), 4) if current_hour is not None else None,
+                "hours_to_peak": round(float(hours_to_peak), 4) if hours_to_peak is not None else None,
             }
 
     if not isinstance(prediction, dict):
@@ -651,7 +694,11 @@ def _extract_nowcast_model(
         "sigma_market": round(float(max(0.15, sigma_market or 0.0)), 4) if sigma_market is not None else None,
         "confidence": round(float(confidence), 4),
         "market_floor": None,
+        "market_ceiling": None,
+        "market_ceiling_exact": None,
         "peak_hour": None,
+        "current_hour": None,
+        "hours_to_peak": None,
     }
 
 
@@ -673,6 +720,7 @@ def _build_fair_probabilities(
     mean_market: float,
     sigma_market: float,
     market_floor: Optional[int],
+    market_ceiling: Optional[int],
 ) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
     for label in sort_labels(labels):
@@ -681,6 +729,7 @@ def _build_fair_probabilities(
             mean_market,
             sigma_market,
             market_floor=market_floor,
+            market_ceiling=market_ceiling,
         )
         rows.append({"label": label, "fair_prob": fair_prob})
     return _normalize_partition(rows, key="fair_prob")
@@ -764,6 +813,7 @@ def build_trading_signal(
         mean_market=float(terminal_model["mean_market"]),
         sigma_market=max(0.15, float(terminal_model["sigma_market"])),
         market_floor=terminal_model.get("market_floor"),
+        market_ceiling=terminal_model.get("market_ceiling"),
     )
     fair_map = {row["label"]: row["fair_prob"] for row in fair_rows}
 
@@ -823,6 +873,7 @@ def build_trading_signal(
                 mean_market=tactical_mean,
                 sigma_market=max(0.15, float(terminal_model["sigma_market"])),
                 market_floor=terminal_model.get("market_floor"),
+                market_ceiling=terminal_model.get("market_ceiling"),
             )
             tactical_map = {row["label"]: row["fair_prob"] for row in tactical_rows}
 
@@ -976,6 +1027,7 @@ def build_trading_signal(
         "top_bucket_probability": round(float(top_label_prob), 6) if top_label_prob is not None else None,
         "top_bucket_complement_probability": round(float(top_label_complement_prob), 6) if top_label_complement_prob is not None else None,
         "expected_bucket": expected_label,
+        "ceiling": terminal_model.get("market_ceiling"),
     }
 
     return {
@@ -992,6 +1044,7 @@ def build_trading_signal(
             "quality": round(float(terminal_model["confidence"]), 4),
             "confidence": round(float(terminal_model["confidence"]), 4),
             "observed_floor": terminal_model.get("market_floor"),
+            "ceiling": terminal_model.get("market_ceiling"),
             "expected_label": expected_label,
             "top_label": top_label,
             "top_label_probability": round(float(top_label_prob), 6) if top_label_prob is not None else None,

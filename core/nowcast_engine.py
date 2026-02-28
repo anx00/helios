@@ -675,10 +675,11 @@ class NowcastEngine:
             if remaining_max_f is not None:
                 post_peak_cap = max(float(post_peak_cap), float(remaining_max_f))
 
+            breakdown["post_peak_cap_f"] = round(post_peak_cap, 1)
+            breakdown["post_peak_margin_f"] = round(margin_f, 2)
+
             if adjusted > post_peak_cap:
                 breakdown["post_peak_cap_applied"] = True
-                breakdown["post_peak_cap_f"] = round(post_peak_cap, 1)
-                breakdown["post_peak_margin_f"] = round(margin_f, 2)
                 adjusted = post_peak_cap
 
         # Physical clamps
@@ -1280,6 +1281,7 @@ class NowcastEngine:
                 "target_date": self._base_forecast.target_date.isoformat() if self._base_forecast else None,
                 "valid_until_utc": self._base_forecast.valid_until_utc.isoformat() if self._base_forecast and self._base_forecast.valid_until_utc else None
             } if self._base_forecast else None,
+            "tmax_breakdown": dict(getattr(state, "_last_tmax_breakdown", {}) or {}),
             "update_count": self._update_count,
             "last_update_utc": self._last_update_utc.isoformat() if self._last_update_utc else None
         }

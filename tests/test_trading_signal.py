@@ -139,3 +139,39 @@ def test_build_trading_signal_creates_tactical_pressure_from_predictive_pws():
     assert signal["tactical_context"]["next_metar"]["quality"] == signal["tactical_context"]["next_metar"]["confidence"]
     assert signal["best_tactical_trade"] is not None
     assert signal["best_tactical_trade"]["label"] == "11-12°C"
+
+
+def test_build_trading_signal_respects_post_peak_ceiling_for_upside_buckets():
+    signal = build_trading_signal(
+        station_id="LFPG",
+        target_day=0,
+        target_date="2026-02-28",
+        brackets=[
+            {"name": "14°C", "yes_price": 0.50, "no_price": 0.50, "ws_yes_best_ask": 0.52, "ws_no_best_ask": 0.05},
+            {"name": "15°C", "yes_price": 0.05, "no_price": 0.95, "ws_yes_best_ask": 0.05, "ws_no_best_ask": 0.97},
+            {"name": "16°C or higher", "yes_price": 0.01, "no_price": 0.99, "ws_yes_best_ask": 0.01, "ws_no_best_ask": 0.995},
+        ],
+        nowcast_distribution={
+            "tmax_mean_f": 57.0,
+            "tmax_sigma_f": 2.2,
+            "confidence": 0.8,
+            "t_peak_expected_hour": 14,
+        },
+        nowcast_state={
+            "max_so_far_raw_f": 57.2,
+            "tmax_breakdown": {
+                "peak_hour": 14,
+                "current_hour": 16.0,
+                "hours_to_peak": 0.0,
+                "post_peak_cap_f": 59.0,
+                "remaining_max_f": 59.0,
+            },
+        },
+        official={"temp_c": 14.0, "obs_time_utc": "2026-02-28T15:00:00Z"},
+        reference_utc=datetime(2026, 2, 28, 15, 20, tzinfo=UTC),
+    )
+
+    rows = {row["label"]: row for row in signal["terminal_opportunities"]}
+    assert signal["model"]["ceiling"] == 15
+    assert rows["16°C or higher"]["fair_yes"] == 0.0
+    assert rows["16°C or higher"]["best_side"] == "NO"
