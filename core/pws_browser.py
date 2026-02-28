@@ -729,6 +729,32 @@ def _metric_temp_summary(rows: List[Dict[str, Any]]) -> Dict[str, Optional[float
     }
 
 
+def _weighted_mean(entries: List[tuple[float, float]]) -> Optional[float]:
+    valid = [(value, weight) for value, weight in entries if weight > 0]
+    if not valid:
+        return None
+    total_weight = sum(weight for _, weight in valid)
+    if total_weight <= 0:
+        return None
+    return sum(value * weight for value, weight in valid) / total_weight
+
+
+def _weighted_median(entries: List[tuple[float, float]]) -> Optional[float]:
+    valid = sorted((value, weight) for value, weight in entries if weight > 0)
+    if not valid:
+        return None
+    total_weight = sum(weight for _, weight in valid)
+    if total_weight <= 0:
+        return None
+    midpoint = total_weight / 2.0
+    running = 0.0
+    for value, weight in valid:
+        running += weight
+        if running >= midpoint:
+            return value
+    return valid[-1][0]
+
+
 def _latest_metar_row(rows: List[Dict[str, Any]], key: str) -> Optional[Dict[str, Any]]:
     for row in reversed(rows):
         metar = row.get(key) or {}
@@ -908,12 +934,19 @@ def _build_station_summary(
     next_match_count = sum(
         1 for row in table_rows if _float_or_none(((row.get("next_metar") or {}).get("temp_c"))) is not None
     )
+    verdict_rows = [row.get("next_metar_verdict") for row in table_rows if isinstance(row.get("next_metar_verdict"), dict)]
+    next_hits = sum(1 for row in verdict_rows if bool(row.get("hit")))
+    next_total = len(verdict_rows)
     return {
         **_metric_temp_summary(chart_rows),
         "current_metar_mae_c": _metric_mae(table_rows, "current_metar"),
         "next_metar_mae_c": _metric_mae(table_rows, "next_metar"),
         "current_metar_matches": current_match_count,
         "next_metar_matches": next_match_count,
+        "next_metar_hits": next_hits,
+        "next_metar_misses": max(0, next_total - next_hits),
+        "next_metar_total": next_total,
+        "next_metar_hit_rate": round(next_hits / next_total, 4) if next_total > 0 else None,
         "latest_current_metar": _latest_metar_row(table_rows, "current_metar"),
         "latest_next_metar": _latest_metar_row(table_rows, "next_metar"),
         "predicted_next_metar": _build_station_prediction_summary(chart_rows, table_rows, learning_profile),
@@ -1041,6 +1074,105 @@ def _station_sort_key(payload: Dict[str, Any]) -> tuple:
         distance_km if distance_km is not None else 9999.0,
         str(payload.get("station_id") or ""),
     )
+
+
+def _build_market_overview(
+    market_station_id: str,
+    pws_stations: List[Dict[str, Any]],
+    predictive_ranking: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    latest_rows: List[Dict[str, Any]] = []
+    weighted_entries: List[tuple[float, float]] = []
+    leaders: List[Dict[str, Any]] = []
+    total_raw_updates = 0
+    total_table_rows = 0
+    total_hits = 0
+    total_verdict_rows = 0
+
+    for station in pws_stations:
+        summary = station.get("summary") or {}
+        learning = station.get("learning_profile") or {}
+        latest_temp_c = _float_or_none(station.get("latest_temp_c"))
+        latest_temp_f = _float_or_none(station.get("latest_temp_f"))
+        weight = _float_or_none(learning.get("weight"))
+        if latest_temp_c is not None:
+            latest_rows.append({
+                "station_id": station.get("station_id"),
+                "station_name": station.get("station_name"),
+                "source": station.get("source"),
+                "temp_c": latest_temp_c,
+                "temp_f": latest_temp_f,
+                "weight": weight,
+            })
+            if weight is not None and weight > 0:
+                weighted_entries.append((latest_temp_c, weight))
+
+        hits = int(summary.get("next_metar_hits") or 0)
+        total = int(summary.get("next_metar_total") or 0)
+        total_hits += hits
+        total_verdict_rows += total
+        total_raw_updates += int(station.get("raw_records_count") or 0)
+        total_table_rows += int(station.get("table_records_count") or 0)
+
+        leaders.append({
+            "station_id": station.get("station_id"),
+            "station_name": station.get("station_name"),
+            "source": station.get("source"),
+            "distance_km": _float_or_none(station.get("distance_km")),
+            "latest_temp_c": latest_temp_c,
+            "latest_temp_f": latest_temp_f,
+            "next_metar_hit_rate": _float_or_none(summary.get("next_metar_hit_rate")),
+            "next_metar_hits": hits,
+            "next_metar_total": total,
+            "next_metar_mae_c": _float_or_none(summary.get("next_metar_mae_c")),
+            "next_metar_score": _float_or_none(learning.get("next_metar_score")),
+            "quality_band": learning.get("quality_band"),
+            "learning_phase": learning.get("learning_phase"),
+        })
+
+    temps_c = [row["temp_c"] for row in latest_rows if _float_or_none(row.get("temp_c")) is not None]
+    latest_mean_c = (sum(temps_c) / len(temps_c)) if temps_c else None
+    latest_median_c = median(temps_c) if temps_c else None
+    weighted_mean_c = _weighted_mean(weighted_entries)
+    weighted_median_c = _weighted_median(weighted_entries)
+
+    leaderboard = sorted(
+        leaders,
+        key=lambda row: (
+            -(row["next_metar_hit_rate"] if row["next_metar_hit_rate"] is not None else -1.0),
+            -int(row.get("next_metar_total") or 0),
+            row["next_metar_mae_c"] if row["next_metar_mae_c"] is not None else 9999.0,
+            -(row["next_metar_score"] if row["next_metar_score"] is not None else -1.0),
+            row["distance_km"] if row["distance_km"] is not None else 9999.0,
+            str(row.get("station_id") or ""),
+        ),
+    )
+    best_day_station = next((row for row in leaderboard if int(row.get("next_metar_total") or 0) > 0), None)
+    top_predictive_station = predictive_ranking[0] if predictive_ranking else best_day_station
+
+    return {
+        "market_station_id": market_station_id,
+        "detailed_station_count": len(pws_stations),
+        "predictive_station_count": len(predictive_ranking),
+        "raw_updates_total": total_raw_updates,
+        "table_rows_total": total_table_rows,
+        "latest_snapshot_support": len(latest_rows),
+        "latest_mean_c": round(float(latest_mean_c), 3) if latest_mean_c is not None else None,
+        "latest_mean_f": round(float((latest_mean_c * 9.0 / 5.0) + 32.0), 3) if latest_mean_c is not None else None,
+        "latest_median_c": round(float(latest_median_c), 3) if latest_median_c is not None else None,
+        "latest_median_f": round(float((latest_median_c * 9.0 / 5.0) + 32.0), 3) if latest_median_c is not None else None,
+        "weighted_mean_c": round(float(weighted_mean_c), 3) if weighted_mean_c is not None else None,
+        "weighted_mean_f": round(float((weighted_mean_c * 9.0 / 5.0) + 32.0), 3) if weighted_mean_c is not None else None,
+        "weighted_median_c": round(float(weighted_median_c), 3) if weighted_median_c is not None else None,
+        "weighted_median_f": round(float((weighted_median_c * 9.0 / 5.0) + 32.0), 3) if weighted_median_c is not None else None,
+        "weighted_support": round(float(sum(weight for _, weight in weighted_entries)), 3) if weighted_entries else None,
+        "overall_next_hits": total_hits,
+        "overall_next_total": total_verdict_rows,
+        "overall_next_hit_rate": round(total_hits / total_verdict_rows, 4) if total_verdict_rows > 0 else None,
+        "best_day_station": best_day_station,
+        "top_predictive_station": top_predictive_station,
+        "leaderboard": leaderboard[:8],
+    }
 
 
 def _serialize_metar_series(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -1199,6 +1331,11 @@ def hydrate_pws_browser_payload_with_metar_series(
 
     stations_out.sort(key=_station_sort_key)
     out["pws_stations"] = stations_out
+    out["market_overview"] = _build_market_overview(
+        station_id,
+        stations_out,
+        list(out.get("predictive_ranking") or []),
+    )
     out["metar_series"] = _serialize_metar_series(combined_metar_series)
     stats = dict(out.get("stats") or {})
     stats["metar_count"] = len(combined_metar_series)
@@ -1287,6 +1424,7 @@ def build_pws_browser_payload(station_id: str, date_str: str) -> Dict[str, Any]:
         "station_id": station_id,
         "date": date_str,
         "market_station": _build_market_station_meta(station_id),
+        "market_overview": _build_market_overview(station_id, pws_stations, predictive_ranking),
         "detail_available": detail_available,
         "detail_source": detail_source,
         "message": message,

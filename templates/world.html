@@ -615,6 +615,110 @@
         color: var(--text-muted);
     }
 
+    .next-metar-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        gap: 12px;
+        margin-bottom: 14px;
+    }
+
+    .next-metar-card {
+        padding: 14px 16px;
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.025);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .next-metar-card-value {
+        font-size: 22px;
+        font-weight: 700;
+        font-family: 'Space Grotesk', sans-serif;
+        color: var(--text-main);
+        margin-top: 6px;
+    }
+
+    .next-metar-card-meta {
+        margin-top: 6px;
+        font-size: 11px;
+        line-height: 1.35;
+        color: var(--text-muted);
+    }
+
+    .next-metar-chip-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 14px;
+    }
+
+    .next-metar-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--text-secondary);
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .next-metar-chip.warning {
+        color: #F97316;
+        border-color: rgba(249, 115, 22, 0.25);
+        background: rgba(249, 115, 22, 0.10);
+    }
+
+    .next-metar-chip.good {
+        color: #10B981;
+        border-color: rgba(16, 185, 129, 0.25);
+        background: rgba(16, 185, 129, 0.10);
+    }
+
+    .next-metar-prob-row {
+        display: grid;
+        grid-template-columns: 120px 1fr 64px;
+        gap: 12px;
+        align-items: center;
+        margin-bottom: 10px;
+    }
+
+    .next-metar-prob-bar {
+        position: relative;
+        height: 12px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.06);
+        overflow: hidden;
+    }
+
+    .next-metar-prob-fill {
+        position: absolute;
+        inset: 0 auto 0 0;
+        border-radius: 999px;
+        background: linear-gradient(90deg, #8B5CF6, #3B82F6);
+    }
+
+    .next-metar-contrib-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 11px;
+    }
+
+    .next-metar-contrib-table th,
+    .next-metar-contrib-table td {
+        padding: 8px 10px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        text-align: left;
+    }
+
+    .next-metar-contrib-table th {
+        font-size: 10px;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        color: var(--text-muted);
+    }
+
     /* Station Selector */
     .station-selector {
         display: flex;
@@ -841,94 +945,17 @@
             </div>
         </div>
 
-        <!-- ============================== -->
-        <!-- Environment Features Panel     -->
-        <!-- ============================== -->
-        <div class="world-panel" id="panel-env">
+        <div class="world-panel full-width" id="panel-next-metar">
             <div class="panel-header">
                 <span class="panel-title">
-                    <i data-lucide="thermometer" style="width:16px;height:16px;"></i>
-                    Environment Features
+                    <i data-lucide="radar" style="width:16px;height:16px;"></i>
+                    Next METAR Probabilities
                 </span>
+                <span class="panel-badge badge-no-data" id="next-metar-badge">NO DATA</span>
             </div>
-            <div class="env-grid" id="env-content">
-                <!-- SST -->
-                <div class="env-card" id="env-sst">
-                    <div class="detail-label">SST (Sea Surface Temp)</div>
-                    <div class="env-value" id="env-sst-value" style="color: #0078FF;">--</div>
-                    <div class="env-meta">
-                        <span id="env-sst-source">Source: --</span>
-                        <span id="env-sst-age">Age: --</span>
-                        <span id="env-sst-location">Location: --</span>
-                    </div>
-                </div>
-                <!-- AOD -->
-                <div class="env-card" id="env-aod">
-                    <div class="detail-label">AOD (Aerosol Optical Depth)</div>
-                    <div class="env-value" id="env-aod-value" style="color: #F4D03F;">--</div>
-                    <div class="env-meta">
-                        <span id="env-aod-source">Source: --</span>
-                        <span id="env-aod-age">Age: --</span>
-                        <span id="env-aod-location">Location: --</span>
-                    </div>
-                </div>
+            <div id="next-metar-content">
+                <p style="color: var(--text-muted); font-size: 13px;">Waiting for official METAR + PWS data to estimate the next report.</p>
             </div>
-            <div class="timestamps-row" id="env-timestamps">
-                <div class="ts-item">
-                    <span class="ts-flag" id="env-ts-local-label">Local</span>
-                    <span class="ts-value" id="env-ts-local">--</span>
-                </div>
-                <div class="ts-item">
-                    <span class="ts-flag">ES</span>
-                    <span class="ts-value" id="env-ts-mad">--</span>
-                </div>
-            </div>
-        </div>
-
-        <!-- ============================== -->
-        <!-- QC Panel                       -->
-        <!-- ============================== -->
-        <div class="world-panel" id="panel-qc">
-            <div class="panel-header">
-                <span class="panel-title">
-                    <i data-lucide="shield-check" style="width:16px;height:16px;"></i>
-                    Quality Control
-                </span>
-            </div>
-            <div class="qc-grid" id="qc-content">
-                <p style="color: var(--text-muted); font-size: 13px;">No QC data yet.</p>
-            </div>
-        </div>
-
-        <!-- ============================== -->
-        <!-- Health Panel (full width)      -->
-        <!-- ============================== -->
-        <div class="world-panel full-width" id="panel-health">
-            <div class="panel-header">
-                <span class="panel-title">
-                    <i data-lucide="activity" style="width:16px;height:16px;"></i>
-                    Source Health &amp; Latency
-                </span>
-                <span style="font-size: 11px; color: var(--text-muted);" id="health-tape-count">Tape: 0 events</span>
-            </div>
-            <table class="health-table" id="health-table">
-                <thead>
-                    <tr>
-                        <th style="width:22%">Source</th>
-                        <th style="width:12%">Status</th>
-                        <th style="width:12%">Staleness</th>
-                        <th style="width:12%">Source Age</th>
-                        <th style="width:10%">Updates</th>
-                        <th style="width:18%">Errors</th>
-                        <th style="width:14%">Last Seen (UTC)</th>
-                    </tr>
-                </thead>
-                <tbody id="health-tbody">
-                    <tr>
-                        <td colspan="7" style="color: var(--text-muted); text-align: center;">No sources registered yet.</td>
-                    </tr>
-                </tbody>
-            </table>
         </div>
     </div>
 </div>
@@ -1129,6 +1156,10 @@
         return (Number(tempF) - 32) * (5 / 9);
     }
 
+    function cToF(tempC) {
+        return (Number(tempC) * 9 / 5) + 32;
+    }
+
     function convertTempFromF(tempF, stationId = currentStation) {
         if (!Number.isFinite(Number(tempF))) return null;
         const value = Number(tempF);
@@ -1139,6 +1170,28 @@
         const v = convertTempFromF(tempF, stationId);
         if (v == null) return '--';
         return `${v.toFixed(digits)}${tempUnitSymbol(stationId)}`;
+    }
+
+    function convertTempCToMarketUnit(tempC, stationId = currentStation) {
+        if (!Number.isFinite(Number(tempC))) return null;
+        const value = Number(tempC);
+        return usesCelsius(stationId) ? value : cToF(value);
+    }
+
+    function convertDeltaCToMarketUnit(deltaC, stationId = currentStation) {
+        if (!Number.isFinite(Number(deltaC))) return null;
+        return usesCelsius(stationId) ? Number(deltaC) : (Number(deltaC) * 9 / 5);
+    }
+
+    function formatTempFromC(tempC, digits = 1, stationId = currentStation) {
+        const v = convertTempCToMarketUnit(tempC, stationId);
+        if (v == null) return '--';
+        return `${v.toFixed(digits)}${tempUnitSymbol(stationId)}`;
+    }
+
+    function clamp(value, minValue, maxValue) {
+        if (!Number.isFinite(Number(value))) return minValue;
+        return Math.min(maxValue, Math.max(minValue, Number(value)));
     }
 
     function updateTimezoneFormatters() {
@@ -1310,6 +1363,9 @@
             if (!lastSnapshot.official) lastSnapshot.official = {};
             lastSnapshot.official[sid] = event.data;
             renderMetar(lastSnapshot.official);
+            if (lastSnapshot.aux) {
+                renderPWS(lastSnapshot.aux, lastSnapshot.pws_details, lastSnapshot.official, lastSnapshot.pws_metrics);
+            }
         } else if (event.type === 'aux' && event.data) {
             const sid = event.data.station_id;
             if (!lastSnapshot.aux) lastSnapshot.aux = {};
@@ -1320,7 +1376,6 @@
             const feat = event.data.feature_type;
             if (!lastSnapshot.env) lastSnapshot.env = {};
             lastSnapshot.env[feat] = event.data;
-            renderEnv(lastSnapshot.env);
         } else {
             fetchSnapshot();
         }
@@ -1351,9 +1406,6 @@
         renderMetar(snap.official);
         renderAux(snap.aux);
         renderPWS(snap.aux, snap.pws_details, snap.official, snap.pws_metrics);
-        renderEnv(snap.env);
-        renderQC(snap.qc);
-        renderHealth(snap.health, snap.tape_size);
     }
 
     function renderSystemBar(snap) {
@@ -1735,6 +1787,511 @@
         };
     }
 
+    function nextMetarBadgeState(confidence) {
+        if (confidence >= 0.72) return { text: 'HIGH CONF', className: 'panel-badge badge-ok' };
+        if (confidence >= 0.5) return { text: 'MED CONF', className: 'panel-badge badge-stale' };
+        return { text: 'LOW CONF', className: 'panel-badge badge-dead' };
+    }
+
+    function sourceReliabilityFactor(source) {
+        const normalized = normalizeSource(source);
+        if (normalized === 'SYNOPTIC') return 1.0;
+        if (normalized.startsWith('MADIS_APRSWXNET')) return 0.95;
+        if (normalized.startsWith('MADIS_')) return 0.9;
+        if (normalized === 'WUNDERGROUND') return 0.86;
+        if (normalized === 'OPEN_METEO') return 0.72;
+        return 0.82;
+    }
+
+    function computeNominalNextMetar(officialObsUtc, snapshotUtc) {
+        if (!officialObsUtc) {
+            return {
+                currentObs: null,
+                nextObs: null,
+                minutesToNext: null,
+                cadenceMinutes: 60,
+                scheduleMinute: null,
+                officialAgeMinutes: null,
+            };
+        }
+
+        const currentObs = new Date(officialObsUtc);
+        if (Number.isNaN(currentObs.getTime())) {
+            return {
+                currentObs: null,
+                nextObs: null,
+                minutesToNext: null,
+                cadenceMinutes: 60,
+                scheduleMinute: null,
+                officialAgeMinutes: null,
+            };
+        }
+
+        const reference = snapshotUtc ? new Date(snapshotUtc) : new Date();
+        const refTime = Number.isNaN(reference.getTime()) ? new Date() : reference;
+        const cadenceMinutes = 60;
+        const currentObsMs = currentObs.getTime();
+        let nextObs = new Date(currentObsMs + cadenceMinutes * 60 * 1000);
+        while (nextObs.getTime() <= refTime.getTime()) {
+            nextObs = new Date(nextObs.getTime() + cadenceMinutes * 60 * 1000);
+        }
+
+        return {
+            currentObs,
+            nextObs,
+            minutesToNext: (nextObs.getTime() - refTime.getTime()) / 60000,
+            cadenceMinutes,
+            scheduleMinute: currentObs.getUTCMinutes(),
+            officialAgeMinutes: (refTime.getTime() - currentObsMs) / 60000,
+        };
+    }
+
+    function buildLearningProfileMap(learningMetric) {
+        const rows = [];
+        if (learningMetric && Array.isArray(learningMetric.top_profiles)) {
+            rows.push(...learningMetric.top_profiles);
+        }
+        if (learningMetric && Array.isArray(learningMetric.rank_top_profiles)) {
+            rows.push(...learningMetric.rank_top_profiles);
+        }
+
+        const out = {};
+        for (const row of rows) {
+            const stationId = String(row && row.station_id || '').toUpperCase();
+            if (!stationId) continue;
+            out[stationId] = row;
+        }
+        return out;
+    }
+
+    function leadWindowFactor(leadMinutes, minLeadMinutes, maxLeadMinutes) {
+        if (!Number.isFinite(leadMinutes)) return 0.75;
+        if (leadMinutes < 0) return 0.05;
+        if (leadMinutes < minLeadMinutes) {
+            return clamp(0.35 + (leadMinutes / Math.max(1, minLeadMinutes)) * 0.35, 0.15, 0.7);
+        }
+        if (leadMinutes <= maxLeadMinutes) {
+            const target = minLeadMinutes + ((maxLeadMinutes - minLeadMinutes) * 0.38);
+            const spread = Math.max(8, (maxLeadMinutes - minLeadMinutes) / 2);
+            const distance = Math.abs(leadMinutes - target);
+            return clamp(1.0 - (distance / spread) * 0.22, 0.78, 1.0);
+        }
+        if (leadMinutes <= maxLeadMinutes + 20) return 0.45;
+        return 0.2;
+    }
+
+    function freshnessFactor(ageMinutes) {
+        if (!Number.isFinite(ageMinutes)) return 0.55;
+        if (ageMinutes <= 10) return 1.0;
+        if (ageMinutes <= 20) return 0.94;
+        if (ageMinutes <= 35) return 0.82;
+        if (ageMinutes <= 60) return 0.62;
+        if (ageMinutes <= 90) return 0.32;
+        return 0.14;
+    }
+
+    function spikePenalty(consensusGapC, officialGapC) {
+        const consensusGap = Math.abs(Number(consensusGapC) || 0);
+        const officialGap = Math.abs(Number(officialGapC) || 0);
+        if (consensusGap >= 1.8 && officialGap >= 1.4) return 0.32;
+        if (consensusGap >= 1.2 && officialGap >= 1.0) return 0.52;
+        if (consensusGap >= 0.8) return 0.72;
+        if (consensusGap >= 0.45) return 0.88;
+        return 1.0;
+    }
+
+    function formatMinutesLabel(minutes) {
+        if (!Number.isFinite(minutes)) return '--';
+        if (minutes < 1) return '<1 min';
+        if (minutes < 90) return `${Math.round(minutes)} min`;
+        const hours = Math.floor(minutes / 60);
+        const mins = Math.round(minutes % 60);
+        return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
+    }
+
+    function buildNextMetarProbabilityModel(stationName, details, officialObs, learningMetric, filteredConsensus) {
+        const validRows = (details || []).filter(isPWSRowValidForConsensus);
+        if (validRows.length === 0 || !officialObs || !officialObs.obs_time_utc) {
+            return null;
+        }
+
+        const snapshotUtc = lastSnapshot && lastSnapshot.ts_utc ? lastSnapshot.ts_utc : null;
+        const metarSchedule = computeNominalNextMetar(officialObs.obs_time_utc, snapshotUtc);
+        if (!metarSchedule.nextObs) {
+            return null;
+        }
+
+        const policy = learningMetric && typeof learningMetric.policy === 'object'
+            ? learningMetric.policy
+            : {};
+        const leadWindow = Array.isArray(policy.lead_window_minutes) ? policy.lead_window_minutes : [5, 45];
+        const minLeadMinutes = Number.isFinite(Number(leadWindow[0])) ? Number(leadWindow[0]) : 5;
+        const maxLeadMinutes = Number.isFinite(Number(leadWindow[1])) ? Number(leadWindow[1]) : 45;
+        const officialTempC = numericOrNaN(officialObs.temp_c);
+        const consensusC = filteredConsensus && Number.isFinite(Number(filteredConsensus.weighted_median_c))
+            ? Number(filteredConsensus.weighted_median_c)
+            : (Number.isFinite(officialTempC) ? officialTempC : null);
+        const profileMap = buildLearningProfileMap(learningMetric);
+
+        const contributors = [];
+        let staleCount = 0;
+        let volatileCount = 0;
+        let effectiveWeight = 0;
+        let projectedWeightedC = 0;
+        let weightedSkill = 0;
+        let weightedFreshness = 0;
+        let weightedHitProb = 0;
+
+        for (const row of validRows) {
+            const tempC = numericOrNaN(row.temp_c);
+            if (!Number.isFinite(tempC)) continue;
+
+            const stationId = String(row.station_id || '').toUpperCase();
+            const profile = profileMap[stationId] || {};
+            const predictiveWeight = Number.isFinite(numericOrNaN(row.learning_weight_predictive))
+                ? numericOrNaN(row.learning_weight_predictive)
+                : pwsUiApproxWeight(row);
+            const nextScore = Number.isFinite(numericOrNaN(profile.next_metar_score))
+                ? numericOrNaN(profile.next_metar_score)
+                : numericOrNaN(row.learning_predictive_score);
+            const leadScore = numericOrNaN(row.learning_lead_score);
+            const nowScore = numericOrNaN(row.learning_now_score);
+            const scoreTerms = [];
+            if (Number.isFinite(nextScore)) scoreTerms.push({ value: nextScore / 100, weight: 0.5 });
+            if (Number.isFinite(leadScore)) scoreTerms.push({ value: leadScore / 100, weight: 0.32 });
+            if (Number.isFinite(nowScore)) scoreTerms.push({ value: nowScore / 100, weight: 0.18 });
+            const scoreWeightSum = scoreTerms.reduce((acc, item) => acc + item.weight, 0);
+            const skillFactor = scoreWeightSum > 0
+                ? clamp(scoreTerms.reduce((acc, item) => acc + (item.value * item.weight), 0) / scoreWeightSum, 0.18, 1.0)
+                : 0.45;
+
+            const nowSamples = Number.isFinite(numericOrNaN(row.learning_now_samples))
+                ? numericOrNaN(row.learning_now_samples)
+                : 0;
+            const leadSamples = Number.isFinite(numericOrNaN(row.learning_lead_samples))
+                ? numericOrNaN(row.learning_lead_samples)
+                : 0;
+            const sampleFactor = clamp(
+                0.45 + 0.28 * Math.min(1, nowSamples / 8) + 0.27 * Math.min(1, leadSamples / 6),
+                0.4,
+                1.0
+            );
+
+            const ageMinutes = numericOrNaN(row.age_minutes);
+            if (Number.isFinite(ageMinutes) && ageMinutes >= 60) staleCount += 1;
+            const rowObs = row.obs_time_utc ? new Date(row.obs_time_utc) : null;
+            const leadMinutes = rowObs && !Number.isNaN(rowObs.getTime())
+                ? (metarSchedule.nextObs.getTime() - rowObs.getTime()) / 60000
+                : (Number.isFinite(ageMinutes) && Number.isFinite(metarSchedule.minutesToNext)
+                    ? ageMinutes + metarSchedule.minutesToNext
+                    : NaN);
+            const leadFactor = leadWindowFactor(leadMinutes, minLeadMinutes, maxLeadMinutes);
+            const freshFactor = freshnessFactor(ageMinutes);
+            const sourceFactor = sourceReliabilityFactor(row.source);
+            const distanceFactor = clamp(1 - (numericOrNaN(row.distance_km) / 35), 0.35, 1.0);
+            const baseProjectedC = tempC - (Number.isFinite(numericOrNaN(profile.next_metar_bias_c))
+                ? numericOrNaN(profile.next_metar_bias_c)
+                : 0);
+            const consensusGapC = Number.isFinite(consensusC) ? (baseProjectedC - consensusC) : 0;
+            const officialGapC = Number.isFinite(officialTempC) ? (baseProjectedC - officialTempC) : 0;
+            const stabilityFactor = spikePenalty(consensusGapC, officialGapC);
+            if (stabilityFactor < 0.7) volatileCount += 1;
+            const reversionBlend = clamp(
+                Math.max(0, Math.abs(consensusGapC) - 0.35) * 0.22 + (1 - skillFactor) * 0.18 + (1 - freshFactor) * 0.14,
+                0,
+                0.55
+            );
+            const projectedC = Number.isFinite(consensusC)
+                ? ((baseProjectedC * (1 - reversionBlend)) + (consensusC * reversionBlend))
+                : baseProjectedC;
+            const sigmaC = Number.isFinite(numericOrNaN(profile.next_metar_sigma_c))
+                ? clamp(numericOrNaN(profile.next_metar_sigma_c), 0.18, 1.8)
+                : (Number.isFinite(numericOrNaN(profile.next_metar_mae_c))
+                    ? clamp(numericOrNaN(profile.next_metar_mae_c) * 0.9, 0.22, 1.6)
+                    : 0.7);
+            const hitProbWithin1C = Number.isFinite(numericOrNaN(profile.next_metar_prob_within_1_0_c))
+                ? clamp(numericOrNaN(profile.next_metar_prob_within_1_0_c), 0.05, 1.0)
+                : clamp(0.35 + skillFactor * 0.45, 0.2, 0.8);
+
+            const finalWeight = predictiveWeight
+                * skillFactor
+                * sampleFactor
+                * freshFactor
+                * sourceFactor
+                * distanceFactor
+                * leadFactor
+                * stabilityFactor;
+            if (!Number.isFinite(finalWeight) || finalWeight <= 0.025) continue;
+
+            contributors.push({
+                station_id: stationId || '--',
+                station_name: row.station_name || '',
+                source: row.source || '--',
+                age_minutes: ageMinutes,
+                lead_minutes: leadMinutes,
+                projected_c: projectedC,
+                current_c: tempC,
+                sigma_c: sigmaC,
+                weight: finalWeight,
+                base_weight: predictiveWeight,
+                next_score: nextScore,
+                lead_score: leadScore,
+                now_score: nowScore,
+                hit_prob_within_1_c: hitProbWithin1C,
+                stability_factor: stabilityFactor,
+                freshness_factor: freshFactor,
+                skill_factor: skillFactor,
+                distance_km: numericOrNaN(row.distance_km),
+                is_stale: Number.isFinite(ageMinutes) && ageMinutes >= 60,
+                flags: [
+                    Number.isFinite(ageMinutes) && ageMinutes >= 60 ? `stale ${ageMinutes.toFixed(0)}m` : null,
+                    stabilityFactor < 0.55 ? 'spike risk' : null,
+                    Number.isFinite(leadMinutes) && leadMinutes < minLeadMinutes ? 'too close to next METAR' : null,
+                    Number.isFinite(leadMinutes) && leadMinutes > maxLeadMinutes ? 'too early' : null,
+                ].filter(Boolean),
+            });
+
+            effectiveWeight += finalWeight;
+            projectedWeightedC += projectedC * finalWeight;
+            weightedSkill += skillFactor * finalWeight;
+            weightedFreshness += freshFactor * finalWeight;
+            weightedHitProb += hitProbWithin1C * finalWeight;
+        }
+
+        if (contributors.length === 0 || effectiveWeight <= 0) {
+            return null;
+        }
+
+        const meanProjectedC = projectedWeightedC / effectiveWeight;
+        const avgSkill = weightedSkill / effectiveWeight;
+        const avgFreshness = weightedFreshness / effectiveWeight;
+        const avgHitProbWithin1C = weightedHitProb / effectiveWeight;
+        const marketPredictions = contributors.map(item => convertTempCToMarketUnit(item.projected_c, stationName)).filter(Number.isFinite);
+        const sigmaMarketValues = contributors.map(item => Math.max(0.35, Math.abs(convertDeltaCToMarketUnit(item.sigma_c, stationName) || 0.35)));
+        const minMarket = Math.floor(Math.min(...marketPredictions.map((value, idx) => value - sigmaMarketValues[idx] * 2.5))) - 1;
+        const maxMarket = Math.ceil(Math.max(...marketPredictions.map((value, idx) => value + sigmaMarketValues[idx] * 2.5))) + 1;
+        const bins = [];
+        for (let bucket = minMarket; bucket <= maxMarket; bucket += 1) {
+            bins.push({ bucket, score: 0 });
+        }
+
+        for (const contributor of contributors) {
+            const projectedMarket = convertTempCToMarketUnit(contributor.projected_c, stationName);
+            const sigmaMarket = Math.max(0.4, Math.abs(convertDeltaCToMarketUnit(contributor.sigma_c, stationName) || 0.4));
+            for (const bin of bins) {
+                const z = (bin.bucket - projectedMarket) / sigmaMarket;
+                bin.score += contributor.weight * Math.exp(-0.5 * z * z);
+            }
+        }
+
+        const totalScore = bins.reduce((acc, item) => acc + item.score, 0);
+        const probabilityBins = bins.map(item => ({
+            bucket: item.bucket,
+            probability: totalScore > 0 ? (item.score / totalScore) : 0,
+        })).sort((a, b) => b.probability - a.probability);
+        const topBin = probabilityBins[0];
+        const sortedContributors = [...contributors].sort((a, b) => b.weight - a.weight);
+        const bestPredictive = [...contributors].sort((a, b) => {
+            const aMetric = Number.isFinite(a.next_score) ? a.next_score : (a.skill_factor * 100);
+            const bMetric = Number.isFinite(b.next_score) ? b.next_score : (b.skill_factor * 100);
+            if (aMetric !== bMetric) return bMetric - aMetric;
+            return b.weight - a.weight;
+        })[0];
+        const probabilityMassTop3 = probabilityBins.slice(0, 3).reduce((acc, item) => acc + item.probability, 0);
+        const confidence = clamp(
+            0.34 * clamp(contributors.length / 5, 0, 1)
+            + 0.22 * avgSkill
+            + 0.18 * avgFreshness
+            + 0.18 * clamp((topBin ? topBin.probability : 0) / 0.45, 0, 1)
+            + 0.08 * clamp(probabilityMassTop3 / 0.82, 0, 1)
+            - (staleCount > 0 ? Math.min(0.14, staleCount * 0.04) : 0)
+            - (volatileCount > 0 ? Math.min(0.12, volatileCount * 0.03) : 0),
+            0.12,
+            0.96
+        );
+
+        const notes = [
+            `Bias-corrected blend of ${contributors.length} valid PWS rows with freshness, distance and learning-weight penalties.`,
+            `Preferred lead window ${minLeadMinutes}-${maxLeadMinutes} min before the next official METAR.`,
+        ];
+        if (staleCount > 0) notes.push(`${staleCount} station${staleCount === 1 ? '' : 's'} are older than 1h and were heavily down-weighted.`);
+        if (volatileCount > 0) notes.push(`${volatileCount} station${volatileCount === 1 ? '' : 's'} look like spike/reversion candidates versus the cluster.`);
+        if (Number.isFinite(metarSchedule.officialAgeMinutes) && metarSchedule.officialAgeMinutes > 75) {
+            notes.push('Official METAR anchor is already stale, so the next-cycle timing is less reliable.');
+        }
+
+        return {
+            metarSchedule,
+            contributors: sortedContributors,
+            bestPredictive,
+            topBins: probabilityBins.slice(0, 5),
+            topBin,
+            expectedTempC: meanProjectedC,
+            expectedTempMarket: convertTempCToMarketUnit(meanProjectedC, stationName),
+            supportCount: contributors.length,
+            staleCount,
+            volatileCount,
+            confidence,
+            avgSkill,
+            avgFreshness,
+            avgHitProbWithin1C,
+            notes,
+            effectiveWeight,
+            currentOfficialC: officialTempC,
+            currentConsensusC: consensusC,
+        };
+    }
+
+    function renderNextMetarProbabilities(stationName, details, officialObs, learningMetric, filteredConsensus) {
+        const container = document.getElementById('next-metar-content');
+        const badge = document.getElementById('next-metar-badge');
+        if (!container || !badge) return;
+
+        const model = buildNextMetarProbabilityModel(stationName, details, officialObs, learningMetric, filteredConsensus);
+        if (!model) {
+            badge.textContent = 'NO DATA';
+            badge.className = 'panel-badge badge-no-data';
+            container.innerHTML = '<p style="color: var(--text-muted); font-size: 13px;">Need a live official METAR plus valid PWS rows to estimate the next report.</p>';
+            return;
+        }
+
+        const badgeState = nextMetarBadgeState(model.confidence);
+        badge.textContent = badgeState.text;
+        badge.className = badgeState.className;
+
+        const topBinDisplay = model.topBin ? `${model.topBin.bucket}${tempUnitSymbol(stationName)}` : '--';
+        const nextObsIso = model.metarSchedule.nextObs ? model.metarSchedule.nextObs.toISOString() : null;
+        const expectedDisplay = formatTempFromC(model.expectedTempC, 1, stationName);
+        const currentOfficialDisplay = Number.isFinite(model.currentOfficialC)
+            ? formatTempFromC(model.currentOfficialC, 1, stationName)
+            : '--';
+        const consensusDisplay = Number.isFinite(model.currentConsensusC)
+            ? formatTempFromC(model.currentConsensusC, 1, stationName)
+            : '--';
+        const deltaVsOfficial = Number.isFinite(model.currentOfficialC)
+            ? convertDeltaCToMarketUnit(model.expectedTempC - model.currentOfficialC, stationName)
+            : null;
+        const bestPredictiveScore = model.bestPredictive && Number.isFinite(model.bestPredictive.next_score)
+            ? `${model.bestPredictive.next_score.toFixed(0)} score`
+            : `${(model.bestPredictive ? model.bestPredictive.skill_factor * 100 : 0).toFixed(0)} heuristic`;
+        const topBinsHtml = model.topBins.map(item => `
+            <div class="next-metar-prob-row">
+                <div style="font-family:'JetBrains Mono',monospace; font-weight:600;">${item.bucket}${tempUnitSymbol(stationName)}</div>
+                <div class="next-metar-prob-bar">
+                    <div class="next-metar-prob-fill" style="width:${(item.probability * 100).toFixed(1)}%;"></div>
+                </div>
+                <div style="font-family:'JetBrains Mono',monospace; color:var(--text-secondary);">${(item.probability * 100).toFixed(1)}%</div>
+            </div>
+        `).join('');
+        const noteChipsHtml = [
+            `<span class="next-metar-chip">${model.supportCount} weighted stations</span>`,
+            `<span class="next-metar-chip ${model.staleCount > 0 ? 'warning' : 'good'}">${model.staleCount > 0 ? `${model.staleCount} stale >1h` : 'No stale >1h in model'}</span>`,
+            `<span class="next-metar-chip ${model.volatileCount > 0 ? 'warning' : 'good'}">${model.volatileCount > 0 ? `${model.volatileCount} spike risks` : 'Cluster stable'}</span>`,
+            `<span class="next-metar-chip">Avg p(hit within ±1.0C): ${(model.avgHitProbWithin1C * 100).toFixed(0)}%</span>`,
+        ].join('');
+        const contributorsHtml = model.contributors.slice(0, 6).map(item => `
+            <tr>
+                <td>
+                    <div style="font-family:'JetBrains Mono',monospace; font-weight:600;">${item.station_id}</div>
+                    <div style="font-size:10px; color:var(--text-muted);">${sourceLabel(item.source)}${Number.isFinite(item.distance_km) ? ` | ${item.distance_km.toFixed(1)} km` : ''}</div>
+                </td>
+                <td style="font-family:'JetBrains Mono',monospace;">${formatTempFromC(item.current_c, 1, stationName)}</td>
+                <td style="font-family:'JetBrains Mono',monospace;">${formatTempFromC(item.projected_c, 1, stationName)}</td>
+                <td style="font-family:'JetBrains Mono',monospace;">${Number.isFinite(item.lead_minutes) ? `${item.lead_minutes.toFixed(0)} min` : '--'}</td>
+                <td style="font-family:'JetBrains Mono',monospace;">${(item.weight / model.effectiveWeight * 100).toFixed(0)}%</td>
+                <td style="font-family:'JetBrains Mono',monospace;">${(item.hit_prob_within_1_c * 100).toFixed(0)}%</td>
+                <td style="color:${item.flags.length > 0 ? '#F97316' : 'var(--text-secondary)'};">${item.flags.length > 0 ? item.flags.join(', ') : 'clean'}</td>
+            </tr>
+        `).join('');
+        const notesHtml = model.notes.map(note => `<div style="font-size:11px; color:var(--text-muted); margin-bottom:6px;">${note}</div>`).join('');
+
+        container.innerHTML = `
+            <div class="next-metar-grid">
+                <div class="next-metar-card">
+                    <div class="detail-label">Next Official Slot</div>
+                    <div class="next-metar-card-value">${formatTimeInTz(nextObsIso, localTimeFormatter)}</div>
+                    <div class="next-metar-card-meta">
+                        ES ${formatTimeInTz(nextObsIso, esTimeFormatter)}<br>
+                        Minute anchor :${model.metarSchedule.scheduleMinute != null ? String(model.metarSchedule.scheduleMinute).padStart(2, '0') : '--'} | ${formatMinutesLabel(model.metarSchedule.minutesToNext)}
+                    </div>
+                </div>
+                <div class="next-metar-card">
+                    <div class="detail-label">Expected Next METAR</div>
+                    <div class="next-metar-card-value">${expectedDisplay}</div>
+                    <div class="next-metar-card-meta">
+                        Rounded bucket ${topBinDisplay}<br>
+                        ${deltaVsOfficial != null ? `Δ vs current official ${deltaVsOfficial > 0 ? '+' : ''}${deltaVsOfficial.toFixed(1)}${tempUnitSymbol(stationName)}` : 'No current official comparison'}
+                    </div>
+                </div>
+                <div class="next-metar-card">
+                    <div class="detail-label">Most Likely Bucket</div>
+                    <div class="next-metar-card-value">${model.topBin ? (model.topBin.probability * 100).toFixed(0) : '--'}%</div>
+                    <div class="next-metar-card-meta">
+                        ${topBinDisplay}<br>
+                        Top-3 mass ${(model.topBins.slice(0, 3).reduce((acc, item) => acc + item.probability, 0) * 100).toFixed(0)}%
+                    </div>
+                </div>
+                <div class="next-metar-card">
+                    <div class="detail-label">Best Predictive PWS</div>
+                    <div class="next-metar-card-value">${model.bestPredictive ? model.bestPredictive.station_id : '--'}</div>
+                    <div class="next-metar-card-meta">
+                        ${bestPredictiveScore}<br>
+                        ${(model.bestPredictive ? model.bestPredictive.hit_prob_within_1_c * 100 : 0).toFixed(0)}% within ±1.0C
+                    </div>
+                </div>
+                <div class="next-metar-card">
+                    <div class="detail-label">Current Anchor</div>
+                    <div class="next-metar-card-value">${currentOfficialDisplay}</div>
+                    <div class="next-metar-card-meta">
+                        Filtered PWS consensus ${consensusDisplay}<br>
+                        Avg model skill ${(model.avgSkill * 100).toFixed(0)}%
+                    </div>
+                </div>
+                <div class="next-metar-card">
+                    <div class="detail-label">Model Notes</div>
+                    <div class="next-metar-card-value">${(model.confidence * 100).toFixed(0)}%</div>
+                    <div class="next-metar-card-meta">
+                        Confidence after freshness/spike penalties.<br>
+                        Effective weighted support ${model.effectiveWeight.toFixed(2)}
+                    </div>
+                </div>
+            </div>
+            <div class="next-metar-chip-row">${noteChipsHtml}</div>
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:16px; align-items:start;">
+                <div class="next-metar-card">
+                    <div class="detail-label" style="margin-bottom:10px;">Bucket Probabilities</div>
+                    ${topBinsHtml}
+                    <div style="font-size:10px; color:var(--text-muted); margin-top:8px;">
+                        Heuristic mix of bias-corrected PWS projections. Spiky or stale stations contribute less, not zero.
+                    </div>
+                </div>
+                <div class="next-metar-card">
+                    <div class="detail-label" style="margin-bottom:10px;">Top Contributors</div>
+                    <div style="overflow-x:auto;">
+                        <table class="next-metar-contrib-table">
+                            <thead>
+                                <tr>
+                                    <th>Station</th>
+                                    <th>Now</th>
+                                    <th>Proj next</th>
+                                    <th>Lead</th>
+                                    <th>Mix</th>
+                                    <th>Hit %</th>
+                                    <th>Flags</th>
+                                </tr>
+                            </thead>
+                            <tbody>${contributorsHtml}</tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <div style="margin-top:14px; padding:12px 14px; border-radius:12px; border:1px solid rgba(255,255,255,0.05); background:rgba(255,255,255,0.02);">
+                <div class="detail-label" style="margin-bottom:8px;">Why this estimate moves</div>
+                ${notesHtml}
+            </div>
+        `;
+    }
+
     function renderPWSFilters(rawDetails) {
         const filtersEl = document.getElementById('pws-filters');
         if (!filtersEl) return;
@@ -1927,6 +2484,11 @@
             const rowStyle = r.valid ? '' : 'opacity:0.5; text-decoration:line-through;';
             const statusColor = r.valid ? '#10B981' : '#EF4444';
             const statusText = r.valid ? 'OK' : (r.qc_flag || 'EXCLUDED');
+            const ageMinutes = numericOrNaN(r.age_minutes);
+            const isStalePws = Number.isFinite(ageMinutes) && ageMinutes >= 60;
+            const staleBadge = isStalePws
+                ? `<div style="margin-top:4px; font-size:8px; font-weight:700; color:#F97316;">STALE ${ageMinutes.toFixed(0)}m</div>`
+                : '';
             // Use dynamic timezone formatters for local time
             const localTime = formatTimeInTz(r.obs_time_utc, localTimeFormatter);
             const madTime = formatTimeInTz(r.obs_time_utc, esTimeFormatter);
@@ -1993,7 +2555,7 @@
                         <span style="font-size:9px; padding:2px 6px; border-radius:4px; background:${sourceColor}20; color:${sourceColor}; font-weight:600;" title="${sourceTitle}">${sourceBadge}</span>
                     </td>
                     <td style="padding:5px 4px; font-weight:500;">${r.distance_km.toFixed(1)}km</td>
-                    <td style="padding:5px 4px; font-weight:600; color:#8B5CF6;">${primaryTemp} <span style="color:var(--text-muted); font-size:9px;">(${secondaryTemp})</span></td>
+                    <td style="padding:5px 4px; font-weight:600; color:#8B5CF6;">${primaryTemp} <span style="color:var(--text-muted); font-size:9px;">(${secondaryTemp})</span>${staleBadge}</td>
                     <td style="padding:5px 4px; font-family:'JetBrains Mono',monospace;">
                         ${Number.isFinite(weightVal) ? weightVal.toFixed(2) : '--'}
                         <div style="font-size:8px; color:var(--text-muted);">${qualityBand} | ${learningPhase}</div>
@@ -2041,6 +2603,13 @@
         const filtersEl = document.getElementById('pws-filters');
 
         if (!aux) {
+            if (filtersEl) {
+                filtersEl.innerHTML = '';
+            }
+            container.innerHTML = '<p style="color: var(--text-muted); font-size: 13px;">No PWS cluster data yet. Appears after first prediction cycle.</p>';
+            badge.textContent = 'NO DATA';
+            badge.className = 'panel-badge badge-no-data';
+            renderNextMetarProbabilities(currentStation, [], null, null, null);
             return;
         }
 
@@ -2057,6 +2626,7 @@
             if (filtersEl) {
                 filtersEl.innerHTML = '';
             }
+            renderNextMetarProbabilities(currentStation, [], official && official[stationName], null, null);
             if (badge.textContent !== 'NO DATA') {
                 container.innerHTML = '<p style="color: var(--text-muted); font-size: 13px;">No PWS cluster data for ' + currentStation + ' yet.</p>';
                 badge.textContent = 'NO DATA';
@@ -2068,6 +2638,11 @@
         // Build fingerprint from consensus values to skip re-render if unchanged
         const p = pwsEntries[0][1];
         const metricSig = JSON.stringify((pwsMetrics && pwsMetrics[stationName]) ? pwsMetrics[stationName] : {});
+        const snapshotSig = lastSnapshot && lastSnapshot.ts_utc ? lastSnapshot.ts_utc : '';
+        const officialSig = JSON.stringify((official && official[stationName]) ? {
+            obs_time_utc: official[stationName].obs_time_utc,
+            temp_c: official[stationName].temp_c,
+        } : {});
         const detailSig = (rawDetails || []).map(r => {
             const tempC = Number(r.temp_c);
             const tempSig = Number.isFinite(tempC) ? tempC.toFixed(1) : '--';
@@ -2076,7 +2651,7 @@
             const lSig = Number.isFinite(numericOrNaN(r.learning_lead_score)) ? numericOrNaN(r.learning_lead_score).toFixed(0) : '--';
             return `${r.station_id || ''}|${normalizeSource(r.source)}|${r.valid ? 1 : 0}|${r.qc_flag || ''}|${tempSig}|${r.obs_time_utc || ''}|${wSig}|${nSig}|${lSig}`;
         }).join(';');
-        const fp = `${currentStation}:${p.temp_f}:${p.support}:${p.drift}:${detailSig}:${JSON.stringify(pwsSourceFilters)}:${pwsPresetFilter}:${metricSig}`;
+        const fp = `${currentStation}:${p.temp_f}:${p.support}:${p.drift}:${detailSig}:${JSON.stringify(pwsSourceFilters)}:${pwsPresetFilter}:${metricSig}:${officialSig}:${snapshotSig}`;
         if (fp === lastPWSFingerprint) return;  // Skip re-render
         lastPWSFingerprint = fp;
 
@@ -2265,6 +2840,14 @@
             } else {
                 html += '<p style="color: var(--text-muted); font-size: 13px;">No hay estaciones para los filtros seleccionados.</p>';
             }
+
+            renderNextMetarProbabilities(
+                stationName,
+                filteredDetails,
+                official && official[stationName],
+                learningMetric,
+                filteredConsensus
+            );
 
             html += `</div>`;
         }

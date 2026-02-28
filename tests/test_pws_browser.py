@@ -188,10 +188,15 @@ def test_build_payload_matches_current_and_next_metar(monkeypatch):
     monkeypatch.setattr(pws_browser, "get_pws_learning_store", lambda: _FakeLearningStore())
 
     payload = pws_browser.build_pws_browser_payload(station_id, "2026-02-10")
+    overview = payload["market_overview"]
 
     assert payload["detail_available"] is True
     assert payload["detail_source"] == "recorded_pws_readings"
     assert payload["stats"]["metar_count"] == 2
+    assert overview["detailed_station_count"] == 1
+    assert overview["overall_next_total"] == 2
+    assert overview["overall_next_hits"] == 1
+    assert overview["best_day_station"]["station_id"] == "KNYC001"
 
     station = payload["pws_stations"][0]
     assert station["station_id"] == "KNYC001"

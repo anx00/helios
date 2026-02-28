@@ -359,6 +359,52 @@
         background: rgba(30, 41, 59, 0.56);
     }
 
+    .pws-sort-btn {
+        border: none;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        cursor: pointer;
+        padding: 0;
+    }
+
+    .pws-sort-btn:hover {
+        color: #f8fafc;
+    }
+
+    .pws-pagination {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 14px 18px 0;
+        color: var(--pws-text-muted);
+        font-size: 13px;
+    }
+
+    .pws-pagination-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .pws-page-btn {
+        border: 1px solid rgba(148, 163, 184, 0.24);
+        background: rgba(15, 23, 42, 0.78);
+        color: var(--pws-text-main);
+        border-radius: 10px;
+        padding: 6px 10px;
+        cursor: pointer;
+    }
+
+    .pws-page-btn:disabled {
+        opacity: 0.45;
+        cursor: default;
+    }
+
     .pws-temp {
         font-weight: 700;
         color: #f8fafc;
@@ -551,6 +597,10 @@
     let pwsSelectedStationId = null;
     let pwsHistoryChart = null;
     let pwsLoading = false;
+    let pwsTableSortKey = 'station_time';
+    let pwsTableSortDir = 'desc';
+    let pwsTablePage = 1;
+    const PWS_TABLE_PAGE_SIZE = 72;
 
     function setPwsLoading(isLoading) {
         pwsLoading = Boolean(isLoading);
@@ -616,6 +666,69 @@
         return `${(num * 100).toFixed(0)}%`;
     }
 
+    function getTableSortIndicator(key) {
+        if (pwsTableSortKey !== key) return '';
+        return pwsTableSortDir === 'asc' ? ' ▲' : ' ▼';
+    }
+
+    function onTableSort(key) {
+        if (pwsTableSortKey === key) {
+            pwsTableSortDir = pwsTableSortDir === 'asc' ? 'desc' : 'asc';
+        } else {
+            pwsTableSortKey = key;
+            pwsTableSortDir = (key === 'station_time' || key === 'es_time') ? 'desc' : 'asc';
+        }
+        pwsTablePage = 1;
+        renderStationTable(getSelectedStationObject());
+    }
+
+    function getRowSortValue(row, key) {
+        switch (key) {
+            case 'station_time':
+                return String(row.ts_utc || '');
+            case 'es_time':
+                return String(row.es_time || '');
+            case 'pws_temp':
+                return Number(getMarketUnit() === 'C' ? row.temp_c : row.temp_f);
+            case 'current_metar':
+                return Number(getMarketUnit() === 'C'
+                    ? (((row.current_metar || {}).temp_c))
+                    : (((row.current_metar || {}).temp_f)));
+            case 'next_metar':
+                return Number(getMarketUnit() === 'C'
+                    ? (((row.next_metar || {}).temp_c))
+                    : (((row.next_metar || {}).temp_f)));
+            case 'prediction':
+                if (!row.next_metar_verdict) return Number.NaN;
+                return row.next_metar_verdict.hit ? 1 : 0;
+            default:
+                return String(row.ts_utc || '');
+        }
+    }
+
+    function getSortedTableRows(rows) {
+        const items = Array.isArray(rows) ? [...rows] : [];
+        items.sort((a, b) => {
+            const left = getRowSortValue(a, pwsTableSortKey);
+            const right = getRowSortValue(b, pwsTableSortKey);
+            const leftIsNum = Number.isFinite(left);
+            const rightIsNum = Number.isFinite(right);
+
+            if (leftIsNum && rightIsNum) {
+                return pwsTableSortDir === 'asc' ? left - right : right - left;
+            }
+            if (leftIsNum !== rightIsNum) {
+                return leftIsNum ? -1 : 1;
+            }
+
+            const leftText = String(left || '');
+            const rightText = String(right || '');
+            const cmp = leftText.localeCompare(rightText);
+            return pwsTableSortDir === 'asc' ? cmp : -cmp;
+        });
+        return items;
+    }
+
     function getRenderableStations() {
         const detailed = Array.isArray((pwsBrowserData || {}).pws_stations) ? pwsBrowserData.pws_stations : [];
         if (detailed.length) return detailed;
@@ -626,6 +739,133 @@
     function getSelectedStationObject() {
         const stations = getRenderableStations();
         return stations.find((row) => row.station_id === pwsSelectedStationId) || stations[0] || null;
+    }
+
+    function renderOverviewLeaderboard(overview) {
+        const rows = Array.isArray((overview || {}).leaderboard) ? overview.leaderboard : [];
+        if (!rows.length) {
+            return '<div class="pws-helper-copy">No station leaderboard available for this day.</div>';
+        }
+        return `
+            <div class="pws-table-wrap" style="margin-top:16px;">
+                <table class="pws-table">
+                    <thead>
+                        <tr>
+                            <th>Station</th>
+                            <th>Source</th>
+                            <th>Hit rate</th>
+                            <th>Hits</th>
+                            <th>Next MAE</th>
+                            <th>Score</th>
+                            <th>Distance</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rows.map((row) => `
+                            <tr>
+                                <td>
+                                    <div class="pws-temp">${escapeHtml(row.station_id || '--')}</div>
+                                    <span class="pws-temp-sub">${escapeHtml(row.station_name || '--')}</span>
+                                </td>
+                                <td>${escapeHtml(row.source || '--')}</td>
+                                <td>${escapeHtml(formatProbability(row.next_metar_hit_rate))}</td>
+                                <td>${escapeHtml(`${row.next_metar_hits || 0}/${row.next_metar_total || 0}`)}</td>
+                                <td>${escapeHtml(formatMetric(row.next_metar_mae_c, ' C'))}</td>
+                                <td>${escapeHtml(formatMetric(row.next_metar_score))}</td>
+                                <td>${escapeHtml(formatMetric(row.distance_km, ' km'))}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    }
+
+    function renderMarketOverview() {
+        const overview = (pwsBrowserData || {}).market_overview || {};
+        const market = (pwsBrowserData || {}).market_station || {};
+        const latestWeighted = formatTemp(overview.weighted_median_c, overview.weighted_median_f);
+        const latestMedian = formatTemp(overview.latest_median_c, overview.latest_median_f);
+        const latestMean = formatTemp(overview.latest_mean_c, overview.latest_mean_f);
+        const bestDay = overview.best_day_station || {};
+        const topPredictive = overview.top_predictive_station || {};
+        const bestDayLabel = bestDay.station_id || '--';
+        const topPredictiveLabel = topPredictive.station_id || '--';
+
+        return `
+            <div class="pws-detail-header">
+                <div>
+                    <h2 class="pws-detail-title">${escapeHtml(market.city || market.station_id || '--')} market PWS overview</h2>
+                    <p class="pws-detail-copy">
+                        Generic view for all PWS captured on ${(pwsBrowserData || {}).date || '--'}.
+                        Use the station list to inspect one sensor in detail after this summary.
+                    </p>
+                </div>
+                <div class="pws-badges">
+                    <div class="pws-badge"><span>Detailed PWS</span><strong>${escapeHtml(overview.detailed_station_count || 0)}</strong></div>
+                    <div class="pws-badge"><span>Predictive tracked</span><strong>${escapeHtml(overview.predictive_station_count || 0)}</strong></div>
+                </div>
+            </div>
+
+            <div class="pws-metrics">
+                <div class="pws-metric">
+                    <div class="pws-metric-label">Weighted consensus</div>
+                    <div class="pws-metric-value">${escapeHtml(latestWeighted.main)}</div>
+                    <div class="pws-metric-footnote">${escapeHtml(latestWeighted.sub)} | support ${escapeHtml(overview.latest_snapshot_support || 0)}</div>
+                </div>
+                <div class="pws-metric">
+                    <div class="pws-metric-label">Latest median</div>
+                    <div class="pws-metric-value">${escapeHtml(latestMedian.main)}</div>
+                    <div class="pws-metric-footnote">${escapeHtml(latestMedian.sub)}</div>
+                </div>
+                <div class="pws-metric">
+                    <div class="pws-metric-label">Latest mean</div>
+                    <div class="pws-metric-value">${escapeHtml(latestMean.main)}</div>
+                    <div class="pws-metric-footnote">${escapeHtml(latestMean.sub)}</div>
+                </div>
+                <div class="pws-metric">
+                    <div class="pws-metric-label">Weighted support</div>
+                    <div class="pws-metric-value">${escapeHtml(formatMetric(overview.weighted_support))}</div>
+                    <div class="pws-metric-footnote">Approx current learning weight sum</div>
+                </div>
+                <div class="pws-metric">
+                    <div class="pws-metric-label">Overall hit rate</div>
+                    <div class="pws-metric-value">${escapeHtml(formatProbability(overview.overall_next_hit_rate))}</div>
+                    <div class="pws-metric-footnote">${escapeHtml(`${overview.overall_next_hits || 0}/${overview.overall_next_total || 0}`)} next-METAR verdict rows</div>
+                </div>
+                <div class="pws-metric">
+                    <div class="pws-metric-label">Best day station</div>
+                    <div class="pws-metric-value">${escapeHtml(bestDayLabel)}</div>
+                    <div class="pws-metric-footnote">${escapeHtml(formatProbability(bestDay.next_metar_hit_rate))} | ${escapeHtml(`${bestDay.next_metar_hits || 0}/${bestDay.next_metar_total || 0}`)}</div>
+                </div>
+                <div class="pws-metric">
+                    <div class="pws-metric-label">Best day MAE</div>
+                    <div class="pws-metric-value">${escapeHtml(formatMetric(bestDay.next_metar_mae_c, ' C'))}</div>
+                    <div class="pws-metric-footnote">${escapeHtml(bestDay.source || '--')}</div>
+                </div>
+                <div class="pws-metric">
+                    <div class="pws-metric-label">Top predictive station</div>
+                    <div class="pws-metric-value">${escapeHtml(topPredictiveLabel)}</div>
+                    <div class="pws-metric-footnote">${escapeHtml(topPredictive.source || '--')}</div>
+                </div>
+                <div class="pws-metric">
+                    <div class="pws-metric-label">Top predictive score</div>
+                    <div class="pws-metric-value">${escapeHtml(formatMetric(topPredictive.next_metar_score))}</div>
+                    <div class="pws-metric-footnote">${escapeHtml(formatProbability(topPredictive.next_metar_prob_within_1_0_c))} within +/-1.0C</div>
+                </div>
+                <div class="pws-metric">
+                    <div class="pws-metric-label">Raw updates total</div>
+                    <div class="pws-metric-value">${escapeHtml(overview.raw_updates_total || 0)}</div>
+                    <div class="pws-metric-footnote">All recorded PWS updates</div>
+                </div>
+                <div class="pws-metric">
+                    <div class="pws-metric-label">Table rows total</div>
+                    <div class="pws-metric-value">${escapeHtml(overview.table_rows_total || 0)}</div>
+                    <div class="pws-metric-footnote">Rows after 10 minute throttle</div>
+                </div>
+            </div>
+            ${renderOverviewLeaderboard(overview)}
+        `;
     }
 
     function renderBucketTable(learning) {
@@ -687,6 +927,7 @@
             pwsSelectedStationId = existing
                 ? existing.station_id
                 : (data.selected_pws_station_id || (pwsStations[0] && pwsStations[0].station_id) || null);
+            pwsTablePage = 1;
             renderPwsBrowser();
         } catch (error) {
             console.error('PWS browser load failed:', error);
@@ -818,6 +1059,7 @@
         listEl.querySelectorAll('[data-pws-station-id]').forEach((button) => {
             button.addEventListener('click', () => {
                 pwsSelectedStationId = button.getAttribute('data-pws-station-id');
+                pwsTablePage = 1;
                 renderStationList();
                 renderStationDetail();
             });
@@ -830,7 +1072,8 @@
         const station = getSelectedStationObject();
 
         if (!station) {
-            detail.innerHTML = '<div class="pws-empty">No station detail available for this day.</div>';
+            const overview = renderMarketOverview();
+            detail.innerHTML = `${overview}<div class="pws-helper-copy">No station detail available for this day.</div>`;
             tableSlot.innerHTML = '<div class="pws-empty">No rows to compare.</div>';
             destroyPwsChart();
             return;
@@ -862,6 +1105,8 @@
             : null;
 
         detail.innerHTML = `
+            ${renderMarketOverview()}
+            <div class="pws-helper-copy">Selected PWS station detail.</div>
             <div class="pws-detail-header">
                 <div>
                     <h2 class="pws-detail-title">${escapeHtml(station.station_name || station.station_id)}, ${escapeHtml(station.city || '--')}</h2>
@@ -1060,22 +1305,66 @@
             return;
         }
 
+        const sortedRows = getSortedTableRows(rows);
+        const totalRows = sortedRows.length;
+        const pageCount = Math.max(1, Math.ceil(totalRows / PWS_TABLE_PAGE_SIZE));
+        if (pwsTablePage > pageCount) {
+            pwsTablePage = pageCount;
+        }
+        const startIndex = (pwsTablePage - 1) * PWS_TABLE_PAGE_SIZE;
+        const pageRows = sortedRows.slice(startIndex, startIndex + PWS_TABLE_PAGE_SIZE);
+
         tableSlot.innerHTML = `
             <table class="pws-table">
                 <thead>
                     <tr>
-                        <th>Station time</th>
-                        <th>ES time</th>
-                        <th>PWS temp</th>
-                        <th>Current METAR</th>
-                        <th>Next METAR</th>
-                        <th>Prediction</th>
+                        <th>${renderSortButton('station_time', 'Station time')}</th>
+                        <th>${renderSortButton('es_time', 'ES time')}</th>
+                        <th>${renderSortButton('pws_temp', 'PWS temp')}</th>
+                        <th>${renderSortButton('current_metar', 'Current METAR')}</th>
+                        <th>${renderSortButton('next_metar', 'Next METAR')}</th>
+                        <th>${renderSortButton('prediction', 'Prediction')}</th>
                     </tr>
                 </thead>
                 <tbody>
-                    ${rows.map((row) => renderTableRow(row)).join('')}
+                    ${pageRows.map((row) => renderTableRow(row)).join('')}
                 </tbody>
             </table>
+            ${renderTablePagination(totalRows, pageCount, startIndex, pageRows.length)}
+        `;
+
+        tableSlot.querySelectorAll('[data-pws-sort-key]').forEach((button) => {
+            button.addEventListener('click', () => onTableSort(button.getAttribute('data-pws-sort-key')));
+        });
+        tableSlot.querySelectorAll('[data-pws-page]').forEach((button) => {
+            button.addEventListener('click', () => {
+                const nextPage = Number(button.getAttribute('data-pws-page'));
+                if (!Number.isFinite(nextPage)) return;
+                pwsTablePage = Math.max(1, Math.min(pageCount, nextPage));
+                renderStationTable(station);
+            });
+        });
+    }
+
+    function renderSortButton(key, label) {
+        return `<button type="button" class="pws-sort-btn" data-pws-sort-key="${escapeHtml(key)}">${escapeHtml(label)}${escapeHtml(getTableSortIndicator(key))}</button>`;
+    }
+
+    function renderTablePagination(totalRows, pageCount, startIndex, pageSize) {
+        if (pageCount <= 1) {
+            return `<div class="pws-pagination"><span>Showing ${totalRows} rows for the selected day.</span></div>`;
+        }
+        const shownFrom = startIndex + 1;
+        const shownTo = startIndex + pageSize;
+        return `
+            <div class="pws-pagination">
+                <span>Showing ${shownFrom}-${shownTo} of ${totalRows} rows for the selected day.</span>
+                <div class="pws-pagination-actions">
+                    <button type="button" class="pws-page-btn" data-pws-page="${pwsTablePage - 1}" ${pwsTablePage <= 1 ? 'disabled' : ''}>Prev</button>
+                    <span>Page ${pwsTablePage} / ${pageCount}</span>
+                    <button type="button" class="pws-page-btn" data-pws-page="${pwsTablePage + 1}" ${pwsTablePage >= pageCount ? 'disabled' : ''}>Next</button>
+                </div>
+            </div>
         `;
     }
 
