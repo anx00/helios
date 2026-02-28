@@ -2124,6 +2124,7 @@
             metarSchedule,
             contributors: sortedContributors,
             bestPredictive,
+            probabilityBins,
             topBins: probabilityBins.slice(0, 5),
             topBin,
             expectedTempC: meanProjectedC,
@@ -2171,6 +2172,21 @@
         const deltaVsOfficial = Number.isFinite(model.currentOfficialC)
             ? convertDeltaCToMarketUnit(model.expectedTempC - model.currentOfficialC, stationName)
             : null;
+        const topCoverageBins = [];
+        let topCoverageMass = 0;
+        for (const item of model.probabilityBins || []) {
+            if (topCoverageBins.length >= 4 || topCoverageMass >= 0.6) break;
+            topCoverageBins.push(item);
+            topCoverageMass += item.probability;
+        }
+        const sortedCoverageBins = [...topCoverageBins].sort((a, b) => a.bucket - b.bucket);
+        const rangeMin = sortedCoverageBins.length > 0 ? sortedCoverageBins[0].bucket : null;
+        const rangeMax = sortedCoverageBins.length > 0 ? sortedCoverageBins[sortedCoverageBins.length - 1].bucket : null;
+        const likelyRangeDisplay = rangeMin == null
+            ? '--'
+            : (rangeMin === rangeMax
+                ? `${rangeMin}${tempUnitSymbol(stationName)}`
+                : `${rangeMin}-${rangeMax}${tempUnitSymbol(stationName)}`);
         const bestPredictiveScore = model.bestPredictive && Number.isFinite(model.bestPredictive.next_score)
             ? `${model.bestPredictive.next_score.toFixed(0)} score`
             : `${(model.bestPredictive ? model.bestPredictive.skill_factor * 100 : 0).toFixed(0)} heuristic`;
@@ -2216,19 +2232,27 @@
                     </div>
                 </div>
                 <div class="next-metar-card">
-                    <div class="detail-label">Expected Next METAR</div>
-                    <div class="next-metar-card-value">${expectedDisplay}</div>
+                    <div class="detail-label">Estimated Next METAR</div>
+                    <div class="next-metar-card-value">${topBinDisplay}</div>
                     <div class="next-metar-card-meta">
-                        Rounded bucket ${topBinDisplay}<br>
+                        Most likely single bucket (${model.topBin ? (model.topBin.probability * 100).toFixed(0) : '--'}%)<br>
+                        Scenario center ${expectedDisplay}
+                    </div>
+                </div>
+                <div class="next-metar-card">
+                    <div class="detail-label">Likely Range</div>
+                    <div class="next-metar-card-value">${likelyRangeDisplay}</div>
+                    <div class="next-metar-card-meta">
+                        Covers ${(topCoverageMass * 100).toFixed(0)}% of the strongest scenarios<br>
                         ${deltaVsOfficial != null ? `Δ vs current official ${deltaVsOfficial > 0 ? '+' : ''}${deltaVsOfficial.toFixed(1)}${tempUnitSymbol(stationName)}` : 'No current official comparison'}
                     </div>
                 </div>
                 <div class="next-metar-card">
-                    <div class="detail-label">Most Likely Bucket</div>
-                    <div class="next-metar-card-value">${model.topBin ? (model.topBin.probability * 100).toFixed(0) : '--'}%</div>
+                    <div class="detail-label">Confidence</div>
+                    <div class="next-metar-card-value">${(model.confidence * 100).toFixed(0)}%</div>
                     <div class="next-metar-card-meta">
-                        ${topBinDisplay}<br>
-                        Top-3 mass ${(model.topBins.slice(0, 3).reduce((acc, item) => acc + item.probability, 0) * 100).toFixed(0)}%
+                        Top-3 mass ${(model.topBins.slice(0, 3).reduce((acc, item) => acc + item.probability, 0) * 100).toFixed(0)}%<br>
+                        Lower when stations are stale or spiky
                     </div>
                 </div>
                 <div class="next-metar-card">
@@ -2248,10 +2272,10 @@
                     </div>
                 </div>
                 <div class="next-metar-card">
-                    <div class="detail-label">Model Notes</div>
-                    <div class="next-metar-card-value">${(model.confidence * 100).toFixed(0)}%</div>
+                    <div class="detail-label">Historical Hit Rate</div>
+                    <div class="next-metar-card-value">${(model.avgHitProbWithin1C * 100).toFixed(0)}%</div>
                     <div class="next-metar-card-meta">
-                        Confidence after freshness/spike penalties.<br>
+                        Avg probability of landing within ±1.0C<br>
                         Effective weighted support ${model.effectiveWeight.toFixed(2)}
                     </div>
                 </div>
