@@ -765,6 +765,10 @@ def _trade_policy_reason(
         return "Late upside chase after the expected heat peak."
     if "next_official_down" in reasons:
         return "Next official print is leaning down, so upside chase is blocked."
+    if "too_far_from_top_bucket" in reasons:
+        return "This bucket sits too far from the forecast winner for live trading."
+    if "top_bucket_better_priced" in reasons:
+        return "The forecast winner already offers a better or similar price."
     if "tail_too_small" in reasons:
         return "Probability is too small for automatic trading."
     if "too_expensive" in reasons:
@@ -786,6 +790,7 @@ def _trade_policy_thesis(
     next_direction: str,
     market_ceiling: Optional[int],
     market_unit: str,
+    distance_from_top: Optional[int],
 ) -> str:
     if side == "NO":
         if top_label and label == top_label and selected_fair is not None:
@@ -794,6 +799,10 @@ def _trade_policy_thesis(
 
     if top_label and label == top_label:
         return f"{label} is still the main scenario."
+    if top_label and distance_from_top == 1:
+        return f"{label} is one step away from {top_label}, but discounted enough to buy."
+    if top_label:
+        return f"{label} is less likely than {top_label}, but discounted enough to buy."
     if target_day == 0 and next_direction == "UP":
         return "Still reachable if the next official print comes in hotter."
     if target_day == 0 and market_ceiling is not None:
@@ -826,6 +835,8 @@ def _evaluate_trade_policy(
     market_ceiling = _round_half_up(terminal_model.get("market_ceiling"))
     official_rounded = _round_half_up(official_market)
     lower_bound, _ = _label_market_bounds(label)
+    distance_from_top = _round_half_up(row.get("distance_from_top"))
+    top_bucket_yes_edge = _safe_float(row.get("top_bucket_yes_edge"))
 
     current_hour = _safe_float(terminal_model.get("current_hour"))
     peak_hour = _safe_float(terminal_model.get("peak_hour"))
@@ -840,8 +851,15 @@ def _evaluate_trade_policy(
     min_edge = 0.025 if tactical else 0.03
     if side == "YES":
         min_fair = 0.15 if int(target_day) == 0 else 0.10
-        if int(target_day) == 0 and label != top_label:
-            min_edge += 0.005
+        if label != top_label:
+            if distance_from_top == 1:
+                min_edge += 0.015
+                min_fair += 0.02
+            elif distance_from_top is not None and distance_from_top >= 2:
+                min_edge += 0.03
+                min_fair += 0.05
+            elif int(target_day) == 0:
+                min_edge += 0.01
     else:
         min_fair = 0.18 if int(target_day) == 0 else 0.12
 
@@ -876,6 +894,15 @@ def _evaluate_trade_policy(
     elif chasing_upside and near_peak and next_direction == "DOWN":
         reasons.append("next_official_down")
 
+    if side == "YES" and top_label and label != top_label and edge is not None:
+        lead_over_top = edge - max(0.0, top_bucket_yes_edge or 0.0)
+        if distance_from_top == 1 and lead_over_top < 0.04:
+            reasons.append("top_bucket_better_priced")
+        elif distance_from_top is not None and distance_from_top >= 2:
+            if lead_over_top < 0.08:
+                reasons.append("top_bucket_better_priced")
+            reasons.append("too_far_from_top_bucket")
+
     allowed = len(reasons) == 0
     selected_edge_points = (edge or 0.0) * 100.0
     policy_score = -1.0
@@ -894,6 +921,7 @@ def _evaluate_trade_policy(
             next_direction=next_direction,
             market_ceiling=market_ceiling,
             market_unit=market_unit,
+            distance_from_top=distance_from_top,
         ) if allowed else _trade_policy_reason(
             reasons=reasons,
             label=label,
@@ -1169,12 +1197,24 @@ def build_trading_signal(
     top_label_complement_prob = (1.0 - float(top_label_prob)) if top_label_prob is not None else None
 
     expected_label, _ = label_for_temp(float(terminal_model["mean_market"]), ordered_labels)
+    label_positions = {label: idx for idx, label in enumerate(ordered_labels)}
+    top_label_position = label_positions.get(top_label) if top_label else None
+    top_bucket_row = next((row for row in opportunities if row.get("label") == top_label), None)
+    top_bucket_yes_edge = _safe_float(top_bucket_row.get("edge_yes")) if isinstance(top_bucket_row, dict) else None
 
     terminal_ranked: List[Dict[str, Any]] = []
     tactical_ranked: List[Dict[str, Any]] = []
     blocked_terminal_count = 0
     blocked_tactical_count = 0
     for row in opportunities:
+        row_label = str(row.get("label") or "")
+        row_position = label_positions.get(row_label)
+        row["distance_from_top"] = (
+            abs(int(row_position) - int(top_label_position))
+            if row_position is not None and top_label_position is not None
+            else None
+        )
+        row["top_bucket_yes_edge"] = round(float(top_bucket_yes_edge), 6) if top_bucket_yes_edge is not None else None
         terminal_policy = _evaluate_trade_policy(
             row=row,
             target_day=target_day,
@@ -1279,6 +1319,14 @@ def build_trading_signal(
             else "No trade passes the live policy right now"
         ),
     }
+    forecast_winner = None
+    if isinstance(top_bucket_row, dict):
+        forecast_winner = {
+            "label": top_label,
+            "model_probability": round(float(top_bucket_row.get("fair_yes") or 0.0), 6),
+            "market_probability": round(float(top_bucket_row.get("yes_entry")), 6) if top_bucket_row.get("yes_entry") is not None else None,
+            "edge_points": round(float((top_bucket_row.get("edge_yes") or 0.0) * 100.0), 4),
+        }
 
     return {
         "available": True,
@@ -1307,6 +1355,7 @@ def build_trading_signal(
                 for row in top_labels[:5]
             ],
         },
+        "forecast_winner": forecast_winner,
         "best_terminal_trade": best_terminal_trade,
         "best_tactical_trade": best_tactical_trade,
         "all_terminal_opportunities": opportunities,

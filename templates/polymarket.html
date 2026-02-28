@@ -991,9 +991,13 @@
         const nextMetar = tacticalContext.next_metar || null;
         const tactical = trading.best_tactical_trade || null;
         const policy = trading.policy || {};
+        const forecast = trading.forecast_winner || null;
         const unit = trading.market_unit || 'F';
         const topBucket = model.top_label || model.expected_label || '--';
         const topBucketProb = Number(model.top_label_probability);
+        const forecastMarket = forecast ? forecast.market_probability : null;
+        const forecastFair = forecast ? forecast.model_probability : topBucketProb;
+        const forecastEdgePts = forecast ? forecast.edge_points : null;
         const terminalMarket = terminal ? (terminal.selected_entry ?? (terminal.best_side === 'YES' ? terminal.yes_entry : terminal.no_entry)) : null;
         const terminalFair = terminal ? (terminal.selected_fair ?? (terminal.best_side === 'YES' ? terminal.fair_yes : terminal.fair_no)) : null;
         const terminalEdgePts = terminal ? (terminal.edge_points ?? (Number(terminal.best_edge) * 100.0)) : null;
@@ -1016,6 +1020,9 @@
         const nextMetarSummary = nextMetar
             ? `${nextMetar.direction === 'FLAT' ? 'flat' : nextMetar.direction.toLowerCase()} ${signedTempDeltaLabel(nextMetar.delta_market, unit, 1)}`
             : '--';
+        const forecastVsValue = terminal && topBucket !== '--' && terminal.best_side === 'YES' && terminal.label !== topBucket
+            ? `${topBucket} is still the forecast winner, but it is priced at ${pct(forecastMarket)} versus ${pct(forecastFair)} model. ${terminal.label} is less likely, but cheaper at ${pct(terminalMarket)} versus ${pct(terminalFair)} model.`
+            : '';
         const rationale = terminal
             ? (terminal.policy_reason || 'This idea passes the live trading policy.')
             : (policy.headline || 'No trade passes the live policy right now.');
@@ -1026,19 +1033,19 @@
 
         grid.innerHTML = `
             <div class="pm-trade-card">
-                <div class="pm-trade-label">Most Likely Max</div>
+                <div class="pm-trade-label">Forecast Winner</div>
                 <div class="pm-trade-main">${topBucket}</div>
                 <div class="pm-trade-sub">
-                    ${pct(topBucketProb)} chance<br>
-                    Model mean ${marketTempLabel(model.mean, unit, 1)}
+                    Model ${pct(forecastFair)}<br>
+                    Market ${pct(forecastMarket)} ${forecastEdgePts !== null ? `(${signedPointsLabel(forecastEdgePts)})` : ''}
                 </div>
             </div>
             <div class="pm-trade-card ${terminalClass}">
-                <div class="pm-trade-label">Best Buy Now</div>
+                <div class="pm-trade-label">Best Value Bet</div>
                 <div class="pm-trade-main">${bestTradeLabel}</div>
                 <div class="pm-trade-sub">
                     Market ${terminal ? pct(terminalMarket) : '--'}<br>
-                    Model ${terminal ? pct(terminalFair) : '--'}
+                    Model ${terminal ? pct(terminalFair) : '--'} ${terminal ? `(${signedPointsLabel(terminalEdgePts)})` : ''}
                 </div>
             </div>
             <div class="pm-trade-card ${nextMetar && nextMetar.direction !== 'FLAT' ? 'good' : ''}">
@@ -1066,6 +1073,7 @@
                 <div style="margin-top:14px; padding:12px 14px; border-radius:12px; border:1px solid rgba(255,255,255,0.06); background:rgba(255,255,255,0.02); color:var(--text-secondary); font-size:12px; line-height:1.5;">
                     <div class="pm-trade-label" style="margin-bottom:8px;">Why</div>
                     ${rationale}
+                    ${forecastVsValue ? `<div style="margin-top:8px;">${forecastVsValue}</div>` : ''}
                     ${filteredNote ? `<div style="margin-top:8px;">${filteredNote}</div>` : ''}
                 </div>
             `;
@@ -1106,6 +1114,7 @@
             <div style="margin-top:14px; padding:12px 14px; border-radius:12px; border:1px solid rgba(255,255,255,0.06); background:rgba(255,255,255,0.02); color:var(--text-secondary); font-size:12px; line-height:1.5;">
                 <div class="pm-trade-label" style="margin-bottom:8px;">Why</div>
                 ${rationale}
+                ${forecastVsValue ? `<div style="margin-top:8px;">${forecastVsValue}</div>` : ''}
                 ${filteredNote ? `<div style="margin-top:8px;">${filteredNote}</div>` : ''}
             </div>
         `;

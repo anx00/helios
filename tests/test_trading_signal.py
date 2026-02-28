@@ -225,3 +225,34 @@ def test_build_trading_signal_blocks_late_upside_chase_after_peak():
     assert "late_upside_chase" in row_15["terminal_policy"]["reasons"]
     assert signal["best_terminal_trade"]["label"].startswith("14")
     assert signal["best_terminal_trade"]["best_side"] == "NO"
+
+
+def test_build_trading_signal_prefers_forecast_winner_when_secondary_yes_lacks_clear_edge_lead():
+    signal = build_trading_signal(
+        station_id="KATL",
+        target_day=0,
+        target_date="2026-02-28",
+        brackets=[
+            {"name": "66-67 F", "yes_price": 0.22, "no_price": 0.78, "ws_yes_best_ask": 0.23, "ws_no_best_ask": 0.80},
+            {"name": "68-69 F", "yes_price": 0.27, "no_price": 0.73, "ws_yes_best_ask": 0.28, "ws_no_best_ask": 0.75},
+            {"name": "70-71 F", "yes_price": 0.22, "no_price": 0.78, "ws_yes_best_ask": 0.23, "ws_no_best_ask": 0.81},
+            {"name": "72 F or higher", "yes_price": 0.10, "no_price": 0.90, "ws_yes_best_ask": 0.11, "ws_no_best_ask": 0.92},
+        ],
+        nowcast_distribution={
+            "tmax_mean_f": 68.9,
+            "tmax_sigma_f": 1.15,
+            "confidence": 0.86,
+            "t_peak_expected_hour": 15,
+        },
+        nowcast_state={"max_so_far_raw_f": 64.1},
+        official={"temp_c": 11.8, "obs_time_utc": "2026-02-28T16:00:00Z"},
+        reference_utc=datetime(2026, 2, 28, 16, 10, tzinfo=UTC),
+    )
+
+    row_70 = _row_by_prefix(signal["all_terminal_opportunities"], "70-71")
+
+    assert signal["forecast_winner"]["label"].startswith("68-69")
+    assert signal["best_terminal_trade"]["label"].startswith("68-69")
+    assert signal["best_terminal_trade"]["best_side"] == "YES"
+    assert row_70["terminal_policy"]["allowed"] is False
+    assert "top_bucket_better_priced" in row_70["terminal_policy"]["reasons"]
