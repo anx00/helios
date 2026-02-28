@@ -1,7 +1,7 @@
 """
 Utilities for Polymarket temperature bracket labels.
 
-Canonical formats:
+Canonical Fahrenheit formats:
 - "33-34°F"
 - "28°F or below"
 - "39°F or higher"
@@ -10,24 +10,30 @@ Canonical formats:
 from __future__ import annotations
 
 import re
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Iterable, List, Optional, Tuple
 
 _DEGREE_F = "°F"
+_DEGREE_C = "°C"
 _RE_NUMBER = re.compile(r"-?\d+")
+_RE_DECIMAL = re.compile(r"-?\d+(?:\.\d+)?")
 
 
 def _clean_label(label: str) -> str:
     if label is None:
         return ""
-    # Normalize degree symbol artifacts and whitespace
     cleaned = str(label).strip()
+    cleaned = cleaned.replace("Ã‚Â°", "°")
+    cleaned = cleaned.replace("Â°F", "°F")
+    cleaned = cleaned.replace("Â°C", "°C")
     cleaned = cleaned.replace("Â°", "°")
+    cleaned = cleaned.replace("º", "°")
     cleaned = re.sub(r"\s+", " ", cleaned)
     return cleaned
 
 
 def _extract_number(label: str) -> Optional[int]:
-    match = _RE_NUMBER.search(label)
+    match = _RE_NUMBER.search(_clean_label(label))
     if not match:
         return None
     try:
@@ -36,16 +42,54 @@ def _extract_number(label: str) -> Optional[int]:
         return None
 
 
+def _contains_celsius(label: str) -> bool:
+    lower = _clean_label(label).lower()
+    return ("°c" in lower) or bool(re.search(r"\bc\b", lower))
+
+
+def _format_suffix(unit: str) -> str:
+    return _DEGREE_C if str(unit).upper() == "C" else _DEGREE_F
+
+
+def _format_range_label_for_unit(low: int, high: int, unit: str) -> str:
+    return f"{int(low)}-{int(high)}{_format_suffix(unit)}"
+
+
+def _format_below_label_for_unit(threshold: int, unit: str) -> str:
+    return f"{int(threshold)}{_format_suffix(unit)} or below"
+
+
+def _format_above_label_for_unit(threshold: int, unit: str) -> str:
+    return f"{int(threshold)}{_format_suffix(unit)} or higher"
+
+
+def _extract_range_bounds(label: str) -> Optional[Tuple[int, int]]:
+    cleaned = _clean_label(label)
+    match = re.match(r"^\s*(-?\d+(?:\.\d+)?)\s*-\s*(-?\d+(?:\.\d+)?)", cleaned)
+    if not match:
+        return None
+    try:
+        low = int(round(float(match.group(1))))
+        high = int(round(float(match.group(2))))
+    except ValueError:
+        return None
+    return (low, high)
+
+
+def _round_half_up(value: float) -> int:
+    return int(Decimal(str(value)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+
+
 def format_range_label(low: int, high: int) -> str:
-    return f"{int(low)}-{int(high)}{_DEGREE_F}"
+    return _format_range_label_for_unit(low, high, "F")
 
 
 def format_below_label(threshold: int) -> str:
-    return f"{int(threshold)}{_DEGREE_F} or below"
+    return _format_below_label_for_unit(threshold, "F")
 
 
 def format_above_label(threshold: int) -> str:
-    return f"{int(threshold)}{_DEGREE_F} or higher"
+    return _format_above_label_for_unit(threshold, "F")
 
 
 def normalize_label(label: str) -> str:
@@ -57,41 +101,32 @@ def normalize_label(label: str) -> str:
 
     s = _clean_label(label)
     lower = s.lower()
+    unit = "C" if _contains_celsius(s) else "F"
 
     if lower.startswith("<"):
         num = _extract_number(s)
-        return format_below_label(num) if num is not None else s
+        return _format_below_label_for_unit(num, unit) if num is not None else s
 
-    if lower.startswith(">") or lower.startswith("≥"):
+    if lower.startswith(">") or lower.startswith("≥") or lower.startswith("â‰¥"):
         num = _extract_number(s)
-        return format_above_label(num) if num is not None else s
+        return _format_above_label_for_unit(num, unit) if num is not None else s
 
     if "or below" in lower:
         num = _extract_number(s)
-        return format_below_label(num) if num is not None else s
+        return _format_below_label_for_unit(num, unit) if num is not None else s
 
     if "or higher" in lower or "or above" in lower:
         num = _extract_number(s)
-        return format_above_label(num) if num is not None else s
+        return _format_above_label_for_unit(num, unit) if num is not None else s
 
-    # Range format "XX-YY°F"
-    if "-" in s:
-        clean = s.replace("°F", "").replace("°", "")
-        parts = clean.split("-")
-        if len(parts) == 2:
-            try:
-                low = int(round(float(parts[0].strip())))
-                high = int(round(float(parts[1].strip())))
-                return format_range_label(low, high)
-            except ValueError:
-                return s
+    bounds = _extract_range_bounds(s)
+    if bounds is not None:
+        low, high = bounds
+        return _format_range_label_for_unit(low, high, unit)
 
-    # Single value "48°F" (keep as-is but normalized)
     num = _extract_number(s)
     if num is not None:
-        if "°" in s or "f" in lower:
-            return f"{num}{_DEGREE_F}"
-        return f"{num}{_DEGREE_F}"
+        return f"{num}{_format_suffix(unit)}"
 
     return s
 
@@ -117,16 +152,10 @@ def parse_label(label: str) -> Tuple[str, Optional[int], Optional[int]]:
         num = _extract_number(s)
         return ("above", num, None)
 
-    if "-" in s:
-        clean = s.replace("°F", "").replace("°", "")
-        parts = clean.split("-")
-        if len(parts) == 2:
-            try:
-                low = int(round(float(parts[0].strip())))
-                high = int(round(float(parts[1].strip())))
-                return ("range", low, high)
-            except ValueError:
-                return ("unknown", None, None)
+    bounds = _extract_range_bounds(s)
+    if bounds is not None:
+        low, high = bounds
+        return ("range", low, high)
 
     num = _extract_number(s)
     if num is not None:
@@ -139,6 +168,7 @@ def sort_labels(labels: Iterable[str]) -> List[str]:
     """
     Sort Polymarket labels in ascending temperature order.
     """
+
     def sort_key(label: str) -> Tuple[int, int]:
         kind, low, high = parse_label(label)
         if kind == "below":
@@ -159,7 +189,7 @@ def label_for_temp(temp_f: float, labels: Iterable[str]) -> Tuple[Optional[str],
     if temp_f is None:
         return (None, None)
 
-    temp_int = int(round(temp_f))
+    temp_int = _round_half_up(float(temp_f))
     ordered = sort_labels(labels)
     for idx, label in enumerate(ordered):
         kind, low, high = parse_label(label)
@@ -213,11 +243,7 @@ def normalize_market_snapshot(snapshot: dict) -> dict:
         if isinstance(key, str) and key.startswith("__"):
             normalized[key] = value
             continue
-        if isinstance(key, str):
-            norm_key = normalize_label(key)
-        else:
-            norm_key = key
-        # If collision occurs, prefer the first seen
+        norm_key = normalize_label(key) if isinstance(key, str) else key
         if norm_key not in normalized:
             normalized[norm_key] = value
     return normalized

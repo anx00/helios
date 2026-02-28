@@ -1,4 +1,8 @@
 import pytest
+from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core.polymarket_labels import (
     normalize_label,
@@ -26,6 +30,13 @@ def test_parse_label():
     assert parse_label(f"28{deg}F or below") == ("below", None, 28)
     assert parse_label(f"39{deg}F or higher") == ("above", 39, None)
     assert parse_label("40°F") == ("single", 40, 40)
+
+
+def test_celsius_labels_are_supported():
+    deg = "\u00b0"
+    assert normalize_label(f"9-10{deg}C") == f"9-10{deg}C"
+    assert parse_label(f"11{deg}C or higher") == ("above", 11, None)
+    assert parse_label(f"8{deg}C or below") == ("below", None, 8)
 
 
 def test_label_for_temp():

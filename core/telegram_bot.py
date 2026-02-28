@@ -14,12 +14,19 @@ import aiohttp
 from collector.metar_fetcher import fetch_metar_history, fetch_metar_race
 from collector.pws_fetcher import fetch_and_publish_pws
 from config import STATIONS, get_polymarket_temp_unit
+from core.trading_signal import (
+    build_trading_signal,
+    compute_nominal_next_metar as _shared_compute_nominal_next_metar,
+    estimate_next_metar_c as _shared_estimate_next_metar_c,
+)
 from core.world import get_world
 from database import (
     get_latest_prediction,
     get_latest_prediction_for_date,
     is_telegram_station_subscription_enabled,
 )
+from market.discovery import fetch_event_for_station_date
+from market.polymarket_checker import build_event_slug, fetch_event_data
 
 logger = logging.getLogger("telegram_bot")
 _LIVE_TELEGRAM_BOT: Optional["HeliosTelegramBot"] = None
@@ -87,6 +94,17 @@ def _fmt_station_temp_from_c(value_c: Any, station_id: str, decimals: int = 1) -
     if unit == "C":
         return _fmt(value_c, decimals, "C")
     return _fmt(_c_to_f(value_c), decimals, "F")
+
+
+def _fmt_market_temp(value: Any, station_id: str, decimals: int = 1) -> str:
+    return _fmt(value, decimals, _station_temp_unit(station_id))
+
+
+def _fmt_prob_pct(value: Any, decimals: int = 0) -> str:
+    num = _safe_float(value)
+    if num is None:
+        return "n/a"
+    return f"{num * 100:.{decimals}f}%"
 
 
 def _mean(values: Iterable[Any]) -> Optional[float]:
@@ -206,26 +224,10 @@ def _compute_nominal_next_metar(
     official_obs_utc: Optional[datetime],
     reference_utc: Optional[datetime] = None,
 ) -> Dict[str, Optional[Any]]:
-    if official_obs_utc is None:
-        return {
-            "current_obs": None,
-            "next_obs": None,
-            "minutes_to_next": None,
-            "schedule_minute": None,
-        }
-
-    current_obs = official_obs_utc.astimezone(ZoneInfo("UTC"))
-    reference = (reference_utc or datetime.now(ZoneInfo("UTC"))).astimezone(ZoneInfo("UTC"))
-    next_obs = current_obs.replace(second=0, microsecond=0)
-    while next_obs <= reference:
-        next_obs = next_obs.replace(second=0, microsecond=0) + timedelta(minutes=60)
-
-    return {
-        "current_obs": current_obs,
-        "next_obs": next_obs,
-        "minutes_to_next": max(0.0, (next_obs - reference).total_seconds() / 60.0),
-        "schedule_minute": current_obs.minute,
-    }
+    return _shared_compute_nominal_next_metar(
+        official_obs_utc=official_obs_utc,
+        reference_utc=reference_utc,
+    )
 
 
 def _source_reliability_factor(source: Any) -> float:
@@ -316,122 +318,17 @@ def _estimate_next_metar_c(
     learning_metric: Optional[Dict[str, Any]],
     consensus_c: Optional[float],
     reference_utc: Optional[datetime] = None,
+    station_id: str = "KLGA",
 ) -> Optional[float]:
-    valid_rows = [row for row in rows if _is_valid_pws_row(row)]
-    if not valid_rows or official_obs_utc is None:
-        return None
-
-    schedule = _compute_nominal_next_metar(official_obs_utc, reference_utc=reference_utc)
-    next_obs = schedule.get("next_obs")
-    minutes_to_next = _safe_float(schedule.get("minutes_to_next"))
-    if next_obs is None:
-        return None
-
-    learning = learning_metric if isinstance(learning_metric, dict) else {}
-    policy = learning.get("policy") if isinstance(learning.get("policy"), dict) else {}
-    lead_window = policy.get("lead_window_minutes") if isinstance(policy.get("lead_window_minutes"), list) else [5, 45]
-    min_lead_minutes = _safe_float(lead_window[0]) if len(lead_window) >= 1 else None
-    max_lead_minutes = _safe_float(lead_window[1]) if len(lead_window) >= 2 else None
-    min_lead_minutes = 5.0 if min_lead_minutes is None else min_lead_minutes
-    max_lead_minutes = 45.0 if max_lead_minutes is None else max_lead_minutes
-    profile_map = _build_learning_profile_map(learning)
-
-    total_weight = 0.0
-    projected_sum = 0.0
-
-    for row in valid_rows:
-        temp_c = _safe_float(row.get("temp_c"))
-        if temp_c is None:
-            continue
-
-        station_id = str(row.get("station_id") or "").upper()
-        profile = profile_map.get(station_id, {})
-        predictive_weight = _safe_float(row.get("learning_weight_predictive"))
-        if predictive_weight is None:
-            predictive_weight = _safe_float(row.get("learning_weight"))
-        if predictive_weight is None:
-            predictive_weight = _pws_weight(row)
-
-        next_score = _safe_float(profile.get("next_metar_score"))
-        if next_score is None:
-            next_score = _safe_float(row.get("learning_predictive_score"))
-        lead_score = _safe_float(row.get("learning_lead_score"))
-        now_score = _safe_float(row.get("learning_now_score"))
-
-        score_terms: List[tuple[float, float]] = []
-        if next_score is not None:
-            score_terms.append((next_score / 100.0, 0.5))
-        if lead_score is not None:
-            score_terms.append((lead_score / 100.0, 0.32))
-        if now_score is not None:
-            score_terms.append((now_score / 100.0, 0.18))
-        score_weight_sum = sum(weight for _, weight in score_terms)
-        if score_weight_sum > 0:
-            skill_raw = sum(value * weight for value, weight in score_terms) / score_weight_sum
-            skill_factor = _clamp(skill_raw, 0.18, 1.0)
-        else:
-            skill_factor = 0.45
-
-        now_samples = _safe_float(row.get("learning_now_samples")) or 0.0
-        lead_samples = _safe_float(row.get("learning_lead_samples")) or 0.0
-        sample_factor = _clamp(
-            0.45 + 0.28 * min(1.0, now_samples / 8.0) + 0.27 * min(1.0, lead_samples / 6.0),
-            0.4,
-            1.0,
-        )
-
-        age_minutes = _safe_float(row.get("age_minutes"))
-        row_obs = _parse_iso_utc(row.get("obs_time_utc"))
-        if row_obs is not None:
-            lead_minutes = max(0.0, (next_obs - row_obs).total_seconds() / 60.0)
-        elif age_minutes is not None and minutes_to_next is not None:
-            lead_minutes = age_minutes + minutes_to_next
-        else:
-            lead_minutes = None
-
-        lead_factor = _lead_window_factor(lead_minutes, min_lead_minutes, max_lead_minutes)
-        fresh_factor = _freshness_factor(age_minutes)
-        source_factor = _source_reliability_factor(row.get("source"))
-        distance_km = _safe_float(row.get("distance_km")) or 9999.0
-        distance_factor = _clamp(1.0 - (distance_km / 35.0), 0.35, 1.0)
-
-        bias_c = _safe_float(profile.get("next_metar_bias_c")) or 0.0
-        base_projected_c = temp_c - bias_c
-        consensus_gap_c = (base_projected_c - consensus_c) if consensus_c is not None else 0.0
-        official_gap_c = (base_projected_c - official_temp_c) if official_temp_c is not None else 0.0
-        stability_factor = _spike_penalty(consensus_gap_c, official_gap_c)
-        reversion_blend = _clamp(
-            max(0.0, abs(consensus_gap_c) - 0.35) * 0.22
-            + (1.0 - skill_factor) * 0.18
-            + (1.0 - fresh_factor) * 0.14,
-            0.0,
-            0.55,
-        )
-        projected_c = (
-            ((base_projected_c * (1.0 - reversion_blend)) + (consensus_c * reversion_blend))
-            if consensus_c is not None
-            else base_projected_c
-        )
-
-        final_weight = (
-            predictive_weight
-            * skill_factor
-            * sample_factor
-            * fresh_factor
-            * source_factor
-            * distance_factor
-            * lead_factor
-            * stability_factor
-        )
-        if final_weight <= 0.025:
-            continue
-
-        total_weight += final_weight
-        projected_sum += projected_c * final_weight
-
-    if total_weight <= 0:
-        return None
-    return projected_sum / total_weight
+    return _shared_estimate_next_metar_c(
+        station_id=station_id,
+        rows=rows,
+        official_temp_c=official_temp_c,
+        official_obs_utc=official_obs_utc,
+        learning_metric=learning_metric,
+        consensus_c=consensus_c,
+        reference_utc=reference_utc,
+    )
 
 
 def _format_station_clock(value: Any, station_id: str) -> str:
@@ -470,6 +367,7 @@ def _build_pws_mobile_snapshot(
         official_obs_utc=official_obs_utc,
         learning_metric=learning_metric if isinstance(learning_metric, dict) else {},
         consensus_c=total_consensus_c,
+        station_id=station_id,
     )
 
     return {
@@ -810,6 +708,9 @@ class HeliosTelegramBot:
         if command == "/pws":
             await self._cmd_pws(chat_id, args)
             return
+        if command == "/trade":
+            await self._cmd_trade(chat_id, args)
+            return
         if command in {"/pwsraw", "/pws_full", "/pwsfull"}:
             await self._cmd_pwsraw(chat_id, args)
             return
@@ -831,6 +732,7 @@ class HeliosTelegramBot:
             "/helios [ICAO] - Prediccion HELIOS\n"
             "/pws [ICAO] - Consenso PWS simple\n"
             "/metar [ICAO] - Temperatura METAR actual\n"
+            "/trade [ICAO] [0|1] - Edge de trading\n"
             "/resumen [ICAO] - Resumen corto\n"
             "/stations - Estaciones\n"
             "/station ICAO - Cambiar estacion\n\n"
@@ -968,6 +870,163 @@ class HeliosTelegramBot:
             last_update = _format_station_clock(row.get("obs_time_utc"), station_id)
             temp_text = _fmt_station_temp_from_c(row.get("temp_c"), station_id, 1)
             lines.append(f"{idx}. {station_code} | {last_update} | {temp_text}")
+
+        await self._send_text(chat_id, "\n".join(lines))
+
+    def _resolve_station_and_target_day(self, chat_id: str, args: Sequence[str]) -> tuple[Optional[str], int]:
+        active = self._bot_station_ids()
+        if not active:
+            return None, 0
+
+        station_id = self._current_station_for_chat(chat_id, active)
+        target_day = 0
+        remaining = list(args)
+
+        if remaining:
+            first = str(remaining[0]).upper()
+            if first in active:
+                station_id = first
+                self._chat_station[chat_id] = first
+                remaining = remaining[1:]
+
+        if remaining:
+            try:
+                target_day = int(str(remaining[0]).strip())
+            except ValueError:
+                target_day = 0
+
+        target_day = 1 if target_day >= 1 else 0
+        return station_id, target_day
+
+    async def _load_trading_signal(self, station_id: str, target_day: int) -> Optional[Dict[str, Any]]:
+        station = STATIONS[station_id]
+        now_local = datetime.now(ZoneInfo(station.timezone))
+        target_date = (now_local + timedelta(days=target_day)).date()
+        target_date_str = target_date.isoformat()
+
+        pred = get_latest_prediction_for_date(station_id, target_date_str) or get_latest_prediction(station_id)
+
+        event_data = await fetch_event_for_station_date(station_id, target_date)
+        if not event_data:
+            event_data = await fetch_event_data(build_event_slug(station_id, target_date))
+        if not event_data:
+            return None
+
+        brackets: List[Dict[str, Any]] = []
+        for market in event_data.get("markets", []) or []:
+            bracket_name = str(market.get("groupItemTitle") or "").strip()
+            if not bracket_name:
+                continue
+            yes_price = 0.0
+            try:
+                outcome_prices_raw = market.get("outcomePrices", [])
+                outcome_prices = json.loads(outcome_prices_raw) if isinstance(outcome_prices_raw, str) else outcome_prices_raw
+                if outcome_prices:
+                    yes_price = float(outcome_prices[0])
+            except Exception:
+                yes_price = 0.0
+            brackets.append({
+                "name": bracket_name,
+                "yes_price": yes_price,
+                "no_price": round(1.0 - yes_price, 6),
+                "volume": _safe_float(market.get("volume")) or 0.0,
+            })
+
+        nowcast_distribution = None
+        nowcast_state = None
+        official = None
+        pws_details: Sequence[Dict[str, Any]] = []
+        pws_metrics: Dict[str, Any] = {}
+
+        if target_day == 0:
+            world_snapshot = get_world().get_snapshot()
+            official = ((world_snapshot.get("official") or {}).get(station_id)) or None
+            pws_details = ((world_snapshot.get("pws_details") or {}).get(station_id)) or []
+            pws_metrics = ((world_snapshot.get("pws_metrics") or {}).get(station_id)) or {}
+
+            if not official or not pws_details:
+                metar, _consensus, pws_details, pws_metrics = await self._refresh_pws_state(station_id)
+                if metar:
+                    official = {
+                        "temp_c": metar.temp_c,
+                        "obs_time_utc": metar.observation_time.isoformat() if metar.observation_time else None,
+                    }
+
+            try:
+                from core.nowcast_integration import get_nowcast_integration
+
+                integration = get_nowcast_integration()
+                engine = integration.get_engine(station_id)
+                distribution = integration.get_distribution(station_id)
+                if not distribution:
+                    distribution = engine.generate_distribution()
+                if distribution:
+                    nowcast_distribution = distribution.to_dict()
+                    nowcast_state = engine.get_state_snapshot()
+            except Exception:
+                nowcast_distribution = None
+                nowcast_state = None
+
+        signal = build_trading_signal(
+            station_id=station_id,
+            target_day=target_day,
+            target_date=target_date_str,
+            brackets=brackets,
+            prediction=pred,
+            nowcast_distribution=nowcast_distribution,
+            nowcast_state=nowcast_state,
+            official=official,
+            pws_details=pws_details,
+            pws_metrics=pws_metrics,
+        )
+        return signal if signal.get("available") else None
+
+    async def _cmd_trade(self, chat_id: str, args: Sequence[str]) -> None:
+        station_id, target_day = self._resolve_station_and_target_day(chat_id, args)
+        if not station_id:
+            await self._send_text(chat_id, "No hay estaciones disponibles en el bot.")
+            return
+
+        signal = await self._load_trading_signal(station_id, target_day)
+        if not signal:
+            await self._send_text(chat_id, f"No hay senal de trading para {station_id}.")
+            return
+
+        model = signal.get("model") if isinstance(signal.get("model"), dict) else {}
+        best_terminal = signal.get("best_terminal_trade") if isinstance(signal.get("best_terminal_trade"), dict) else None
+        tactical_context = signal.get("tactical_context") if isinstance(signal.get("tactical_context"), dict) else {}
+        next_metar = tactical_context.get("next_metar") if isinstance(tactical_context.get("next_metar"), dict) else None
+        best_tactical = signal.get("best_tactical_trade") if isinstance(signal.get("best_tactical_trade"), dict) else None
+
+        lines = [
+            f"Trade {station_id} d{target_day}",
+            f"Model: {_fmt_market_temp(model.get('mean'), station_id, 1)} sigma {_fmt(model.get('sigma'), 1)} conf {_fmt_prob_pct(model.get('confidence'))}",
+        ]
+
+        if model.get("top_label"):
+            lines.append(
+                f"Top bucket: {model.get('top_label')} {_fmt_prob_pct(model.get('top_label_probability'))}"
+            )
+
+        if best_terminal:
+            entry_price = best_terminal.get("yes_entry") if best_terminal.get("best_side") == "YES" else best_terminal.get("no_entry")
+            fair_price = best_terminal.get("fair_yes") if best_terminal.get("best_side") == "YES" else best_terminal.get("fair_no")
+            lines.append(
+                f"Final: {best_terminal.get('best_side')} {best_terminal.get('label')} @ {_fmt_prob_pct(entry_price)} fair {_fmt_prob_pct(fair_price)} edge {_fmt_prob_pct(best_terminal.get('best_edge'))}"
+            )
+
+        if next_metar and next_metar.get("available"):
+            direction = str(next_metar.get("direction") or "FLAT").lower()
+            lines.append(
+                f"Next METAR: {_fmt_market_temp(next_metar.get('expected_market'), station_id, 1)} {direction} {_fmt(next_metar.get('minutes_to_next'), 0, 'm')} conf {_fmt_prob_pct(next_metar.get('confidence'))}"
+            )
+
+        if best_tactical and tactical_context.get("enabled"):
+            tactical_entry = best_tactical.get("yes_entry") if best_tactical.get("best_side") == "YES" else best_tactical.get("no_entry")
+            tactical_fair = best_tactical.get("tactical_yes") if best_tactical.get("best_side") == "YES" else best_tactical.get("tactical_no")
+            lines.append(
+                f"Tactical: {best_tactical.get('best_side')} {best_tactical.get('label')} @ {_fmt_prob_pct(tactical_entry)} fair {_fmt_prob_pct(tactical_fair)} edge {_fmt_prob_pct(best_tactical.get('tactical_best_edge'))}"
+            )
 
         await self._send_text(chat_id, "\n".join(lines))
 

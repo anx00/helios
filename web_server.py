@@ -2433,6 +2433,61 @@ async def get_polymarket_dashboard_data(station_id: str, target_day: int = 0, de
     # Sort brackets by yes_price descending
     brackets.sort(key=lambda x: x["yes_price"], reverse=True)
 
+    trading = None
+    try:
+        from core.trading_signal import build_trading_signal
+        from database import get_latest_prediction, get_latest_prediction_for_date
+
+        pred = get_latest_prediction_for_date(station_id, target_date_str) or get_latest_prediction(station_id)
+        nowcast_distribution = None
+        nowcast_state = None
+        official = None
+        pws_details = []
+        pws_metrics = {}
+
+        if target_day == 0:
+            try:
+                from core.nowcast_integration import get_nowcast_integration
+
+                integration = get_nowcast_integration()
+                engine = integration.get_engine(station_id)
+                distribution = integration.get_distribution(station_id)
+                if not distribution:
+                    distribution = engine.generate_distribution()
+                if distribution:
+                    nowcast_distribution = distribution.to_dict()
+                    nowcast_state = engine.get_state_snapshot()
+            except Exception:
+                nowcast_distribution = None
+                nowcast_state = None
+
+            try:
+                from core.world import get_world
+
+                snapshot = get_world().get_snapshot()
+                official = ((snapshot.get("official") or {}).get(station_id)) or None
+                pws_details = ((snapshot.get("pws_details") or {}).get(station_id)) or []
+                pws_metrics = ((snapshot.get("pws_metrics") or {}).get(station_id)) or {}
+            except Exception:
+                official = None
+                pws_details = []
+                pws_metrics = {}
+
+        trading = build_trading_signal(
+            station_id=station_id,
+            target_day=target_day,
+            target_date=target_date_str,
+            brackets=brackets,
+            prediction=pred,
+            nowcast_distribution=nowcast_distribution,
+            nowcast_state=nowcast_state,
+            official=official,
+            pws_details=pws_details,
+            pws_metrics=pws_metrics,
+        )
+    except Exception as e:
+        logger.warning("Trading signal build failed for %s day=%s: %s", station_id, target_day, e)
+
     return {
         "station_id": station_id,
         "target_date": target_date.isoformat(),
@@ -2452,7 +2507,32 @@ async def get_polymarket_dashboard_data(station_id: str, target_day: int = 0, de
         "brackets": brackets,
         "sentiment": sentiment,
         "shifts": shifts,
+        "trading": trading,
         "server_ts": datetime.now().timestamp(),
+    }
+
+
+@app.get("/api/v3/trading/{station_id}")
+async def get_trading_signal_api(station_id: str, target_day: int = 0, depth: int = 5):
+    """Trading-focused signal: fair buckets, edge and tactical next-METAR pressure."""
+    payload = await get_polymarket_dashboard_data(station_id, target_day=target_day, depth=depth)
+    if isinstance(payload, dict) and payload.get("error"):
+        return payload
+    trading = payload.get("trading") if isinstance(payload, dict) else None
+    if not trading:
+        return {
+            "error": "Trading signal unavailable",
+            "station_id": station_id,
+            "target_day": target_day,
+        }
+    return {
+        "station_id": payload.get("station_id"),
+        "target_date": payload.get("target_date"),
+        "target_day": payload.get("target_day"),
+        "event_title": payload.get("event_title"),
+        "event_slug": payload.get("event_slug"),
+        "trading": trading,
+        "server_ts": payload.get("server_ts"),
     }
 
 

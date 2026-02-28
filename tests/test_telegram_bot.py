@@ -148,3 +148,64 @@ def test_cmd_metar_includes_last_five_history_rows(monkeypatch):
     assert "2026-02-28 01:51" in text
     assert expected_last in text
     assert "2026-02-28 00:51" not in text
+
+
+def test_cmd_trade_formats_compact_signal(monkeypatch):
+    sent_messages = []
+
+    async def fake_send_text(chat_id: str, text: str, reply_markup=None):
+        sent_messages.append((chat_id, text, reply_markup))
+
+    async def fake_load_trading_signal(self, station_id: str, target_day: int):
+        assert station_id == "KLGA"
+        assert target_day == 0
+        return {
+            "available": True,
+            "model": {
+                "mean": 49.2,
+                "sigma": 1.1,
+                "confidence": 0.73,
+                "top_label": "48-49°F",
+                "top_label_probability": 0.34,
+            },
+            "best_terminal_trade": {
+                "label": "48-49°F",
+                "best_side": "YES",
+                "yes_entry": 0.27,
+                "fair_yes": 0.34,
+                "best_edge": 0.07,
+            },
+            "best_tactical_trade": {
+                "label": "50-51°F",
+                "best_side": "YES",
+                "yes_entry": 0.18,
+                "tactical_yes": 0.24,
+                "tactical_best_edge": 0.06,
+            },
+            "tactical_context": {
+                "enabled": True,
+                "next_metar": {
+                    "available": True,
+                    "expected_market": 50.0,
+                    "direction": "UP",
+                    "minutes_to_next": 18.0,
+                    "confidence": 0.68,
+                }
+            },
+        }
+
+    bot = HeliosTelegramBot(TelegramBotSettings(token="x", allowed_chat_ids=None))
+    bot._chat_station["chat"] = "KLGA"
+    monkeypatch.setattr(bot, "_send_text", fake_send_text)
+    monkeypatch.setattr(HeliosTelegramBot, "_load_trading_signal", fake_load_trading_signal)
+
+    asyncio.run(bot._cmd_trade("chat", []))
+
+    assert len(sent_messages) == 1
+    text = sent_messages[0][1]
+    assert "Trade KLGA d0" in text
+    assert "Model: 49.2F sigma 1.1 conf 73%" in text
+    assert "Top bucket: 48-49°F 34%" in text
+    assert "Final: YES 48-49°F @ 27% fair 34% edge 7%" in text
+    assert "Next METAR: 50.0F up 18m conf 68%" in text
+    assert "Tactical: YES 50-51°F @ 18% fair 24% edge 6%" in text
