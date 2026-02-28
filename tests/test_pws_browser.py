@@ -103,6 +103,15 @@ class _FakeAuditLearningStore(_FakeLearningStore):
         ]
 
 
+class _HistoryObs:
+    def __init__(self, observation_time: str, temp_c: float, report_type: str = "METAR", is_speci: bool = False):
+        self.observation_time = datetime.fromisoformat(observation_time)
+        self.temp_c = temp_c
+        self.temp_f = (temp_c * 9.0 / 5.0) + 32.0
+        self.report_type = report_type
+        self.is_speci = is_speci
+
+
 def _world_event(station_id: str, obs_iso: str, temp_f: float) -> dict:
     return {
         "ch": "world",
@@ -198,6 +207,59 @@ def test_build_payload_matches_current_and_next_metar(monkeypatch):
     assert station["summary"]["next_metar_matches"] == 2
 
 
+def test_build_payload_includes_station_level_summary_and_prediction(monkeypatch):
+    station_id = "KLGA"
+    events = [
+        _world_event(station_id, "2026-02-10T14:00:00+00:00", 30.0),
+        _pws_event(
+            station_id,
+            "2026-02-10T14:01:00+00:00",
+            [
+                {
+                    "station_id": "KNYC001",
+                    "station_name": "Astoria roof",
+                    "source": "WUNDERGROUND",
+                    "distance_km": 1.2,
+                    "obs_time_utc": "2026-02-10T14:02:00+00:00",
+                    "temp_f": 31.0,
+                    "valid": True,
+                },
+                {
+                    "station_id": "KNYC001",
+                    "station_name": "Astoria roof",
+                    "source": "WUNDERGROUND",
+                    "distance_km": 1.2,
+                    "obs_time_utc": "2026-02-10T14:06:00+00:00",
+                    "temp_f": 31.4,
+                    "valid": True,
+                },
+                {
+                    "station_id": "KNYC001",
+                    "station_name": "Astoria roof",
+                    "source": "WUNDERGROUND",
+                    "distance_km": 1.2,
+                    "obs_time_utc": "2026-02-10T14:12:00+00:00",
+                    "temp_f": 32.2,
+                    "valid": True,
+                },
+            ],
+        ),
+        _world_event(station_id, "2026-02-10T14:15:00+00:00", 32.0),
+    ]
+
+    monkeypatch.setattr(pws_browser, "_load_station_day_events", lambda *_args, **_kwargs: events)
+    monkeypatch.setattr(pws_browser, "get_pws_learning_store", lambda: _FakeLearningStore())
+
+    payload = pws_browser.build_pws_browser_payload(station_id, "2026-02-10")
+    summary = payload["pws_stations"][0]["summary"]
+
+    assert round(summary["mean_temp_f"], 1) == 31.5
+    assert round(summary["median_temp_f"], 1) == 31.4
+    assert round(summary["min_temp_f"], 1) == 31.0
+    assert round(summary["max_temp_f"], 1) == 32.2
+    assert summary["predicted_next_metar"]["bucket"] == "15-30"
+
+
 def test_build_payload_exposes_legacy_station_ids_when_detail_missing(monkeypatch):
     station_id = "KLGA"
     events = [
@@ -247,3 +309,45 @@ def test_build_payload_uses_learning_audit_when_replay_detail_missing(monkeypatc
     assert station["table_rows"][0]["current_metar"]["temp_f"] == 31.0
     assert station["table_rows"][0]["next_metar"]["temp_f"] == 32.72
     assert station["table_rows"][0]["predicted_next_metar"]["bucket"] == "15-30"
+
+
+def test_hydrate_payload_with_metar_history_fills_missing_current_and_next(monkeypatch):
+    station_id = "KLGA"
+    events = [
+        _world_event(station_id, "2026-02-10T14:00:00+00:00", 30.0),
+        _pws_event(
+            station_id,
+            "2026-02-10T14:01:00+00:00",
+            [
+                {
+                    "station_id": "KNYC001",
+                    "station_name": "Astoria roof",
+                    "source": "WUNDERGROUND",
+                    "distance_km": 1.2,
+                    "obs_time_utc": "2026-02-10T14:02:00+00:00",
+                    "temp_f": 31.0,
+                    "valid": True,
+                }
+            ],
+        ),
+    ]
+
+    monkeypatch.setattr(pws_browser, "_load_station_day_events", lambda *_args, **_kwargs: events)
+    monkeypatch.setattr(pws_browser, "get_pws_learning_store", lambda: _FakeLearningStore())
+
+    payload = pws_browser.build_pws_browser_payload(station_id, "2026-02-10")
+    station = payload["pws_stations"][0]
+    assert pws_browser.pws_payload_needs_metar_backfill(payload) is True
+    assert station["table_rows"][0]["current_metar"]["temp_f"] == 30.0
+    assert station["table_rows"][0]["next_metar"] is None
+
+    history_rows = pws_browser.build_metar_series_from_history(
+        station_id,
+        "2026-02-10",
+        [_HistoryObs("2026-02-10T14:20:00+00:00", 0.0)],
+    )
+    hydrated = pws_browser.hydrate_pws_browser_payload_with_metar_series(station_id, payload, history_rows)
+
+    hydrated_station = hydrated["pws_stations"][0]
+    assert hydrated_station["table_rows"][0]["next_metar"]["temp_f"] == 32.0
+    assert hydrated_station["summary"]["next_metar_matches"] == 1

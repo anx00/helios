@@ -3505,6 +3505,49 @@ async def get_pws_browser_dates(station_id: str):
     }
 
 
+async def _maybe_hydrate_pws_payload_metar_history(
+    resolved_station: str,
+    selected_date: str,
+    payload: dict,
+) -> dict:
+    from collector.metar_fetcher import fetch_metar_history
+    from core.pws_browser import (
+        build_metar_series_from_history,
+        hydrate_pws_browser_payload_with_metar_series,
+        pws_payload_needs_metar_backfill,
+    )
+
+    if not pws_payload_needs_metar_backfill(payload):
+        return payload
+
+    station_tz = ZoneInfo(STATIONS[resolved_station].timezone)
+    today_local = datetime.now(station_tz).date()
+    try:
+        target_date = datetime.fromisoformat(selected_date).date()
+    except Exception:
+        return payload
+
+    days_back = max(0, (today_local - target_date).days)
+    if days_back > 30:
+        return payload
+
+    hours = min(max((days_back + 2) * 24, 26), 744)
+    try:
+        history = await fetch_metar_history(resolved_station, hours=hours)
+        metar_series = await asyncio.to_thread(build_metar_series_from_history, resolved_station, selected_date, history)
+        if not metar_series:
+            return payload
+        return await asyncio.to_thread(
+            hydrate_pws_browser_payload_with_metar_series,
+            resolved_station,
+            payload,
+            metar_series,
+        )
+    except Exception as exc:
+        logger.warning("PWS METAR backfill failed for %s %s: %s", resolved_station, selected_date, exc)
+        return payload
+
+
 @app.get("/api/pws/day")
 async def get_pws_browser_day(station_id: str, date: str | None = None):
     resolved_station = _normalize_station_id(station_id)
@@ -3548,6 +3591,7 @@ async def get_pws_browser_day(station_id: str, date: str | None = None):
             },
         )
 
+    payload = await _maybe_hydrate_pws_payload_metar_history(resolved_station, selected_date, payload)
     payload["available_dates"] = available_dates
     return payload
 
@@ -3613,6 +3657,8 @@ async def export_pws_day(station_id: str, date: str, format: str = "json"):
             status_code=422,
             content={"error": str(exc), "station_id": resolved_station, "date": date},
         )
+
+    day_payload = await _maybe_hydrate_pws_payload_metar_history(resolved_station, date, day_payload)
 
     if fmt == "json":
         return {

@@ -631,7 +631,7 @@
     function renderBucketTable(learning) {
         const buckets = Array.isArray((learning || {}).lead_bucket_summaries) ? learning.lead_bucket_summaries : [];
         if (!buckets.length) {
-            return '<div class="pws-helper-copy">No hay bucket stats de lead todavía para esta estación.</div>';
+            return '<div class="pws-helper-copy">No lead bucket stats yet for this station.</div>';
         }
         return `
             <div class="pws-table-wrap" style="margin-top:16px;">
@@ -644,8 +644,8 @@
                             <th>Bias</th>
                             <th>MAE</th>
                             <th>RMSE</th>
-                            <th>P ±0.5C</th>
-                            <th>P ±1.0C</th>
+                            <th>P +/-0.5C</th>
+                            <th>P +/-1.0C</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -840,6 +840,26 @@
         const latest = formatTemp(station.latest_temp_c, station.latest_temp_f);
         const summary = station.summary || {};
         const learning = station.learning_profile || {};
+        const meanTemp = formatTemp(summary.mean_temp_c, summary.mean_temp_f);
+        const medianTemp = formatTemp(summary.median_temp_c, summary.median_temp_f);
+        const minTemp = formatTemp(summary.min_temp_c, summary.min_temp_f);
+        const maxTemp = formatTemp(summary.max_temp_c, summary.max_temp_f);
+        const predicted = summary.predicted_next_metar || null;
+        const predictedTemp = predicted ? formatTemp(predicted.predicted_temp_c, predicted.predicted_temp_f) : { main: '--', sub: '--' };
+        const predictedLow = predicted ? formatTemp(predicted.range_low_c, predicted.range_low_f) : { main: '--', sub: '--' };
+        const predictedHigh = predicted ? formatTemp(predicted.range_high_c, predicted.range_high_f) : { main: '--', sub: '--' };
+        const predictionMeta = predicted
+            ? [
+                predicted.bucket ? `bucket ${predicted.bucket}` : null,
+                Number.isFinite(Number(predicted.lead_minutes)) ? `${Number(predicted.lead_minutes).toFixed(0)} min lead` : null,
+            ].filter(Boolean).join(' | ')
+            : '--';
+        const predictionFootnote = predicted
+            ? `${predictedLow.main} to ${predictedHigh.main} | ${predictionMeta}`
+            : 'No predictive summary yet';
+        const predictedActual = predicted && predicted.actual_next_metar
+            ? formatTemp(predicted.actual_next_metar.temp_c, predicted.actual_next_metar.temp_f)
+            : null;
 
         detail.innerHTML = `
             <div class="pws-detail-header">
@@ -859,6 +879,31 @@
 
             <div class="pws-metrics">
                 <div class="pws-metric">
+                    <div class="pws-metric-label">Mean</div>
+                    <div class="pws-metric-value">${escapeHtml(meanTemp.main)}</div>
+                    <div class="pws-metric-footnote">${escapeHtml(meanTemp.sub)}</div>
+                </div>
+                <div class="pws-metric">
+                    <div class="pws-metric-label">Median</div>
+                    <div class="pws-metric-value">${escapeHtml(medianTemp.main)}</div>
+                    <div class="pws-metric-footnote">${escapeHtml(medianTemp.sub)}</div>
+                </div>
+                <div class="pws-metric">
+                    <div class="pws-metric-label">Min</div>
+                    <div class="pws-metric-value">${escapeHtml(minTemp.main)}</div>
+                    <div class="pws-metric-footnote">${escapeHtml(minTemp.sub)}</div>
+                </div>
+                <div class="pws-metric">
+                    <div class="pws-metric-label">Max</div>
+                    <div class="pws-metric-value">${escapeHtml(maxTemp.main)}</div>
+                    <div class="pws-metric-footnote">${escapeHtml(maxTemp.sub)}</div>
+                </div>
+                <div class="pws-metric">
+                    <div class="pws-metric-label">Pred next METAR</div>
+                    <div class="pws-metric-value">${escapeHtml(predictedTemp.main)}</div>
+                    <div class="pws-metric-footnote">${escapeHtml(predictionFootnote)}</div>
+                </div>
+                <div class="pws-metric">
                     <div class="pws-metric-label">Current METAR MAE</div>
                     <div class="pws-metric-value">${escapeHtml(formatMetric(summary.current_metar_mae_c, ' C'))}</div>
                     <div class="pws-metric-footnote">${escapeHtml(summary.current_metar_matches || 0)} matched rows</div>
@@ -867,6 +912,11 @@
                     <div class="pws-metric-label">Next METAR MAE</div>
                     <div class="pws-metric-value">${escapeHtml(formatMetric(summary.next_metar_mae_c, ' C'))}</div>
                     <div class="pws-metric-footnote">${escapeHtml(summary.next_metar_matches || 0)} matched rows</div>
+                </div>
+                <div class="pws-metric">
+                    <div class="pws-metric-label">Next METAR score</div>
+                    <div class="pws-metric-value">${escapeHtml(formatMetric(learning.next_metar_score))}</div>
+                    <div class="pws-metric-footnote">Lead-only cumulative predictive skill</div>
                 </div>
                 <div class="pws-metric">
                     <div class="pws-metric-label">Raw updates</div>
@@ -879,12 +929,7 @@
                     <div class="pws-metric-footnote">10 minute throttle when needed</div>
                 </div>
                 <div class="pws-metric">
-                    <div class="pws-metric-label">Next METAR score</div>
-                    <div class="pws-metric-value">${escapeHtml(formatMetric(learning.next_metar_score))}</div>
-                    <div class="pws-metric-footnote">Lead-only cumulative predictive skill</div>
-                </div>
-                <div class="pws-metric">
-                    <div class="pws-metric-label">P(next METAR within ±1.0C)</div>
+                    <div class="pws-metric-label">P(next METAR within +/-1.0C)</div>
                     <div class="pws-metric-value">${escapeHtml(formatProbability(learning.next_metar_prob_within_1_0_c))}</div>
                     <div class="pws-metric-footnote">${escapeHtml(formatMetric(learning.lead_avg_minutes, ' min'))} average anticipation</div>
                 </div>
@@ -901,8 +946,7 @@
             </div>
             ${renderBucketTable(learning)}
             <div class="pws-helper-copy">
-                Modelo simple de siguiente METAR: usa el sesgo y la dispersion historica por bucket de lead para estimar
-                si esta PWS anticipa bien el oficial. Para buckets con pocas muestras, tómalo como warmup.
+                ${predictedActual ? `Last observed next METAR: ${escapeHtml(predictedActual.main)} | abs error ${escapeHtml(formatMetric(predicted.actual_abs_error_c, ' C'))}` : 'Pred next METAR is shown as station-level summary, not row by row.'}
             </div>
         `;
 
@@ -1020,11 +1064,9 @@
             <table class="pws-table">
                 <thead>
                     <tr>
-                        <th>Kind</th>
                         <th>Station time</th>
                         <th>ES time</th>
                         <th>PWS temp</th>
-                        <th>Pred next METAR</th>
                         <th>Current METAR</th>
                         <th>Next METAR</th>
                     </tr>
@@ -1040,13 +1082,8 @@
         const pwsTemp = formatTemp(row.temp_c, row.temp_f);
         const current = renderMetarCell(row.current_metar);
         const next = renderMetarCell(row.next_metar);
-        const predicted = renderPredictedCell(row.predicted_next_metar);
         return `
             <tr>
-                <td>
-                    <div class="pws-temp">${escapeHtml(row.audit_kind || row.qc_flag || '--')}</div>
-                    <span class="pws-temp-sub">${escapeHtml(row.lead_bucket || (row.predicted_next_metar || {}).bucket || '--')}</span>
-                </td>
                 <td>
                     <div class="pws-temp">${escapeHtml(row.station_time || '--')}</div>
                     <span class="pws-temp-sub">${escapeHtml(row.ts_utc || '--')}</span>
@@ -1058,7 +1095,6 @@
                     <div class="pws-temp">${escapeHtml(pwsTemp.main)}</div>
                     <span class="pws-temp-sub">${escapeHtml(pwsTemp.sub)}</span>
                 </td>
-                <td>${predicted}</td>
                 <td>${current}</td>
                 <td>${next}</td>
             </tr>
@@ -1087,7 +1123,7 @@
             <div class="pws-temp">${escapeHtml(temp.main)}</div>
             <span class="pws-temp-sub">
                 ${escapeHtml(low.main)} to ${escapeHtml(high.main)}
-                | P ±1.0C ${escapeHtml(formatProbability(prediction.prob_within_1_0_c))}
+                | P +/-1.0C ${escapeHtml(formatProbability(prediction.prob_within_1_0_c))}
             </span>
         `;
     }
