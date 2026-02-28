@@ -236,6 +236,151 @@
     }
     .pm-edge-positive { color: #10B981; font-weight: 700; }
     .pm-edge-neutral { color: var(--text-secondary); }
+    .pm-autotrader {
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 12px;
+        padding: 14px;
+        background: rgba(255,255,255,0.02);
+        margin-bottom: 14px;
+    }
+    .pm-autotrader-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 12px;
+    }
+    .pm-autotrader-title {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: var(--text-secondary);
+        margin-bottom: 4px;
+    }
+    .pm-autotrader-main {
+        font-size: 22px;
+        font-weight: 800;
+        color: #fff;
+    }
+    .pm-autotrader-sub {
+        font-size: 12px;
+        color: var(--text-secondary);
+        line-height: 1.5;
+    }
+    .pm-autotrader-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+    }
+    .pm-autotrader-btn {
+        border: 1px solid rgba(255,255,255,0.12);
+        background: rgba(255,255,255,0.04);
+        color: #fff;
+        border-radius: 10px;
+        padding: 8px 12px;
+        font-size: 12px;
+        font-weight: 700;
+        cursor: pointer;
+    }
+    .pm-autotrader-btn.primary {
+        border-color: rgba(16,185,129,0.35);
+        background: rgba(16,185,129,0.12);
+        color: #10B981;
+    }
+    .pm-autotrader-btn.danger {
+        border-color: rgba(239,68,68,0.35);
+        background: rgba(239,68,68,0.10);
+        color: #F87171;
+    }
+    .pm-autotrader-btn:disabled {
+        opacity: 0.45;
+        cursor: default;
+    }
+    .pm-autotrader-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+        margin-bottom: 12px;
+    }
+    .pm-autotrader-cell {
+        border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 10px;
+        padding: 10px 12px;
+        background: rgba(255,255,255,0.02);
+    }
+    .pm-autotrader-cell-label {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: var(--text-secondary);
+        margin-bottom: 4px;
+    }
+    .pm-autotrader-cell-value {
+        font-size: 15px;
+        font-weight: 800;
+        color: #fff;
+    }
+    .pm-autotrader-log {
+        border-top: 1px solid rgba(255,255,255,0.06);
+        padding-top: 10px;
+        color: var(--text-secondary);
+        font-size: 12px;
+        line-height: 1.45;
+    }
+    .pm-autotrader-log-item + .pm-autotrader-log-item {
+        margin-top: 6px;
+    }
+    .pm-agent-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+        margin-bottom: 14px;
+    }
+    .pm-agent-card {
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 12px;
+        padding: 12px;
+        background: rgba(255,255,255,0.02);
+    }
+    .pm-agent-top {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 8px;
+    }
+    .pm-agent-name {
+        font-size: 14px;
+        font-weight: 800;
+        color: #fff;
+    }
+    .pm-agent-badge {
+        font-size: 10px;
+        padding: 4px 8px;
+        border-radius: 999px;
+        border: 1px solid rgba(255,255,255,0.12);
+        color: var(--text-secondary);
+    }
+    .pm-agent-badge.live {
+        color: #10B981;
+        border-color: rgba(16,185,129,0.35);
+        background: rgba(16,185,129,0.10);
+    }
+    .pm-agent-badge.idle {
+        color: #94A3B8;
+    }
+    .pm-agent-line {
+        font-size: 12px;
+        color: var(--text-secondary);
+        line-height: 1.45;
+        margin-bottom: 6px;
+    }
+    .pm-agent-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-top: 10px;
+    }
 
     /* ============= BRACKET GRID ============= */
     .pm-brackets-grid {
@@ -614,12 +759,18 @@
         .ob-outcomes { grid-template-columns: 1fr; }
         .ob-book { grid-template-columns: 1fr; }
         .pm-trading-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .pm-autotrader-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .pm-agent-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
     @media (max-width: 600px) {
         .pm-brackets-grid { grid-template-columns: 1fr; }
         .pm-overview { flex-direction: column; align-items: flex-start; }
         .pm-overview-right { align-items: flex-start; }
         .pm-trading-grid { grid-template-columns: 1fr; }
+        .pm-autotrader-head { flex-direction: column; }
+        .pm-autotrader-actions { justify-content: flex-start; }
+        .pm-autotrader-grid { grid-template-columns: 1fr; }
+        .pm-agent-grid { grid-template-columns: 1fr; }
     }
 </style>
 {% endblock %}
@@ -667,6 +818,8 @@
         <div class="pm-section-title">
             <i data-lucide="crosshair"></i> Trading
         </div>
+        <div class="pm-autotrader" id="pm-autotrader-panel" style="display:none;"></div>
+        <div class="pm-agent-grid" id="pm-agent-grid"></div>
         <div class="pm-trading-grid" id="pm-trading-grid"></div>
         <div id="pm-trading-table-wrap"></div>
     </div>
@@ -922,6 +1075,8 @@
     // ========================
     function renderAll(data) {
         renderOverview(data);
+        renderAutoTrader(data.autotrader, data.trading);
+        renderAutotraderAgents(data.autotrader_agents);
         renderTrading(data.trading);
         renderBrackets(data.brackets);
         renderShifts(data.shifts);
@@ -932,6 +1087,192 @@
             else closeBracketDetail();
         }
         document.getElementById('pm-last-update').textContent = new Date().toLocaleTimeString();
+    }
+
+    function shortTs(value) {
+        if (!value) return '--';
+        const raw = String(value);
+        return raw.length >= 16 ? raw.slice(11, 16) : raw;
+    }
+
+    async function runAutotraderAction(action) {
+        try {
+            const resp = await fetch(`/api/autotrader/${action}?station_id=${encodeURIComponent(selectedStation)}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+            });
+            const data = await resp.json();
+            if (data.error || data.ok === false) throw new Error(data.error || 'request failed');
+            await fetchData();
+        } catch (e) {
+            showError(`Autotrader ${action} failed: ${e.message || e}`);
+        }
+    }
+    window.runAutotraderAction = runAutotraderAction;
+
+    async function runAutotraderAgentAction(action, stationId) {
+        try {
+            const resp = await fetch(`/api/autotrader/${action}?station_id=${encodeURIComponent(stationId)}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+            });
+            const data = await resp.json();
+            if (data.error || data.ok === false) throw new Error(data.error || 'request failed');
+            await fetchData();
+        } catch (e) {
+            showError(`Autotrader ${action} failed: ${e.message || e}`);
+        }
+    }
+    window.runAutotraderAgentAction = runAutotraderAgentAction;
+
+    function renderAutoTrader(status, trading) {
+        const panel = document.getElementById('pm-autotrader-panel');
+        if (!panel) return;
+        if (!status) {
+            panel.style.display = 'none';
+            return;
+        }
+
+        panel.style.display = 'block';
+        const state = status.state || {};
+        const portfolio = status.portfolio || {};
+        const risk = status.risk || {};
+        const strategy = status.strategy || {};
+        const wallet = status.wallet || {};
+        const recent = Array.isArray(status.recent_events) ? status.recent_events.slice(0, 3) : [];
+        const openBets = Array.isArray(portfolio.open_positions) ? portfolio.open_positions.slice(0, 4) : [];
+        const best = trading?.best_terminal_trade || null;
+        const fast = trading?.best_tactical_trade || null;
+        const bestIdea = best ? `${best.best_side} ${best.label}` : 'No live idea';
+        const fastIdea = fast ? `${fast.tactical_best_side || fast.best_side} ${fast.label}` : 'No tactical idea';
+        const headline = status.running
+            ? `Running ${String(status.mode || 'paper').toUpperCase()} with ${String(status.order_mode || 'limit_fak').toUpperCase()}`
+            : `${String(status.mode || 'paper').toUpperCase()} configured, loop stopped`;
+        const subline = `Terminal: ${bestIdea}. Tactical: ${fastIdea}. WS book ${status.prefer_ws_book ? 'preferred' : 'disabled'} · wallet ${wallet.live_ready ? 'ready' : 'missing keys'}.`;
+        const stations = Array.isArray(status.stations) && status.stations.length ? status.stations.join(', ') : 'None';
+        const strategyMix = [];
+        if (strategy.terminal_enabled) strategyMix.push(`terminal ${Number(strategy.terminal_take_profit_pts || 0).toFixed(1)}/${Number(strategy.terminal_stop_loss_pts || 0).toFixed(1)} pts`);
+        if (strategy.tactical_enabled) strategyMix.push(`tactical ${Number(strategy.tactical_take_profit_pts || 0).toFixed(1)}/${Number(strategy.tactical_stop_loss_pts || 0).toFixed(1)} pts`);
+        const pnlToday = Number(portfolio.realized_pnl_today_usd || 0);
+        const strategyCounts = state.strategies || {};
+        const strategyCountText = Object.keys(strategyCounts).length
+            ? Object.entries(strategyCounts).map(([key, value]) => `${key.replace('_', ' ')} ${value}`).join(' Â· ')
+            : 'none';
+
+        panel.innerHTML = `
+            <div class="pm-autotrader-head">
+                <div>
+                    <div class="pm-autotrader-title">Autotrader</div>
+                    <div class="pm-autotrader-main">${headline}</div>
+                    <div class="pm-autotrader-sub">${subline}</div>
+                </div>
+                <div class="pm-autotrader-actions">
+                    <button class="pm-autotrader-btn primary" onclick="runAutotraderAction('run-once')" ${status.running ? 'disabled' : ''}>Run once</button>
+                    <button class="pm-autotrader-btn" onclick="runAutotraderAction('start')" ${status.running ? 'disabled' : ''}>Start loop</button>
+                    <button class="pm-autotrader-btn danger" onclick="runAutotraderAction('stop')" ${status.running ? '' : 'disabled'}>Stop loop</button>
+                </div>
+            </div>
+            <div class="pm-autotrader-grid">
+                <div class="pm-autotrader-cell">
+                    <div class="pm-autotrader-cell-label">Stations</div>
+                    <div class="pm-autotrader-cell-value">${stations}</div>
+                </div>
+                <div class="pm-autotrader-cell">
+                    <div class="pm-autotrader-cell-label">Portfolio Exposure</div>
+                    <div class="pm-autotrader-cell-value">$${Number(portfolio.open_risk_usd || 0).toFixed(2)} / $${Number(risk.max_total_exposure_usd || 0).toFixed(2)}</div>
+                </div>
+                <div class="pm-autotrader-cell">
+                    <div class="pm-autotrader-cell-label">This Agent</div>
+                    <div class="pm-autotrader-cell-value">${Number(state.open_positions || 0)} live bets · $${Number(state.open_risk_usd || 0).toFixed(2)}</div>
+                </div>
+                <div class="pm-autotrader-cell">
+                    <div class="pm-autotrader-cell-label">Portfolio Day</div>
+                    <div class="pm-autotrader-cell-value">${Number(portfolio.trades_today || 0)} entries · $${Number(portfolio.remaining_daily_loss_usd || 0).toFixed(2)} loss room</div>
+                </div>
+                <div class="pm-autotrader-cell">
+                    <div class="pm-autotrader-cell-label">Day PnL</div>
+                    <div class="pm-autotrader-cell-value">${pnlToday >= 0 ? '+' : ''}$${pnlToday.toFixed(2)} · ${Number(portfolio.closed_trades_today || 0)} exits</div>
+                </div>
+                <div class="pm-autotrader-cell">
+                    <div class="pm-autotrader-cell-label">Strategy</div>
+                    <div class="pm-autotrader-cell-value">${strategyMix.join(' · ') || 'disabled'}</div>
+                </div>
+                <div class="pm-autotrader-cell">
+                    <div class="pm-autotrader-cell-label">Agent Mix</div>
+                    <div class="pm-autotrader-cell-value">${strategyCountText}</div>
+                </div>
+                <div class="pm-autotrader-cell">
+                    <div class="pm-autotrader-cell-label">Loop</div>
+                    <div class="pm-autotrader-cell-value">${Number(status.loop_seconds || 0)}s · ${status.kill_switch_active ? 'STOP FILE ON' : 'clear'}</div>
+                </div>
+            </div>
+            <div class="pm-autotrader-log">
+                <div class="pm-autotrader-title" style="margin-bottom:8px;">Recent activity</div>
+                ${recent.length ? recent.map(item => `
+                    <div class="pm-autotrader-log-item">
+                        <strong>${item.status || 'event'}</strong>
+                        ${item.station_id ? ` · ${item.station_id}` : ''}
+                        ${item.candidate ? ` · ${item.candidate.strategy || 'terminal_value'} · ${item.candidate.side} ${item.candidate.label}` : ''}
+                        ${item.exit_plan ? ` · exit ${item.exit_plan.reason || '--'}` : ''}
+                        ${item.reasons && item.reasons.length ? ` · ${item.reasons.join(', ')}` : ''}
+                        ${item.plan ? ` · $${Number(item.plan.notional_usd || 0).toFixed(2)}` : ''}
+                        ${item.persisted ? ` · pnl $${Number(item.persisted.realized_pnl_usd || 0).toFixed(2)}` : ''}
+                        <span style="opacity:.7;"> · ${shortTs(item.ts_utc)}</span>
+                    </div>
+                `).join('') : '<div class="pm-autotrader-log-item">No runs yet.</div>'}
+                <div class="pm-autotrader-title" style="margin:12px 0 8px;">Open bets</div>
+                ${openBets.length ? openBets.map(item => `
+                    <div class="pm-autotrader-log-item">
+                        <strong>${item.station_id} · ${item.strategy || 'terminal_value'} · ${item.side} ${item.label}</strong>
+                        · $${Number(item.cost_basis_open_usd || item.notional_usd || 0).toFixed(2)}
+                        · ${Number(item.shares_open || item.shares || 0).toFixed(1)} sh
+                        <span style="opacity:.7;"> · ${shortTs(item.opened_at_utc)}</span>
+                    </div>
+                `).join('') : '<div class="pm-autotrader-log-item">No open bets in the portfolio.</div>'}
+            </div>
+        `;
+    }
+
+    function renderAutotraderAgents(statusPayload) {
+        const grid = document.getElementById('pm-agent-grid');
+        if (!grid) return;
+        const agents = Array.isArray(statusPayload?.agents) ? statusPayload.agents : [];
+        if (!agents.length) {
+            grid.innerHTML = '';
+            return;
+        }
+        grid.innerHTML = agents.map(agent => {
+            const stationId = agent.station_id || '--';
+            const running = Boolean(agent.running);
+            const liveMode = String(agent.mode || 'paper').toUpperCase();
+            const risk = agent.risk || {};
+            const state = agent.state || {};
+            const strategy = agent.strategy || {};
+            const portfolio = agent.portfolio || {};
+            const recent = Array.isArray(agent.recent_events) ? agent.recent_events[0] : null;
+            const strategies = state.strategies || {};
+            const strategyLine = Object.keys(strategies).length
+                ? Object.entries(strategies).map(([key, value]) => `${key.replace('_', ' ')} ${value}`).join(' · ')
+                : 'no open bets';
+            return `
+                <div class="pm-agent-card">
+                    <div class="pm-agent-top">
+                        <div class="pm-agent-name">${stationId}</div>
+                        <div class="pm-agent-badge ${running ? 'live' : 'idle'}">${running ? 'RUNNING' : 'IDLE'}</div>
+                    </div>
+                    <div class="pm-agent-line">${liveMode} · ${String(agent.order_mode || 'limit_fak').toUpperCase()}</div>
+                    <div class="pm-agent-line">Own risk $${Number(state.open_risk_usd || 0).toFixed(2)} · portfolio $${Number(portfolio.open_risk_usd || 0).toFixed(2)} / $${Number(risk.max_total_exposure_usd || 0).toFixed(2)}</div>
+                    <div class="pm-agent-line">Own bets ${Number(state.open_positions || 0)} · portfolio ${Number(portfolio.open_positions_count || 0)} · day pnl ${Number(portfolio.realized_pnl_today_usd || 0) >= 0 ? '+' : ''}$${Number(portfolio.realized_pnl_today_usd || 0).toFixed(2)}</div>
+                    <div class="pm-agent-line">${strategyLine} · tactical ${strategy.tactical_enabled ? 'on' : 'off'}</div>
+                    <div class="pm-agent-line">Last ${recent ? shortTs(recent.ts_utc) : '--'}</div>
+                    <div class="pm-agent-actions">
+                        <button class="pm-autotrader-btn primary" onclick="selectStation('${stationId}')">Open</button>
+                        <button class="pm-autotrader-btn" onclick="runAutotraderAgentAction('start','${stationId}')" ${running ? 'disabled' : ''}>Start</button>
+                        <button class="pm-autotrader-btn danger" onclick="runAutotraderAgentAction('stop','${stationId}')" ${running ? '' : 'disabled'}>Stop</button>
+                    </div>
+                </div>
+            `;
+        }).join('');
     }
 
     // ========================
@@ -980,7 +1321,13 @@
         const grid = document.getElementById('pm-trading-grid');
         const tableWrap = document.getElementById('pm-trading-table-wrap');
         if (!trading || trading.available === false) {
-            section.style.display = 'none';
+            section.style.display = 'block';
+            grid.innerHTML = '';
+            tableWrap.innerHTML = `
+                <div style="margin-top:14px; padding:12px 14px; border-radius:12px; border:1px solid rgba(255,255,255,0.06); background:rgba(255,255,255,0.02); color:var(--text-secondary); font-size:12px; line-height:1.5;">
+                    Trading signal unavailable for this market right now.
+                </div>
+            `;
             return;
         }
 
