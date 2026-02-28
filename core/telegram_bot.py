@@ -5,7 +5,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set
 from zoneinfo import ZoneInfo
 
@@ -96,6 +96,26 @@ def _mean(values: Iterable[Any]) -> Optional[float]:
     return sum(nums) / len(nums)
 
 
+def _clamp(value: float, min_value: float, max_value: float) -> float:
+    return max(min_value, min(max_value, float(value)))
+
+
+def _weighted_median(entries: Iterable[tuple[float, float]]) -> Optional[float]:
+    valid = sorted((float(value), float(weight)) for value, weight in entries if float(weight) > 0)
+    if not valid:
+        return None
+    total_weight = sum(weight for _, weight in valid)
+    if total_weight <= 0:
+        return None
+    midpoint = total_weight / 2.0
+    running = 0.0
+    for value, weight in valid:
+        running += weight
+        if running >= midpoint:
+            return value
+    return valid[-1][0]
+
+
 def _parse_iso_utc(value: Any) -> Optional[datetime]:
     raw = str(value or "").strip()
     if not raw:
@@ -135,6 +155,331 @@ def _pws_source_tag(source: str) -> str:
     if src == "WUNDERGROUND":
         return "WU"
     return "OTH"
+
+
+def _is_valid_pws_row(row: Dict[str, Any]) -> bool:
+    return bool(row.get("valid")) and _safe_float(row.get("temp_c")) is not None
+
+
+def _pws_weight(row: Dict[str, Any]) -> float:
+    weight = _safe_float(row.get("learning_weight"))
+    if weight is not None and weight > 0:
+        return max(0.05, weight)
+    return 1.0
+
+
+def _normalize_pws_source(source: Any) -> str:
+    return str(source or "").strip().upper()
+
+
+def _rank_pws_rows(rows: Sequence[Dict[str, Any]], metric_key: str) -> List[Dict[str, Any]]:
+    def _metric(row: Dict[str, Any]) -> Optional[float]:
+        return _safe_float(row.get(metric_key))
+
+    def _sort_key(row: Dict[str, Any]) -> tuple:
+        metric = _metric(row)
+        weight = _safe_float(row.get("learning_weight"))
+        dist = _safe_float(row.get("distance_km"))
+        return (
+            0 if metric is not None else 1,
+            -(metric if metric is not None else 0.0),
+            0 if weight is not None else 1,
+            -(weight if weight is not None else 0.0),
+            dist if dist is not None else 9999.0,
+            str(row.get("station_id") or ""),
+        )
+
+    return sorted(list(rows), key=_sort_key)
+
+
+def _compute_pws_weighted_consensus_c(rows: Sequence[Dict[str, Any]]) -> Optional[float]:
+    entries: List[tuple[float, float]] = []
+    for row in rows:
+        temp_c = _safe_float(row.get("temp_c"))
+        if temp_c is None:
+            continue
+        entries.append((temp_c, _pws_weight(row)))
+    return _weighted_median(entries)
+
+
+def _compute_nominal_next_metar(
+    official_obs_utc: Optional[datetime],
+    reference_utc: Optional[datetime] = None,
+) -> Dict[str, Optional[Any]]:
+    if official_obs_utc is None:
+        return {
+            "current_obs": None,
+            "next_obs": None,
+            "minutes_to_next": None,
+            "schedule_minute": None,
+        }
+
+    current_obs = official_obs_utc.astimezone(ZoneInfo("UTC"))
+    reference = (reference_utc or datetime.now(ZoneInfo("UTC"))).astimezone(ZoneInfo("UTC"))
+    next_obs = current_obs.replace(second=0, microsecond=0)
+    while next_obs <= reference:
+        next_obs = next_obs.replace(second=0, microsecond=0) + timedelta(minutes=60)
+
+    return {
+        "current_obs": current_obs,
+        "next_obs": next_obs,
+        "minutes_to_next": max(0.0, (next_obs - reference).total_seconds() / 60.0),
+        "schedule_minute": current_obs.minute,
+    }
+
+
+def _source_reliability_factor(source: Any) -> float:
+    normalized = _normalize_pws_source(source)
+    if normalized == "SYNOPTIC":
+        return 1.0
+    if normalized.startswith("MADIS_APRSWXNET"):
+        return 0.95
+    if normalized.startswith("MADIS_"):
+        return 0.9
+    if normalized == "WUNDERGROUND":
+        return 0.86
+    if normalized == "OPEN_METEO":
+        return 0.72
+    return 0.82
+
+
+def _lead_window_factor(lead_minutes: Optional[float], min_lead_minutes: float, max_lead_minutes: float) -> float:
+    lead = _safe_float(lead_minutes)
+    if lead is None:
+        return 0.75
+    if lead < 0:
+        return 0.05
+    if lead < min_lead_minutes:
+        return _clamp(0.35 + (lead / max(1.0, min_lead_minutes)) * 0.35, 0.15, 0.7)
+    if lead <= max_lead_minutes:
+        target = min_lead_minutes + ((max_lead_minutes - min_lead_minutes) * 0.38)
+        spread = max(8.0, (max_lead_minutes - min_lead_minutes) / 2.0)
+        distance = abs(lead - target)
+        return _clamp(1.0 - (distance / spread) * 0.22, 0.78, 1.0)
+    if lead <= max_lead_minutes + 20:
+        return 0.45
+    return 0.2
+
+
+def _freshness_factor(age_minutes: Optional[float]) -> float:
+    age = _safe_float(age_minutes)
+    if age is None:
+        return 0.55
+    if age <= 10:
+        return 1.0
+    if age <= 20:
+        return 0.94
+    if age <= 35:
+        return 0.82
+    if age <= 60:
+        return 0.62
+    if age <= 90:
+        return 0.32
+    return 0.14
+
+
+def _spike_penalty(consensus_gap_c: float, official_gap_c: float) -> float:
+    consensus_gap = abs(float(consensus_gap_c))
+    official_gap = abs(float(official_gap_c))
+    if consensus_gap >= 1.8 and official_gap >= 1.4:
+        return 0.32
+    if consensus_gap >= 1.2 and official_gap >= 1.0:
+        return 0.52
+    if consensus_gap >= 0.8:
+        return 0.72
+    if consensus_gap >= 0.45:
+        return 0.88
+    return 1.0
+
+
+def _build_learning_profile_map(learning_metric: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    top_profiles = learning_metric.get("top_profiles")
+    rank_top_profiles = learning_metric.get("rank_top_profiles")
+    if isinstance(top_profiles, list):
+        rows.extend(p for p in top_profiles if isinstance(p, dict))
+    if isinstance(rank_top_profiles, list):
+        rows.extend(p for p in rank_top_profiles if isinstance(p, dict))
+
+    out: Dict[str, Dict[str, Any]] = {}
+    for row in rows:
+        station_id = str(row.get("station_id") or "").upper()
+        if station_id:
+            out[station_id] = row
+    return out
+
+
+def _estimate_next_metar_c(
+    rows: Sequence[Dict[str, Any]],
+    official_temp_c: Optional[float],
+    official_obs_utc: Optional[datetime],
+    learning_metric: Optional[Dict[str, Any]],
+    consensus_c: Optional[float],
+    reference_utc: Optional[datetime] = None,
+) -> Optional[float]:
+    valid_rows = [row for row in rows if _is_valid_pws_row(row)]
+    if not valid_rows or official_obs_utc is None:
+        return None
+
+    schedule = _compute_nominal_next_metar(official_obs_utc, reference_utc=reference_utc)
+    next_obs = schedule.get("next_obs")
+    minutes_to_next = _safe_float(schedule.get("minutes_to_next"))
+    if next_obs is None:
+        return None
+
+    learning = learning_metric if isinstance(learning_metric, dict) else {}
+    policy = learning.get("policy") if isinstance(learning.get("policy"), dict) else {}
+    lead_window = policy.get("lead_window_minutes") if isinstance(policy.get("lead_window_minutes"), list) else [5, 45]
+    min_lead_minutes = _safe_float(lead_window[0]) if len(lead_window) >= 1 else None
+    max_lead_minutes = _safe_float(lead_window[1]) if len(lead_window) >= 2 else None
+    min_lead_minutes = 5.0 if min_lead_minutes is None else min_lead_minutes
+    max_lead_minutes = 45.0 if max_lead_minutes is None else max_lead_minutes
+    profile_map = _build_learning_profile_map(learning)
+
+    total_weight = 0.0
+    projected_sum = 0.0
+
+    for row in valid_rows:
+        temp_c = _safe_float(row.get("temp_c"))
+        if temp_c is None:
+            continue
+
+        station_id = str(row.get("station_id") or "").upper()
+        profile = profile_map.get(station_id, {})
+        predictive_weight = _safe_float(row.get("learning_weight_predictive"))
+        if predictive_weight is None:
+            predictive_weight = _safe_float(row.get("learning_weight"))
+        if predictive_weight is None:
+            predictive_weight = _pws_weight(row)
+
+        next_score = _safe_float(profile.get("next_metar_score"))
+        if next_score is None:
+            next_score = _safe_float(row.get("learning_predictive_score"))
+        lead_score = _safe_float(row.get("learning_lead_score"))
+        now_score = _safe_float(row.get("learning_now_score"))
+
+        score_terms: List[tuple[float, float]] = []
+        if next_score is not None:
+            score_terms.append((next_score / 100.0, 0.5))
+        if lead_score is not None:
+            score_terms.append((lead_score / 100.0, 0.32))
+        if now_score is not None:
+            score_terms.append((now_score / 100.0, 0.18))
+        score_weight_sum = sum(weight for _, weight in score_terms)
+        if score_weight_sum > 0:
+            skill_raw = sum(value * weight for value, weight in score_terms) / score_weight_sum
+            skill_factor = _clamp(skill_raw, 0.18, 1.0)
+        else:
+            skill_factor = 0.45
+
+        now_samples = _safe_float(row.get("learning_now_samples")) or 0.0
+        lead_samples = _safe_float(row.get("learning_lead_samples")) or 0.0
+        sample_factor = _clamp(
+            0.45 + 0.28 * min(1.0, now_samples / 8.0) + 0.27 * min(1.0, lead_samples / 6.0),
+            0.4,
+            1.0,
+        )
+
+        age_minutes = _safe_float(row.get("age_minutes"))
+        row_obs = _parse_iso_utc(row.get("obs_time_utc"))
+        if row_obs is not None:
+            lead_minutes = max(0.0, (next_obs - row_obs).total_seconds() / 60.0)
+        elif age_minutes is not None and minutes_to_next is not None:
+            lead_minutes = age_minutes + minutes_to_next
+        else:
+            lead_minutes = None
+
+        lead_factor = _lead_window_factor(lead_minutes, min_lead_minutes, max_lead_minutes)
+        fresh_factor = _freshness_factor(age_minutes)
+        source_factor = _source_reliability_factor(row.get("source"))
+        distance_km = _safe_float(row.get("distance_km")) or 9999.0
+        distance_factor = _clamp(1.0 - (distance_km / 35.0), 0.35, 1.0)
+
+        bias_c = _safe_float(profile.get("next_metar_bias_c")) or 0.0
+        base_projected_c = temp_c - bias_c
+        consensus_gap_c = (base_projected_c - consensus_c) if consensus_c is not None else 0.0
+        official_gap_c = (base_projected_c - official_temp_c) if official_temp_c is not None else 0.0
+        stability_factor = _spike_penalty(consensus_gap_c, official_gap_c)
+        reversion_blend = _clamp(
+            max(0.0, abs(consensus_gap_c) - 0.35) * 0.22
+            + (1.0 - skill_factor) * 0.18
+            + (1.0 - fresh_factor) * 0.14,
+            0.0,
+            0.55,
+        )
+        projected_c = (
+            ((base_projected_c * (1.0 - reversion_blend)) + (consensus_c * reversion_blend))
+            if consensus_c is not None
+            else base_projected_c
+        )
+
+        final_weight = (
+            predictive_weight
+            * skill_factor
+            * sample_factor
+            * fresh_factor
+            * source_factor
+            * distance_factor
+            * lead_factor
+            * stability_factor
+        )
+        if final_weight <= 0.025:
+            continue
+
+        total_weight += final_weight
+        projected_sum += projected_c * final_weight
+
+    if total_weight <= 0:
+        return None
+    return projected_sum / total_weight
+
+
+def _format_station_clock(value: Any, station_id: str) -> str:
+    dt = _parse_iso_utc(value)
+    if dt is None:
+        return "n/a"
+    station = STATIONS.get(station_id)
+    tz_name = getattr(station, "timezone", None) if station else None
+    try:
+        tz = ZoneInfo(str(tz_name)) if tz_name else ZoneInfo("UTC")
+    except Exception:
+        tz = ZoneInfo("UTC")
+    return dt.astimezone(tz).strftime("%H:%M")
+
+
+def _build_pws_mobile_snapshot(
+    station_id: str,
+    details: Sequence[Dict[str, Any]],
+    metrics: Optional[Dict[str, Any]],
+    official_temp_c: Optional[float],
+    official_obs_utc: Optional[datetime],
+) -> Dict[str, Any]:
+    valid_rows = [row for row in details if isinstance(row, dict) and _is_valid_pws_row(row)]
+    learning_metric = (metrics or {}).get("learning") if isinstance(metrics, dict) else {}
+    top_weighted = _rank_pws_rows(valid_rows, "learning_weight")[:10]
+    top_now = _rank_pws_rows(valid_rows, "learning_now_score")[:10]
+    top_lead = _rank_pws_rows(valid_rows, "learning_lead_score")[:10]
+
+    total_consensus_c = _compute_pws_weighted_consensus_c(valid_rows)
+    weighted_consensus_c = _compute_pws_weighted_consensus_c(top_weighted)
+    now_consensus_c = _compute_pws_weighted_consensus_c(top_now)
+    lead_consensus_c = _compute_pws_weighted_consensus_c(top_lead)
+    estimated_next_metar_c = _estimate_next_metar_c(
+        rows=valid_rows,
+        official_temp_c=official_temp_c,
+        official_obs_utc=official_obs_utc,
+        learning_metric=learning_metric if isinstance(learning_metric, dict) else {},
+        consensus_c=total_consensus_c,
+    )
+
+    return {
+        "total_consensus_c": total_consensus_c,
+        "top10_weighted_consensus_c": weighted_consensus_c,
+        "top10_now_consensus_c": now_consensus_c,
+        "top10_lead_consensus_c": lead_consensus_c,
+        "estimated_next_metar_c": estimated_next_metar_c,
+        "top10_weighted_rows": top_weighted,
+    }
 
 
 @dataclass(frozen=True)
@@ -483,13 +828,13 @@ class HeliosTelegramBot:
         msg = (
             "HELIOS Telegram Bot\n\n"
             "Comandos:\n"
-            "/helios [ICAO] - Prediccion actual HELIOS\n"
-            "/pws [ICAO] - PWS tipo dashboard (compacto)\n"
-            "/pwsraw [ICAO] - PWS completo JSON (debug)\n"
-            "/metar [ICAO] - NOAA METAR/SPECI actual\n"
-            "/resumen [ICAO] - HELIOS + METAR + resumen PWS\n"
-            "/stations - Lista de estaciones\n"
+            "/helios [ICAO] - Prediccion HELIOS\n"
+            "/pws [ICAO] - Consenso PWS simple\n"
+            "/metar [ICAO] - Temperatura METAR actual\n"
+            "/resumen [ICAO] - Resumen corto\n"
+            "/stations - Estaciones\n"
             "/station ICAO - Cambiar estacion\n\n"
+            "/pwsraw [ICAO] - Debug JSON\n\n"
             f"Estacion actual: {station_id}\n"
             "Tambien puedes tocar un boton de estacion."
         )
@@ -497,11 +842,11 @@ class HeliosTelegramBot:
 
     async def _cmd_stations(self, chat_id: str, active_ids: Sequence[str]) -> None:
         selected = self._current_station_for_chat(chat_id, active_ids)
-        lines = ["Estaciones disponibles en el bot:"]
+        lines = [f"Estacion actual: {selected}", ""]
         for sid in active_ids:
             station = STATIONS[sid]
-            marker = "->" if sid == selected else "  "
-            lines.append(f"{marker} {sid}: {station.name} [{station.timezone}]")
+            marker = "-> " if sid == selected else ""
+            lines.append(f"{marker}{sid} - {station.name}")
         await self._send_text(chat_id, "\n".join(lines), reply_markup=self._station_keyboard(active_ids))
 
     async def _cmd_station(self, chat_id: str, args: Sequence[str], active_ids: Sequence[str]) -> None:
@@ -509,7 +854,7 @@ class HeliosTelegramBot:
             current = self._current_station_for_chat(chat_id, active_ids)
             await self._send_text(
                 chat_id,
-                f"Estacion actual: {current}\nUsa /station ICAO para cambiarla.",
+                f"Estacion actual: {current}\nUsa /station ICAO para cambiar.",
                 reply_markup=self._station_keyboard(active_ids),
             )
             return
@@ -526,7 +871,7 @@ class HeliosTelegramBot:
         self._chat_station[chat_id] = wanted
         await self._send_text(
             chat_id,
-            f"Estacion cambiada a {wanted} ({STATIONS[wanted].name}).",
+            f"Estacion: {wanted} ({STATIONS[wanted].name})",
             reply_markup=self._station_keyboard(active_ids),
         )
 
@@ -548,21 +893,8 @@ class HeliosTelegramBot:
             await self._send_text(chat_id, f"No hay predicciones HELIOS para {station_id}.")
             return
 
-        pred_target = str(pred.get("target_date") or requested_target_date)
-        lines = [
-            f"HELIOS - {station_id} ({station.name})",
-            f"Target date local: {requested_target_date}",
-            f"Target date pred:  {pred_target}",
-            f"Timestamp DB:      {pred.get('timestamp', 'n/a')}",
-            "",
-            f"Final prediction: {_fmt_station_temp_from_f(pred.get('final_prediction_f'), station_id, 1)}",
-            f"HRRR base:        {_fmt_station_temp_from_f(pred.get('hrrr_max_raw_f'), station_id, 1)}",
-            f"Deviation now:    {_fmt_station_temp_from_f(pred.get('current_deviation_f'), station_id, 1)}",
-            f"Physics delta:    {_fmt_station_temp_from_f(pred.get('physics_adjustment_f'), station_id, 1)}",
-            f"Delta weight:     {_fmt(pred.get('delta_weight'), 3)}",
-            f"Confidence score: {_fmt(pred.get('confidence_score'), 3)}",
-        ]
-        await self._send_text(chat_id, "\n".join(lines))
+        prediction_text = _fmt_station_temp_from_f(pred.get("final_prediction_f"), station_id, 1)
+        await self._send_text(chat_id, f"HELIOS {station_id}: {prediction_text}")
 
     async def _cmd_metar(self, chat_id: str, args: Sequence[str]) -> None:
         station_id = self._resolve_station_from_args(chat_id, args)
@@ -576,33 +908,8 @@ class HeliosTelegramBot:
             await self._send_text(chat_id, f"No se pudo obtener METAR NOAA para {station_id}.")
             return
 
-        obs_utc = metar.observation_time.astimezone(ZoneInfo("UTC"))
-        obs_local = metar.observation_time.astimezone(ZoneInfo(station.timezone))
-        racing = metar.racing_results or {}
-        racing_types = getattr(metar, "racing_report_types", {}) or {}
-        report_type = str(getattr(metar, "report_type", "METAR") or "METAR").upper()
-        metar_title = "NOAA SPECI actual" if report_type == "SPECI" else "NOAA METAR actual"
-        race_line = ", ".join(
-            f"{src}{'[SPECI]' if str(racing_types.get(src, 'METAR')).upper() == 'SPECI' else ''}={_fmt_station_temp_from_f(temp, station_id, 1)}"
-            for src, temp in sorted(racing.items(), key=lambda x: x[0])
-        ) if racing else "n/a"
-
-        lines = [
-            f"{metar_title} - {station_id} ({station.name})",
-            f"Obs UTC:   {obs_utc.isoformat()}",
-            f"Obs local: {obs_local.isoformat()}",
-            f"Tipo:      {report_type}",
-            "",
-            f"Temp:      {_fmt_station_temp_from_c(metar.temp_c, station_id, 1)}",
-            f"Dewpoint:  {_fmt(metar.dewpoint_c, 2, 'C')}",
-            f"Humidity:  {_fmt(metar.humidity_pct, 1, '%')}",
-            f"Wind dir:  {metar.wind_dir_degrees if metar.wind_dir_degrees is not None else 'n/a'}",
-            f"Wind kt:   {metar.wind_speed_kt if metar.wind_speed_kt is not None else 'n/a'}",
-            f"Sky:       {metar.sky_condition or 'n/a'}",
-            "",
-            f"Race: {race_line}",
-        ]
-        await self._send_text(chat_id, "\n".join(lines))
+        temp_text = _fmt_station_temp_from_c(metar.temp_c, station_id, 1)
+        await self._send_text(chat_id, f"METAR {station_id}: {temp_text}")
 
     async def _cmd_pws(self, chat_id: str, args: Sequence[str]) -> None:
         station_id = self._resolve_station_from_args(chat_id, args)
@@ -610,151 +917,35 @@ class HeliosTelegramBot:
             await self._send_text(chat_id, "No hay estaciones disponibles en el bot.")
             return
 
-        await self._send_text(chat_id, f"Actualizando PWS para {station_id}...")
-
-        consensus, details, metrics = await self._refresh_pws_state(station_id)
+        metar, consensus, details, metrics = await self._refresh_pws_state(station_id)
         if not details and not consensus:
             await self._send_text(chat_id, f"No hay datos PWS disponibles para {station_id}.")
             return
 
-        rows = [r for r in details if isinstance(r, dict)]
-        valid_rows = [r for r in rows if bool(r.get("valid"))]
-        all_qc = (metrics or {}).get("all_sources_qc", {}) if isinstance(metrics, dict) else {}
-        learning = (metrics or {}).get("learning", {}) if isinstance(metrics, dict) else {}
-
-        # Counts by source family (same spirit as dashboard chips).
-        source_counts: Dict[str, int] = {
-            "Synoptic": 0,
-            "MADIS": 0,
-            "Open-Meteo": 0,
-            "Wunderground": 0,
-        }
-        for row in rows:
-            bucket = _pws_source_bucket(str(row.get("source") or ""))
-            if bucket in source_counts:
-                source_counts[bucket] += 1
-
-        median_c = all_qc.get("median_temp_c")
-        if median_c is None and consensus:
-            median_c = consensus.median_temp_c
-
-        mean_c = _mean([r.get("temp_c") for r in valid_rows])
-        support = all_qc.get("support")
-        if support is None:
-            support = len(valid_rows)
-
-        drift_c = all_qc.get("drift_c")
-        if drift_c is None and consensus:
-            drift_c = consensus.drift_c
-
-        weighted_support = learning.get("weighted_support")
-        if weighted_support is None and consensus:
-            weighted_support = consensus.weighted_support
-
-        latest_obs_utc = None
-        for row in valid_rows or rows:
-            dt = _parse_iso_utc(row.get("obs_time_utc"))
-            if dt and (latest_obs_utc is None or dt > latest_obs_utc):
-                latest_obs_utc = dt
-        if latest_obs_utc is None and consensus and consensus.obs_time_utc:
-            latest_obs_utc = consensus.obs_time_utc.astimezone(ZoneInfo("UTC"))
-
-        source_age_s = None
-        if latest_obs_utc is not None:
-            source_age_s = max(0.0, (datetime.now(ZoneInfo("UTC")) - latest_obs_utc).total_seconds())
-
-        ranked_by_weight = sorted(
-            valid_rows,
-            key=lambda r: _safe_float(r.get("learning_weight")) or -1.0,
-            reverse=True,
+        snapshot = _build_pws_mobile_snapshot(
+            station_id=station_id,
+            details=[row for row in details if isinstance(row, dict)],
+            metrics=metrics if isinstance(metrics, dict) else {},
+            official_temp_c=metar.temp_c if metar else None,
+            official_obs_utc=metar.observation_time if metar else None,
         )
-        top_by_now = sorted(
-            valid_rows,
-            key=lambda r: _safe_float(r.get("learning_now_score")) or -1.0,
-            reverse=True,
-        )
-        top_by_lead = sorted(
-            valid_rows,
-            key=lambda r: _safe_float(r.get("learning_lead_score")) or -1.0,
-            reverse=True,
-        )
-
-        top_station = ranked_by_weight[0] if ranked_by_weight else {}
-        top_now_score = _safe_float((top_by_now[0] if top_by_now else {}).get("learning_now_score"))
-        top_lead_score = _safe_float((top_by_lead[0] if top_by_lead else {}).get("learning_lead_score"))
-
-        ranking_status = str(learning.get("ranking_status") or "n/a")
-        ready_n = int(_safe_float(learning.get("rank_ready_station_count")) or 0)
-        tracked_n = int(_safe_float(learning.get("tracked_station_count")) or 0)
-
-        rule_text = "n/a"
-        policy = learning.get("policy") if isinstance(learning, dict) else None
-        if isinstance(policy, dict):
-            now_min = policy.get("now_alignment_minutes")
-            lead_window = policy.get("lead_window_minutes")
-            lead_text = (
-                f"{lead_window[0]}-{lead_window[1]}m"
-                if isinstance(lead_window, list) and len(lead_window) == 2
-                else "n/a"
-            )
-            rule_text = (
-                f"now score alineado METAR ({now_min}m), "
-                f"lead score ventana {lead_text}"
-            )
 
         lines = [
-            f"PWS CONSENSUS - {station_id} ({STATIONS[station_id].name})",
-            (
-                f"Sources: Synoptic({source_counts['Synoptic']}) "
-                f"MADIS({source_counts['MADIS']}) "
-                f"Open-Meteo({source_counts['Open-Meteo']}) "
-                f"Wunderground({source_counts['Wunderground']})"
-            ),
+            f"Total Consensus: {_fmt_station_temp_from_c(snapshot.get('total_consensus_c'), station_id, 1)}",
+            f"Consensus top 10 weighted: {_fmt_station_temp_from_c(snapshot.get('top10_weighted_consensus_c'), station_id, 1)}",
+            f"Consensus top 10 now: {_fmt_station_temp_from_c(snapshot.get('top10_now_consensus_c'), station_id, 1)}",
+            f"Consensus top 10 lead: {_fmt_station_temp_from_c(snapshot.get('top10_lead_consensus_c'), station_id, 1)}",
+            f"Estimated next metar: {_fmt_station_temp_from_c(snapshot.get('estimated_next_metar_c'), station_id, 1)}",
             "",
-            (
-                f"Median C (filtro): {_fmt(median_c, 2, 'C')} | "
-                f"Media C (filtro): {_fmt(mean_c, 2, 'C')} | "
-                f"Support (filtro): {int(_safe_float(support) or 0)}"
-            ),
-            (
-                f"Drift vs METAR: {_fmt(drift_c, 2, 'C')} | "
-                f"Source age: {int(_safe_float(source_age_s) or 0)}s"
-            ),
-            (
-                f"Learning weight(now): {_fmt(top_station.get('learning_weight'), 2)} | "
-                f"Top station: {top_station.get('station_id', 'n/a')}"
-            ),
-            (
-                f"Top now score: {_fmt(top_now_score, 0)} | "
-                f"Top lead score: {_fmt(top_lead_score, 0)}"
-            ),
-            (
-                f"Weighted support: {_fmt(weighted_support, 2)} | "
-                f"Learning status: {ranking_status} ({ready_n}/{tracked_n} stations)"
-            ),
-            f"Rule: {rule_text}",
-            "",
-            "Top estaciones (dist):",
-            f"ID          Src Dist   Temp{_station_temp_unit(station_id)}  Weight  Now Lead Status",
+            "Top 10 PWS weighted:",
         ]
 
-        def _dist(row: Dict[str, Any]) -> float:
-            return _safe_float(row.get("distance_km")) or 9999.0
+        for idx, row in enumerate(snapshot.get("top10_weighted_rows") or [], start=1):
+            station_code = str(row.get("station_id") or "n/a")
+            last_update = _format_station_clock(row.get("obs_time_utc"), station_id)
+            temp_text = _fmt_station_temp_from_c(row.get("temp_c"), station_id, 1)
+            lines.append(f"{idx}. {station_code} | {last_update} | {temp_text}")
 
-        for row in sorted(valid_rows, key=_dist)[:12]:
-            lines.append(
-                f"{str(row.get('station_id', 'n/a'))[:10]:<10} "
-                f"{_pws_source_tag(str(row.get('source') or '')):<3} "
-                f"{_fmt(row.get('distance_km'), 1, 'km'):>6} "
-                f"{_fmt_station_temp_from_f(row.get('temp_f'), station_id, 1):>6} "
-                f"{_fmt(row.get('learning_weight'), 2):>7} "
-                f"{_fmt(row.get('learning_now_score'), 0):>4} "
-                f"{_fmt(row.get('learning_lead_score'), 0):>4} "
-                f"{'OK' if row.get('valid') else 'OUT'}"
-            )
-
-        lines.append("")
-        lines.append("Usa /pwsraw si quieres el JSON completo.")
         await self._send_text(chat_id, "\n".join(lines))
 
     async def _cmd_pwsraw(self, chat_id: str, args: Sequence[str]) -> None:
@@ -764,7 +955,7 @@ class HeliosTelegramBot:
             return
 
         await self._send_text(chat_id, f"Actualizando PWS RAW para {station_id}...")
-        consensus, details, metrics = await self._refresh_pws_state(station_id)
+        _metar, consensus, details, metrics = await self._refresh_pws_state(station_id)
         if not details and not consensus:
             await self._send_text(chat_id, f"No hay datos PWS disponibles para {station_id}.")
             return
@@ -813,7 +1004,7 @@ class HeliosTelegramBot:
         snapshot = get_world().get_snapshot()
         details = ((snapshot.get("pws_details") or {}).get(station_id)) or []
         metrics = ((snapshot.get("pws_metrics") or {}).get(station_id)) or {}
-        return consensus, details, metrics
+        return metar, consensus, details, metrics
 
     async def _cmd_resumen(self, chat_id: str, args: Sequence[str]) -> None:
         station_id = self._resolve_station_from_args(chat_id, args)
@@ -832,29 +1023,27 @@ class HeliosTelegramBot:
         pws_snapshot = get_world().get_snapshot()
         pws_details = ((pws_snapshot.get("pws_details") or {}).get(station_id)) or []
         pws_metrics = ((pws_snapshot.get("pws_metrics") or {}).get(station_id)) or {}
+        pws_mobile = _build_pws_mobile_snapshot(
+            station_id=station_id,
+            details=[row for row in pws_details if isinstance(row, dict)],
+            metrics=pws_metrics if isinstance(pws_metrics, dict) else {},
+            official_temp_c=metar.temp_c if metar else None,
+            official_obs_utc=metar.observation_time if metar else None,
+        )
 
-        lines = [f"Resumen - {station_id} ({station.name})"]
-        if pred:
-            lines.append(
-                f"HELIOS: {_fmt_station_temp_from_f(pred.get('final_prediction_f'), station_id, 1)} "
-                f"(ts={pred.get('timestamp', 'n/a')})"
-            )
-        else:
-            lines.append("HELIOS: n/a")
-
-        if metar:
-            report_type = str(getattr(metar, "report_type", "METAR") or "METAR").upper()
-            metar_label = "NOAA SPECI" if report_type == "SPECI" else "NOAA METAR"
-            lines.append(
-                f"{metar_label}: {_fmt_station_temp_from_c(metar.temp_c, station_id, 1)} "
-                f"(obs={metar.observation_time.isoformat()})"
-            )
-        else:
-            lines.append("NOAA METAR: n/a")
-
-        lines.append(f"PWS rows: {len(pws_details)}")
-        lines.append(f"PWS metric keys: {', '.join(sorted(pws_metrics.keys())) if pws_metrics else 'n/a'}")
-        lines.append("Para detalle completo usa /pws")
+        lines = [f"Resumen {station_id}"]
+        lines.append(
+            f"HELIOS: {_fmt_station_temp_from_f(pred.get('final_prediction_f'), station_id, 1) if pred else 'n/a'}"
+        )
+        lines.append(
+            f"METAR: {_fmt_station_temp_from_c(metar.temp_c, station_id, 1) if metar else 'n/a'}"
+        )
+        lines.append(
+            f"PWS total consensus: {_fmt_station_temp_from_c(pws_mobile.get('total_consensus_c'), station_id, 1)}"
+        )
+        lines.append(
+            f"Estimated next metar: {_fmt_station_temp_from_c(pws_mobile.get('estimated_next_metar_c'), station_id, 1)}"
+        )
 
         await self._send_text(chat_id, "\n".join(lines))
 
