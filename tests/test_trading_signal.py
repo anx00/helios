@@ -38,6 +38,9 @@ def test_build_trading_signal_intraday_prefers_underpriced_terminal_bucket():
     assert signal["best_terminal_trade"]["label"] == "48-49°F"
     assert signal["best_terminal_trade"]["best_side"] == "YES"
     assert signal["best_terminal_trade"]["best_edge"] > 0.2
+    assert signal["best_terminal_trade"]["selected_fair"] == signal["best_terminal_trade"]["fair_yes"]
+    assert signal["best_terminal_trade"]["edge_points"] > 20.0
+    assert signal["modules"]["final_market"]["top_bucket"] == signal["model"]["top_label"]
 
 
 def test_build_trading_signal_day_ahead_falls_back_to_physics_prediction():
@@ -133,5 +136,6 @@ def test_build_trading_signal_creates_tactical_pressure_from_predictive_pws():
     assert signal["available"] is True
     assert signal["tactical_context"]["enabled"] is True
     assert signal["tactical_context"]["next_metar"]["direction"] == "UP"
+    assert signal["tactical_context"]["next_metar"]["quality"] == signal["tactical_context"]["next_metar"]["confidence"]
     assert signal["best_tactical_trade"] is not None
     assert signal["best_tactical_trade"]["label"] == "11-12°C"

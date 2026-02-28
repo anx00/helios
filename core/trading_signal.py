@@ -533,6 +533,7 @@ def estimate_next_metar_projection(
         "direction": direction,
         "minutes_to_next": round(float(minutes_to_next), 2) if minutes_to_next is not None else None,
         "next_obs_utc": next_obs.isoformat(),
+        "quality": round(float(confidence), 4),
         "confidence": round(float(confidence), 4),
         "contributors": projected_rows[:10],
         "probabilities": probabilities,
@@ -878,6 +879,11 @@ def build_trading_signal(
         if tactical_edge_no is not None and tactical_edge_no > tactical_best_edge:
             tactical_best_edge = tactical_edge_no
 
+        selected_entry = yes_entry if best_side == "YES" else no_entry
+        selected_market = market_yes if best_side == "YES" else market_no
+        selected_fair = fair_yes if best_side == "YES" else (1.0 - fair_yes)
+        selected_tactical_fair = tactical_yes if best_side == "YES" else (1.0 - tactical_yes)
+
         side_spread = None
         side_depth = None
         side_staleness = None
@@ -912,6 +918,8 @@ def build_trading_signal(
         opportunities.append({
             "label": label,
             "volume": round(float(_safe_float(row.get("volume")) or 0.0), 2),
+            "bucket_yes_probability": round(fair_yes, 6),
+            "bucket_no_probability": round(1.0 - fair_yes, 6),
             "fair_yes": round(fair_yes, 6),
             "fair_no": round(1.0 - fair_yes, 6),
             "tactical_yes": round(tactical_yes, 6),
@@ -920,6 +928,10 @@ def build_trading_signal(
             "market_no": round(float(market_no), 6) if market_no is not None else None,
             "yes_entry": round(float(yes_entry), 6) if yes_entry is not None else None,
             "no_entry": round(float(no_entry), 6) if no_entry is not None else None,
+            "selected_market": round(float(selected_market), 6) if selected_market is not None else None,
+            "selected_entry": round(float(selected_entry), 6) if selected_entry is not None else None,
+            "selected_fair": round(float(selected_fair), 6),
+            "selected_tactical_fair": round(float(selected_tactical_fair), 6),
             "edge_yes": round(float(edge_yes), 6) if edge_yes is not None else None,
             "edge_no": round(float(edge_no), 6) if edge_no is not None else None,
             "tactical_edge_yes": round(float(tactical_edge_yes), 6) if tactical_edge_yes is not None else None,
@@ -927,6 +939,8 @@ def build_trading_signal(
             "best_side": best_side,
             "best_edge": round(float(best_edge), 6),
             "tactical_best_edge": round(float(tactical_best_edge), 6),
+            "edge_points": round(float(best_edge) * 100.0, 4),
+            "tactical_edge_points": round(float(tactical_best_edge) * 100.0, 4),
             "score": round(float(best_edge) * 100.0 * quality, 4),
             "tactical_score": round(float(tactical_best_edge) * 100.0 * quality, 4),
             "recommendation": recommendation,
@@ -939,8 +953,30 @@ def build_trading_signal(
     top_labels = sorted(fair_rows, key=lambda row: float(row.get("fair_prob") or 0.0), reverse=True)
     top_label = top_labels[0]["label"] if top_labels else None
     top_label_prob = top_labels[0]["fair_prob"] if top_labels else None
+    top_label_complement_prob = (1.0 - float(top_label_prob)) if top_label_prob is not None else None
 
     expected_label, _ = label_for_temp(float(terminal_model["mean_market"]), ordered_labels)
+
+    best_terminal_trade = next(
+        (row for row in opportunities if float(row.get("best_edge") or 0.0) > 0.0),
+        None,
+    )
+    best_tactical_trade = next(
+        (row for row in tactical_ranked if float(row.get("tactical_best_edge") or 0.0) > 0.0),
+        None,
+    )
+
+    final_market_module = {
+        "type": "terminal_distribution",
+        "source": terminal_model["source"],
+        "mean": round(float(terminal_model["mean_market"]), 4),
+        "sigma": round(float(terminal_model["sigma_market"]), 4),
+        "quality": round(float(terminal_model["confidence"]), 4),
+        "top_bucket": top_label,
+        "top_bucket_probability": round(float(top_label_prob), 6) if top_label_prob is not None else None,
+        "top_bucket_complement_probability": round(float(top_label_complement_prob), 6) if top_label_complement_prob is not None else None,
+        "expected_bucket": expected_label,
+    }
 
     return {
         "available": True,
@@ -953,11 +989,13 @@ def build_trading_signal(
             "source": terminal_model["source"],
             "mean": round(float(terminal_model["mean_market"]), 4),
             "sigma": round(float(terminal_model["sigma_market"]), 4),
+            "quality": round(float(terminal_model["confidence"]), 4),
             "confidence": round(float(terminal_model["confidence"]), 4),
             "observed_floor": terminal_model.get("market_floor"),
             "expected_label": expected_label,
             "top_label": top_label,
             "top_label_probability": round(float(top_label_prob), 6) if top_label_prob is not None else None,
+            "top_label_complement_probability": round(float(top_label_complement_prob), 6) if top_label_complement_prob is not None else None,
             "top_labels": [
                 {
                     "label": row["label"],
@@ -966,19 +1004,23 @@ def build_trading_signal(
                 for row in top_labels[:5]
             ],
         },
-        "best_terminal_trade": next(
-            (row for row in opportunities if float(row.get("best_edge") or 0.0) > 0.0),
-            None,
-        ),
-        "best_tactical_trade": next(
-            (row for row in tactical_ranked if float(row.get("tactical_best_edge") or 0.0) > 0.0),
-            None,
-        ),
+        "best_terminal_trade": best_terminal_trade,
+        "best_tactical_trade": best_tactical_trade,
         "terminal_opportunities": opportunities[:8],
         "tactical_context": {
             "enabled": bool(tactical_map),
             "repricing_influence": round(float(tactical_influence), 4),
             "tactical_mean": round(float(tactical_mean), 4) if tactical_mean is not None else None,
             "next_metar": next_projection,
+        },
+        "modules": {
+            "final_market": final_market_module,
+            "next_official": next_projection,
+            "market_pricing": {
+                "type": "market_pricing",
+                "repricing_influence": round(float(tactical_influence), 4),
+                "best_terminal_trade": best_terminal_trade,
+                "best_tactical_trade": best_tactical_trade,
+            },
         },
     }
