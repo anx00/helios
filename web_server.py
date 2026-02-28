@@ -4590,11 +4590,12 @@ async def pws_dashboard(request: Request):
     })
 
 
+@app.get("/trading", response_class=HTMLResponse)
 @app.get("/polymarket", response_class=HTMLResponse)
-async def polymarket_dashboard(request: Request):
-    """Polymarket Dashboard - live market data, orderbook, sentiment."""
+async def trading_dashboard(request: Request):
+    """Trading dashboard - live market data, orderbook and trading policy."""
     return _render_template(request, "polymarket.html", {
-        "active_page": "polymarket"
+        "active_page": "trading"
     })
 
 

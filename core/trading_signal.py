@@ -735,6 +735,179 @@ def _build_fair_probabilities(
     return _normalize_partition(rows, key="fair_prob")
 
 
+def _label_market_bounds(label: str) -> tuple[Optional[int], Optional[int]]:
+    kind, low, high = parse_label(label)
+    if kind == "single" and low is not None:
+        value = int(low)
+        return value, value
+    if kind == "range" and low is not None and high is not None:
+        return int(low), int(high)
+    if kind == "below" and high is not None:
+        return None, int(high)
+    if kind == "above" and low is not None:
+        return int(low), None
+    return None, None
+
+
+def _trade_policy_reason(
+    *,
+    reasons: Sequence[str],
+    label: str,
+    side: str,
+    market_ceiling: Optional[int],
+    market_unit: str,
+) -> str:
+    if "above_remaining_upside" in reasons:
+        if market_ceiling is not None:
+            return f"{label} sits above the remaining upside capped near {market_ceiling}{market_unit}."
+        return f"{label} sits above the remaining upside."
+    if "late_upside_chase" in reasons:
+        return "Late upside chase after the expected heat peak."
+    if "next_official_down" in reasons:
+        return "Next official print is leaning down, so upside chase is blocked."
+    if "tail_too_small" in reasons:
+        return "Probability is too small for automatic trading."
+    if "too_expensive" in reasons:
+        return "Price is too close to max payout for the remaining edge."
+    if "edge_too_small" in reasons:
+        return "Edge is too small after the policy thresholds."
+    if "missing_market" in reasons:
+        return "Missing market quotes for this side."
+    return f"{side} {label} does not pass the live trading guardrails."
+
+
+def _trade_policy_thesis(
+    *,
+    label: str,
+    side: str,
+    target_day: int,
+    top_label: Optional[str],
+    selected_fair: Optional[float],
+    next_direction: str,
+    market_ceiling: Optional[int],
+    market_unit: str,
+) -> str:
+    if side == "NO":
+        if top_label and label == top_label and selected_fair is not None:
+            return f"{label} can still win, but the rest of the board still adds up to {selected_fair * 100.0:.0f}%."
+        return f"The market is overpaying for {label} versus the rest of the board."
+
+    if top_label and label == top_label:
+        return f"{label} is still the main scenario."
+    if target_day == 0 and next_direction == "UP":
+        return "Still reachable if the next official print comes in hotter."
+    if target_day == 0 and market_ceiling is not None:
+        return f"Still inside today's remaining upside up to {market_ceiling}{market_unit}."
+    return "Still inside the model range."
+
+
+def _evaluate_trade_policy(
+    *,
+    row: Dict[str, Any],
+    target_day: int,
+    market_unit: str,
+    terminal_model: Dict[str, Any],
+    top_label: Optional[str],
+    official_market: Optional[float],
+    next_projection: Optional[Dict[str, Any]],
+    tactical: bool = False,
+) -> Dict[str, Any]:
+    side_key = "tactical_best_side" if tactical else "best_side"
+    fair_key = "selected_tactical_fair" if tactical else "selected_fair"
+    edge_key = "tactical_best_edge" if tactical else "best_edge"
+    entry_key = "selected_tactical_entry" if tactical else "selected_entry"
+
+    side = str(row.get(side_key) or row.get("best_side") or "YES").upper()
+    label = str(row.get("label") or "")
+    selected_fair = _safe_float(row.get(fair_key))
+    edge = _safe_float(row.get(edge_key))
+    entry = _safe_float(row.get(entry_key))
+    next_direction = str((next_projection or {}).get("direction") or "FLAT").upper()
+    market_ceiling = _round_half_up(terminal_model.get("market_ceiling"))
+    official_rounded = _round_half_up(official_market)
+    lower_bound, _ = _label_market_bounds(label)
+
+    current_hour = _safe_float(terminal_model.get("current_hour"))
+    peak_hour = _safe_float(terminal_model.get("peak_hour"))
+    hours_to_peak = _safe_float(terminal_model.get("hours_to_peak"))
+    peak_passed = False
+    if current_hour is not None and peak_hour is not None and current_hour >= peak_hour + 0.5:
+        peak_passed = True
+    elif hours_to_peak is not None and hours_to_peak <= 0.0:
+        peak_passed = True
+    near_peak = peak_passed or (hours_to_peak is not None and hours_to_peak <= 0.75)
+
+    min_edge = 0.025 if tactical else 0.03
+    if side == "YES":
+        min_fair = 0.15 if int(target_day) == 0 else 0.10
+        if int(target_day) == 0 and label != top_label:
+            min_edge += 0.005
+    else:
+        min_fair = 0.18 if int(target_day) == 0 else 0.12
+
+    reasons: List[str] = []
+    if entry is None or selected_fair is None or edge is None:
+        reasons.append("missing_market")
+    else:
+        if edge < min_edge:
+            reasons.append("edge_too_small")
+        if selected_fair < min_fair:
+            reasons.append("tail_too_small")
+        if entry >= 0.92 and edge < 0.05:
+            reasons.append("too_expensive")
+
+    if (
+        side == "YES"
+        and lower_bound is not None
+        and market_ceiling is not None
+        and lower_bound > market_ceiling
+    ):
+        reasons.append("above_remaining_upside")
+
+    chasing_upside = (
+        side == "YES"
+        and int(target_day) == 0
+        and official_rounded is not None
+        and lower_bound is not None
+        and lower_bound >= official_rounded + 1
+    )
+    if chasing_upside and peak_passed and next_direction != "UP":
+        reasons.append("late_upside_chase")
+    elif chasing_upside and near_peak and next_direction == "DOWN":
+        reasons.append("next_official_down")
+
+    allowed = len(reasons) == 0
+    selected_edge_points = (edge or 0.0) * 100.0
+    policy_score = -1.0
+    if allowed and selected_fair is not None and edge is not None:
+        policy_score = selected_edge_points * (0.7 + (0.3 * selected_fair))
+
+    return {
+        "allowed": allowed,
+        "mode": "AUTO_GUARDRAILS",
+        "summary": _trade_policy_thesis(
+            label=label,
+            side=side,
+            target_day=target_day,
+            top_label=top_label,
+            selected_fair=selected_fair,
+            next_direction=next_direction,
+            market_ceiling=market_ceiling,
+            market_unit=market_unit,
+        ) if allowed else _trade_policy_reason(
+            reasons=reasons,
+            label=label,
+            side=side,
+            market_ceiling=market_ceiling,
+            market_unit=market_unit,
+        ),
+        "reasons": list(reasons),
+        "min_edge": round(float(min_edge), 6),
+        "min_fair": round(float(min_fair), 6),
+        "policy_score": round(float(policy_score), 6),
+    }
+
+
 def _repricing_influence(
     *,
     station_id: str,
@@ -817,14 +990,15 @@ def build_trading_signal(
     )
     fair_map = {row["label"]: row["fair_prob"] for row in fair_rows}
 
+    official_temp_c = None
+    official_obs_utc = None
+    if isinstance(official, dict):
+        official_temp_c = _safe_float(official.get("temp_c"))
+        official_obs_utc = _parse_iso_utc(official.get("obs_time_utc"))
+    official_market = _convert_c_to_market_unit(official_temp_c, market_unit)
+
     next_projection = None
     if target_day == 0:
-        official_temp_c = None
-        official_obs_utc = None
-        if isinstance(official, dict):
-            official_temp_c = _safe_float(official.get("temp_c"))
-            official_obs_utc = _parse_iso_utc(official.get("obs_time_utc"))
-
         learning_metric = None
         if isinstance(pws_metrics, dict):
             learning_metric = (pws_metrics.get("learning") if isinstance(pws_metrics.get("learning"), dict) else {})
@@ -923,17 +1097,21 @@ def build_trading_signal(
 
         best_side = "YES"
         best_edge = edge_yes if edge_yes is not None else -999.0
+        tactical_best_side = "YES"
         tactical_best_edge = tactical_edge_yes if tactical_edge_yes is not None else -999.0
         if edge_no is not None and edge_no > best_edge:
             best_side = "NO"
             best_edge = edge_no
         if tactical_edge_no is not None and tactical_edge_no > tactical_best_edge:
+            tactical_best_side = "NO"
             tactical_best_edge = tactical_edge_no
 
         selected_entry = yes_entry if best_side == "YES" else no_entry
         selected_market = market_yes if best_side == "YES" else market_no
         selected_fair = fair_yes if best_side == "YES" else (1.0 - fair_yes)
-        selected_tactical_fair = tactical_yes if best_side == "YES" else (1.0 - tactical_yes)
+        selected_tactical_entry = yes_entry if tactical_best_side == "YES" else no_entry
+        selected_tactical_market = market_yes if tactical_best_side == "YES" else market_no
+        selected_tactical_fair = tactical_yes if tactical_best_side == "YES" else (1.0 - tactical_yes)
 
         side_spread = None
         side_depth = None
@@ -952,20 +1130,6 @@ def build_trading_signal(
         stale_factor = 0.72 if side_staleness is None else _clamp(1.0 - (side_staleness / 90000.0), 0.4, 1.0)
         quality = spread_factor * depth_factor * stale_factor * float(terminal_model["confidence"])
 
-        recommendation = "HOLD"
-        if best_edge >= 0.07:
-            recommendation = f"BUY_{best_side}"
-        elif best_edge >= 0.04:
-            recommendation = f"LEAN_{best_side}"
-        elif best_edge >= 0.02:
-            recommendation = f"WATCH_{best_side}"
-
-        tactical_recommendation = "HOLD"
-        if tactical_best_edge >= 0.06:
-            tactical_recommendation = f"BUY_{best_side}"
-        elif tactical_best_edge >= 0.03:
-            tactical_recommendation = f"LEAN_{best_side}"
-
         opportunities.append({
             "label": label,
             "volume": round(float(_safe_float(row.get("volume")) or 0.0), 2),
@@ -982,6 +1146,9 @@ def build_trading_signal(
             "selected_market": round(float(selected_market), 6) if selected_market is not None else None,
             "selected_entry": round(float(selected_entry), 6) if selected_entry is not None else None,
             "selected_fair": round(float(selected_fair), 6),
+            "tactical_best_side": tactical_best_side,
+            "selected_tactical_market": round(float(selected_tactical_market), 6) if selected_tactical_market is not None else None,
+            "selected_tactical_entry": round(float(selected_tactical_entry), 6) if selected_tactical_entry is not None else None,
             "selected_tactical_fair": round(float(selected_tactical_fair), 6),
             "edge_yes": round(float(edge_yes), 6) if edge_yes is not None else None,
             "edge_no": round(float(edge_no), 6) if edge_no is not None else None,
@@ -994,12 +1161,7 @@ def build_trading_signal(
             "tactical_edge_points": round(float(tactical_best_edge) * 100.0, 4),
             "score": round(float(best_edge) * 100.0 * quality, 4),
             "tactical_score": round(float(tactical_best_edge) * 100.0 * quality, 4),
-            "recommendation": recommendation,
-            "tactical_recommendation": tactical_recommendation,
         })
-
-    opportunities.sort(key=lambda row: float(row.get("score") or 0.0), reverse=True)
-    tactical_ranked = sorted(opportunities, key=lambda row: float(row.get("tactical_score") or 0.0), reverse=True)
 
     top_labels = sorted(fair_rows, key=lambda row: float(row.get("fair_prob") or 0.0), reverse=True)
     top_label = top_labels[0]["label"] if top_labels else None
@@ -1008,8 +1170,83 @@ def build_trading_signal(
 
     expected_label, _ = label_for_temp(float(terminal_model["mean_market"]), ordered_labels)
 
+    terminal_ranked: List[Dict[str, Any]] = []
+    tactical_ranked: List[Dict[str, Any]] = []
+    blocked_terminal_count = 0
+    blocked_tactical_count = 0
+    for row in opportunities:
+        terminal_policy = _evaluate_trade_policy(
+            row=row,
+            target_day=target_day,
+            market_unit=market_unit,
+            terminal_model=terminal_model,
+            top_label=top_label,
+            official_market=official_market,
+            next_projection=next_projection,
+            tactical=False,
+        )
+        tactical_policy = _evaluate_trade_policy(
+            row=row,
+            target_day=target_day,
+            market_unit=market_unit,
+            terminal_model=terminal_model,
+            top_label=top_label,
+            official_market=official_market,
+            next_projection=next_projection,
+            tactical=True,
+        )
+
+        row["terminal_policy"] = terminal_policy
+        row["tactical_policy"] = tactical_policy
+        row["policy_reason"] = terminal_policy["summary"]
+        row["tactical_policy_reason"] = tactical_policy["summary"]
+        row["policy_score"] = terminal_policy["policy_score"]
+        row["tactical_policy_score"] = tactical_policy["policy_score"]
+
+        terminal_edge = float(row.get("best_edge") or 0.0)
+        tactical_edge = float(row.get("tactical_best_edge") or 0.0)
+        if terminal_policy["allowed"]:
+            if terminal_edge >= 0.06:
+                row["recommendation"] = f"BUY_{row['best_side']}"
+            elif terminal_edge >= 0.04:
+                row["recommendation"] = f"LEAN_{row['best_side']}"
+            else:
+                row["recommendation"] = f"WATCH_{row['best_side']}"
+            terminal_ranked.append(row)
+        else:
+            row["recommendation"] = "BLOCK"
+            blocked_terminal_count += 1
+
+        tactical_side = row.get("tactical_best_side") or row.get("best_side") or "YES"
+        if tactical_policy["allowed"]:
+            if tactical_edge >= 0.05:
+                row["tactical_recommendation"] = f"BUY_{tactical_side}"
+            elif tactical_edge >= 0.03:
+                row["tactical_recommendation"] = f"LEAN_{tactical_side}"
+            else:
+                row["tactical_recommendation"] = f"WATCH_{tactical_side}"
+            tactical_ranked.append(row)
+        else:
+            row["tactical_recommendation"] = "BLOCK"
+            blocked_tactical_count += 1
+
+    terminal_ranked.sort(
+        key=lambda row: (
+            float(row.get("policy_score") or -1.0),
+            float(row.get("score") or -1.0),
+        ),
+        reverse=True,
+    )
+    tactical_ranked.sort(
+        key=lambda row: (
+            float(row.get("tactical_policy_score") or -1.0),
+            float(row.get("tactical_score") or -1.0),
+        ),
+        reverse=True,
+    )
+
     best_terminal_trade = next(
-        (row for row in opportunities if float(row.get("best_edge") or 0.0) > 0.0),
+        (row for row in terminal_ranked if float(row.get("best_edge") or 0.0) > 0.0),
         None,
     )
     best_tactical_trade = next(
@@ -1028,6 +1265,19 @@ def build_trading_signal(
         "top_bucket_complement_probability": round(float(top_label_complement_prob), 6) if top_label_complement_prob is not None else None,
         "expected_bucket": expected_label,
         "ceiling": terminal_model.get("market_ceiling"),
+    }
+
+    policy_summary = {
+        "mode": "AUTO_GUARDRAILS",
+        "terminal_allowed_count": len(terminal_ranked),
+        "tactical_allowed_count": len(tactical_ranked),
+        "blocked_terminal_count": blocked_terminal_count,
+        "blocked_tactical_count": blocked_tactical_count,
+        "headline": (
+            f"{len(terminal_ranked)} ideas pass live policy"
+            if terminal_ranked
+            else "No trade passes the live policy right now"
+        ),
     }
 
     return {
@@ -1059,18 +1309,21 @@ def build_trading_signal(
         },
         "best_terminal_trade": best_terminal_trade,
         "best_tactical_trade": best_tactical_trade,
-        "terminal_opportunities": opportunities[:8],
+        "all_terminal_opportunities": opportunities,
+        "terminal_opportunities": terminal_ranked[:8],
         "tactical_context": {
             "enabled": bool(tactical_map),
             "repricing_influence": round(float(tactical_influence), 4),
             "tactical_mean": round(float(tactical_mean), 4) if tactical_mean is not None else None,
             "next_metar": next_projection,
         },
+        "policy": policy_summary,
         "modules": {
             "final_market": final_market_module,
             "next_official": next_projection,
             "market_pricing": {
                 "type": "market_pricing",
+                "policy": policy_summary,
                 "repricing_influence": round(float(tactical_influence), 4),
                 "best_terminal_trade": best_terminal_trade,
                 "best_tactical_trade": best_tactical_trade,

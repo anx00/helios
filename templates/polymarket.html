@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}HELIOS - Polymarket Dashboard{% endblock %}
+{% block title %}HELIOS - Trading{% endblock %}
 
 {% block head_extra %}
 <style>
@@ -629,7 +629,7 @@
 <div class="page-header">
     <div class="page-title">
         <i data-lucide="candlestick-chart" style="width:24px;height:24px;color:var(--accent-blue);"></i>
-        Polymarket Dashboard
+        Trading
     </div>
     <div class="pm-controls">
         <div class="pm-day-toggle">
@@ -662,10 +662,10 @@
         </div>
     </div>
 
-    <!-- Section 2: Trading Signal -->
+    <!-- Section 2: Trading -->
     <div class="pm-trading" id="pm-trading-section" style="display:none;">
         <div class="pm-section-title">
-            <i data-lucide="crosshair"></i> Trading Signal
+            <i data-lucide="crosshair"></i> Trading
         </div>
         <div class="pm-trading-grid" id="pm-trading-grid"></div>
         <div id="pm-trading-table-wrap"></div>
@@ -990,43 +990,38 @@
         const tacticalContext = trading.tactical_context || {};
         const nextMetar = tacticalContext.next_metar || null;
         const tactical = trading.best_tactical_trade || null;
+        const policy = trading.policy || {};
         const unit = trading.market_unit || 'F';
         const topBucket = model.top_label || model.expected_label || '--';
         const topBucketProb = Number(model.top_label_probability);
         const terminalMarket = terminal ? (terminal.selected_entry ?? (terminal.best_side === 'YES' ? terminal.yes_entry : terminal.no_entry)) : null;
         const terminalFair = terminal ? (terminal.selected_fair ?? (terminal.best_side === 'YES' ? terminal.fair_yes : terminal.fair_no)) : null;
         const terminalEdgePts = terminal ? (terminal.edge_points ?? (Number(terminal.best_edge) * 100.0)) : null;
-        const tacticalMarket = tactical ? (tactical.selected_entry ?? (tactical.best_side === 'YES' ? tactical.yes_entry : tactical.no_entry)) : null;
-        const tacticalFair = tactical ? (tactical.selected_tactical_fair ?? (tactical.best_side === 'YES' ? tactical.tactical_yes : tactical.tactical_no)) : null;
+        const tacticalSide = tactical ? (tactical.tactical_best_side || tactical.best_side) : null;
+        const tacticalMarket = tactical ? (tactical.selected_tactical_entry ?? (tacticalSide === 'YES' ? tactical.yes_entry : tactical.no_entry)) : null;
+        const tacticalFair = tactical ? (tactical.selected_tactical_fair ?? (tacticalSide === 'YES' ? tactical.tactical_yes : tactical.tactical_no)) : null;
         const tacticalEdgePts = tactical ? (tactical.tactical_edge_points ?? (Number(tactical.tactical_best_edge) * 100.0)) : null;
 
         const terminalClass = terminal && terminal.best_edge > 0.04 ? 'good' : 'watch';
         const tacticalClass = tactical && tactical.tactical_best_edge > 0.03 ? 'good' : 'watch';
-        const rowsAll = Array.isArray(trading.terminal_opportunities) ? trading.terminal_opportunities : [];
-        const rows = rowsAll
-            .filter(row => Number(row.edge_points ?? (Number(row.best_edge || 0) * 100.0)) >= 2.0)
-            .slice(0, 3);
+        const rows = (Array.isArray(trading.terminal_opportunities) ? trading.terminal_opportunities : []).slice(0, 3);
         const showFastTrade = tactical
             && (
-                tactical.best_side !== terminal?.best_side
+                tacticalSide !== terminal?.best_side
                 || tactical.label !== terminal?.label
                 || Math.abs(Number(tacticalEdgePts || 0) - Number(terminalEdgePts || 0)) >= 5.0
             );
-        const bestTradeLabel = terminal ? `${terminal.best_side} ${terminal.label}` : '--';
+        const bestTradeLabel = terminal ? `${terminal.best_side} ${terminal.label}` : 'No clear trade';
+        const fastTradeLabel = tactical ? `${tacticalSide} ${tactical.label}` : 'No fast trade';
         const nextMetarSummary = nextMetar
             ? `${nextMetar.direction === 'FLAT' ? 'flat' : nextMetar.direction.toLowerCase()} ${signedTempDeltaLabel(nextMetar.delta_market, unit, 1)}`
             : '--';
-        const rationale = terminal && topBucket !== '--'
-            ? (terminal.best_side === 'NO'
-                ? `${topBucket} is still the single most likely result (${pct(topBucketProb)}), but NO ${terminal.label} means every result except ${terminal.label}. HELIOS gives that side ${pct(terminalFair)} while the market is only charging ${pct(terminalMarket)}.`
-                : `${terminal.label} is not the only possible result, but the market is charging only ${pct(terminalMarket)} while HELIOS gives it ${pct(terminalFair)}.`)
-            : 'HELIOS = model price for that side. Market = current buy price. Edge = HELIOS minus Market.';
-        const altIdeas = rows
-            .filter(row => !(terminal && row.label === terminal.label && row.best_side === terminal.best_side))
-            .map(row => `${row.best_side} ${row.label}`)
-            .slice(0, 2);
-        const altNote = altIdeas.length
-            ? `Other ideas such as ${altIdeas.join(' and ')} appear only because they are cheap versus HELIOS. They are not the main forecast.`
+        const rationale = terminal
+            ? (terminal.policy_reason || 'This idea passes the live trading policy.')
+            : (policy.headline || 'No trade passes the live policy right now.');
+        const blockedCount = Number(policy.blocked_terminal_count || 0);
+        const filteredNote = blockedCount > 0
+            ? `${blockedCount} other ideas were filtered out because the edge was too small or the move no longer made physical sense.`
             : '';
 
         grid.innerHTML = `
@@ -1035,19 +1030,19 @@
                 <div class="pm-trade-main">${topBucket}</div>
                 <div class="pm-trade-sub">
                     ${pct(topBucketProb)} chance<br>
-                    HELIOS mean ${marketTempLabel(model.mean, unit, 1)}
+                    Model mean ${marketTempLabel(model.mean, unit, 1)}
                 </div>
             </div>
             <div class="pm-trade-card ${terminalClass}">
-                <div class="pm-trade-label">Best Trade Now</div>
+                <div class="pm-trade-label">Best Buy Now</div>
                 <div class="pm-trade-main">${bestTradeLabel}</div>
                 <div class="pm-trade-sub">
                     Market ${terminal ? pct(terminalMarket) : '--'}<br>
-                    HELIOS ${terminal ? pct(terminalFair) : '--'}
+                    Model ${terminal ? pct(terminalFair) : '--'}
                 </div>
             </div>
             <div class="pm-trade-card ${nextMetar && nextMetar.direction !== 'FLAT' ? 'good' : ''}">
-                <div class="pm-trade-label">Next METAR Estimate</div>
+                <div class="pm-trade-label">Next Official Estimate</div>
                 <div class="pm-trade-main">${nextMetar && typeof nextMetar.expected_market === 'number' ? marketTempLabel(nextMetar.expected_market, unit, 1) : '--'}</div>
                 <div class="pm-trade-sub">
                     ${nextMetar ? `${nextMetar.minutes_to_next?.toFixed ? nextMetar.minutes_to_next.toFixed(0) : '--'} min` : '--'}<br>
@@ -1056,18 +1051,24 @@
             </div>
             ${showFastTrade ? `
                 <div class="pm-trade-card ${tacticalClass}">
-                    <div class="pm-trade-label">After Next METAR</div>
-                    <div class="pm-trade-main">${tactical ? `${tactical.best_side} ${tactical.label}` : '--'}</div>
+                    <div class="pm-trade-label">If Next Official Prints</div>
+                    <div class="pm-trade-main">${fastTradeLabel}</div>
                     <div class="pm-trade-sub">
                         Market ${tactical ? pct(tacticalMarket) : '--'}<br>
-                        HELIOS ${tactical ? pct(tacticalFair) : '--'}
+                        Model ${tactical ? pct(tacticalFair) : '--'}
                     </div>
                 </div>
             ` : ''}
         `;
 
         if (!rows.length) {
-            tableWrap.innerHTML = '';
+            tableWrap.innerHTML = `
+                <div style="margin-top:14px; padding:12px 14px; border-radius:12px; border:1px solid rgba(255,255,255,0.06); background:rgba(255,255,255,0.02); color:var(--text-secondary); font-size:12px; line-height:1.5;">
+                    <div class="pm-trade-label" style="margin-bottom:8px;">Why</div>
+                    ${rationale}
+                    ${filteredNote ? `<div style="margin-top:8px;">${filteredNote}</div>` : ''}
+                </div>
+            `;
             return;
         }
 
@@ -1076,9 +1077,10 @@
                 <thead>
                     <tr>
                         <th>Idea</th>
+                        <th>Why</th>
                         <th>Market</th>
-                        <th>HELIOS</th>
-                        <th>Advantage</th>
+                        <th>Model</th>
+                        <th>Edge</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -1090,6 +1092,7 @@
                         return `
                             <tr>
                                 <td style="font-weight:700;">${row.best_side} ${row.label}</td>
+                                <td>${row.policy_reason || '--'}</td>
                                 <td>${pct(entry)}</td>
                                 <td>${pct(fair)}</td>
                                 <td class="${edgeClass}">${signedPointsLabel(edgePts)}</td>
@@ -1101,9 +1104,9 @@
         `;
         tableWrap.innerHTML += `
             <div style="margin-top:14px; padding:12px 14px; border-radius:12px; border:1px solid rgba(255,255,255,0.06); background:rgba(255,255,255,0.02); color:var(--text-secondary); font-size:12px; line-height:1.5;">
-                <div class="pm-trade-label" style="margin-bottom:8px;">Why this makes sense</div>
+                <div class="pm-trade-label" style="margin-bottom:8px;">Why</div>
                 ${rationale}
-                ${altNote ? `<div style="margin-top:8px;">${altNote}</div>` : ''}
+                ${filteredNote ? `<div style="margin-top:8px;">${filteredNote}</div>` : ''}
             </div>
         `;
     }
@@ -1315,7 +1318,7 @@
     function selectStation(stationId) {
         const normalized = window.HeliosStationState?.normalize?.(stationId) || String(stationId || '').toUpperCase();
         selectedStation = normalized;
-        window.HeliosStationState?.set?.(selectedStation, { source: 'polymarket' });
+        window.HeliosStationState?.set?.(selectedStation, { source: 'trading' });
         const sel = document.getElementById('pm-station-select');
         if (sel && sel.value !== selectedStation) sel.value = selectedStation;
         selectedBracket = null;

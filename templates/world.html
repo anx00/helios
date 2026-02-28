@@ -1060,18 +1060,6 @@
             </div>
         </div>
 
-        <div class="world-panel full-width" id="panel-trading">
-            <div class="panel-header">
-                <span class="panel-title">
-                    <i data-lucide="crosshair" style="width:16px;height:16px;"></i>
-                    Trading Signal
-                </span>
-                <span class="panel-badge badge-no-data" id="trading-badge">NO DATA</span>
-            </div>
-            <div id="trading-content">
-                <p style="color: var(--text-muted); font-size: 13px;">Waiting for market + model data to build a trading signal.</p>
-            </div>
-        </div>
     </div>
 </div>
 {% endblock %}
@@ -1090,8 +1078,6 @@
     let currentStation = (window.HeliosStationState && window.HeliosStationState.get())
         ? window.HeliosStationState.get()
         : 'KLGA';  // Default station
-    let lastTradingSignal = null;
-    let tradingSignalReqSeq = 0;
     const metarSubscriptionState = {};  // stationId -> bool
     let metarSubscriptionLoading = false;
     let metarSubscriptionReqSeq = 0;
@@ -1429,15 +1415,11 @@
 
         // Update timezone formatters
         updateTimezoneFormatters();
-        lastTradingSignal = null;
-        renderTradingSignal(null);
-
         // Re-render with existing data
         if (lastSnapshot) renderAll(lastSnapshot);
 
         // Reload METAR history for new station
         fetchMetarHistory();
-        fetchTradingSignal();
         refreshMetarRefreshButton();
         refreshMetarSubscriptionButton();
         fetchMetarSubscriptionState(currentStation);
@@ -1548,35 +1530,12 @@
         }
     }
 
-    async function fetchTradingSignal() {
-        const stationId = currentStation;
-        const reqSeq = ++tradingSignalReqSeq;
-        try {
-            const resp = await fetch(`/api/trade/${stationId}?target_day=0`, { cache: 'no-store' });
-            const data = await resp.json();
-            if (reqSeq !== tradingSignalReqSeq || stationId !== currentStation) return;
-            if (!resp.ok || (data && data.error)) {
-                lastTradingSignal = null;
-                renderTradingSignal(null);
-                return;
-            }
-            lastTradingSignal = data.trading || null;
-            renderTradingSignal(lastTradingSignal);
-        } catch (err) {
-            console.error('Trading signal fetch error:', err);
-            if (reqSeq !== tradingSignalReqSeq || stationId !== currentStation) return;
-            lastTradingSignal = null;
-            renderTradingSignal(null);
-        }
-    }
-
     // === Render Functions ===
     function renderAll(snap) {
         renderSystemBar(snap);
         renderMetar(snap.official);
         renderAux(snap.aux);
         renderPWS(snap.aux, snap.pws_details, snap.official, snap.pws_metrics);
-        if (lastTradingSignal) renderTradingSignal(lastTradingSignal);
     }
 
     function renderSystemBar(snap) {
@@ -2487,140 +2446,6 @@
         `;
     }
 
-    function renderTradingSignal(trading) {
-        const container = document.getElementById('trading-content');
-        const badge = document.getElementById('trading-badge');
-        if (!container || !badge) return;
-
-        if (!trading || trading.available === false) {
-            badge.textContent = 'NO DATA';
-            badge.className = 'panel-badge badge-no-data';
-            container.innerHTML = '<p style="color: var(--text-muted); font-size: 13px;">Waiting for market + model data to build a trading signal.</p>';
-            return;
-        }
-
-        const model = trading.model || {};
-        const terminal = trading.best_terminal_trade || null;
-        const tacticalContext = trading.tactical_context || {};
-        const nextMetar = tacticalContext.next_metar || null;
-        const tactical = trading.best_tactical_trade || null;
-        const topBucket = model.top_label || model.expected_label || '--';
-        const topBucketProb = Number(model.top_label_probability);
-        const terminalMarket = terminal ? (terminal.selected_entry ?? (terminal.best_side === 'YES' ? terminal.yes_entry : terminal.no_entry)) : null;
-        const terminalFair = terminal ? (terminal.selected_fair ?? (terminal.best_side === 'YES' ? terminal.fair_yes : terminal.fair_no)) : null;
-        const terminalEdgePts = terminal ? (terminal.edge_points ?? (Number(terminal.best_edge) * 100.0)) : null;
-        const tacticalMarket = tactical ? (tactical.selected_entry ?? (tactical.best_side === 'YES' ? tactical.yes_entry : tactical.no_entry)) : null;
-        const tacticalFair = tactical ? (tactical.selected_tactical_fair ?? (tactical.best_side === 'YES' ? tactical.tactical_yes : tactical.tactical_no)) : null;
-        const tacticalEdgePts = tactical ? (tactical.tactical_edge_points ?? (Number(tactical.tactical_best_edge) * 100.0)) : null;
-
-        const hasActionableTerminal = terminal && Number(terminal.best_edge || 0) > 0.03;
-        const hasActionableTactical = tactical && Number(tactical.tactical_best_edge || 0) > 0.025;
-        badge.textContent = hasActionableTerminal || hasActionableTactical ? 'EDGE' : 'WATCH';
-        badge.className = hasActionableTerminal || hasActionableTactical
-            ? 'panel-badge badge-live'
-            : 'panel-badge badge-stale';
-
-        const rowsAll = Array.isArray(trading.terminal_opportunities) ? trading.terminal_opportunities : [];
-        const rows = rowsAll
-            .filter(row => Number(row.edge_points ?? (Number(row.best_edge || 0) * 100.0)) >= 2.0)
-            .slice(0, 3);
-        const showFastTrade = tactical
-            && (
-                tactical.best_side !== terminal?.best_side
-                || tactical.label !== terminal?.label
-                || Math.abs(Number(tacticalEdgePts || 0) - Number(terminalEdgePts || 0)) >= 5.0
-            );
-        const bestTradeLabel = terminal ? `${terminal.best_side} ${terminal.label}` : '--';
-        const nextMetarSummary = nextMetar
-            ? `${nextMetar.direction === 'FLAT' ? 'flat' : nextMetar.direction.toLowerCase()} ${formatSignedTempDelta(nextMetar.delta_market)}`
-            : '--';
-        const rationale = terminal && topBucket !== '--'
-            ? (terminal.best_side === 'NO'
-                ? `${topBucket} is still the single most likely result (${formatProbPct(topBucketProb)}), but NO ${terminal.label} means every result except ${terminal.label}. HELIOS gives that side ${formatProbPct(terminalFair)} while the market is only charging ${formatProbPct(terminalMarket)}.`
-                : `${terminal.label} is not the only possible result, but the market is charging only ${formatProbPct(terminalMarket)} while HELIOS gives it ${formatProbPct(terminalFair)}.`)
-            : 'HELIOS = model price for that side. Market = current buy price. Edge = HELIOS minus Market.';
-        const altIdeas = rows
-            .filter(row => !(terminal && row.label === terminal.label && row.best_side === terminal.best_side))
-            .map(row => `${row.best_side} ${row.label}`)
-            .slice(0, 2);
-        const altNote = altIdeas.length
-            ? `Other ideas such as ${altIdeas.join(' and ')} appear only because they are cheap versus HELIOS. They are not the main forecast.`
-            : '';
-
-        container.innerHTML = `
-            <div class="trade-grid">
-                <div class="trade-card">
-                    <div class="detail-label">Most Likely Max</div>
-                    <div class="trade-card-value">${topBucket}</div>
-                    <div class="trade-card-meta">
-                        ${formatProbPct(topBucketProb)} chance<br>
-                        HELIOS mean ${formatMarketTempValue(model.mean, 1)}
-                    </div>
-                </div>
-                <div class="trade-card ${hasActionableTerminal ? 'good' : 'watch'}">
-                    <div class="detail-label">Best Trade Now</div>
-                    <div class="trade-card-value">${bestTradeLabel}</div>
-                    <div class="trade-card-meta">
-                        Market ${terminal ? formatProbPct(terminalMarket) : '--'}<br>
-                        HELIOS ${terminal ? formatProbPct(terminalFair) : '--'}
-                    </div>
-                </div>
-                <div class="trade-card ${nextMetar && nextMetar.direction !== 'FLAT' ? 'good' : ''}">
-                    <div class="detail-label">Next METAR Estimate</div>
-                    <div class="trade-card-value">${nextMetar ? formatMarketTempValue(nextMetar.expected_market, 1) : '--'}</div>
-                    <div class="trade-card-meta">
-                        ${nextMetar ? `${Number.isFinite(Number(nextMetar.minutes_to_next)) ? Number(nextMetar.minutes_to_next).toFixed(0) : '--'} min` : '--'}<br>
-                        ${nextMetarSummary}
-                    </div>
-                </div>
-                ${showFastTrade ? `
-                    <div class="trade-card ${hasActionableTactical ? 'good' : 'watch'}">
-                        <div class="detail-label">After Next METAR</div>
-                        <div class="trade-card-value">${tactical ? `${tactical.best_side} ${tactical.label}` : '--'}</div>
-                        <div class="trade-card-meta">
-                            Market ${tactical ? formatProbPct(tacticalMarket) : '--'}<br>
-                            HELIOS ${tactical ? formatProbPct(tacticalFair) : '--'}
-                        </div>
-                    </div>
-                ` : ''}
-            </div>
-            ${rows.length ? `
-                <div style="overflow-x:auto;">
-                    <table class="trade-table">
-                        <thead>
-                            <tr>
-                                <th>Idea</th>
-                                <th>Market</th>
-                                <th>HELIOS</th>
-                                <th>Advantage</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${rows.map(row => {
-                                const fair = row.selected_fair ?? (row.best_side === 'YES' ? row.fair_yes : row.fair_no);
-                                const entry = row.selected_entry ?? (row.best_side === 'YES' ? row.yes_entry : row.no_entry);
-                                const edgePts = row.edge_points ?? (Number(row.best_edge || 0) * 100.0);
-                                return `
-                                    <tr>
-                                        <td style="font-weight:700;">${row.best_side} ${row.label}</td>
-                                        <td>${formatProbPct(entry)}</td>
-                                        <td>${formatProbPct(fair)}</td>
-                                        <td class="${Number(row.best_edge || 0) > 0 ? 'trade-edge-positive' : ''}">${formatSignedPoints(edgePts)}</td>
-                                    </tr>
-                                `;
-                            }).join('')}
-                        </tbody>
-                    </table>
-                </div>
-            ` : ''}
-            <div style="margin-top:14px; padding:12px 14px; border-radius:12px; border:1px solid rgba(255,255,255,0.05); background:rgba(255,255,255,0.02); color:var(--text-muted); font-size:12px; line-height:1.5;">
-                <div class="detail-label" style="margin-bottom:8px;">Why this makes sense</div>
-                ${rationale}
-                ${altNote ? `<div style="margin-top:8px;">${altNote}</div>` : ''}
-            </div>
-        `;
-    }
-
     function renderPWSFilters(rawDetails) {
         const filtersEl = document.getElementById('pws-filters');
         if (!filtersEl) return;
@@ -3482,13 +3307,11 @@
 
         // Fetch METAR history for today
         fetchMetarHistory();
-        fetchTradingSignal();
         // Refresh METAR history every 60s
         setInterval(() => {
             if (currentStation !== lastHistoryStation) fetchMetarHistory();
         }, 5000);  // Check station change every 5s
         setInterval(fetchMetarHistory, 60000);  // Full refresh every 60s
-        setInterval(fetchTradingSignal, 15000);
 
         // Polling fallback: 15s when SSE active, 3s when disconnected
         setInterval(() => {
@@ -3505,7 +3328,6 @@
         document.addEventListener('visibilitychange', () => {
             if (!document.hidden) {
                 fetchSnapshot();
-                fetchTradingSignal();
                 updateMetarLiveAge();
                 if (!evtSource || evtSource.readyState === EventSource.CLOSED) {
                     connectSSE();

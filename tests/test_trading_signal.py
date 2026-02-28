@@ -11,16 +11,23 @@ from core.trading_signal import build_trading_signal
 UTC = ZoneInfo("UTC")
 
 
+def _row_by_prefix(rows, prefix):
+    for row in rows:
+        if str(row.get("label") or "").startswith(prefix):
+            return row
+    raise KeyError(prefix)
+
+
 def test_build_trading_signal_intraday_prefers_underpriced_terminal_bucket():
     signal = build_trading_signal(
         station_id="KLGA",
         target_day=0,
         target_date="2026-02-28",
         brackets=[
-            {"name": "46-47°F", "yes_price": 0.08, "no_price": 0.92, "ws_yes_best_ask": 0.09, "ws_no_best_ask": 0.95},
-            {"name": "48-49°F", "yes_price": 0.24, "no_price": 0.76, "ws_yes_best_ask": 0.25, "ws_no_best_ask": 0.80},
-            {"name": "50-51°F", "yes_price": 0.52, "no_price": 0.48, "ws_yes_best_ask": 0.54, "ws_no_best_ask": 0.50},
-            {"name": "52-53°F", "yes_price": 0.12, "no_price": 0.88, "ws_yes_best_ask": 0.13, "ws_no_best_ask": 0.91},
+            {"name": "46-47 F", "yes_price": 0.08, "no_price": 0.92, "ws_yes_best_ask": 0.09, "ws_no_best_ask": 0.95},
+            {"name": "48-49 F", "yes_price": 0.24, "no_price": 0.76, "ws_yes_best_ask": 0.25, "ws_no_best_ask": 0.80},
+            {"name": "50-51 F", "yes_price": 0.52, "no_price": 0.48, "ws_yes_best_ask": 0.54, "ws_no_best_ask": 0.50},
+            {"name": "52-53 F", "yes_price": 0.12, "no_price": 0.88, "ws_yes_best_ask": 0.13, "ws_no_best_ask": 0.91},
         ],
         nowcast_distribution={
             "tmax_mean_f": 49.0,
@@ -35,7 +42,7 @@ def test_build_trading_signal_intraday_prefers_underpriced_terminal_bucket():
 
     assert signal["available"] is True
     assert signal["model"]["source"] == "NOWCAST"
-    assert signal["best_terminal_trade"]["label"] == "48-49°F"
+    assert signal["best_terminal_trade"]["label"].startswith("48-49")
     assert signal["best_terminal_trade"]["best_side"] == "YES"
     assert signal["best_terminal_trade"]["best_edge"] > 0.2
     assert signal["best_terminal_trade"]["selected_fair"] == signal["best_terminal_trade"]["fair_yes"]
@@ -49,9 +56,9 @@ def test_build_trading_signal_day_ahead_falls_back_to_physics_prediction():
         target_day=1,
         target_date="2026-03-01",
         brackets=[
-            {"name": "52-53°F", "yes_price": 0.19, "no_price": 0.81},
-            {"name": "54-55°F", "yes_price": 0.26, "no_price": 0.74},
-            {"name": "56-57°F", "yes_price": 0.31, "no_price": 0.69},
+            {"name": "52-53 F", "yes_price": 0.19, "no_price": 0.81},
+            {"name": "54-55 F", "yes_price": 0.26, "no_price": 0.74},
+            {"name": "56-57 F", "yes_price": 0.31, "no_price": 0.69},
         ],
         prediction={
             "final_prediction_f": 55.0,
@@ -65,7 +72,7 @@ def test_build_trading_signal_day_ahead_falls_back_to_physics_prediction():
     assert signal["available"] is True
     assert signal["horizon"] == "DAY_AHEAD"
     assert signal["model"]["source"] == "PHYSICS"
-    assert signal["best_terminal_trade"]["label"] == "54-55°F"
+    assert signal["best_terminal_trade"]["label"].startswith("54-55")
     assert signal["best_terminal_trade"]["best_side"] == "YES"
 
 
@@ -75,9 +82,9 @@ def test_build_trading_signal_creates_tactical_pressure_from_predictive_pws():
         target_day=0,
         target_date="2026-02-28",
         brackets=[
-            {"name": "9-10°C", "yes_price": 0.39, "no_price": 0.61, "ws_yes_best_ask": 0.40, "ws_no_best_ask": 0.66},
-            {"name": "11-12°C", "yes_price": 0.17, "no_price": 0.83, "ws_yes_best_ask": 0.18, "ws_no_best_ask": 0.88},
-            {"name": "13°C or higher", "yes_price": 0.03, "no_price": 0.97, "ws_yes_best_ask": 0.04, "ws_no_best_ask": 0.98},
+            {"name": "9-10 C", "yes_price": 0.39, "no_price": 0.61, "ws_yes_best_ask": 0.40, "ws_no_best_ask": 0.66},
+            {"name": "11-12 C", "yes_price": 0.17, "no_price": 0.83, "ws_yes_best_ask": 0.18, "ws_no_best_ask": 0.88},
+            {"name": "13 C or higher", "yes_price": 0.03, "no_price": 0.97, "ws_yes_best_ask": 0.04, "ws_no_best_ask": 0.98},
         ],
         nowcast_distribution={
             "tmax_mean_f": 50.0,
@@ -138,7 +145,8 @@ def test_build_trading_signal_creates_tactical_pressure_from_predictive_pws():
     assert signal["tactical_context"]["next_metar"]["direction"] == "UP"
     assert signal["tactical_context"]["next_metar"]["quality"] == signal["tactical_context"]["next_metar"]["confidence"]
     assert signal["best_tactical_trade"] is not None
-    assert signal["best_tactical_trade"]["label"] == "11-12°C"
+    assert signal["best_tactical_trade"]["label"].startswith("11-12")
+    assert signal["best_tactical_trade"]["tactical_best_side"] == "YES"
 
 
 def test_build_trading_signal_respects_post_peak_ceiling_for_upside_buckets():
@@ -147,9 +155,9 @@ def test_build_trading_signal_respects_post_peak_ceiling_for_upside_buckets():
         target_day=0,
         target_date="2026-02-28",
         brackets=[
-            {"name": "14°C", "yes_price": 0.50, "no_price": 0.50, "ws_yes_best_ask": 0.52, "ws_no_best_ask": 0.05},
-            {"name": "15°C", "yes_price": 0.05, "no_price": 0.95, "ws_yes_best_ask": 0.05, "ws_no_best_ask": 0.97},
-            {"name": "16°C or higher", "yes_price": 0.01, "no_price": 0.99, "ws_yes_best_ask": 0.01, "ws_no_best_ask": 0.995},
+            {"name": "14 C", "yes_price": 0.50, "no_price": 0.50, "ws_yes_best_ask": 0.52, "ws_no_best_ask": 0.05},
+            {"name": "15 C", "yes_price": 0.05, "no_price": 0.95, "ws_yes_best_ask": 0.05, "ws_no_best_ask": 0.97},
+            {"name": "16 C or higher", "yes_price": 0.01, "no_price": 0.99, "ws_yes_best_ask": 0.01, "ws_no_best_ask": 0.995},
         ],
         nowcast_distribution={
             "tmax_mean_f": 57.0,
@@ -171,7 +179,49 @@ def test_build_trading_signal_respects_post_peak_ceiling_for_upside_buckets():
         reference_utc=datetime(2026, 2, 28, 15, 20, tzinfo=UTC),
     )
 
-    rows = {row["label"]: row for row in signal["terminal_opportunities"]}
+    rows = signal["all_terminal_opportunities"]
+    row_16 = _row_by_prefix(rows, "16")
+
     assert signal["model"]["ceiling"] == 15
-    assert rows["16°C or higher"]["fair_yes"] == 0.0
-    assert rows["16°C or higher"]["best_side"] == "NO"
+    assert row_16["fair_yes"] == 0.0
+    assert row_16["best_side"] == "NO"
+    assert row_16["terminal_policy"]["allowed"] is False
+
+
+def test_build_trading_signal_blocks_late_upside_chase_after_peak():
+    signal = build_trading_signal(
+        station_id="LFPG",
+        target_day=0,
+        target_date="2026-02-28",
+        brackets=[
+            {"name": "14 C", "yes_price": 0.52, "no_price": 0.48, "ws_yes_best_ask": 0.53, "ws_no_best_ask": 0.05},
+            {"name": "15 C", "yes_price": 0.05, "no_price": 0.95, "ws_yes_best_ask": 0.05, "ws_no_best_ask": 0.98},
+            {"name": "16 C or higher", "yes_price": 0.01, "no_price": 0.99, "ws_yes_best_ask": 0.01, "ws_no_best_ask": 0.995},
+        ],
+        nowcast_distribution={
+            "tmax_mean_f": 57.0,
+            "tmax_sigma_f": 1.8,
+            "confidence": 0.84,
+            "t_peak_expected_hour": 14,
+        },
+        nowcast_state={
+            "max_so_far_raw_f": 57.2,
+            "tmax_breakdown": {
+                "peak_hour": 14,
+                "current_hour": 16.2,
+                "hours_to_peak": 0.0,
+                "post_peak_cap_f": 59.0,
+                "remaining_max_f": 59.0,
+            },
+        },
+        official={"temp_c": 14.0, "obs_time_utc": "2026-02-28T15:00:00Z"},
+        reference_utc=datetime(2026, 2, 28, 15, 20, tzinfo=UTC),
+    )
+
+    row_15 = _row_by_prefix(signal["all_terminal_opportunities"], "15")
+
+    assert all(not str(row.get("label") or "").startswith("15") for row in signal["terminal_opportunities"])
+    assert row_15["terminal_policy"]["allowed"] is False
+    assert "late_upside_chase" in row_15["terminal_policy"]["reasons"]
+    assert signal["best_terminal_trade"]["label"].startswith("14")
+    assert signal["best_terminal_trade"]["best_side"] == "NO"
