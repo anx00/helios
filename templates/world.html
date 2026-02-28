@@ -719,6 +719,108 @@
         color: var(--text-muted);
     }
 
+    .trade-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+        gap: 12px;
+        margin-bottom: 14px;
+    }
+
+    .trade-card {
+        padding: 14px 16px;
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.025);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .trade-card.good {
+        border-color: rgba(16, 185, 129, 0.24);
+        background: rgba(16, 185, 129, 0.06);
+    }
+
+    .trade-card.watch {
+        border-color: rgba(244, 208, 63, 0.24);
+        background: rgba(244, 208, 63, 0.05);
+    }
+
+    .trade-card-value {
+        font-size: 22px;
+        font-weight: 700;
+        font-family: 'Space Grotesk', sans-serif;
+        color: var(--text-main);
+        margin-top: 6px;
+    }
+
+    .trade-card-meta {
+        margin-top: 6px;
+        font-size: 11px;
+        line-height: 1.35;
+        color: var(--text-muted);
+    }
+
+    .trade-chip-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 14px;
+    }
+
+    .trade-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--text-secondary);
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .trade-chip.buy {
+        color: #10B981;
+        border-color: rgba(16, 185, 129, 0.25);
+        background: rgba(16, 185, 129, 0.10);
+    }
+
+    .trade-chip.down {
+        color: #EF4444;
+        border-color: rgba(239, 68, 68, 0.25);
+        background: rgba(239, 68, 68, 0.10);
+    }
+
+    .trade-chip.up {
+        color: #10B981;
+        border-color: rgba(16, 185, 129, 0.25);
+        background: rgba(16, 185, 129, 0.10);
+    }
+
+    .trade-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 11px;
+    }
+
+    .trade-table th,
+    .trade-table td {
+        padding: 8px 10px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        text-align: left;
+    }
+
+    .trade-table th {
+        font-size: 10px;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        color: var(--text-muted);
+    }
+
+    .trade-edge-positive {
+        color: #10B981;
+        font-weight: 700;
+    }
+
     /* Station Selector */
     .station-selector {
         display: flex;
@@ -957,6 +1059,19 @@
                 <p style="color: var(--text-muted); font-size: 13px;">Waiting for official METAR + PWS data to estimate the next report.</p>
             </div>
         </div>
+
+        <div class="world-panel full-width" id="panel-trading">
+            <div class="panel-header">
+                <span class="panel-title">
+                    <i data-lucide="crosshair" style="width:16px;height:16px;"></i>
+                    Trading Signal
+                </span>
+                <span class="panel-badge badge-no-data" id="trading-badge">NO DATA</span>
+            </div>
+            <div id="trading-content">
+                <p style="color: var(--text-muted); font-size: 13px;">Waiting for market + model data to build a trading signal.</p>
+            </div>
+        </div>
     </div>
 </div>
 {% endblock %}
@@ -975,6 +1090,8 @@
     let currentStation = (window.HeliosStationState && window.HeliosStationState.get())
         ? window.HeliosStationState.get()
         : 'KLGA';  // Default station
+    let lastTradingSignal = null;
+    let tradingSignalReqSeq = 0;
     const metarSubscriptionState = {};  // stationId -> bool
     let metarSubscriptionLoading = false;
     let metarSubscriptionReqSeq = 0;
@@ -1189,6 +1306,28 @@
         return `${v.toFixed(digits)}${tempUnitSymbol(stationId)}`;
     }
 
+    function formatMarketTempValue(value, digits = 1, stationId = currentStation) {
+        if (!Number.isFinite(Number(value))) return '--';
+        return `${Number(value).toFixed(digits)}${tempUnitSymbol(stationId)}`;
+    }
+
+    function formatProbPct(value, digits = 0) {
+        if (!Number.isFinite(Number(value))) return '--';
+        return `${(Number(value) * 100).toFixed(digits)}%`;
+    }
+
+    function formatSignedProbPct(value, digits = 1) {
+        if (!Number.isFinite(Number(value))) return '--';
+        const num = Number(value);
+        return `${num > 0 ? '+' : ''}${(num * 100).toFixed(digits)}%`;
+    }
+
+    function formatSignedTempDelta(value, digits = 1, stationId = currentStation) {
+        if (!Number.isFinite(Number(value))) return '--';
+        const num = Number(value);
+        return `${num > 0 ? '+' : ''}${num.toFixed(digits)}${tempUnitSymbol(stationId)}`;
+    }
+
     function clamp(value, minValue, maxValue) {
         if (!Number.isFinite(Number(value))) return minValue;
         return Math.min(maxValue, Math.max(minValue, Number(value)));
@@ -1284,12 +1423,15 @@
 
         // Update timezone formatters
         updateTimezoneFormatters();
+        lastTradingSignal = null;
+        renderTradingSignal(null);
 
         // Re-render with existing data
         if (lastSnapshot) renderAll(lastSnapshot);
 
         // Reload METAR history for new station
         fetchMetarHistory();
+        fetchTradingSignal();
         refreshMetarRefreshButton();
         refreshMetarSubscriptionButton();
         fetchMetarSubscriptionState(currentStation);
@@ -1400,12 +1542,35 @@
         }
     }
 
+    async function fetchTradingSignal() {
+        const stationId = currentStation;
+        const reqSeq = ++tradingSignalReqSeq;
+        try {
+            const resp = await fetch(`/api/trade/${stationId}?target_day=0`, { cache: 'no-store' });
+            const data = await resp.json();
+            if (reqSeq !== tradingSignalReqSeq || stationId !== currentStation) return;
+            if (!resp.ok || (data && data.error)) {
+                lastTradingSignal = null;
+                renderTradingSignal(null);
+                return;
+            }
+            lastTradingSignal = data.trading || null;
+            renderTradingSignal(lastTradingSignal);
+        } catch (err) {
+            console.error('Trading signal fetch error:', err);
+            if (reqSeq !== tradingSignalReqSeq || stationId !== currentStation) return;
+            lastTradingSignal = null;
+            renderTradingSignal(null);
+        }
+    }
+
     // === Render Functions ===
     function renderAll(snap) {
         renderSystemBar(snap);
         renderMetar(snap.official);
         renderAux(snap.aux);
         renderPWS(snap.aux, snap.pws_details, snap.official, snap.pws_metrics);
+        if (lastTradingSignal) renderTradingSignal(lastTradingSignal);
     }
 
     function renderSystemBar(snap) {
@@ -2316,6 +2481,108 @@
         `;
     }
 
+    function renderTradingSignal(trading) {
+        const container = document.getElementById('trading-content');
+        const badge = document.getElementById('trading-badge');
+        if (!container || !badge) return;
+
+        if (!trading || trading.available === false) {
+            badge.textContent = 'NO DATA';
+            badge.className = 'panel-badge badge-no-data';
+            container.innerHTML = '<p style="color: var(--text-muted); font-size: 13px;">Waiting for market + model data to build a trading signal.</p>';
+            return;
+        }
+
+        const model = trading.model || {};
+        const terminal = trading.best_terminal_trade || null;
+        const tacticalContext = trading.tactical_context || {};
+        const nextMetar = tacticalContext.next_metar || null;
+        const tactical = trading.best_tactical_trade || null;
+
+        const hasActionableTerminal = terminal && Number(terminal.best_edge || 0) > 0.03;
+        const hasActionableTactical = tactical && Number(tactical.tactical_best_edge || 0) > 0.025;
+        badge.textContent = hasActionableTerminal || hasActionableTactical ? 'EDGE' : 'WATCH';
+        badge.className = hasActionableTerminal || hasActionableTactical
+            ? 'panel-badge badge-live'
+            : 'panel-badge badge-stale';
+
+        const directionClass = nextMetar && nextMetar.direction ? String(nextMetar.direction).toLowerCase() : 'flat';
+        const rows = Array.isArray(trading.terminal_opportunities) ? trading.terminal_opportunities.slice(0, 4) : [];
+
+        container.innerHTML = `
+            <div class="trade-grid">
+                <div class="trade-card">
+                    <div class="detail-label">Model</div>
+                    <div class="trade-card-value">${formatMarketTempValue(model.mean, 1)}</div>
+                    <div class="trade-card-meta">
+                        sigma ${Number.isFinite(Number(model.sigma)) ? Number(model.sigma).toFixed(1) : '--'}<br>
+                        ${model.source || '--'} · conf ${formatProbPct(model.confidence)}
+                    </div>
+                </div>
+                <div class="trade-card ${hasActionableTerminal ? 'good' : 'watch'}">
+                    <div class="detail-label">Best Terminal Trade</div>
+                    <div class="trade-card-value">${terminal ? `${terminal.best_side} ${terminal.label}` : '--'}</div>
+                    <div class="trade-card-meta">
+                        entry ${terminal ? formatProbPct(terminal.best_side === 'YES' ? terminal.yes_entry : terminal.no_entry) : '--'}<br>
+                        fair ${terminal ? formatProbPct(terminal.best_side === 'YES' ? terminal.fair_yes : terminal.fair_no) : '--'}
+                    </div>
+                </div>
+                <div class="trade-card ${nextMetar && nextMetar.direction !== 'FLAT' ? 'good' : ''}">
+                    <div class="detail-label">Next METAR Pressure</div>
+                    <div class="trade-card-value">${nextMetar ? formatMarketTempValue(nextMetar.expected_market, 1) : '--'}</div>
+                    <div class="trade-card-meta">
+                        ${nextMetar ? `${Number.isFinite(Number(nextMetar.minutes_to_next)) ? Number(nextMetar.minutes_to_next).toFixed(0) : '--'} min` : '--'}<br>
+                        conf ${nextMetar ? formatProbPct(nextMetar.confidence) : '--'}
+                    </div>
+                </div>
+                <div class="trade-card ${hasActionableTactical ? 'good' : 'watch'}">
+                    <div class="detail-label">Best Tactical Trade</div>
+                    <div class="trade-card-value">${tactical ? `${tactical.best_side} ${tactical.label}` : '--'}</div>
+                    <div class="trade-card-meta">
+                        entry ${tactical ? formatProbPct(tactical.best_side === 'YES' ? tactical.yes_entry : tactical.no_entry) : '--'}<br>
+                        fair ${tactical ? formatProbPct(tactical.best_side === 'YES' ? tactical.tactical_yes : tactical.tactical_no) : '--'}
+                    </div>
+                </div>
+            </div>
+            <div class="trade-chip-row">
+                <span class="trade-chip">${model.top_label || '--'} ${formatProbPct(model.top_label_probability)}</span>
+                <span class="trade-chip buy">${terminal ? `${terminal.recommendation} ${formatSignedProbPct(terminal.best_edge)}` : 'HOLD'}</span>
+                <span class="trade-chip ${directionClass}">${nextMetar ? `${nextMetar.direction} ${formatSignedTempDelta(nextMetar.delta_market)}` : 'FLAT'}</span>
+                <span class="trade-chip buy">${tactical ? `${tactical.tactical_recommendation} ${formatSignedProbPct(tactical.tactical_best_edge)}` : 'HOLD'}</span>
+            </div>
+            ${rows.length ? `
+                <div style="overflow-x:auto;">
+                    <table class="trade-table">
+                        <thead>
+                            <tr>
+                                <th>Bucket</th>
+                                <th>Side</th>
+                                <th>Entry</th>
+                                <th>Fair</th>
+                                <th>Edge</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${rows.map(row => {
+                                const fair = row.best_side === 'YES' ? row.fair_yes : row.fair_no;
+                                const entry = row.best_side === 'YES' ? row.yes_entry : row.no_entry;
+                                return `
+                                    <tr>
+                                        <td style="font-weight:700;">${row.label}</td>
+                                        <td>${row.best_side}</td>
+                                        <td>${formatProbPct(entry)}</td>
+                                        <td>${formatProbPct(fair)}</td>
+                                        <td class="${Number(row.best_edge || 0) > 0 ? 'trade-edge-positive' : ''}">${formatSignedProbPct(row.best_edge)}</td>
+                                    </tr>
+                                `;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            ` : ''}
+        `;
+    }
+
     function renderPWSFilters(rawDetails) {
         const filtersEl = document.getElementById('pws-filters');
         if (!filtersEl) return;
@@ -3177,11 +3444,13 @@
 
         // Fetch METAR history for today
         fetchMetarHistory();
+        fetchTradingSignal();
         // Refresh METAR history every 60s
         setInterval(() => {
             if (currentStation !== lastHistoryStation) fetchMetarHistory();
         }, 5000);  // Check station change every 5s
         setInterval(fetchMetarHistory, 60000);  // Full refresh every 60s
+        setInterval(fetchTradingSignal, 15000);
 
         // Polling fallback: 15s when SSE active, 3s when disconnected
         setInterval(() => {
@@ -3198,6 +3467,7 @@
         document.addEventListener('visibilitychange', () => {
             if (!document.hidden) {
                 fetchSnapshot();
+                fetchTradingSignal();
                 updateMetarLiveAge();
                 if (!evtSource || evtSource.readyState === EventSource.CLOSED) {
                     connectSSE();

@@ -129,6 +129,114 @@
     .pm-sentiment.shifting { color: #F4D03F; }
     .pm-sentiment.aggressive { color: #EF4444; }
 
+    /* ============= TRADING SIGNAL ============= */
+    .pm-trading {
+        background: rgba(255,255,255,0.02);
+        border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 14px;
+        padding: 22px;
+        margin-bottom: 20px;
+    }
+    .pm-trading-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 14px;
+        margin-bottom: 16px;
+    }
+    .pm-trade-card {
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 12px;
+        padding: 16px;
+        background: rgba(255,255,255,0.015);
+        min-height: 132px;
+    }
+    .pm-trade-card.good {
+        border-color: rgba(16,185,129,0.22);
+        background: rgba(16,185,129,0.05);
+    }
+    .pm-trade-card.watch {
+        border-color: rgba(244,208,63,0.20);
+        background: rgba(244,208,63,0.04);
+    }
+    .pm-trade-label {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 1.2px;
+        color: var(--text-secondary);
+        margin-bottom: 8px;
+        font-weight: 700;
+    }
+    .pm-trade-main {
+        font-size: 24px;
+        font-weight: 700;
+        font-family: 'Space Grotesk', sans-serif;
+        color: var(--text-primary);
+        line-height: 1.05;
+    }
+    .pm-trade-sub {
+        font-size: 12px;
+        color: var(--text-secondary);
+        margin-top: 8px;
+        line-height: 1.45;
+    }
+    .pm-trade-pill-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 10px;
+    }
+    .pm-trade-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        border-radius: 999px;
+        padding: 5px 10px;
+        font-size: 11px;
+        font-weight: 700;
+        border: 1px solid rgba(255,255,255,0.08);
+        background: rgba(255,255,255,0.04);
+        color: var(--text-secondary);
+    }
+    .pm-trade-pill.buy {
+        color: #10B981;
+        border-color: rgba(16,185,129,0.22);
+        background: rgba(16,185,129,0.10);
+    }
+    .pm-trade-pill.up {
+        color: #10B981;
+        border-color: rgba(16,185,129,0.22);
+        background: rgba(16,185,129,0.10);
+    }
+    .pm-trade-pill.down {
+        color: #EF4444;
+        border-color: rgba(239,68,68,0.22);
+        background: rgba(239,68,68,0.10);
+    }
+    .pm-trade-pill.flat {
+        color: #cbd5e1;
+    }
+    .pm-trading-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+    }
+    .pm-trading-table th {
+        text-align: left;
+        padding: 8px 10px;
+        color: var(--text-secondary);
+        font-weight: 600;
+        text-transform: uppercase;
+        font-size: 10px;
+        letter-spacing: 1px;
+        border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    .pm-trading-table td {
+        padding: 8px 10px;
+        border-bottom: 1px solid rgba(255,255,255,0.03);
+    }
+    .pm-edge-positive { color: #10B981; font-weight: 700; }
+    .pm-edge-neutral { color: var(--text-secondary); }
+
     /* ============= BRACKET GRID ============= */
     .pm-brackets-grid {
         display: grid;
@@ -505,11 +613,13 @@
         .mini-depth-grid { grid-template-columns: 1fr; }
         .ob-outcomes { grid-template-columns: 1fr; }
         .ob-book { grid-template-columns: 1fr; }
+        .pm-trading-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
     @media (max-width: 600px) {
         .pm-brackets-grid { grid-template-columns: 1fr; }
         .pm-overview { flex-direction: column; align-items: flex-start; }
         .pm-overview-right { align-items: flex-start; }
+        .pm-trading-grid { grid-template-columns: 1fr; }
     }
 </style>
 {% endblock %}
@@ -552,12 +662,21 @@
         </div>
     </div>
 
-    <!-- Section 2: Bracket Grid -->
+    <!-- Section 2: Trading Signal -->
+    <div class="pm-trading" id="pm-trading-section" style="display:none;">
+        <div class="pm-section-title">
+            <i data-lucide="crosshair"></i> Trading Signal
+        </div>
+        <div class="pm-trading-grid" id="pm-trading-grid"></div>
+        <div id="pm-trading-table-wrap"></div>
+    </div>
+
+    <!-- Section 3: Bracket Grid -->
     <div class="pm-brackets-grid" id="pm-brackets-grid">
         <!-- Filled by JS -->
     </div>
 
-    <!-- Section 3: Orderbook Detail (hidden until bracket clicked) -->
+    <!-- Section 4: Orderbook Detail (hidden until bracket clicked) -->
     <div class="pm-orderbook-detail" id="pm-orderbook-detail">
         <div class="ob-header">
             <div class="ob-title" id="ob-title">--</div>
@@ -597,7 +716,7 @@
         </div>
     </div>
 
-    <!-- Section 4: Market Shifts -->
+    <!-- Section 5: Market Shifts -->
     <div class="pm-shifts" id="pm-shifts-section" style="display:none;">
         <div class="pm-section-title">
             <i data-lucide="trending-up"></i> Market Shifts (last 60 min)
@@ -616,7 +735,7 @@
         </table>
     </div>
 
-    <!-- Section 5: WS Diagnostics (collapsible) -->
+    <!-- Section 6: WS Diagnostics (collapsible) -->
     <div class="pm-diagnostics">
         <div class="pm-diag-toggle" onclick="toggleDiagnostics()">
             <div class="pm-section-title" style="margin-bottom:0;">
@@ -665,6 +784,28 @@
     function cents(v, decimals = 1) {
         if (typeof v !== 'number' || !Number.isFinite(v)) return '--';
         return `${(v * 100).toFixed(decimals)}c`;
+    }
+
+    function pct(v, decimals = 0) {
+        if (typeof v !== 'number' || !Number.isFinite(v)) return '--';
+        return `${(v * 100).toFixed(decimals)}%`;
+    }
+
+    function signedPct(v, decimals = 1) {
+        if (typeof v !== 'number' || !Number.isFinite(v)) return '--';
+        const sign = v > 0 ? '+' : '';
+        return `${sign}${(v * 100).toFixed(decimals)}%`;
+    }
+
+    function signedTempDeltaLabel(v, unit, decimals = 1) {
+        if (typeof v !== 'number' || !Number.isFinite(v)) return '--';
+        const sign = v > 0 ? '+' : '';
+        return `${sign}${v.toFixed(decimals)}&deg;${unit}`;
+    }
+
+    function marketTempLabel(v, unit, decimals = 1) {
+        if (typeof v !== 'number' || !Number.isFinite(v)) return '--';
+        return `${v.toFixed(decimals)}&deg;${unit}`;
     }
 
     function resolveBook(bracket, side) {
@@ -775,6 +916,7 @@
     // ========================
     function renderAll(data) {
         renderOverview(data);
+        renderTrading(data.trading);
         renderBrackets(data.brackets);
         renderShifts(data.shifts);
         renderDiagnostics(data);
@@ -825,6 +967,117 @@
         if (data.sentiment.startsWith('AGGRESSIVE')) sentEl.className = 'pm-sentiment aggressive';
         else if (data.sentiment.startsWith('SHIFTING')) sentEl.className = 'pm-sentiment shifting';
         else sentEl.className = 'pm-sentiment';
+    }
+
+    function renderTrading(trading) {
+        const section = document.getElementById('pm-trading-section');
+        const grid = document.getElementById('pm-trading-grid');
+        const tableWrap = document.getElementById('pm-trading-table-wrap');
+        if (!trading || trading.available === false) {
+            section.style.display = 'none';
+            return;
+        }
+
+        section.style.display = 'block';
+        const model = trading.model || {};
+        const terminal = trading.best_terminal_trade || null;
+        const tacticalContext = trading.tactical_context || {};
+        const nextMetar = tacticalContext.next_metar || null;
+        const tactical = trading.best_tactical_trade || null;
+        const unit = trading.market_unit || 'F';
+
+        const terminalClass = terminal && terminal.best_edge > 0.04 ? 'good' : 'watch';
+        const tacticalClass = tactical && tactical.tactical_best_edge > 0.03 ? 'good' : 'watch';
+        const directionClass = nextMetar && nextMetar.direction ? String(nextMetar.direction).toLowerCase() : 'flat';
+
+        grid.innerHTML = `
+            <div class="pm-trade-card">
+                <div class="pm-trade-label">Model</div>
+                <div class="pm-trade-main">${marketTempLabel(model.mean, unit, 1)}</div>
+                <div class="pm-trade-sub">
+                    sigma ${typeof model.sigma === 'number' ? model.sigma.toFixed(1) : '--'}<br>
+                    ${model.source || '--'} · conf ${pct(model.confidence)}
+                </div>
+                <div class="pm-trade-pill-row">
+                    <span class="pm-trade-pill">${model.top_label || '--'}</span>
+                    <span class="pm-trade-pill">${pct(model.top_label_probability)}</span>
+                </div>
+            </div>
+            <div class="pm-trade-card ${terminalClass}">
+                <div class="pm-trade-label">Best Terminal Trade</div>
+                <div class="pm-trade-main">${terminal ? `${terminal.best_side} ${terminal.label}` : '--'}</div>
+                <div class="pm-trade-sub">
+                    entry ${terminal ? pct(terminal.best_side === 'YES' ? terminal.yes_entry : terminal.no_entry) : '--'}<br>
+                    fair ${terminal ? pct(terminal.best_side === 'YES' ? terminal.fair_yes : terminal.fair_no) : '--'}
+                </div>
+                <div class="pm-trade-pill-row">
+                    <span class="pm-trade-pill buy">${terminal ? terminal.recommendation : 'HOLD'}</span>
+                    <span class="pm-trade-pill ${terminal && terminal.best_edge > 0 ? 'buy' : ''}">edge ${terminal ? signedPct(terminal.best_edge) : '--'}</span>
+                </div>
+            </div>
+            <div class="pm-trade-card ${nextMetar && nextMetar.direction !== 'FLAT' ? 'good' : ''}">
+                <div class="pm-trade-label">Next METAR</div>
+                <div class="pm-trade-main">${nextMetar && typeof nextMetar.expected_market === 'number' ? marketTempLabel(nextMetar.expected_market, unit, 1) : '--'}</div>
+                <div class="pm-trade-sub">
+                    ${nextMetar ? `${nextMetar.minutes_to_next?.toFixed ? nextMetar.minutes_to_next.toFixed(0) : '--'} min to next` : '--'}<br>
+                    conf ${nextMetar ? pct(nextMetar.confidence) : '--'}
+                </div>
+                <div class="pm-trade-pill-row">
+                    <span class="pm-trade-pill ${directionClass}">${nextMetar ? nextMetar.direction : 'FLAT'}</span>
+                    <span class="pm-trade-pill">${nextMetar && typeof nextMetar.delta_market === 'number' ? signedTempDeltaLabel(nextMetar.delta_market, unit, 1) : '--'}</span>
+                </div>
+            </div>
+            <div class="pm-trade-card ${tacticalClass}">
+                <div class="pm-trade-label">Best Tactical Trade</div>
+                <div class="pm-trade-main">${tactical ? `${tactical.best_side} ${tactical.label}` : '--'}</div>
+                <div class="pm-trade-sub">
+                    entry ${tactical ? pct(tactical.best_side === 'YES' ? tactical.yes_entry : tactical.no_entry) : '--'}<br>
+                    fair ${tactical ? pct(tactical.best_side === 'YES' ? tactical.tactical_yes : tactical.tactical_no) : '--'}
+                </div>
+                <div class="pm-trade-pill-row">
+                    <span class="pm-trade-pill buy">${tactical ? tactical.tactical_recommendation : 'HOLD'}</span>
+                    <span class="pm-trade-pill ${tactical && tactical.tactical_best_edge > 0 ? 'buy' : ''}">edge ${tactical ? signedPct(tactical.tactical_best_edge) : '--'}</span>
+                </div>
+            </div>
+        `;
+
+        const rows = Array.isArray(trading.terminal_opportunities) ? trading.terminal_opportunities.slice(0, 5) : [];
+        if (!rows.length) {
+            tableWrap.innerHTML = '';
+            return;
+        }
+
+        tableWrap.innerHTML = `
+            <table class="pm-trading-table">
+                <thead>
+                    <tr>
+                        <th>Bucket</th>
+                        <th>Side</th>
+                        <th>Entry</th>
+                        <th>Fair</th>
+                        <th>Edge</th>
+                        <th>Score</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${rows.map(row => {
+                        const fair = row.best_side === 'YES' ? row.fair_yes : row.fair_no;
+                        const entry = row.best_side === 'YES' ? row.yes_entry : row.no_entry;
+                        const edgeClass = row.best_edge > 0 ? 'pm-edge-positive' : 'pm-edge-neutral';
+                        return `
+                            <tr>
+                                <td style="font-weight:700;">${row.label}</td>
+                                <td>${row.best_side}</td>
+                                <td>${pct(entry)}</td>
+                                <td>${pct(fair)}</td>
+                                <td class="${edgeClass}">${signedPct(row.best_edge)}</td>
+                                <td>${typeof row.score === 'number' ? row.score.toFixed(2) : '--'}</td>
+                            </tr>
+                        `;
+                    }).join('')}
+                </tbody>
+            </table>
+        `;
     }
 
     // ========================
