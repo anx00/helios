@@ -1010,6 +1010,10 @@ class PWSLearningStore:
                 sample_ts = _as_utc(sample["obs_time_utc"])
                 if sample_ts is None:
                     continue
+                lead_ahead_min = (official_ts - sample_ts).total_seconds() / 60.0
+                if lead_ahead_min >= float(self.lead_min_minutes):
+                    # Predictive lead samples must not also score as NOW.
+                    continue
                 delta_min = abs((sample_ts - official_ts).total_seconds()) / 60.0
                 if delta_min > float(self.now_alignment_minutes):
                     continue

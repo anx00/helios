@@ -74,6 +74,34 @@ class _FakeLearningStore:
     def list_audit_dates(self, market_station_id: str) -> list[str]:
         return []
 
+    def load_audit_rows(self, market_station_id: str, date_str: str) -> list[dict]:
+        return []
+
+
+class _FakeAuditLearningStore(_FakeLearningStore):
+    def list_audit_dates(self, market_station_id: str) -> list[str]:
+        return ["2026-02-10"]
+
+    def load_audit_rows(self, market_station_id: str, date_str: str) -> list[dict]:
+        return [
+            {
+                "station_id": "KNYAUD1",
+                "station_name": "Queens terrace",
+                "source": "WUNDERGROUND",
+                "distance_km": 2.1,
+                "kind": "LEAD",
+                "lead_bucket": "15-30",
+                "lead_minutes": 20.0,
+                "sample_obs_time_utc": "2026-02-10T14:00:00+00:00",
+                "sample_temp_c": 0.0,
+                "sample_temp_f": 32.0,
+                "official_obs_time_utc": "2026-02-10T14:20:00+00:00",
+                "official_temp_c": 0.4,
+                "official_temp_f": 32.72,
+                "abs_error_c": 0.4,
+            }
+        ]
+
 
 def _world_event(station_id: str, obs_iso: str, temp_f: float) -> dict:
     return {
@@ -192,3 +220,30 @@ def test_build_payload_exposes_legacy_station_ids_when_detail_missing(monkeypatc
     assert payload["legacy_station_ids"][0]["station_id"] == "KNYLEGACY1"
     assert payload["legacy_station_ids"][0]["occurrences"] == 2
     assert "legacy" in payload["message"].lower()
+
+
+def test_build_payload_uses_learning_audit_when_replay_detail_missing(monkeypatch):
+    station_id = "KLGA"
+    events = [
+        _world_event(station_id, "2026-02-10T13:50:00+00:00", 31.0),
+        _world_event(station_id, "2026-02-10T14:20:00+00:00", 32.7),
+        _pws_event(
+            station_id,
+            "2026-02-10T14:05:00+00:00",
+            [],
+            pws_ids=["KNYAUD1"],
+        ),
+    ]
+
+    monkeypatch.setattr(pws_browser, "_load_station_day_events", lambda *_args, **_kwargs: events)
+    monkeypatch.setattr(pws_browser, "get_pws_learning_store", lambda: _FakeAuditLearningStore())
+
+    payload = pws_browser.build_pws_browser_payload(station_id, "2026-02-10")
+
+    assert payload["detail_available"] is True
+    assert payload["detail_source"] == "learning_audit"
+    station = payload["pws_stations"][0]
+    assert station["station_id"] == "KNYAUD1"
+    assert station["table_rows"][0]["current_metar"]["temp_f"] == 31.0
+    assert station["table_rows"][0]["next_metar"]["temp_f"] == 32.72
+    assert station["table_rows"][0]["predicted_next_metar"]["bucket"] == "15-30"

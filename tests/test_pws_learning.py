@@ -268,9 +268,9 @@ class TestPwsLearning(unittest.TestCase):
             dates = store.list_audit_dates("KLGA")
             self.assertEqual(dates, ["2026-02-17"])
             rows = store.load_audit_rows("KLGA", "2026-02-17")
-            self.assertEqual(len(rows), 2)
-            self.assertEqual({row.get("kind") for row in rows}, {"NOW", "LEAD"})
-            self.assertTrue(all(row.get("station_id") == "AUDIT_PWS" for row in rows))
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0].get("kind"), "LEAD")
+            self.assertEqual(rows[0].get("station_id"), "AUDIT_PWS")
 
     def test_source_prior_fades_with_strong_historical_evidence(self):
         with TemporaryDirectory() as td:

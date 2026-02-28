@@ -233,6 +233,185 @@ def _predictive_ranking_rows(station_id: str, limit: int = 24) -> List[Dict[str,
     return rows
 
 
+def _build_audit_station_payloads(
+    market_station_id: str,
+    date_str: str,
+    metar_series: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    store = get_pws_learning_store()
+    station_tz = _resolve_station_timezone(market_station_id)
+    grouped: Dict[str, Dict[str, Any]] = {}
+
+    for raw in store.load_audit_rows(market_station_id, date_str):
+        if not isinstance(raw, dict):
+            continue
+        pws_station_id = str(raw.get("station_id") or "").upper()
+        if not pws_station_id:
+            continue
+
+        sample_dt = _parse_dt(raw.get("sample_obs_time_utc"))
+        official_dt = _parse_dt(raw.get("official_obs_time_utc"))
+        if sample_dt is None:
+            continue
+
+        profile = grouped.get(pws_station_id)
+        if profile is None:
+            learning_profile = store.get_station_profile(
+                market_station_id,
+                pws_station_id,
+                str(raw.get("source") or "UNKNOWN"),
+            )
+            profile = {
+                "station_id": pws_station_id,
+                "station_name": raw.get("station_name") or pws_station_id,
+                "source": raw.get("source"),
+                "distance_km": _float_or_none(raw.get("distance_km")),
+                "learning_profile": _learning_profile_subset(learning_profile),
+                "audit_rows": [],
+                "chart_rows": [],
+                "now_errors": [],
+                "lead_errors": [],
+            }
+            grouped[pws_station_id] = profile
+
+        row_time = _normalize_station_row_time(sample_dt, station_tz)
+        sample_temp = _temperature_pair(raw.get("sample_temp_c"), raw.get("sample_temp_f"))
+        chart_row = {
+            "ts_utc": row_time["ts_utc"],
+            "station_time": row_time["station_time"],
+            "station_time_short": row_time["station_time_short"],
+            "es_time": row_time["es_time"],
+            "temp_c": sample_temp["temp_c"],
+            "temp_f": sample_temp["temp_f"],
+            "valid": True,
+            "qc_flag": raw.get("kind"),
+        }
+
+        if not any(existing.get("ts_utc") == chart_row["ts_utc"] and existing.get("temp_c") == chart_row["temp_c"] for existing in profile["chart_rows"]):
+            chart_row["_dt"] = sample_dt
+            profile["chart_rows"].append(chart_row)
+
+        audit_row = {
+            "ts_utc": row_time["ts_utc"],
+            "station_time": row_time["station_time"],
+            "es_time": row_time["es_time"],
+            "temp_c": sample_temp["temp_c"],
+            "temp_f": sample_temp["temp_f"],
+            "valid": True,
+            "qc_flag": raw.get("kind"),
+            "_dt": sample_dt,
+            "audit_kind": str(raw.get("kind") or "").upper(),
+            "lead_bucket": raw.get("lead_bucket"),
+            "lead_minutes": _float_or_none(raw.get("lead_minutes")),
+            "scored_official": None,
+        }
+        if official_dt is not None:
+            official_time = _normalize_station_row_time(official_dt, station_tz)
+            official_temp = _temperature_pair(raw.get("official_temp_c"), raw.get("official_temp_f"))
+            audit_row["scored_official"] = {
+                "ts_utc": official_time["ts_utc"],
+                "station_time": official_time["station_time"],
+                "es_time": official_time["es_time"],
+                "temp_c": official_temp["temp_c"],
+                "temp_f": official_temp["temp_f"],
+                "report_type": "METAR",
+            }
+        profile["audit_rows"].append(audit_row)
+
+        abs_error_c = _float_or_none(raw.get("abs_error_c"))
+        if audit_row["audit_kind"] == "NOW" and abs_error_c is not None:
+            profile["now_errors"].append(abs_error_c)
+        if audit_row["audit_kind"] == "LEAD" and abs_error_c is not None:
+            profile["lead_errors"].append(abs_error_c)
+
+    stations: List[Dict[str, Any]] = []
+    for profile in grouped.values():
+        chart_rows = sorted(profile["chart_rows"], key=lambda row: row["_dt"])
+        matched_rows = _attach_prediction_rows(
+            _match_metar_rows(
+                _downsample_table_rows(sorted(profile["audit_rows"], key=lambda row: row["_dt"]), MIN_TABLE_INTERVAL_MINUTES),
+                metar_series,
+            ),
+            profile["learning_profile"],
+        )
+
+        # Audit rows know the exact official used for scoring; prefer it as next_metar for lead rows.
+        for row in matched_rows:
+            if row.get("audit_kind") == "LEAD" and row.get("scored_official"):
+                row["next_metar"] = row.get("scored_official")
+            elif row.get("audit_kind") == "NOW" and row.get("scored_official"):
+                row["current_metar"] = row.get("scored_official")
+
+        latest = chart_rows[-1] if chart_rows else None
+        latest_temp = _temperature_pair((latest or {}).get("temp_c"), (latest or {}).get("temp_f"))
+        next_mae = (
+            round(sum(profile["lead_errors"]) / len(profile["lead_errors"]), 3)
+            if profile["lead_errors"]
+            else None
+        )
+        current_mae = (
+            round(sum(profile["now_errors"]) / len(profile["now_errors"]), 3)
+            if profile["now_errors"]
+            else None
+        )
+        stations.append({
+            "station_id": profile["station_id"],
+            "station_name": profile["station_name"],
+            "city": _market_city_name(market_station_id),
+            "source": profile["source"],
+            "distance_km": profile["distance_km"],
+            "valid": True,
+            "latest_obs_time_utc": (latest or {}).get("ts_utc"),
+            "latest_station_time": (latest or {}).get("station_time"),
+            "latest_es_time": (latest or {}).get("es_time"),
+            "latest_temp_c": latest_temp["temp_c"],
+            "latest_temp_f": latest_temp["temp_f"],
+            "raw_records_count": len(chart_rows),
+            "table_records_count": len(matched_rows),
+            "summary": {
+                "current_metar_mae_c": current_mae,
+                "next_metar_mae_c": next_mae,
+                "current_metar_matches": len(profile["now_errors"]),
+                "next_metar_matches": len(profile["lead_errors"]),
+            },
+            "learning_profile": profile["learning_profile"],
+            "chart_rows": [
+                {
+                    "ts_utc": row["ts_utc"],
+                    "station_time": row["station_time"],
+                    "station_time_short": row["station_time_short"],
+                    "es_time": row["es_time"],
+                    "temp_c": row["temp_c"],
+                    "temp_f": row["temp_f"],
+                    "valid": row["valid"],
+                    "qc_flag": row["qc_flag"],
+                }
+                for row in chart_rows
+            ],
+            "table_rows": [
+                {
+                    "ts_utc": row["ts_utc"],
+                    "station_time": row["station_time"],
+                    "es_time": row["es_time"],
+                    "temp_c": row["temp_c"],
+                    "temp_f": row["temp_f"],
+                    "valid": row["valid"],
+                    "qc_flag": row["qc_flag"],
+                    "current_metar": row.get("current_metar"),
+                    "next_metar": row.get("next_metar"),
+                    "predicted_next_metar": row.get("predicted_next_metar"),
+                    "audit_kind": row.get("audit_kind"),
+                    "lead_bucket": row.get("lead_bucket"),
+                    "lead_minutes": row.get("lead_minutes"),
+                }
+                for row in matched_rows
+            ],
+        })
+
+    stations.sort(key=_station_sort_key)
+    return stations
+
+
 def list_pws_browser_dates(station_id: str) -> List[str]:
     engine = get_replay_engine()
     dates = engine.list_available_dates(station_id)
@@ -518,6 +697,112 @@ def _metric_mae(rows: List[Dict[str, Any]], key: str) -> Optional[float]:
     return round(sum(errors) / len(errors), 3)
 
 
+def _bucket_bounds(bucket_key: Optional[str]) -> Optional[tuple[float, float]]:
+    raw = str(bucket_key or "").strip()
+    if not raw or "-" not in raw:
+        return None
+    try:
+        lo_s, hi_s = raw.split("-", 1)
+        return float(lo_s), float(hi_s)
+    except Exception:
+        return None
+
+
+def _select_bucket_summary(learning_profile: Dict[str, Any], lead_minutes: Optional[float]) -> Optional[Dict[str, Any]]:
+    buckets = learning_profile.get("lead_bucket_summaries")
+    if not isinstance(buckets, list):
+        return None
+    lead_val = _float_or_none(lead_minutes)
+    if lead_val is None:
+        return buckets[0] if buckets else None
+    best: Optional[Dict[str, Any]] = None
+    for row in buckets:
+        if not isinstance(row, dict):
+            continue
+        bounds = _bucket_bounds(row.get("bucket"))
+        if not bounds:
+            continue
+        lo, hi = bounds
+        if lead_val < lo:
+            continue
+        if row.get("bucket") == buckets[-1].get("bucket"):
+            if lead_val <= hi:
+                return row
+        elif lead_val < hi:
+            return row
+        best = row
+    return best
+
+
+def _predict_next_metar_payload(
+    temp_c: Optional[float],
+    lead_minutes: Optional[float],
+    learning_profile: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+    sample_c = _float_or_none(temp_c)
+    if sample_c is None:
+        return None
+
+    bucket = _select_bucket_summary(learning_profile, lead_minutes) or {}
+    bias_c = _float_or_none(bucket.get("bias_c"))
+    sigma_c = _float_or_none(bucket.get("sigma_c"))
+    score = _float_or_none(bucket.get("score"))
+    prob05 = _float_or_none(bucket.get("prob_within_0_5_c"))
+    prob10 = _float_or_none(bucket.get("prob_within_1_0_c"))
+
+    if bias_c is None:
+        bias_c = _float_or_none(learning_profile.get("next_metar_bias_c"))
+    if sigma_c is None:
+        sigma_c = _float_or_none(learning_profile.get("next_metar_sigma_c"))
+    if score is None:
+        score = _float_or_none(learning_profile.get("next_metar_score"))
+    if prob05 is None:
+        prob05 = _float_or_none(learning_profile.get("next_metar_prob_within_0_5_c"))
+    if prob10 is None:
+        prob10 = _float_or_none(learning_profile.get("next_metar_prob_within_1_0_c"))
+
+    if bias_c is None:
+        return None
+
+    predicted_c = sample_c - bias_c
+    predicted_f = (predicted_c * 9.0 / 5.0) + 32.0
+    sigma_val = sigma_c if sigma_c is not None else 0.5
+    return {
+        "lead_minutes": _float_or_none(lead_minutes),
+        "bucket": bucket.get("bucket"),
+        "predicted_temp_c": round(float(predicted_c), 3),
+        "predicted_temp_f": round(float(predicted_f), 3),
+        "range_low_c": round(float(predicted_c - sigma_val), 3),
+        "range_high_c": round(float(predicted_c + sigma_val), 3),
+        "range_low_f": round(float(((predicted_c - sigma_val) * 9.0 / 5.0) + 32.0), 3),
+        "range_high_f": round(float(((predicted_c + sigma_val) * 9.0 / 5.0) + 32.0), 3),
+        "bias_c": _float_or_none(bias_c),
+        "sigma_c": _float_or_none(sigma_val),
+        "score": _float_or_none(score),
+        "prob_within_0_5_c": _float_or_none(prob05),
+        "prob_within_1_0_c": _float_or_none(prob10),
+    }
+
+
+def _attach_prediction_rows(rows: List[Dict[str, Any]], learning_profile: Dict[str, Any]) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    for row in rows:
+        enriched = dict(row)
+        next_metar = row.get("next_metar") or {}
+        lead_minutes = None
+        row_dt = _parse_dt(row.get("ts_utc"))
+        next_dt = _parse_dt(next_metar.get("ts_utc"))
+        if row_dt is not None and next_dt is not None:
+            lead_minutes = max(0.0, (next_dt - row_dt).total_seconds() / 60.0)
+        enriched["predicted_next_metar"] = _predict_next_metar_payload(
+            row.get("temp_c"),
+            lead_minutes,
+            learning_profile,
+        )
+        out.append(enriched)
+    return out
+
+
 def _build_station_payload(
     market_station_id: str,
     station_rows: List[Dict[str, Any]],
@@ -525,6 +810,7 @@ def _build_station_payload(
     learning_profile: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     latest = station_rows[-1]
+    learning_subset = _learning_profile_subset(learning_profile or {})
     chart_rows = [
         {
             "ts_utc": row["ts_utc"],
@@ -539,9 +825,12 @@ def _build_station_payload(
         for row in station_rows
     ]
 
-    table_rows = _match_metar_rows(
-        _downsample_table_rows(station_rows, MIN_TABLE_INTERVAL_MINUTES),
-        metar_series,
+    table_rows = _attach_prediction_rows(
+        _match_metar_rows(
+            _downsample_table_rows(station_rows, MIN_TABLE_INTERVAL_MINUTES),
+            metar_series,
+        ),
+        learning_subset,
     )
     latest_temp = _temperature_pair(latest.get("temp_c"), latest.get("temp_f"))
     current_mae_c = _metric_mae(table_rows, "current_metar")
@@ -570,7 +859,7 @@ def _build_station_payload(
             "current_metar_matches": current_match_count,
             "next_metar_matches": next_match_count,
         },
-        "learning_profile": _learning_profile_subset(learning_profile or {}),
+        "learning_profile": learning_subset,
         "chart_rows": chart_rows,
         "table_rows": [
             {
@@ -635,6 +924,10 @@ def build_pws_browser_payload(station_id: str, date_str: str) -> Dict[str, Any]:
         for rows in rows_by_station.values()
         if rows
     ]
+    if not pws_stations:
+        pws_stations = _build_audit_station_payloads(station_id, date_str, metar_series)
+        if pws_stations:
+            detail_source = "learning_audit"
     pws_stations.sort(key=_station_sort_key)
 
     detail_available = bool(pws_stations)
@@ -653,6 +946,11 @@ def build_pws_browser_payload(station_id: str, date_str: str) -> Dict[str, Any]:
                 if not predictive_ranking
                 else "No hay detalle intradia para este dia, pero si ranking predictivo acumulado por estacion."
             )
+    elif detail_source == "learning_audit":
+        message = (
+            "Mostrando auditoria historica NOW/LEAD persistida por estacion. "
+            "Esta vista cubre current METAR y next METAR aunque no exista replay granular de pws_readings."
+        )
     elif detail_source == "live_snapshot":
         message = (
             "Mostrando fallback live para hoy. Las lecturas historicas detalladas "

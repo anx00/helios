@@ -1020,9 +1020,11 @@
             <table class="pws-table">
                 <thead>
                     <tr>
+                        <th>Kind</th>
                         <th>Station time</th>
                         <th>ES time</th>
                         <th>PWS temp</th>
+                        <th>Pred next METAR</th>
                         <th>Current METAR</th>
                         <th>Next METAR</th>
                     </tr>
@@ -1038,8 +1040,13 @@
         const pwsTemp = formatTemp(row.temp_c, row.temp_f);
         const current = renderMetarCell(row.current_metar);
         const next = renderMetarCell(row.next_metar);
+        const predicted = renderPredictedCell(row.predicted_next_metar);
         return `
             <tr>
+                <td>
+                    <div class="pws-temp">${escapeHtml(row.audit_kind || row.qc_flag || '--')}</div>
+                    <span class="pws-temp-sub">${escapeHtml(row.lead_bucket || (row.predicted_next_metar || {}).bucket || '--')}</span>
+                </td>
                 <td>
                     <div class="pws-temp">${escapeHtml(row.station_time || '--')}</div>
                     <span class="pws-temp-sub">${escapeHtml(row.ts_utc || '--')}</span>
@@ -1051,6 +1058,7 @@
                     <div class="pws-temp">${escapeHtml(pwsTemp.main)}</div>
                     <span class="pws-temp-sub">${escapeHtml(pwsTemp.sub)}</span>
                 </td>
+                <td>${predicted}</td>
                 <td>${current}</td>
                 <td>${next}</td>
             </tr>
@@ -1065,6 +1073,22 @@
         return `
             <div class="pws-temp">${escapeHtml(temp.main)}</div>
             <span class="pws-temp-sub">${escapeHtml(metar.station_time || '--')} | ${escapeHtml(metar.report_type || 'METAR')}</span>
+        `;
+    }
+
+    function renderPredictedCell(prediction) {
+        if (!prediction) {
+            return '<div class="pws-temp">-</div>';
+        }
+        const temp = formatTemp(prediction.predicted_temp_c, prediction.predicted_temp_f);
+        const low = formatTemp(prediction.range_low_c, prediction.range_low_f);
+        const high = formatTemp(prediction.range_high_c, prediction.range_high_f);
+        return `
+            <div class="pws-temp">${escapeHtml(temp.main)}</div>
+            <span class="pws-temp-sub">
+                ${escapeHtml(low.main)} to ${escapeHtml(high.main)}
+                | P ±1.0C ${escapeHtml(formatProbability(prediction.prob_within_1_0_c))}
+            </span>
         `;
     }
 
