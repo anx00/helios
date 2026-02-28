@@ -1069,6 +1069,7 @@
                         <th>PWS temp</th>
                         <th>Current METAR</th>
                         <th>Next METAR</th>
+                        <th>Prediction</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -1082,6 +1083,7 @@
         const pwsTemp = formatTemp(row.temp_c, row.temp_f);
         const current = renderMetarCell(row.current_metar);
         const next = renderMetarCell(row.next_metar);
+        const verdict = renderVerdictCell(row.next_metar_verdict);
         return `
             <tr>
                 <td>
@@ -1097,6 +1099,7 @@
                 </td>
                 <td>${current}</td>
                 <td>${next}</td>
+                <td>${verdict}</td>
             </tr>
         `;
     }
@@ -1125,6 +1128,23 @@
                 ${escapeHtml(low.main)} to ${escapeHtml(high.main)}
                 | P +/-1.0C ${escapeHtml(formatProbability(prediction.prob_within_1_0_c))}
             </span>
+        `;
+    }
+
+    function renderVerdictCell(verdict) {
+        if (!verdict) {
+            return '<div class="pws-temp">-</div>';
+        }
+        const label = verdict.hit ? 'Hit' : 'Miss';
+        const unit = escapeHtml(verdict.market_unit || 'F');
+        const lhs = Number(verdict.pws_settlement);
+        const rhs = Number(verdict.next_metar_settlement);
+        const summary = Number.isFinite(lhs) && Number.isFinite(rhs)
+            ? `${lhs.toFixed(0)}${unit} vs ${rhs.toFixed(0)}${unit}`
+            : '--';
+        return `
+            <div class="pws-temp">${label}</div>
+            <span class="pws-temp-sub">${escapeHtml(summary)}</span>
         `;
     }
 

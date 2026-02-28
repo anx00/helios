@@ -201,8 +201,10 @@ def test_build_payload_matches_current_and_next_metar(monkeypatch):
     first_row, last_row = station["table_rows"]
     assert first_row["current_metar"]["temp_f"] == 30.0
     assert first_row["next_metar"]["temp_f"] == 32.0
+    assert first_row["next_metar_verdict"]["hit"] is False
     assert last_row["current_metar"]["temp_f"] == 30.0
     assert last_row["next_metar"]["temp_f"] == 32.0
+    assert last_row["next_metar_verdict"]["hit"] is True
     assert station["summary"]["current_metar_matches"] == 2
     assert station["summary"]["next_metar_matches"] == 2
 
@@ -351,3 +353,53 @@ def test_hydrate_payload_with_metar_history_fills_missing_current_and_next(monke
     hydrated_station = hydrated["pws_stations"][0]
     assert hydrated_station["table_rows"][0]["next_metar"]["temp_f"] == 32.0
     assert hydrated_station["summary"]["next_metar_matches"] == 1
+
+
+def test_build_metar_series_from_history_keeps_boundary_metars():
+    rows = pws_browser.build_metar_series_from_history(
+        "KLGA",
+        "2026-02-10",
+        [
+            _HistoryObs("2026-02-10T04:51:00+00:00", 1.0),
+            _HistoryObs("2026-02-10T05:51:00+00:00", 2.0),
+            _HistoryObs("2026-02-11T05:51:00+00:00", 3.0),
+        ],
+    )
+
+    assert len(rows) == 3
+    assert rows[0]["station_time"] == "2026-02-09 23:51"
+    assert rows[1]["station_time"] == "2026-02-10 00:51"
+    assert rows[2]["station_time"] == "2026-02-11 00:51"
+
+
+def test_prediction_verdict_uses_half_up_rounding(monkeypatch):
+    station_id = "KLGA"
+    events = [
+        _world_event(station_id, "2026-02-10T14:00:00+00:00", 34.0),
+        _pws_event(
+            station_id,
+            "2026-02-10T14:01:00+00:00",
+            [
+                {
+                    "station_id": "KNYC001",
+                    "station_name": "Astoria roof",
+                    "source": "WUNDERGROUND",
+                    "distance_km": 1.2,
+                    "obs_time_utc": "2026-02-10T14:05:00+00:00",
+                    "temp_f": 35.5,
+                    "valid": True,
+                }
+            ],
+        ),
+        _world_event(station_id, "2026-02-10T15:00:00+00:00", 36.0),
+    ]
+
+    monkeypatch.setattr(pws_browser, "_load_station_day_events", lambda *_args, **_kwargs: events)
+    monkeypatch.setattr(pws_browser, "get_pws_learning_store", lambda: _FakeLearningStore())
+
+    payload = pws_browser.build_pws_browser_payload(station_id, "2026-02-10")
+    verdict = payload["pws_stations"][0]["table_rows"][0]["next_metar_verdict"]
+
+    assert verdict["hit"] is True
+    assert verdict["pws_settlement"] == 36.0
+    assert verdict["next_metar_settlement"] == 36.0

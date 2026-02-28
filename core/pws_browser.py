@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from bisect import bisect_right
+from decimal import Decimal, ROUND_HALF_UP
 from datetime import date as date_cls
 from datetime import datetime
 from statistics import median
@@ -120,6 +121,13 @@ def _temperature_pair(temp_c: Optional[float], temp_f: Optional[float]) -> Dict[
         "temp_c": round(float(tc), 3) if tc is not None else None,
         "temp_f": round(float(tf), 3) if tf is not None else None,
     }
+
+
+def _round_half_up(value: Optional[float]) -> Optional[float]:
+    raw = _float_or_none(value)
+    if raw is None:
+        return None
+    return float(Decimal(str(raw)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
 
 def _build_market_station_meta(station_id: str) -> Dict[str, Any]:
@@ -341,6 +349,7 @@ def _build_audit_station_payloads(
                 row["next_metar"] = row.get("scored_official")
             elif row.get("audit_kind") == "NOW" and row.get("scored_official"):
                 row["current_metar"] = row.get("scored_official")
+        matched_rows = _attach_next_metar_verdict(matched_rows, market_station_id)
 
         latest = chart_rows[-1] if chart_rows else None
         latest_temp = _temperature_pair((latest or {}).get("temp_c"), (latest or {}).get("temp_f"))
@@ -368,6 +377,7 @@ def _build_audit_station_payloads(
                 "qc_flag": row["qc_flag"],
                 "current_metar": row.get("current_metar"),
                 "next_metar": row.get("next_metar"),
+                "next_metar_verdict": row.get("next_metar_verdict"),
                 "predicted_next_metar": row.get("predicted_next_metar"),
                 "audit_kind": row.get("audit_kind"),
                 "lead_bucket": row.get("lead_bucket"),
@@ -910,6 +920,40 @@ def _build_station_summary(
     }
 
 
+def _build_next_metar_verdict(row: Dict[str, Any], market_station_id: str) -> Optional[Dict[str, Any]]:
+    unit = str(get_polymarket_temp_unit(market_station_id) or "F").upper()
+    sample_key = "temp_c" if unit == "C" else "temp_f"
+    next_metar = row.get("next_metar") or {}
+
+    sample_value = _float_or_none(row.get(sample_key))
+    next_value = _float_or_none(next_metar.get(sample_key))
+    if sample_value is None or next_value is None:
+        return None
+
+    sample_rounded = _round_half_up(sample_value)
+    next_rounded = _round_half_up(next_value)
+    if sample_rounded is None or next_rounded is None:
+        return None
+
+    return {
+        "hit": sample_rounded == next_rounded,
+        "market_unit": unit,
+        "pws_value": sample_value,
+        "next_metar_value": next_value,
+        "pws_settlement": sample_rounded,
+        "next_metar_settlement": next_rounded,
+    }
+
+
+def _attach_next_metar_verdict(rows: List[Dict[str, Any]], market_station_id: str) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    for row in rows:
+        enriched = dict(row)
+        enriched["next_metar_verdict"] = _build_next_metar_verdict(enriched, market_station_id)
+        out.append(enriched)
+    return out
+
+
 def _build_station_payload(
     market_station_id: str,
     station_rows: List[Dict[str, Any]],
@@ -932,12 +976,15 @@ def _build_station_payload(
         for row in station_rows
     ]
 
-    table_rows = _attach_prediction_rows(
-        _match_metar_rows(
-            _downsample_table_rows(station_rows, MIN_TABLE_INTERVAL_MINUTES),
-            metar_series,
+    table_rows = _attach_next_metar_verdict(
+        _attach_prediction_rows(
+            _match_metar_rows(
+                _downsample_table_rows(station_rows, MIN_TABLE_INTERVAL_MINUTES),
+                metar_series,
+            ),
+            learning_subset,
         ),
-        learning_subset,
+        market_station_id,
     )
     latest_temp = _temperature_pair(latest.get("temp_c"), latest.get("temp_f"))
 
@@ -969,6 +1016,7 @@ def _build_station_payload(
                 "qc_flag": row["qc_flag"],
                 "current_metar": row["current_metar"],
                 "next_metar": row["next_metar"],
+                "next_metar_verdict": row.get("next_metar_verdict"),
             }
             for row in table_rows
         ],
@@ -1052,29 +1100,43 @@ def _normalize_metar_series_rows(station_id: str, rows: List[Dict[str, Any]]) ->
 
 
 def build_metar_series_from_history(station_id: str, date_str: str, history: List[Any]) -> List[Dict[str, Any]]:
-    try:
-        requested_date = date_cls.fromisoformat(date_str)
-    except Exception:
-        return []
-
     station_tz = _resolve_station_timezone(station_id)
-    rows: List[Dict[str, Any]] = []
+    window = _local_day_window_utc(date_str, station_tz)
+    if window is None:
+        return []
+    start_utc, end_utc = window
+
+    rows_in_window: List[Dict[str, Any]] = []
+    latest_before: Optional[Dict[str, Any]] = None
+    earliest_after: Optional[Dict[str, Any]] = None
 
     for obs in history or []:
         obs_dt = _parse_dt(getattr(obs, "observation_time", None))
         if obs_dt is None:
             continue
-        if obs_dt.astimezone(station_tz).date() != requested_date:
-            continue
-
-        rows.append({
+        row = {
             "ts_utc": obs_dt.isoformat(),
             "temp_c": getattr(obs, "temp_c", None),
             "temp_f": getattr(obs, "temp_f", None),
             "report_type": str(getattr(obs, "report_type", "METAR") or "METAR").upper(),
             "is_speci": bool(getattr(obs, "is_speci", False)),
-        })
+        }
+        if start_utc <= obs_dt < end_utc:
+            rows_in_window.append(row)
+            continue
+        if obs_dt < start_utc:
+            if latest_before is None or obs_dt > _parse_dt(latest_before.get("ts_utc")):
+                latest_before = row
+            continue
+        if earliest_after is None or obs_dt < _parse_dt(earliest_after.get("ts_utc")):
+            earliest_after = row
 
+    rows: List[Dict[str, Any]] = []
+    if latest_before is not None:
+        rows.append(latest_before)
+    rows.extend(rows_in_window)
+    if earliest_after is not None:
+        rows.append(earliest_after)
     return _normalize_metar_series_rows(station_id, rows)
 
 
@@ -1125,6 +1187,7 @@ def hydrate_pws_browser_payload_with_metar_series(
                     }
             table_rows_out.append(updated_row)
 
+        table_rows_out = _attach_next_metar_verdict(table_rows_out, station_id)
         station_out["table_rows"] = table_rows_out
         station_out["table_records_count"] = len(table_rows_out)
         station_out["summary"] = _build_station_summary(
