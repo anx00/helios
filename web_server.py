@@ -287,84 +287,189 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 # Templates
 templates = Jinja2Templates(directory="templates")
 
-_autotrader_tasks: Dict[str, asyncio.Task] = {}
-_autotrader_instances: Dict[str, AutoTrader] = {}
+_AUTOTRADER_RUNTIME_PATH = Path("data/autotrader_runtime.json")
+_autotrader_task: Optional[asyncio.Task] = None
+_autotrader_instance: Optional[AutoTrader] = None
+_autotrader_last_stop_reason: Optional[str] = None
 
 
-def get_autotrader_instance(station_id: str, refresh: bool = False) -> AutoTrader:
-    normalized_station = str(station_id or "").upper()
-    if normalized_station not in STATIONS:
-        raise ValueError(f"Invalid station for autotrader: {station_id}")
-
-    if refresh or normalized_station not in _autotrader_instances:
-        config = load_autotrader_config_from_env()
-        config.station_ids = [normalized_station]
-        log_base = Path(config.log_path)
-        config.log_path = str(log_base.with_name(f"{log_base.stem}_{normalized_station}{log_base.suffix or '.jsonl'}"))
-        _autotrader_instances[normalized_station] = AutoTrader(config=config)
-    return _autotrader_instances[normalized_station]
+def _sanitize_autotrader_station_ids(values: Optional[List[str]]) -> List[str]:
+    seen: Dict[str, bool] = {}
+    cleaned: List[str] = []
+    for raw in list(values or []):
+        station_id = str(raw or "").strip().upper()
+        if not station_id or station_id not in STATIONS or station_id in seen:
+            continue
+        seen[station_id] = True
+        cleaned.append(station_id)
+    return cleaned
 
 
-def _autotrader_running(station_id: str) -> bool:
-    normalized_station = str(station_id or "").upper()
-    task = _autotrader_tasks.get(normalized_station)
-    return task is not None and not task.done()
+def _load_autotrader_runtime_overrides() -> Dict[str, Any]:
+    path = _AUTOTRADER_RUNTIME_PATH
+    if not path.exists():
+        return {}
+    try:
+        import json
+
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        return payload if isinstance(payload, dict) else {}
+    except Exception:
+        return {}
 
 
-async def start_autotrader_loop(station_id: str, force_enable: bool = True) -> Dict[str, Any]:
-    normalized_station = str(station_id or "").upper()
-    if _autotrader_running(normalized_station):
-        return get_autotrader_status_snapshot(normalized_station)
-    trader = get_autotrader_instance(normalized_station, refresh=True)
+def _save_autotrader_runtime_overrides(payload: Dict[str, Any]) -> None:
+    path = _AUTOTRADER_RUNTIME_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    import json
+
+    path.write_text(json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8")
+
+
+def _build_autotrader_runtime_config(current_enabled: Optional[bool] = None) -> Any:
+    config = load_autotrader_config_from_env()
+    overrides = _load_autotrader_runtime_overrides()
+
+    selected_station_ids = overrides.get("station_ids")
+    if selected_station_ids is None:
+        selected_station_ids = config.station_ids
+    config.station_ids = _sanitize_autotrader_station_ids(selected_station_ids)
+
+    max_total = overrides.get("max_total_exposure_usd")
+    if max_total is not None:
+        try:
+            config.max_total_exposure_usd = max(0.5, float(max_total))
+        except (TypeError, ValueError):
+            pass
+
+    max_station = overrides.get("max_station_exposure_usd")
+    if max_station is not None:
+        try:
+            config.max_station_exposure_usd = max(0.25, float(max_station))
+        except (TypeError, ValueError):
+            pass
+
+    config.max_station_exposure_usd = min(float(config.max_station_exposure_usd), float(config.max_total_exposure_usd))
+    config.target_day = 0
+    if current_enabled is not None:
+        config.enabled = bool(current_enabled)
+    return config
+
+
+def get_autotrader_instance(refresh: bool = False) -> AutoTrader:
+    global _autotrader_instance
+    current_enabled = _autotrader_instance.config.enabled if _autotrader_instance else None
+    config = _build_autotrader_runtime_config(current_enabled=current_enabled)
+    if refresh or _autotrader_instance is None:
+        _autotrader_instance = AutoTrader(config=config)
+    else:
+        _autotrader_instance.config = config
+    return _autotrader_instance
+
+
+def _autotrader_running() -> bool:
+    return _autotrader_task is not None and not _autotrader_task.done()
+
+
+def _autotrader_selected_station_options() -> List[Dict[str, str]]:
+    return _build_station_selector_options(get_active_stations())
+
+
+def _autotrader_result_is_resolved(result: Dict[str, Any]) -> bool:
+    reasons = {str(item or "") for item in (result.get("reasons") or [])}
+    return "event_closed" in reasons or "event_mature" in reasons
+
+
+def _all_selected_markets_resolved(results: List[Dict[str, Any]], station_ids: List[str]) -> bool:
+    if not station_ids:
+        return False
+    by_station = {
+        str(row.get("station_id") or "").upper(): row
+        for row in results
+        if isinstance(row, dict) and row.get("station_id")
+    }
+    return all(_autotrader_result_is_resolved(by_station.get(station_id, {})) for station_id in station_ids)
+
+
+async def _autotrader_supervisor_loop() -> None:
+    global _autotrader_task, _autotrader_last_stop_reason
+    try:
+        while True:
+            trader = get_autotrader_instance(refresh=True)
+            trader.config.enabled = True
+
+            if not trader.config.station_ids:
+                _autotrader_last_stop_reason = "no_stations_selected"
+                trader.config.enabled = False
+                break
+
+            results = await trader.run_once()
+            if _all_selected_markets_resolved(results, list(trader.config.station_ids or [])):
+                _autotrader_last_stop_reason = "all_selected_markets_resolved"
+                trader.config.enabled = False
+                break
+
+            await asyncio.sleep(max(5, int(trader.config.loop_seconds)))
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        logger.exception("Autotrader supervisor failed")
+        _autotrader_last_stop_reason = f"error:{exc}"
+        trader = get_autotrader_instance(refresh=False)
+        trader.config.enabled = False
+    finally:
+        if _autotrader_task is asyncio.current_task():
+            _autotrader_task = None
+
+
+async def start_autotrader_loop(force_enable: bool = True) -> Dict[str, Any]:
+    global _autotrader_task, _autotrader_last_stop_reason
+    if _autotrader_running():
+        return get_autotrader_status_snapshot()
+    trader = get_autotrader_instance(refresh=True)
     if force_enable:
         trader.config.enabled = True
-    _autotrader_tasks[normalized_station] = asyncio.create_task(trader.run_loop())
-    return get_autotrader_status_snapshot(normalized_station)
+    if not trader.config.station_ids:
+        raise ValueError("Select at least one station before starting autotrade")
+    _autotrader_last_stop_reason = None
+    _autotrader_task = asyncio.create_task(_autotrader_supervisor_loop())
+    return get_autotrader_status_snapshot()
 
 
-async def stop_autotrader_loop(station_id: str) -> Dict[str, Any]:
-    normalized_station = str(station_id or "").upper()
-    trader = get_autotrader_instance(normalized_station)
+async def stop_autotrader_loop(reason: str = "manual_stop") -> Dict[str, Any]:
+    global _autotrader_task, _autotrader_last_stop_reason
+    trader = get_autotrader_instance(refresh=False)
     trader.config.enabled = False
-    task = _autotrader_tasks.get(normalized_station)
+    _autotrader_last_stop_reason = reason
+    task = _autotrader_task
     if task is not None and not task.done():
         task.cancel()
         try:
             await task
         except asyncio.CancelledError:
             pass
-    _autotrader_tasks.pop(normalized_station, None)
-    return get_autotrader_status_snapshot(normalized_station)
+    if _autotrader_task is task:
+        _autotrader_task = None
+    return get_autotrader_status_snapshot()
 
 
 async def stop_all_autotrader_loops() -> None:
-    station_ids = list(_autotrader_tasks.keys())
-    for station_id in station_ids:
-        await stop_autotrader_loop(station_id)
+    await stop_autotrader_loop(reason="shutdown")
 
 
 def get_autotrader_status_snapshot(station_id: Optional[str] = None) -> Dict[str, Any]:
-    if station_id:
-        normalized_station = str(station_id or "").upper()
-        trader = get_autotrader_instance(normalized_station)
-        snapshot = trader.get_status_snapshot(station_id=normalized_station)
-        snapshot["station_id"] = normalized_station
-        snapshot["running"] = _autotrader_running(normalized_station)
-        snapshot["recent_events"] = [
-            row for row in (snapshot.get("recent_events") or [])
-            if not row.get("station_id") or str(row.get("station_id")).upper() == normalized_station
-        ]
-        return snapshot
-
-    configured = load_autotrader_config_from_env().station_ids
-    station_ids = list(dict.fromkeys(configured + list(get_active_stations().keys())))
-    agents = [get_autotrader_status_snapshot(station_id=sid) for sid in station_ids if sid in STATIONS]
-    portfolio = agents[0].get("portfolio") if agents else {}
-    return {
-        "agents": agents,
-        "running_count": sum(1 for agent in agents if agent.get("running")),
-        "portfolio": portfolio,
+    trader = get_autotrader_instance(refresh=False)
+    snapshot = trader.get_status_snapshot()
+    snapshot["running"] = _autotrader_running()
+    snapshot["station_id"] = str(station_id or "").upper() or None
+    snapshot["selected_stations"] = list(trader.config.station_ids or [])
+    snapshot["available_stations"] = _autotrader_selected_station_options()
+    snapshot["control"] = {
+        "loop_mode": "until_resolved_today",
+        "target_day_locked": 0,
     }
+    snapshot["last_stop_reason"] = _autotrader_last_stop_reason
+    return snapshot
 
 # Add global context for all templates (active stations)
 def get_template_context():
@@ -392,6 +497,12 @@ class StationConfig(BaseModel):
 
 class TelegramMetarSubscriptionToggle(BaseModel):
     enabled: bool
+
+
+class AutotraderRuntimeConfigUpdate(BaseModel):
+    station_ids: Optional[List[str]] = None
+    max_total_exposure_usd: Optional[float] = None
+    max_station_exposure_usd: Optional[float] = None
 
 @app.get("/api/stations")
 def get_stations():
@@ -588,11 +699,9 @@ async def startup_event():
         asyncio.create_task(telegram_bot.run_forever())
         logger.info("Telegram bot enabled")
     try:
-        config = load_autotrader_config_from_env()
+        config = _build_autotrader_runtime_config()
         if config.enabled:
-            for station_id in config.station_ids:
-                if station_id in STATIONS:
-                    await start_autotrader_loop(station_id, force_enable=True)
+            await start_autotrader_loop(force_enable=True)
             if config.station_ids:
                 logger.info("Autotrader enabled on startup for %s", ",".join(config.station_ids))
     except Exception as e:
@@ -2604,8 +2713,7 @@ async def get_polymarket_dashboard_data(station_id: str, target_day: int = 0, de
         "sentiment": sentiment,
         "shifts": shifts,
         "trading": trading,
-        "autotrader": get_autotrader_status_snapshot(station_id=station_id),
-        "autotrader_agents": get_autotrader_status_snapshot(),
+        "autotrader": get_autotrader_status_snapshot(),
         "server_ts": datetime.now().timestamp(),
     }
 
@@ -2641,28 +2749,61 @@ async def get_autotrader_status_api(station_id: Optional[str] = None):
     return get_autotrader_status_snapshot(station_id=station_id)
 
 
+@app.post("/api/autotrader/config")
+async def update_autotrader_config_api(payload: AutotraderRuntimeConfigUpdate):
+    current = _load_autotrader_runtime_overrides()
+
+    if payload.station_ids is not None:
+        current["station_ids"] = _sanitize_autotrader_station_ids(payload.station_ids)
+    if payload.max_total_exposure_usd is not None:
+        current["max_total_exposure_usd"] = max(0.5, float(payload.max_total_exposure_usd))
+    if payload.max_station_exposure_usd is not None:
+        current["max_station_exposure_usd"] = max(0.25, float(payload.max_station_exposure_usd))
+
+    if "max_total_exposure_usd" in current and "max_station_exposure_usd" in current:
+        current["max_station_exposure_usd"] = min(
+            float(current["max_station_exposure_usd"]),
+            float(current["max_total_exposure_usd"]),
+        )
+
+    _save_autotrader_runtime_overrides(current)
+    get_autotrader_instance(refresh=True)
+    return {
+        "ok": True,
+        "status": get_autotrader_status_snapshot(),
+    }
+
+
 @app.post("/api/autotrader/run-once")
-async def run_autotrader_once_api(station_id: str):
-    normalized_station = str(station_id or "").upper()
-    if _autotrader_running(normalized_station):
+async def run_autotrader_once_api(station_id: Optional[str] = None):
+    if _autotrader_running():
         return {
             "ok": False,
-            "error": "Autotrader loop is already running for this station",
-            "status": get_autotrader_status_snapshot(normalized_station),
+            "error": "Autotrader is already running",
+            "status": get_autotrader_status_snapshot(),
         }
-    trader = get_autotrader_instance(normalized_station, refresh=True)
+    trader = get_autotrader_instance(refresh=True)
     trader.config.enabled = True
+    if station_id:
+        normalized_station = str(station_id or "").upper()
+        if normalized_station not in STATIONS:
+            return {
+                "ok": False,
+                "error": "Invalid station",
+                "status": get_autotrader_status_snapshot(),
+            }
+        trader.config.station_ids = [normalized_station]
     results = await trader.run_once()
     return {
         "ok": True,
         "results": results,
-        "status": get_autotrader_status_snapshot(normalized_station),
+        "status": get_autotrader_status_snapshot(),
     }
 
 
 @app.post("/api/autotrader/start")
-async def start_autotrader_api(station_id: str):
-    status = await start_autotrader_loop(station_id, force_enable=True)
+async def start_autotrader_api():
+    status = await start_autotrader_loop(force_enable=True)
     return {
         "ok": True,
         "status": status,
@@ -2670,8 +2811,8 @@ async def start_autotrader_api(station_id: str):
 
 
 @app.post("/api/autotrader/stop")
-async def stop_autotrader_api(station_id: str):
-    status = await stop_autotrader_loop(station_id)
+async def stop_autotrader_api():
+    status = await stop_autotrader_loop(reason="manual_stop")
     return {
         "ok": True,
         "status": status,

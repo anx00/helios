@@ -2,7 +2,7 @@ from py_clob_client.client import ClobClient
 
 HOST = "https://clob.polymarket.com"
 CHAIN_ID = 137
-PRIVATE_KEY = "0x919a32d6de75a94940220eb05e783ac5d639f49f99d7760d74e88f6f94723a2a"
+PRIVATE_KEY = ""
 SIGNATURE_TYPE = 2
 FUNDER = None  # o tu Profile/Wallet Address si usas proxy/safe
 

@@ -18,6 +18,9 @@ from market.polymarket_execution import (
     PolymarketExecutionClient,
     TopOfBook,
     load_polymarket_execution_config_from_env,
+    quantize_buy_order_size,
+    quantize_market_buy_amount,
+    quantize_share_size,
 )
 
 
@@ -352,6 +355,30 @@ def _station_state_summary(state: Dict[str, Any], station_id: str) -> Dict[str, 
         "open_risk_usd": round(open_risk, 6),
         "open_positions": len(positions),
         "positions": positions[:6],
+        "last_trade_utc": last_trade,
+        "strategies": strategies,
+    }
+
+
+def _global_state_summary(state: Dict[str, Any]) -> Dict[str, Any]:
+    positions = _open_positions(state)
+    open_risk = sum(float(row.get("cost_basis_open_usd") or 0.0) for row in positions)
+    last_trade = next(
+        (
+            row.get("opened_at_utc") or row.get("closed_at_utc")
+            for row in positions
+            if row.get("opened_at_utc") or row.get("closed_at_utc")
+        ),
+        state.get("last_trade_utc"),
+    )
+    strategies: Dict[str, int] = {}
+    for row in positions:
+        strategy = str(row.get("strategy") or "terminal_value")
+        strategies[strategy] = strategies.get(strategy, 0) + 1
+    return {
+        "open_risk_usd": round(open_risk, 6),
+        "open_positions": len(positions),
+        "positions": positions[:10],
         "last_trade_utc": last_trade,
         "strategies": strategies,
     }
@@ -694,26 +721,26 @@ def apply_orderbook_guardrails(
     if ask_size < float(config.min_ask_depth_contracts):
         reasons.append("ask_depth_too_small")
 
-    shares_from_budget = float(budget_usd) / float(ask)
-    shares_cap = ask_size * float(config.max_depth_participation)
-    size = min(shares_from_budget, shares_cap)
-    min_order_size = float(_safe_float(book.min_order_size) or 0.0)
-    if min_order_size > 0 and size < min_order_size:
-        reasons.append("below_min_order_size")
-
-    notional_usd = size * float(ask)
-    if notional_usd < float(config.min_trade_usd):
-        reasons.append("trade_too_small")
-
-    if reasons:
-        return None, reasons
-
     max_payup = min(
         float(candidate.fair_price) - (float(config.min_edge_points) / 100.0),
         float(ask) + (float(config.limit_slippage_points) / 100.0),
     )
     if max_payup < float(ask):
         reasons.append("no_price_headroom")
+        return None, reasons
+
+    shares_from_budget = float(budget_usd) / max(0.0001, float(max_payup))
+    shares_cap = ask_size * float(config.max_depth_participation)
+    size = quantize_buy_order_size(min(shares_from_budget, shares_cap), max_payup)
+    min_order_size = float(_safe_float(book.min_order_size) or 0.0)
+    if min_order_size > 0 and size < min_order_size:
+        reasons.append("below_min_order_size")
+
+    notional_usd = quantize_market_buy_amount(size * float(max_payup))
+    if notional_usd < float(config.min_trade_usd):
+        reasons.append("trade_too_small")
+
+    if reasons:
         return None, reasons
 
     return {
@@ -749,7 +776,7 @@ def apply_exit_guardrails(
     size_cap = shares_open
     if bid_size > 0:
         size_cap = max(0.0, bid_size * float(config.max_depth_participation))
-    size = min(shares_open, size_cap) if size_cap > 0 else shares_open
+    size = quantize_share_size(min(shares_open, size_cap) if size_cap > 0 else shares_open, 2)
 
     min_order_size = float(_safe_float(book.min_order_size) or 0.0)
     if min_order_size > 0 and size < min_order_size:
@@ -1104,13 +1131,8 @@ class AutoTrader:
         self.state = load_autotrader_state(self.config.state_path)
         execution_config = self.execution.config
         recent_events = _tail_jsonl(self.config.log_path, limit=8)
-        station_focus = str(station_id or (self.config.station_ids[0] if self.config.station_ids else "")).upper()
-        station_state = _station_state_summary(self.state, station_focus) if station_focus else {
-            "open_risk_usd": 0.0,
-            "open_positions": 0,
-            "positions": [],
-            "last_trade_utc": None,
-        }
+        station_focus = str(station_id or "").upper()
+        station_state = _station_state_summary(self.state, station_focus) if station_focus else _global_state_summary(self.state)
         return {
             "enabled": bool(self.config.enabled),
             "mode": self.config.mode,

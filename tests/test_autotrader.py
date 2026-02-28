@@ -12,7 +12,12 @@ from core.autotrader import (
     evaluate_trade_candidate,
 )
 from market.polymarket_execution import TopOfBook
-from market.polymarket_execution import PolymarketExecutionClient, PolymarketExecutionConfig
+from market.polymarket_execution import (
+    PolymarketExecutionClient,
+    PolymarketExecutionConfig,
+    quantize_buy_order_size,
+    quantize_market_buy_amount,
+)
 
 
 def _sample_payload():
@@ -186,6 +191,64 @@ def test_apply_orderbook_guardrails_uses_live_book_and_depth_caps():
     assert plan["size"] <= 5.0
 
 
+def test_quantize_buy_order_size_respects_cents_precision_for_buy_collateral():
+    assert quantize_buy_order_size(8.33, 0.25) == 8.32
+    assert quantize_buy_order_size(10.52, 0.19) == 10.0
+    assert quantize_market_buy_amount(2.0899) == 2.08
+
+
+def test_apply_orderbook_guardrails_caps_buy_budget_at_limit_price():
+    config = AutoTraderConfig(
+        enabled=True,
+        station_ids=["KATL"],
+        min_trade_usd=1.0,
+        max_entry_price=0.40,
+        min_edge_points=6.0,
+        max_spread_points=8.0,
+        min_ask_depth_contracts=10.0,
+        max_depth_participation=1.0,
+        limit_slippage_points=1.0,
+    )
+    candidate = AutoTradeCandidate(
+        station_id="KATL",
+        target_date="2026-02-28",
+        target_day=0,
+        label="70-71 F",
+        side="YES",
+        token_id="YES2",
+        market_price=0.19,
+        fair_price=0.29,
+        edge_points=10.0,
+        model_probability=0.29,
+        recommendation="BUY_YES",
+        policy_reason="test",
+        forecast_winner_label="68-69 F",
+        forecast_edge_points=4.0,
+        tactical_alignment="aligned",
+        why="test",
+        position_key="KATL|2026-02-28|70-71 F|YES",
+    )
+    book = TopOfBook(
+        token_id="YES2",
+        best_bid=0.18,
+        best_ask=0.19,
+        bid_size=50.0,
+        ask_size=50.0,
+        spread=0.01,
+        min_order_size=1.0,
+        last_trade_price=0.19,
+        raw={},
+    )
+
+    plan, reasons = apply_orderbook_guardrails(candidate, book, config, budget_usd=2.0)
+
+    assert reasons == []
+    assert plan is not None
+    assert plan["limit_price"] == 0.2
+    assert plan["size"] == 10.0
+    assert plan["notional_usd"] == 2.0
+
+
 def test_status_snapshot_shows_global_portfolio_and_station_filtered_positions(tmp_path):
     state_path = tmp_path / "portfolio_state.json"
     log_path = tmp_path / "katl.jsonl"
@@ -235,6 +298,51 @@ def test_status_snapshot_shows_global_portfolio_and_station_filtered_positions(t
     assert snapshot["portfolio"]["open_risk_usd"] == 3.5
     assert snapshot["state"]["open_positions"] == 1
     assert snapshot["state"]["open_risk_usd"] == 1.5
+
+
+def test_status_snapshot_without_station_returns_global_state_summary(tmp_path):
+    state_path = tmp_path / "portfolio_state.json"
+    log_path = tmp_path / "katl.jsonl"
+    state_path.write_text(
+        """{
+  "trading_day": "2026-02-28",
+  "open_risk_usd": 2.75,
+  "positions": {
+    "KATL|2026-02-28|68-69 F|YES": {
+      "station_id": "KATL",
+      "label": "68-69 F",
+      "side": "YES",
+      "strategy": "terminal_value",
+      "cost_basis_open_usd": 1.25,
+      "opened_at_utc": "2026-02-28T15:00:00+00:00",
+      "status": "OPEN"
+    },
+    "KLGA|2026-02-28|48-49 F|NO": {
+      "station_id": "KLGA",
+      "label": "48-49 F",
+      "side": "NO",
+      "strategy": "tactical_reprice",
+      "cost_basis_open_usd": 1.50,
+      "opened_at_utc": "2026-02-28T15:05:00+00:00",
+      "status": "OPEN"
+    }
+  }
+}""",
+        encoding="utf-8",
+    )
+    config = AutoTraderConfig(
+        enabled=True,
+        station_ids=["KATL", "KLGA"],
+        state_path=str(state_path),
+        log_path=str(log_path),
+    )
+    trader = AutoTrader(config=config)
+
+    snapshot = trader.get_status_snapshot()
+
+    assert snapshot["state"]["open_positions"] == 2
+    assert snapshot["state"]["open_risk_usd"] == 2.75
+    assert snapshot["state"]["strategies"] == {"terminal_value": 1, "tactical_reprice": 1}
 
 
 def test_evaluate_trade_candidate_can_pick_tactical_reprice():

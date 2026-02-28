@@ -331,6 +331,66 @@
     .pm-autotrader-log-item + .pm-autotrader-log-item {
         margin-top: 6px;
     }
+    .pm-autotrader-config {
+        display: grid;
+        grid-template-columns: 1.6fr 1fr;
+        gap: 12px;
+        margin-bottom: 12px;
+    }
+    .pm-autotrader-config-box {
+        border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 10px;
+        padding: 12px;
+        background: rgba(255,255,255,0.02);
+    }
+    .pm-autotrader-station-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+    .pm-autotrader-station-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 7px 10px;
+        border-radius: 999px;
+        border: 1px solid rgba(255,255,255,0.10);
+        background: rgba(255,255,255,0.03);
+        color: #fff;
+        font-size: 12px;
+    }
+    .pm-autotrader-station-pill input {
+        margin: 0;
+    }
+    .pm-autotrader-fields {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+    }
+    .pm-autotrader-field-label {
+        display: block;
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: var(--text-secondary);
+        margin-bottom: 6px;
+    }
+    .pm-autotrader-input {
+        width: 100%;
+        border: 1px solid rgba(255,255,255,0.10);
+        border-radius: 10px;
+        background: rgba(255,255,255,0.04);
+        color: #fff;
+        padding: 9px 10px;
+        font-size: 13px;
+        outline: none;
+    }
+    .pm-autotrader-note {
+        margin-top: 10px;
+        font-size: 12px;
+        color: var(--text-secondary);
+        line-height: 1.45;
+    }
     .pm-agent-grid {
         display: grid;
         grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -760,6 +820,7 @@
         .ob-book { grid-template-columns: 1fr; }
         .pm-trading-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .pm-autotrader-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .pm-autotrader-config { grid-template-columns: 1fr; }
         .pm-agent-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
     @media (max-width: 600px) {
@@ -770,6 +831,7 @@
         .pm-autotrader-head { flex-direction: column; }
         .pm-autotrader-actions { justify-content: flex-start; }
         .pm-autotrader-grid { grid-template-columns: 1fr; }
+        .pm-autotrader-fields { grid-template-columns: 1fr; }
         .pm-agent-grid { grid-template-columns: 1fr; }
     }
 </style>
@@ -819,7 +881,6 @@
             <i data-lucide="crosshair"></i> Trading
         </div>
         <div class="pm-autotrader" id="pm-autotrader-panel" style="display:none;"></div>
-        <div class="pm-agent-grid" id="pm-agent-grid"></div>
         <div class="pm-trading-grid" id="pm-trading-grid"></div>
         <div id="pm-trading-table-wrap"></div>
     </div>
@@ -1076,7 +1137,6 @@
     function renderAll(data) {
         renderOverview(data);
         renderAutoTrader(data.autotrader, data.trading);
-        renderAutotraderAgents(data.autotrader_agents);
         renderTrading(data.trading);
         renderBrackets(data.brackets);
         renderShifts(data.shifts);
@@ -1103,6 +1163,10 @@
             });
             const data = await resp.json();
             if (data.error || data.ok === false) throw new Error(data.error || 'request failed');
+            const firstResult = Array.isArray(data.results) ? data.results.find(Boolean) : null;
+            if (firstResult && firstResult.status === 'error') {
+                throw new Error(firstResult.error || 'station run failed');
+            }
             await fetchData();
         } catch (e) {
             showError(`Autotrader ${action} failed: ${e.message || e}`);
@@ -1118,6 +1182,10 @@
             });
             const data = await resp.json();
             if (data.error || data.ok === false) throw new Error(data.error || 'request failed');
+            const firstResult = Array.isArray(data.results) ? data.results.find(Boolean) : null;
+            if (firstResult && firstResult.status === 'error') {
+                throw new Error(firstResult.error || 'station run failed');
+            }
             await fetchData();
         } catch (e) {
             showError(`Autotrader ${action} failed: ${e.message || e}`);
@@ -1215,6 +1283,7 @@
                         ${item.candidate ? ` · ${item.candidate.strategy || 'terminal_value'} · ${item.candidate.side} ${item.candidate.label}` : ''}
                         ${item.exit_plan ? ` · exit ${item.exit_plan.reason || '--'}` : ''}
                         ${item.reasons && item.reasons.length ? ` · ${item.reasons.join(', ')}` : ''}
+                        ${item.error ? ` · ${String(item.error).slice(0, 180)}` : ''}
                         ${item.plan ? ` · $${Number(item.plan.notional_usd || 0).toFixed(2)}` : ''}
                         ${item.persisted ? ` · pnl $${Number(item.persisted.realized_pnl_usd || 0).toFixed(2)}` : ''}
                         <span style="opacity:.7;"> · ${shortTs(item.ts_utc)}</span>
@@ -1273,6 +1342,232 @@
                 </div>
             `;
         }).join('');
+    }
+
+    let autotraderBannerMessage = '';
+
+    function setAutotraderBanner(message = '') {
+        autotraderBannerMessage = String(message || '');
+        const banner = document.getElementById('pm-autotrader-banner');
+        if (!banner) return;
+        banner.textContent = autotraderBannerMessage;
+        banner.style.display = autotraderBannerMessage ? 'block' : 'none';
+    }
+
+    function getAutotraderSelectedStations() {
+        return Array.from(document.querySelectorAll('.pm-autotrader-station-check:checked'))
+            .map(el => String(el.value || '').trim().toUpperCase())
+            .filter(Boolean);
+    }
+
+    function getAutotraderInputNumber(id, fallbackValue) {
+        const el = document.getElementById(id);
+        if (!el) return Number(fallbackValue || 0);
+        const parsed = Number(el.value);
+        return Number.isFinite(parsed) ? parsed : Number(fallbackValue || 0);
+    }
+
+    async function saveAutotraderConfig(options = {}) {
+        const silent = Boolean(options.silent);
+        const payload = {
+            station_ids: getAutotraderSelectedStations(),
+            max_total_exposure_usd: getAutotraderInputNumber('pm-autotrader-total-cap', 0),
+            max_station_exposure_usd: getAutotraderInputNumber('pm-autotrader-station-cap', 0),
+        };
+        try {
+            const resp = await fetch('/api/autotrader/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            const data = await resp.json();
+            if (data.error || data.ok === false) throw new Error(data.error || 'request failed');
+            setAutotraderBanner('');
+            if (!silent) await fetchData();
+            return data;
+        } catch (e) {
+            setAutotraderBanner(`Config save failed: ${e.message || e}`);
+            throw e;
+        }
+    }
+    window.saveAutotraderConfig = saveAutotraderConfig;
+
+    async function runAutotraderAction(action) {
+        try {
+            const resp = await fetch(`/api/autotrader/${action}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+            });
+            const data = await resp.json();
+            if (data.error || data.ok === false) throw new Error(data.error || 'request failed');
+            const firstResult = Array.isArray(data.results) ? data.results.find(Boolean) : null;
+            if (firstResult && firstResult.status === 'error') {
+                throw new Error(firstResult.error || 'station run failed');
+            }
+            setAutotraderBanner('');
+            await fetchData();
+        } catch (e) {
+            setAutotraderBanner(`Autotrader ${action} failed: ${e.message || e}`);
+        }
+    }
+    window.runAutotraderAction = runAutotraderAction;
+
+    async function startAutotraderToday() {
+        try {
+            await saveAutotraderConfig({ silent: true });
+            await runAutotraderAction('start');
+        } catch (e) {
+            // Banner already updated above.
+        }
+    }
+    window.startAutotraderToday = startAutotraderToday;
+
+    async function stopAutotraderToday() {
+        await runAutotraderAction('stop');
+    }
+    window.stopAutotraderToday = stopAutotraderToday;
+
+    function renderAutoTrader(status, trading) {
+        const panel = document.getElementById('pm-autotrader-panel');
+        if (!panel) return;
+        if (!status) {
+            panel.style.display = 'none';
+            return;
+        }
+
+        panel.style.display = 'block';
+        const state = status.state || {};
+        const portfolio = status.portfolio || {};
+        const risk = status.risk || {};
+        const strategy = status.strategy || {};
+        const wallet = status.wallet || {};
+        const recent = Array.isArray(status.recent_events) ? status.recent_events.slice(0, 5) : [];
+        const openBets = Array.isArray(portfolio.open_positions) ? portfolio.open_positions.slice(0, 6) : [];
+        const availableStations = Array.isArray(status.available_stations) ? status.available_stations : [];
+        const selectedStations = Array.isArray(status.selected_stations) ? status.selected_stations : [];
+        const headline = status.running
+            ? `LIVE running across ${selectedStations.length} station${selectedStations.length === 1 ? '' : 's'}`
+            : `${String(status.mode || 'paper').toUpperCase()} ready, stopped`;
+        const subline = status.running
+            ? `Cycling every ${Number(status.loop_seconds || 0)}s across the selected stations until today's markets resolve or you press Stop.`
+            : `Select the stations you want, set the exposure cap, then press Start today. It will keep running continuously until today's selected markets resolve or you stop it.`;
+        const strategyMix = [];
+        if (strategy.terminal_enabled) strategyMix.push(`terminal ${Number(strategy.terminal_take_profit_pts || 0).toFixed(1)}/${Number(strategy.terminal_stop_loss_pts || 0).toFixed(1)} pts`);
+        if (strategy.tactical_enabled) strategyMix.push(`tactical ${Number(strategy.tactical_take_profit_pts || 0).toFixed(1)}/${Number(strategy.tactical_stop_loss_pts || 0).toFixed(1)} pts`);
+        const pnlToday = Number(portfolio.realized_pnl_today_usd || 0);
+        const strategyCounts = state.strategies || {};
+        const strategyCountText = Object.keys(strategyCounts).length
+            ? Object.entries(strategyCounts).map(([key, value]) => `${key.replace('_', ' ')} ${value}`).join(' | ')
+            : 'none';
+        const stopReasons = {
+            all_selected_markets_resolved: 'Stopped automatically: all selected markets are resolved.',
+            manual_stop: 'Stopped manually.',
+            no_stations_selected: 'No stations selected.',
+            shutdown: 'Stopped by server shutdown.',
+        };
+        const stopReasonText = status.last_stop_reason ? (stopReasons[status.last_stop_reason] || status.last_stop_reason) : '';
+
+        panel.innerHTML = `
+            <div class="pm-autotrader-head">
+                <div>
+                    <div class="pm-autotrader-title">Autotrader</div>
+                    <div class="pm-autotrader-main">${headline}</div>
+                    <div class="pm-autotrader-sub">${subline}</div>
+                </div>
+                <div class="pm-autotrader-actions">
+                    <button class="pm-autotrader-btn" onclick="saveAutotraderConfig()">Save setup</button>
+                    <button class="pm-autotrader-btn primary" onclick="startAutotraderToday()" ${status.running ? 'disabled' : ''}>Start today</button>
+                    <button class="pm-autotrader-btn danger" onclick="stopAutotraderToday()" ${status.running ? '' : 'disabled'}>Stop</button>
+                </div>
+            </div>
+            <div id="pm-autotrader-banner" class="pm-autotrader-note" style="${autotraderBannerMessage || stopReasonText ? '' : 'display:none;'}">${autotraderBannerMessage || stopReasonText}</div>
+            <div class="pm-autotrader-config">
+                <div class="pm-autotrader-config-box">
+                    <div class="pm-autotrader-cell-label">Stations to trade</div>
+                    <div class="pm-autotrader-station-list">
+                        ${availableStations.map(option => `
+                            <label class="pm-autotrader-station-pill">
+                                <input type="checkbox" class="pm-autotrader-station-check" value="${option.id}" ${selectedStations.includes(option.id) ? 'checked' : ''}>
+                                <span>${option.city_name} (${option.id})</span>
+                            </label>
+                        `).join('')}
+                    </div>
+                </div>
+                <div class="pm-autotrader-config-box">
+                    <div class="pm-autotrader-cell-label">Risk setup</div>
+                    <div class="pm-autotrader-fields">
+                        <label>
+                            <span class="pm-autotrader-field-label">Portfolio cap ($)</span>
+                            <input id="pm-autotrader-total-cap" class="pm-autotrader-input" type="number" min="0.5" step="0.25" value="${Number(risk.max_total_exposure_usd || 0).toFixed(2)}">
+                        </label>
+                        <label>
+                            <span class="pm-autotrader-field-label">Per-station cap ($)</span>
+                            <input id="pm-autotrader-station-cap" class="pm-autotrader-input" type="number" min="0.25" step="0.25" value="${Number(risk.max_station_exposure_usd || 0).toFixed(2)}">
+                        </label>
+                    </div>
+                    <div class="pm-autotrader-note">Today only. The loop checks the selected stations every ${Number(status.loop_seconds || 0)}s and stops automatically when all selected markets are mature or closed.</div>
+                </div>
+            </div>
+            <div class="pm-autotrader-grid">
+                <div class="pm-autotrader-cell">
+                    <div class="pm-autotrader-cell-label">Selected stations</div>
+                    <div class="pm-autotrader-cell-value">${selectedStations.length ? selectedStations.join(', ') : 'None'}</div>
+                </div>
+                <div class="pm-autotrader-cell">
+                    <div class="pm-autotrader-cell-label">Portfolio Exposure</div>
+                    <div class="pm-autotrader-cell-value">$${Number(portfolio.open_risk_usd || 0).toFixed(2)} / $${Number(risk.max_total_exposure_usd || 0).toFixed(2)}</div>
+                </div>
+                <div class="pm-autotrader-cell">
+                    <div class="pm-autotrader-cell-label">Open bets</div>
+                    <div class="pm-autotrader-cell-value">${Number(state.open_positions || 0)} live bets | $${Number(state.open_risk_usd || 0).toFixed(2)}</div>
+                </div>
+                <div class="pm-autotrader-cell">
+                    <div class="pm-autotrader-cell-label">Portfolio Day</div>
+                    <div class="pm-autotrader-cell-value">${Number(portfolio.trades_today || 0)} entries | $${Number(portfolio.remaining_daily_loss_usd || 0).toFixed(2)} loss room</div>
+                </div>
+                <div class="pm-autotrader-cell">
+                    <div class="pm-autotrader-cell-label">Day PnL</div>
+                    <div class="pm-autotrader-cell-value">${pnlToday >= 0 ? '+' : ''}$${pnlToday.toFixed(2)} | ${Number(portfolio.closed_trades_today || 0)} exits</div>
+                </div>
+                <div class="pm-autotrader-cell">
+                    <div class="pm-autotrader-cell-label">Strategy</div>
+                    <div class="pm-autotrader-cell-value">${strategyMix.join(' | ') || 'disabled'}</div>
+                </div>
+                <div class="pm-autotrader-cell">
+                    <div class="pm-autotrader-cell-label">Open mix</div>
+                    <div class="pm-autotrader-cell-value">${strategyCountText}</div>
+                </div>
+                <div class="pm-autotrader-cell">
+                    <div class="pm-autotrader-cell-label">Wallet</div>
+                    <div class="pm-autotrader-cell-value">${wallet.live_ready ? 'Ready' : 'Missing keys'}</div>
+                </div>
+            </div>
+            <div class="pm-autotrader-log">
+                <div class="pm-autotrader-title" style="margin-bottom:8px;">Recent activity</div>
+                ${recent.length ? recent.map(item => `
+                    <div class="pm-autotrader-log-item">
+                        <strong>${item.status || 'event'}</strong>
+                        ${item.station_id ? ` | ${item.station_id}` : ''}
+                        ${item.candidate ? ` | ${item.candidate.strategy || 'terminal_value'} | ${item.candidate.side} ${item.candidate.label}` : ''}
+                        ${item.exit_plan ? ` | exit ${item.exit_plan.reason || '--'}` : ''}
+                        ${item.reasons && item.reasons.length ? ` | ${item.reasons.join(', ')}` : ''}
+                        ${item.error ? ` | ${String(item.error).slice(0, 180)}` : ''}
+                        ${item.plan ? ` | $${Number(item.plan.notional_usd || 0).toFixed(2)}` : ''}
+                        ${item.persisted ? ` | pnl $${Number(item.persisted.realized_pnl_usd || 0).toFixed(2)}` : ''}
+                        <span style="opacity:.7;"> | ${shortTs(item.ts_utc)}</span>
+                    </div>
+                `).join('') : '<div class="pm-autotrader-log-item">No runs yet.</div>'}
+                <div class="pm-autotrader-title" style="margin:12px 0 8px;">Open bets</div>
+                ${openBets.length ? openBets.map(item => `
+                    <div class="pm-autotrader-log-item">
+                        <strong>${item.station_id} | ${item.strategy || 'terminal_value'} | ${item.side} ${item.label}</strong>
+                        | $${Number(item.cost_basis_open_usd || item.notional_usd || 0).toFixed(2)}
+                        | ${Number(item.shares_open || item.shares || 0).toFixed(1)} sh
+                        <span style="opacity:.7;"> | ${shortTs(item.opened_at_utc)}</span>
+                    </div>
+                `).join('') : '<div class="pm-autotrader-log-item">No open bets in the portfolio.</div>'}
+            </div>
+        `;
     }
 
     // ========================

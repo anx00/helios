@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from decimal import Decimal
+from math import floor, gcd
 from typing import Any, Dict, Optional
 
 from py_clob_client.client import ClobClient
@@ -30,6 +32,48 @@ def _env_first_nonblank(*names: str, default: str = "") -> str:
         if raw:
             return raw
     return default
+
+
+def _round_down(value: float, decimals: int) -> float:
+    scale = 10 ** max(0, int(decimals))
+    return floor(float(value) * scale) / scale
+
+
+def _price_fraction(price: float) -> tuple[int, int]:
+    raw = str(float(price)).rstrip("0").rstrip(".")
+    decimal = Decimal(raw or "0")
+    exponent = decimal.as_tuple().exponent
+    if exponent >= 0:
+        return int(decimal), 1
+    scale = 10 ** (-exponent)
+    numerator = int(decimal * scale)
+    return numerator, scale
+
+
+def quantize_share_size(size: float, decimals: int = 2) -> float:
+    return max(0.0, _round_down(float(size), decimals))
+
+
+def quantize_market_buy_amount(amount_usd: float) -> float:
+    return max(0.0, _round_down(float(amount_usd), 2))
+
+
+def quantize_buy_order_size(size: float, price: float) -> float:
+    rounded_size = quantize_share_size(size, 2)
+    if rounded_size <= 0 or price <= 0:
+        return 0.0
+
+    numerator, denominator = _price_fraction(price)
+    if numerator <= 0 or denominator <= 0:
+        return rounded_size
+
+    # Polymarket buy orders require the collateral leg to resolve cleanly to cents.
+    size_step_cents = max(1, denominator // gcd(abs(numerator), denominator))
+    size_step = max(0.01, size_step_cents / 100.0)
+    steps = floor(rounded_size / size_step)
+    if steps <= 0:
+        return 0.0
+    return quantize_share_size(steps * size_step, 2)
 
 
 def _extract_numeric(payload: Any, *keys: str) -> Optional[float]:
@@ -364,11 +408,15 @@ class PolymarketExecutionClient:
         size: float,
         order_type: str = OrderType.FAK,
     ) -> Dict[str, Any]:
+        price = round(float(price), 6)
+        size = quantize_buy_order_size(size, price)
+        if size <= 0:
+            raise RuntimeError("Buy order size quantized to zero")
         fee_rate_bps = int(self.auth_client().get_fee_rate_bps(token_id))
         order_args = OrderArgs(
             token_id=token_id,
-            price=round(float(price), 6),
-            size=round(float(size), 6),
+            price=price,
+            size=size,
             side="BUY",
             fee_rate_bps=fee_rate_bps,
         )
@@ -386,11 +434,15 @@ class PolymarketExecutionClient:
         size: float,
         order_type: str = OrderType.FAK,
     ) -> Dict[str, Any]:
+        price = round(float(price), 6)
+        size = quantize_share_size(size, 2)
+        if size <= 0:
+            raise RuntimeError("Sell order size quantized to zero")
         fee_rate_bps = int(self.auth_client().get_fee_rate_bps(token_id))
         order_args = OrderArgs(
             token_id=token_id,
-            price=round(float(price), 6),
-            size=round(float(size), 6),
+            price=price,
+            size=size,
             side="SELL",
             fee_rate_bps=fee_rate_bps,
         )
@@ -410,10 +462,13 @@ class PolymarketExecutionClient:
     ) -> Dict[str, Any]:
         from py_clob_client.clob_types import MarketOrderArgs
 
+        amount_usd = quantize_market_buy_amount(amount_usd)
+        if amount_usd <= 0:
+            raise RuntimeError("Buy amount quantized to zero")
         fee_rate_bps = int(self.auth_client().get_fee_rate_bps(token_id))
         order_args = MarketOrderArgs(
             token_id=token_id,
-            amount=round(float(amount_usd), 6),
+            amount=amount_usd,
             side="BUY",
             price=round(float(max_price), 6) if max_price is not None else 0,
             fee_rate_bps=fee_rate_bps,
@@ -435,10 +490,13 @@ class PolymarketExecutionClient:
     ) -> Dict[str, Any]:
         from py_clob_client.clob_types import MarketOrderArgs
 
+        size = quantize_share_size(size, 2)
+        if size <= 0:
+            raise RuntimeError("Sell amount quantized to zero")
         fee_rate_bps = int(self.auth_client().get_fee_rate_bps(token_id))
         order_args = MarketOrderArgs(
             token_id=token_id,
-            amount=round(float(size), 6),
+            amount=size,
             side="SELL",
             price=round(float(min_price), 6) if min_price is not None else 0,
             fee_rate_bps=fee_rate_bps,
