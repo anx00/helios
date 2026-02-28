@@ -1,0 +1,1097 @@
+{% extends "base.html" %}
+
+{% block title %}PWS Explorer - HELIOS{% endblock %}
+
+{% block head_extra %}
+<style>
+    .pws-shell {
+        padding: 28px;
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+    }
+
+    .pws-hero {
+        display: grid;
+        grid-template-columns: minmax(0, 1.8fr) minmax(280px, 1fr);
+        gap: 18px;
+    }
+
+    .pws-hero-card,
+    .pws-panel,
+    .pws-empty {
+        background: linear-gradient(180deg, rgba(15, 23, 42, 0.94), rgba(15, 23, 42, 0.82));
+        border: 1px solid rgba(148, 163, 184, 0.16);
+        border-radius: 18px;
+        box-shadow: 0 24px 60px rgba(2, 6, 23, 0.34);
+    }
+
+    .pws-hero-card {
+        padding: 24px;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .pws-hero-card::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background:
+            radial-gradient(circle at top right, rgba(251, 191, 36, 0.16), transparent 36%),
+            radial-gradient(circle at bottom left, rgba(59, 130, 246, 0.18), transparent 40%);
+        pointer-events: none;
+    }
+
+    .pws-hero-content {
+        position: relative;
+        z-index: 1;
+    }
+
+    .pws-kicker {
+        font-size: 12px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: #fbbf24;
+        margin-bottom: 10px;
+    }
+
+    .pws-title {
+        margin: 0;
+        font-size: 34px;
+        line-height: 1.05;
+        font-family: "Space Grotesk", sans-serif;
+        color: #f8fafc;
+    }
+
+    .pws-subtitle {
+        margin: 10px 0 0;
+        color: rgba(226, 232, 240, 0.78);
+        max-width: 740px;
+        line-height: 1.55;
+    }
+
+    .pws-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: flex-end;
+        justify-content: space-between;
+        margin-top: 18px;
+    }
+
+    .pws-control-group {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        align-items: flex-end;
+    }
+
+    .pws-control {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        min-width: 180px;
+    }
+
+    .pws-control label {
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: rgba(148, 163, 184, 0.8);
+    }
+
+    .pws-control select,
+    .pws-control button {
+        height: 42px;
+        border-radius: 12px;
+        border: 1px solid rgba(148, 163, 184, 0.22);
+        background: rgba(15, 23, 42, 0.72);
+        color: #e2e8f0;
+        padding: 0 14px;
+        font-size: 14px;
+    }
+
+    .pws-control button {
+        cursor: pointer;
+        font-weight: 600;
+        background: linear-gradient(135deg, rgba(251, 191, 36, 0.18), rgba(14, 165, 233, 0.18));
+    }
+
+    .pws-badges {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+
+    .pws-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 12px;
+        border-radius: 999px;
+        background: rgba(15, 23, 42, 0.62);
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        color: #e2e8f0;
+        font-size: 13px;
+    }
+
+    .pws-badge span {
+        color: rgba(148, 163, 184, 0.84);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+    }
+
+    .pws-notice {
+        padding: 16px 18px;
+        border-radius: 16px;
+        border: 1px solid rgba(251, 191, 36, 0.24);
+        background: rgba(251, 191, 36, 0.08);
+        color: #fef3c7;
+        line-height: 1.5;
+    }
+
+    .pws-layout {
+        display: grid;
+        grid-template-columns: 320px minmax(0, 1fr);
+        gap: 18px;
+        min-height: 620px;
+    }
+
+    .pws-panel {
+        padding: 18px;
+    }
+
+    .pws-panel-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 14px;
+    }
+
+    .pws-panel-title {
+        margin: 0;
+        font-size: 16px;
+        color: #f8fafc;
+    }
+
+    .pws-panel-copy {
+        margin: 4px 0 0;
+        color: rgba(148, 163, 184, 0.78);
+        font-size: 13px;
+        line-height: 1.45;
+    }
+
+    .pws-station-list {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        max-height: 760px;
+        overflow: auto;
+        padding-right: 2px;
+    }
+
+    .pws-station-item {
+        width: 100%;
+        text-align: left;
+        background: rgba(15, 23, 42, 0.6);
+        border: 1px solid rgba(148, 163, 184, 0.16);
+        border-radius: 14px;
+        padding: 14px;
+        cursor: pointer;
+        color: #e2e8f0;
+        transition: border-color 120ms ease, transform 120ms ease, background 120ms ease;
+    }
+
+    .pws-station-item:hover {
+        border-color: rgba(251, 191, 36, 0.38);
+        transform: translateY(-1px);
+        background: rgba(30, 41, 59, 0.74);
+    }
+
+    .pws-station-item.active {
+        border-color: rgba(251, 191, 36, 0.56);
+        background: linear-gradient(135deg, rgba(251, 191, 36, 0.14), rgba(14, 165, 233, 0.12));
+        box-shadow: inset 0 0 0 1px rgba(251, 191, 36, 0.18);
+    }
+
+    .pws-station-headline {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        align-items: baseline;
+        margin-bottom: 8px;
+    }
+
+    .pws-station-name {
+        font-size: 14px;
+        font-weight: 700;
+        color: #f8fafc;
+        line-height: 1.3;
+    }
+
+    .pws-station-id {
+        font-size: 11px;
+        color: rgba(148, 163, 184, 0.84);
+        font-family: "JetBrains Mono", monospace;
+    }
+
+    .pws-station-meta,
+    .pws-station-stats {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        font-size: 12px;
+        color: rgba(203, 213, 225, 0.84);
+    }
+
+    .pws-station-chip {
+        padding: 4px 8px;
+        border-radius: 999px;
+        background: rgba(15, 23, 42, 0.72);
+        border: 1px solid rgba(148, 163, 184, 0.14);
+    }
+
+    .pws-detail {
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+    }
+
+    .pws-detail-header {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: flex-start;
+    }
+
+    .pws-detail-title {
+        margin: 0;
+        font-size: 28px;
+        color: #f8fafc;
+        font-family: "Space Grotesk", sans-serif;
+    }
+
+    .pws-detail-copy {
+        margin: 6px 0 0;
+        color: rgba(226, 232, 240, 0.78);
+        line-height: 1.45;
+    }
+
+    .pws-metrics {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        gap: 12px;
+    }
+
+    .pws-metric {
+        padding: 14px;
+        border-radius: 16px;
+        background: rgba(15, 23, 42, 0.62);
+        border: 1px solid rgba(148, 163, 184, 0.14);
+    }
+
+    .pws-metric-label {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: rgba(148, 163, 184, 0.8);
+    }
+
+    .pws-metric-value {
+        margin-top: 8px;
+        font-size: 25px;
+        color: #f8fafc;
+        font-weight: 700;
+        font-family: "Space Grotesk", sans-serif;
+    }
+
+    .pws-metric-footnote {
+        margin-top: 6px;
+        font-size: 12px;
+        color: rgba(148, 163, 184, 0.82);
+    }
+
+    .pws-chart-panel {
+        padding: 18px;
+    }
+
+    .pws-chart-wrap {
+        position: relative;
+        min-height: 330px;
+    }
+
+    .pws-table-wrap {
+        overflow: auto;
+        border-radius: 14px;
+        border: 1px solid rgba(148, 163, 184, 0.14);
+    }
+
+    .pws-table {
+        width: 100%;
+        border-collapse: collapse;
+        min-width: 860px;
+        background: rgba(15, 23, 42, 0.42);
+    }
+
+    .pws-table thead th {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        background: rgba(15, 23, 42, 0.96);
+        color: rgba(226, 232, 240, 0.92);
+        text-align: left;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+    }
+
+    .pws-table th,
+    .pws-table td {
+        padding: 12px 14px;
+        border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+        vertical-align: top;
+    }
+
+    .pws-table tbody tr:hover {
+        background: rgba(30, 41, 59, 0.56);
+    }
+
+    .pws-temp {
+        font-weight: 700;
+        color: #f8fafc;
+    }
+
+    .pws-temp-sub {
+        display: block;
+        margin-top: 4px;
+        font-size: 12px;
+        color: rgba(148, 163, 184, 0.84);
+    }
+
+    .pws-legacy-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 12px;
+    }
+
+    .pws-legacy-chip {
+        padding: 10px 12px;
+        border-radius: 999px;
+        background: rgba(15, 23, 42, 0.7);
+        border: 1px solid rgba(148, 163, 184, 0.14);
+        color: #e2e8f0;
+        font-size: 13px;
+        font-family: "JetBrains Mono", monospace;
+    }
+
+    .pws-helper-copy {
+        margin-top: 12px;
+        padding: 12px 14px;
+        border-radius: 14px;
+        background: rgba(14, 165, 233, 0.08);
+        border: 1px solid rgba(14, 165, 233, 0.2);
+        color: rgba(226, 232, 240, 0.82);
+        font-size: 13px;
+        line-height: 1.5;
+    }
+
+    .pws-empty {
+        padding: 26px;
+        text-align: center;
+        color: rgba(226, 232, 240, 0.8);
+    }
+
+    .pws-loading {
+        opacity: 0.72;
+        pointer-events: none;
+    }
+
+    @media (max-width: 1120px) {
+        .pws-hero,
+        .pws-layout {
+            grid-template-columns: 1fr;
+        }
+
+        .pws-station-list {
+            max-height: none;
+        }
+    }
+
+    @media (max-width: 720px) {
+        .pws-shell {
+            padding: 18px;
+        }
+
+        .pws-title {
+            font-size: 28px;
+        }
+
+        .pws-detail-title {
+            font-size: 24px;
+        }
+
+        .pws-toolbar {
+            align-items: stretch;
+        }
+
+        .pws-control,
+        .pws-control select,
+        .pws-control button {
+            width: 100%;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="pws-shell" id="pws-shell">
+    <section class="pws-hero">
+        <article class="pws-hero-card">
+            <div class="pws-hero-content">
+                <div class="pws-kicker">PWS explorer</div>
+                <h1 class="pws-title">Granular PWS replay against METAR</h1>
+                <p class="pws-subtitle">
+                    Browse every PWS station inside a market, inspect its intraday temperature path, and compare
+                    each update against the current official METAR and the next METAR that arrives after it.
+                </p>
+
+                <div class="pws-toolbar">
+                    <div class="pws-control-group">
+                        <div class="pws-control">
+                            <label for="pws-date-select">Recorded day</label>
+                            <select id="pws-date-select"></select>
+                        </div>
+                        <div class="pws-control">
+                            <label>&nbsp;</label>
+                            <button type="button" id="pws-refresh-btn">Reload day</button>
+                        </div>
+                    </div>
+
+                    <div class="pws-badges">
+                        <div class="pws-badge"><span>Market</span><strong id="pws-market-badge">--</strong></div>
+                        <div class="pws-badge"><span>Station TZ</span><strong id="pws-timezone-badge">--</strong></div>
+                        <div class="pws-badge"><span>Unit</span><strong id="pws-unit-badge">--</strong></div>
+                    </div>
+                </div>
+            </div>
+        </article>
+
+        <article class="pws-panel">
+            <div class="pws-panel-header">
+                <div>
+                    <h2 class="pws-panel-title">Day status</h2>
+                    <p class="pws-panel-copy">Backend notes for the selected market day.</p>
+                </div>
+            </div>
+            <div id="pws-notice-slot" class="pws-notice">
+                Loading PWS data...
+            </div>
+        </article>
+    </section>
+
+    <section class="pws-layout">
+        <aside class="pws-panel">
+            <div class="pws-panel-header">
+                <div>
+                    <h2 class="pws-panel-title">PWS stations</h2>
+                    <p class="pws-panel-copy">
+                        Ordered by next-METAR error first, then current-METAR error.
+                    </p>
+                </div>
+                <div id="pws-station-count" class="pws-station-chip">--</div>
+            </div>
+            <div id="pws-station-list" class="pws-station-list"></div>
+        </aside>
+
+        <main class="pws-detail">
+            <section class="pws-panel" id="pws-detail-panel">
+                <div id="pws-detail-content" class="pws-empty">
+                    Select a station once the day payload is loaded.
+                </div>
+            </section>
+
+            <section class="pws-panel pws-chart-panel">
+                <div class="pws-panel-header">
+                    <div>
+                        <h2 class="pws-panel-title">Intraday PWS trace</h2>
+                        <p class="pws-panel-copy">
+                            All recorded updates for the selected PWS station in market local time.
+                        </p>
+                    </div>
+                </div>
+                <div class="pws-chart-wrap">
+                    <canvas id="pws-history-chart"></canvas>
+                </div>
+            </section>
+
+            <section class="pws-panel">
+                <div class="pws-panel-header">
+                    <div>
+                        <h2 class="pws-panel-title">PWS vs METAR table</h2>
+                        <p class="pws-panel-copy">
+                            One row per PWS update. If the station updates faster than 10 minutes, the table keeps one sample every 10 minutes.
+                        </p>
+                    </div>
+                </div>
+                <div id="pws-table-slot" class="pws-table-wrap">
+                    <div class="pws-empty">No table yet.</div>
+                </div>
+            </section>
+        </main>
+    </section>
+</div>
+
+<script>
+    const INITIAL_MARKET_STATION_ID = {{ (selected_station_id or default_station_id)|tojson }};
+    let pwsBrowserData = null;
+    let pwsSelectedStationId = null;
+    let pwsHistoryChart = null;
+    let pwsLoading = false;
+
+    function setPwsLoading(isLoading) {
+        pwsLoading = Boolean(isLoading);
+        document.getElementById('pws-shell').classList.toggle('pws-loading', pwsLoading);
+        const button = document.getElementById('pws-refresh-btn');
+        if (button) {
+            button.disabled = pwsLoading;
+            button.textContent = pwsLoading ? 'Loading...' : 'Reload day';
+        }
+    }
+
+    function getCurrentMarketStationId() {
+        const sid = window.HeliosStationState && typeof window.HeliosStationState.get === 'function'
+            ? window.HeliosStationState.get()
+            : INITIAL_MARKET_STATION_ID;
+        return String(sid || INITIAL_MARKET_STATION_ID || 'KLGA').toUpperCase();
+    }
+
+    function getMarketUnit() {
+        return String((((pwsBrowserData || {}).market_station || {}).market_unit || 'F') || 'F').toUpperCase();
+    }
+
+    function formatTemp(tempC, tempF) {
+        const unit = getMarketUnit();
+        const cVal = Number(tempC);
+        const fVal = Number(tempF);
+        if (unit === 'C') {
+            if (Number.isFinite(cVal)) {
+                return {
+                    main: `${cVal.toFixed(1)} C`,
+                    sub: Number.isFinite(fVal) ? `${fVal.toFixed(1)} F` : '--'
+                };
+            }
+            return { main: '--', sub: '--' };
+        }
+        if (Number.isFinite(fVal)) {
+            return {
+                main: `${fVal.toFixed(1)} F`,
+                sub: Number.isFinite(cVal) ? `${cVal.toFixed(1)} C` : '--'
+            };
+        }
+        return { main: '--', sub: '--' };
+    }
+
+    function formatMetric(value, suffix = '') {
+        const num = Number(value);
+        if (!Number.isFinite(num)) return '--';
+        return `${num.toFixed(2)}${suffix}`;
+    }
+
+    function escapeHtml(value) {
+        return String(value == null ? '' : value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function formatProbability(value) {
+        const num = Number(value);
+        if (!Number.isFinite(num)) return '--';
+        return `${(num * 100).toFixed(0)}%`;
+    }
+
+    function getRenderableStations() {
+        const detailed = Array.isArray((pwsBrowserData || {}).pws_stations) ? pwsBrowserData.pws_stations : [];
+        if (detailed.length) return detailed;
+        const predictive = Array.isArray((pwsBrowserData || {}).predictive_ranking) ? pwsBrowserData.predictive_ranking : [];
+        return predictive;
+    }
+
+    function getSelectedStationObject() {
+        const stations = getRenderableStations();
+        return stations.find((row) => row.station_id === pwsSelectedStationId) || stations[0] || null;
+    }
+
+    function renderBucketTable(learning) {
+        const buckets = Array.isArray((learning || {}).lead_bucket_summaries) ? learning.lead_bucket_summaries : [];
+        if (!buckets.length) {
+            return '<div class="pws-helper-copy">No hay bucket stats de lead todavía para esta estación.</div>';
+        }
+        return `
+            <div class="pws-table-wrap" style="margin-top:16px;">
+                <table class="pws-table">
+                    <thead>
+                        <tr>
+                            <th>Lead bucket</th>
+                            <th>Samples</th>
+                            <th>Avg lead</th>
+                            <th>Bias</th>
+                            <th>MAE</th>
+                            <th>RMSE</th>
+                            <th>P ±0.5C</th>
+                            <th>P ±1.0C</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${buckets.map((row) => `
+                            <tr>
+                                <td><div class="pws-temp">${escapeHtml(row.bucket || '--')}</div></td>
+                                <td>${escapeHtml(row.count || 0)}</td>
+                                <td>${escapeHtml(formatMetric(row.avg_lead_minutes, ' min'))}</td>
+                                <td>${escapeHtml(formatMetric(row.bias_c, ' C'))}</td>
+                                <td>${escapeHtml(formatMetric(row.mae_c, ' C'))}</td>
+                                <td>${escapeHtml(formatMetric(row.rmse_c, ' C'))}</td>
+                                <td>${escapeHtml(formatProbability(row.prob_within_0_5_c))}</td>
+                                <td>${escapeHtml(formatProbability(row.prob_within_1_0_c))}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    }
+
+    async function loadPwsBrowserDay(dateValue = null) {
+        const stationId = getCurrentMarketStationId();
+        const params = new URLSearchParams({ station_id: stationId });
+        if (dateValue) {
+            params.set('date', dateValue);
+        }
+
+        setPwsLoading(true);
+        try {
+            const response = await fetch(`/api/pws/day?${params.toString()}`);
+            const data = await response.json();
+            if (!response.ok || data.error) {
+                throw new Error(data.error || `HTTP ${response.status}`);
+            }
+            pwsBrowserData = data;
+            const pwsStations = Array.isArray(data.pws_stations) ? data.pws_stations : [];
+            const existing = pwsStations.find((row) => row.station_id === pwsSelectedStationId);
+            pwsSelectedStationId = existing
+                ? existing.station_id
+                : (data.selected_pws_station_id || (pwsStations[0] && pwsStations[0].station_id) || null);
+            renderPwsBrowser();
+        } catch (error) {
+            console.error('PWS browser load failed:', error);
+            renderPwsError(error.message || 'Failed to load PWS day');
+        } finally {
+            setPwsLoading(false);
+        }
+    }
+
+    function renderPwsError(message) {
+        const notice = document.getElementById('pws-notice-slot');
+        const stationList = document.getElementById('pws-station-list');
+        const detail = document.getElementById('pws-detail-content');
+        const tableSlot = document.getElementById('pws-table-slot');
+        notice.innerHTML = escapeHtml(message || 'Unknown error');
+        stationList.innerHTML = `<div class="pws-empty">${escapeHtml(message || 'Unknown error')}</div>`;
+        detail.innerHTML = `<div class="pws-empty">${escapeHtml(message || 'Unknown error')}</div>`;
+        tableSlot.innerHTML = `<div class="pws-empty">${escapeHtml(message || 'Unknown error')}</div>`;
+        updatePwsHeroBadges();
+        destroyPwsChart();
+    }
+
+    function updatePwsHeroBadges() {
+        const market = (pwsBrowserData || {}).market_station || {};
+        document.getElementById('pws-market-badge').textContent = market.city
+            ? `${market.city} (${market.station_id || '--'})`
+            : '--';
+        document.getElementById('pws-timezone-badge').textContent = market.timezone || '--';
+        document.getElementById('pws-unit-badge').textContent = market.market_unit || '--';
+    }
+
+    function renderDateSelect() {
+        const select = document.getElementById('pws-date-select');
+        const dates = Array.isArray((pwsBrowserData || {}).available_dates) ? pwsBrowserData.available_dates : [];
+        const currentDate = (pwsBrowserData || {}).date || '';
+        const options = [];
+        if (!dates.length && currentDate) {
+            options.push(currentDate);
+        } else {
+            options.push(...dates);
+        }
+
+        select.innerHTML = options.map((dateStr) => {
+            const selected = dateStr === currentDate ? 'selected' : '';
+            return `<option value="${escapeHtml(dateStr)}" ${selected}>${escapeHtml(dateStr)}</option>`;
+        }).join('');
+        select.disabled = options.length === 0;
+    }
+
+    function renderNotice() {
+        const slot = document.getElementById('pws-notice-slot');
+        const data = pwsBrowserData || {};
+        const stats = data.stats || {};
+        const detailSource = String(data.detail_source || 'none');
+        const sourceLabel = detailSource === 'recorded_pws_readings'
+            ? 'Recorded detail'
+            : detailSource === 'live_snapshot'
+                ? 'Live snapshot fallback'
+                : 'Legacy / no detail';
+
+        let html = `
+            <div><strong>${escapeHtml(sourceLabel)}</strong></div>
+            <div style="margin-top:6px;">${escapeHtml(data.message || 'Granular PWS data ready.')}</div>
+            <div style="margin-top:12px; display:flex; flex-wrap:wrap; gap:10px;">
+                <span class="pws-station-chip">METAR rows: ${escapeHtml(stats.metar_count || 0)}</span>
+                <span class="pws-station-chip">Detailed stations: ${escapeHtml(stats.pws_station_count || 0)}</span>
+                <span class="pws-station-chip">Legacy IDs: ${escapeHtml(stats.legacy_station_count || 0)}</span>
+                <span class="pws-station-chip">Predictive stations: ${escapeHtml(stats.predictive_station_count || 0)}</span>
+                <span class="pws-station-chip">Lead window: ${escapeHtml(((data.lead_window_minutes || [])[0]) || 0)}-${escapeHtml(((data.lead_window_minutes || [])[1]) || 0)} min</span>
+            </div>
+        `;
+
+        if (!data.detail_available && Array.isArray(data.legacy_station_ids) && data.legacy_station_ids.length) {
+            html += `<div class="pws-legacy-list">`;
+            html += data.legacy_station_ids.slice(0, 24).map((row) => {
+                return `<span class="pws-legacy-chip">${escapeHtml(row.station_id)} x${escapeHtml(row.occurrences || 0)}</span>`;
+            }).join('');
+            html += `</div>`;
+        }
+        slot.innerHTML = html;
+    }
+
+    function renderStationList() {
+        const listEl = document.getElementById('pws-station-list');
+        const countEl = document.getElementById('pws-station-count');
+        const stations = getRenderableStations();
+        const detailCount = Number((((pwsBrowserData || {}).stats || {}).pws_station_count) || 0);
+        const predictiveCount = Number((((pwsBrowserData || {}).stats || {}).predictive_station_count) || 0);
+        countEl.textContent = detailCount > 0
+            ? `${detailCount} detailed`
+            : `${predictiveCount} predictive`;
+
+        if (!stations.length) {
+            listEl.innerHTML = '<div class="pws-empty">No detailed ni predictive PWS data disponible.</div>';
+            return;
+        }
+
+        listEl.innerHTML = stations.map((station) => {
+            const active = station.station_id === pwsSelectedStationId ? 'active' : '';
+            const latest = formatTemp(station.latest_temp_c, station.latest_temp_f);
+            const learning = station.learning_profile || {};
+            const nextScore = formatMetric(learning.next_metar_score);
+            const prob1 = formatProbability(learning.next_metar_prob_within_1_0_c);
+            return `
+                <button type="button" class="pws-station-item ${active}" data-pws-station-id="${escapeHtml(station.station_id)}">
+                    <div class="pws-station-headline">
+                        <div>
+                            <div class="pws-station-name">${escapeHtml(station.station_name || station.station_id)}</div>
+                            <div class="pws-station-id">${escapeHtml(station.station_id)}</div>
+                        </div>
+                        <div class="pws-station-id">${escapeHtml(station.latest_temp_c != null || station.latest_temp_f != null ? latest.main : `Score ${nextScore}`)}</div>
+                    </div>
+                    <div class="pws-station-meta">
+                        <span class="pws-station-chip">${escapeHtml(station.source || '--')}</span>
+                        <span class="pws-station-chip">${Number.isFinite(Number(station.distance_km)) ? `${Number(station.distance_km).toFixed(1)} km` : '--'}</span>
+                        <span class="pws-station-chip">${escapeHtml(station.table_records_count || 0)} rows</span>
+                        <span class="pws-station-chip">${escapeHtml((learning.lead_avg_minutes != null) ? `${Number(learning.lead_avg_minutes).toFixed(1)} min` : '--')}</span>
+                    </div>
+                    <div class="pws-station-stats" style="margin-top:10px;">
+                        <span>Next MAE: ${escapeHtml(formatMetric((station.summary || {}).next_metar_mae_c, ' C'))}</span>
+                        <span>Current MAE: ${escapeHtml(formatMetric((station.summary || {}).current_metar_mae_c, ' C'))}</span>
+                        <span>Next score: ${escapeHtml(nextScore)}</span>
+                        <span>P ±1.0C: ${escapeHtml(prob1)}</span>
+                    </div>
+                </button>
+            `;
+        }).join('');
+
+        listEl.querySelectorAll('[data-pws-station-id]').forEach((button) => {
+            button.addEventListener('click', () => {
+                pwsSelectedStationId = button.getAttribute('data-pws-station-id');
+                renderStationList();
+                renderStationDetail();
+            });
+        });
+    }
+
+    function renderStationDetail() {
+        const detail = document.getElementById('pws-detail-content');
+        const tableSlot = document.getElementById('pws-table-slot');
+        const station = getSelectedStationObject();
+
+        if (!station) {
+            detail.innerHTML = '<div class="pws-empty">No station detail available for this day.</div>';
+            tableSlot.innerHTML = '<div class="pws-empty">No rows to compare.</div>';
+            destroyPwsChart();
+            return;
+        }
+
+        pwsSelectedStationId = station.station_id;
+        const latest = formatTemp(station.latest_temp_c, station.latest_temp_f);
+        const summary = station.summary || {};
+        const learning = station.learning_profile || {};
+
+        detail.innerHTML = `
+            <div class="pws-detail-header">
+                <div>
+                    <h2 class="pws-detail-title">${escapeHtml(station.station_name || station.station_id)}, ${escapeHtml(station.city || '--')}</h2>
+                    <p class="pws-detail-copy">
+                        Source: <strong>${escapeHtml(station.source || '--')}</strong>
+                        | Distance: <strong>${Number.isFinite(Number(station.distance_km)) ? `${Number(station.distance_km).toFixed(2)} km` : '--'}</strong>
+                        | Latest: <strong>${escapeHtml(station.latest_temp_c != null || station.latest_temp_f != null ? latest.main : '--')}</strong>
+                    </p>
+                </div>
+                <div class="pws-badges">
+                    <div class="pws-badge"><span>PWS ID</span><strong>${escapeHtml(station.station_id)}</strong></div>
+                    <div class="pws-badge"><span>Last station time</span><strong>${escapeHtml(station.latest_station_time || '--')}</strong></div>
+                </div>
+            </div>
+
+            <div class="pws-metrics">
+                <div class="pws-metric">
+                    <div class="pws-metric-label">Current METAR MAE</div>
+                    <div class="pws-metric-value">${escapeHtml(formatMetric(summary.current_metar_mae_c, ' C'))}</div>
+                    <div class="pws-metric-footnote">${escapeHtml(summary.current_metar_matches || 0)} matched rows</div>
+                </div>
+                <div class="pws-metric">
+                    <div class="pws-metric-label">Next METAR MAE</div>
+                    <div class="pws-metric-value">${escapeHtml(formatMetric(summary.next_metar_mae_c, ' C'))}</div>
+                    <div class="pws-metric-footnote">${escapeHtml(summary.next_metar_matches || 0)} matched rows</div>
+                </div>
+                <div class="pws-metric">
+                    <div class="pws-metric-label">Raw updates</div>
+                    <div class="pws-metric-value">${escapeHtml(station.raw_records_count || 0)}</div>
+                    <div class="pws-metric-footnote">All recorded station updates</div>
+                </div>
+                <div class="pws-metric">
+                    <div class="pws-metric-label">Table rows</div>
+                    <div class="pws-metric-value">${escapeHtml(station.table_records_count || 0)}</div>
+                    <div class="pws-metric-footnote">10 minute throttle when needed</div>
+                </div>
+                <div class="pws-metric">
+                    <div class="pws-metric-label">Next METAR score</div>
+                    <div class="pws-metric-value">${escapeHtml(formatMetric(learning.next_metar_score))}</div>
+                    <div class="pws-metric-footnote">Lead-only cumulative predictive skill</div>
+                </div>
+                <div class="pws-metric">
+                    <div class="pws-metric-label">P(next METAR within ±1.0C)</div>
+                    <div class="pws-metric-value">${escapeHtml(formatProbability(learning.next_metar_prob_within_1_0_c))}</div>
+                    <div class="pws-metric-footnote">${escapeHtml(formatMetric(learning.lead_avg_minutes, ' min'))} average anticipation</div>
+                </div>
+                <div class="pws-metric">
+                    <div class="pws-metric-label">Next METAR bias</div>
+                    <div class="pws-metric-value">${escapeHtml(formatMetric(learning.next_metar_bias_c, ' C'))}</div>
+                    <div class="pws-metric-footnote">Positive means the PWS tends to run warmer than official</div>
+                </div>
+                <div class="pws-metric">
+                    <div class="pws-metric-label">Next METAR RMSE</div>
+                    <div class="pws-metric-value">${escapeHtml(formatMetric(learning.next_metar_rmse_c, ' C'))}</div>
+                    <div class="pws-metric-footnote">${escapeHtml(learning.lead_samples || 0)} lead samples in cumulative learning</div>
+                </div>
+            </div>
+            ${renderBucketTable(learning)}
+            <div class="pws-helper-copy">
+                Modelo simple de siguiente METAR: usa el sesgo y la dispersion historica por bucket de lead para estimar
+                si esta PWS anticipa bien el oficial. Para buckets con pocas muestras, tómalo como warmup.
+            </div>
+        `;
+
+        renderStationChart(station);
+        renderStationTable(station);
+    }
+
+    function renderStationChart(station) {
+        const rows = Array.isArray(station.chart_rows) ? station.chart_rows : [];
+        if (!rows.length) {
+            destroyPwsChart();
+            return;
+        }
+
+        const ctx = document.getElementById('pws-history-chart').getContext('2d');
+        destroyPwsChart();
+
+        const unit = getMarketUnit();
+        const labels = rows.map((row) => row.station_time_short || row.station_time || row.ts_utc);
+        const values = rows.map((row) => {
+            const cVal = Number(row.temp_c);
+            const fVal = Number(row.temp_f);
+            return unit === 'C'
+                ? (Number.isFinite(cVal) ? cVal : null)
+                : (Number.isFinite(fVal) ? fVal : null);
+        });
+
+        pwsHistoryChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels,
+                datasets: [
+                    {
+                        label: `${station.station_id} ${unit}`,
+                        data: values,
+                        borderColor: '#fbbf24',
+                        backgroundColor: 'rgba(251, 191, 36, 0.18)',
+                        borderWidth: 2.5,
+                        tension: 0.24,
+                        pointRadius: 2.4,
+                        pointHoverRadius: 4.2,
+                        spanGaps: true,
+                        fill: true,
+                    }
+                ]
+            },
+            options: {
+                maintainAspectRatio: false,
+                responsive: true,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                plugins: {
+                    legend: {
+                        labels: {
+                            color: '#e2e8f0'
+                        }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            title(items) {
+                                if (!items.length) return '';
+                                const index = items[0].dataIndex;
+                                const row = rows[index] || {};
+                                return `${row.station_time || ''} | ES ${row.es_time || '--'}`;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        ticks: {
+                            color: 'rgba(148, 163, 184, 0.82)',
+                            maxTicksLimit: 12,
+                        },
+                        grid: {
+                            color: 'rgba(148, 163, 184, 0.08)'
+                        }
+                    },
+                    y: {
+                        ticks: {
+                            color: 'rgba(148, 163, 184, 0.82)',
+                        },
+                        title: {
+                            display: true,
+                            text: unit,
+                            color: 'rgba(226, 232, 240, 0.82)',
+                        },
+                        grid: {
+                            color: 'rgba(148, 163, 184, 0.08)'
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    function destroyPwsChart() {
+        if (pwsHistoryChart) {
+            pwsHistoryChart.destroy();
+            pwsHistoryChart = null;
+        }
+    }
+
+    function renderStationTable(station) {
+        const tableSlot = document.getElementById('pws-table-slot');
+        const rows = Array.isArray(station.table_rows) ? station.table_rows : [];
+        if (!rows.length) {
+            tableSlot.innerHTML = '<div class="pws-empty">No sampled rows for this station.</div>';
+            return;
+        }
+
+        tableSlot.innerHTML = `
+            <table class="pws-table">
+                <thead>
+                    <tr>
+                        <th>Station time</th>
+                        <th>ES time</th>
+                        <th>PWS temp</th>
+                        <th>Current METAR</th>
+                        <th>Next METAR</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${rows.map((row) => renderTableRow(row)).join('')}
+                </tbody>
+            </table>
+        `;
+    }
+
+    function renderTableRow(row) {
+        const pwsTemp = formatTemp(row.temp_c, row.temp_f);
+        const current = renderMetarCell(row.current_metar);
+        const next = renderMetarCell(row.next_metar);
+        return `
+            <tr>
+                <td>
+                    <div class="pws-temp">${escapeHtml(row.station_time || '--')}</div>
+                    <span class="pws-temp-sub">${escapeHtml(row.ts_utc || '--')}</span>
+                </td>
+                <td>
+                    <div class="pws-temp">${escapeHtml(row.es_time || '--')}</div>
+                </td>
+                <td>
+                    <div class="pws-temp">${escapeHtml(pwsTemp.main)}</div>
+                    <span class="pws-temp-sub">${escapeHtml(pwsTemp.sub)}</span>
+                </td>
+                <td>${current}</td>
+                <td>${next}</td>
+            </tr>
+        `;
+    }
+
+    function renderMetarCell(metar) {
+        if (!metar) {
+            return '<div class="pws-temp">-</div>';
+        }
+        const temp = formatTemp(metar.temp_c, metar.temp_f);
+        return `
+            <div class="pws-temp">${escapeHtml(temp.main)}</div>
+            <span class="pws-temp-sub">${escapeHtml(metar.station_time || '--')} | ${escapeHtml(metar.report_type || 'METAR')}</span>
+        `;
+    }
+
+    function renderPwsBrowser() {
+        updatePwsHeroBadges();
+        renderDateSelect();
+        renderNotice();
+        renderStationList();
+        renderStationDetail();
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        loadPwsBrowserDay();
+
+        document.getElementById('pws-refresh-btn').addEventListener('click', () => {
+            const value = document.getElementById('pws-date-select').value || null;
+            loadPwsBrowserDay(value);
+        });
+
+        document.getElementById('pws-date-select').addEventListener('change', (event) => {
+            loadPwsBrowserDay(event.target.value || null);
+        });
+
+        window.addEventListener('helios:stationchange', () => {
+            pwsSelectedStationId = null;
+            loadPwsBrowserDay();
+        });
+    });
+</script>
+{% endblock %}

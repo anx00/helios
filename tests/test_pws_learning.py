@@ -227,6 +227,51 @@ class TestPwsLearning(unittest.TestCase):
             self.assertEqual(profile.get("lead_hits"), 1)
             self.assertEqual(profile.get("lead_score"), 1)
 
+    def test_lead_window_extends_to_45_minutes_and_tracks_bucket_stats(self):
+        with TemporaryDirectory() as td:
+            store = PWSLearningStore(path=Path(td) / "weights.json")
+            pws_t = datetime(2026, 2, 17, 10, 0, tzinfo=timezone.utc)
+            metar_t = datetime(2026, 2, 17, 10, 40, tzinfo=timezone.utc)
+
+            store.update_with_official(
+                market_station_id="KLGA",
+                official_temp_c=20.0,
+                readings=[_Reading("LEAD_45", 19.5, "SYNOPTIC", pws_t)],
+                obs_time_utc=metar_t,
+                official_obs_time_utc=metar_t,
+            )
+
+            profile = store.get_station_profile("KLGA", "LEAD_45", "SYNOPTIC")
+            self.assertEqual(profile.get("lead_samples"), 1)
+            self.assertEqual(profile.get("lead_hits"), 1)
+            self.assertAlmostEqual(profile.get("lead_avg_minutes"), 40.0, places=2)
+            buckets = profile.get("lead_bucket_summaries") or {}
+            self.assertIn("30-45", buckets)
+            self.assertEqual((buckets["30-45"] or {}).get("count"), 1)
+            self.assertGreaterEqual(float(profile.get("next_metar_prob_within_1_0_c") or 0.0), 1.0)
+
+    def test_audit_rows_are_persisted_per_market_day(self):
+        with TemporaryDirectory() as td:
+            root = Path(td)
+            store = PWSLearningStore(path=root / "weights.json")
+            pws_t = datetime(2026, 2, 17, 10, 0, tzinfo=timezone.utc)
+            metar_t = datetime(2026, 2, 17, 10, 20, tzinfo=timezone.utc)
+
+            store.update_with_official(
+                market_station_id="KLGA",
+                official_temp_c=18.0,
+                readings=[_Reading("AUDIT_PWS", 18.0, "MADIS_APRSWXNET", pws_t)],
+                obs_time_utc=metar_t,
+                official_obs_time_utc=metar_t,
+            )
+
+            dates = store.list_audit_dates("KLGA")
+            self.assertEqual(dates, ["2026-02-17"])
+            rows = store.load_audit_rows("KLGA", "2026-02-17")
+            self.assertEqual(len(rows), 2)
+            self.assertEqual({row.get("kind") for row in rows}, {"NOW", "LEAD"})
+            self.assertTrue(all(row.get("station_id") == "AUDIT_PWS" for row in rows))
+
     def test_source_prior_fades_with_strong_historical_evidence(self):
         with TemporaryDirectory() as td:
             store = PWSLearningStore(path=Path(td) / "weights.json")

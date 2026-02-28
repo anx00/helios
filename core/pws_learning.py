@@ -3,7 +3,7 @@ Online learning for PWS station reliability by market.
 
 Dual-score model:
 - now_score: accuracy against METAR at aligned timestamps.
-- lead_score: cumulative lead hits when PWS leads METAR (short horizon, 5-30m by default).
+- lead_score: cumulative lead hits when PWS leads METAR (short horizon, 5-45m by default).
 
 The consensus weight uses now_score as primary signal and lead reliability as a
 bounded modifier, so a station that is "early" is not treated as accurate
@@ -20,10 +20,20 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
+from zoneinfo import ZoneInfo
 
+from config import STATIONS
 logger = logging.getLogger("pws_learning")
 
 DEFAULT_PATH = Path("data/pws_learning/weights.json")
+DEFAULT_AUDIT_DIR = Path("data/pws_learning/audit")
+LEAD_BUCKETS = (
+    ("05-15", 5.0, 15.0),
+    ("15-30", 15.0, 30.0),
+    ("30-45", 30.0, 45.0),
+)
+PROBABILITY_TOLERANCES_C = (0.5, 1.0)
+MIN_SIGMA_C = 0.15
 
 
 def _utc_now() -> datetime:
@@ -78,6 +88,45 @@ def _quality_band(score: float) -> str:
     return "POOR"
 
 
+def _round_float(value: Optional[float], digits: int = 4) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        return round(float(value), digits)
+    except Exception:
+        return None
+
+
+def _lead_bucket_key(lead_minutes: Optional[float]) -> Optional[str]:
+    try:
+        lead_val = float(lead_minutes)
+    except Exception:
+        return None
+    if lead_val < 0:
+        return None
+    for key, lo, hi in LEAD_BUCKETS:
+        if lead_val < lo:
+            continue
+        if key == LEAD_BUCKETS[-1][0]:
+            if lead_val <= hi:
+                return key
+            continue
+        if lead_val < hi:
+            return key
+    return None
+
+
+def _market_timezone(market_station_id: str) -> ZoneInfo:
+    station = STATIONS.get(str(market_station_id).upper())
+    tz_name = str(getattr(station, "timezone", "") or "")
+    if tz_name:
+        try:
+            return ZoneInfo(tz_name)
+        except Exception:
+            pass
+    return ZoneInfo("America/New_York")
+
+
 class PWSLearningStore:
     """
     Persists station reliability and exposes dynamic station weights.
@@ -99,6 +148,7 @@ class PWSLearningStore:
     def __init__(
         self,
         path: Path = DEFAULT_PATH,
+        audit_dir: Optional[Path] = None,
         alpha_now: float = 0.18,
         alpha_lead: float = 0.12,
         now_error_scale_c: float = 1.5,
@@ -110,7 +160,7 @@ class PWSLearningStore:
         confidence_samples_lead: int = 12,
         now_alignment_minutes: int = 22,
         lead_min_minutes: int = 5,
-        lead_max_minutes: int = 30,
+        lead_max_minutes: int = 45,
         lead_target_minutes: Optional[int] = None,
         ranking_min_now_samples: int = 2,
         ranking_min_lead_samples: int = 1,
@@ -118,6 +168,7 @@ class PWSLearningStore:
         max_pending_per_market: int = 6000,
     ):
         self.path = Path(path)
+        self.audit_dir = Path(audit_dir) if audit_dir is not None else (self.path.parent / DEFAULT_AUDIT_DIR.name)
 
         self.alpha_now = float(alpha_now)
         self.alpha_lead = float(alpha_lead)
@@ -326,6 +377,79 @@ class PWSLearningStore:
         rec["lead_hit_rate"] = round(float(100.0 * lead_rel), 2) if lead_samples > 0 else None
         rec["predictive_score"] = round(float(100.0 * rel_pred), 2)
         rec["quality_band"] = _quality_band(rec["predictive_score"])
+
+        now_stats = rec.get("now_stats") if isinstance(rec.get("now_stats"), dict) else {}
+        lead_stats = rec.get("lead_stats") if isinstance(rec.get("lead_stats"), dict) else {}
+        now_summary = self._error_stats_summary(
+            count=int(now_stats.get("count", 0) or 0),
+            err_sum_c=now_stats.get("err_sum_c"),
+            abs_err_sum_c=now_stats.get("abs_err_sum_c"),
+            err_sq_sum_c=now_stats.get("err_sq_sum_c"),
+            hit_counts={
+                "0.5": int(now_stats.get("hits_within_0.5_c", 0) or 0),
+                "1.0": int(now_stats.get("hits_within_1.0_c", 0) or 0),
+            },
+            score_scale_c=self.now_error_scale_c,
+        )
+        lead_summary = self._error_stats_summary(
+            count=int(lead_stats.get("count", 0) or 0),
+            err_sum_c=lead_stats.get("err_sum_c"),
+            abs_err_sum_c=lead_stats.get("abs_err_sum_c"),
+            err_sq_sum_c=lead_stats.get("err_sq_sum_c"),
+            lead_minutes_sum=lead_stats.get("lead_minutes_sum"),
+            hit_counts={
+                "0.5": int(lead_stats.get("hits_within_0.5_c", 0) or 0),
+                "1.0": int(lead_stats.get("hits_within_1.0_c", 0) or 0),
+            },
+            score_scale_c=self.lead_error_scale_c,
+        )
+        rec["now_mae_c"] = now_summary.get("mae_c")
+        rec["now_bias_c"] = now_summary.get("bias_c")
+        rec["now_rmse_c"] = now_summary.get("rmse_c")
+        rec["now_hit_rate_0_5_c"] = (
+            _round_float(float(now_summary["prob_within_0_5_c"]) * 100.0, 2)
+            if now_summary.get("prob_within_0_5_c") is not None
+            else None
+        )
+        rec["now_hit_rate_1_0_c"] = (
+            _round_float(float(now_summary["prob_within_1_0_c"]) * 100.0, 2)
+            if now_summary.get("prob_within_1_0_c") is not None
+            else None
+        )
+
+        rec["lead_mae_c"] = lead_summary.get("mae_c")
+        rec["lead_bias_c"] = lead_summary.get("bias_c")
+        rec["lead_rmse_c"] = lead_summary.get("rmse_c")
+        rec["lead_sigma_c"] = lead_summary.get("sigma_c")
+        rec["lead_avg_minutes"] = lead_summary.get("avg_lead_minutes")
+        rec["lead_hit_rate_0_5_c"] = (
+            _round_float(float(lead_summary["prob_within_0_5_c"]) * 100.0, 2)
+            if lead_summary.get("prob_within_0_5_c") is not None
+            else None
+        )
+        rec["lead_hit_rate_1_0_c"] = (
+            _round_float(float(lead_summary["prob_within_1_0_c"]) * 100.0, 2)
+            if lead_summary.get("prob_within_1_0_c") is not None
+            else None
+        )
+        rec["lead_skill_score"] = lead_summary.get("score")
+        rec["next_metar_score"] = lead_summary.get("score")
+        rec["next_metar_bias_c"] = lead_summary.get("bias_c")
+        rec["next_metar_mae_c"] = lead_summary.get("mae_c")
+        rec["next_metar_rmse_c"] = lead_summary.get("rmse_c")
+        rec["next_metar_sigma_c"] = lead_summary.get("sigma_c")
+        rec["next_metar_prob_within_0_5_c"] = lead_summary.get("prob_within_0_5_c")
+        rec["next_metar_prob_within_1_0_c"] = lead_summary.get("prob_within_1_0_c")
+
+        bucket_map = rec.get("lead_bucket_stats") if isinstance(rec.get("lead_bucket_stats"), dict) else {}
+        bucket_summaries: Dict[str, Dict[str, Any]] = {}
+        for key, bucket in bucket_map.items():
+            if not isinstance(bucket, dict):
+                continue
+            bucket_copy = dict(bucket)
+            bucket_copy.setdefault("bucket", key)
+            bucket_summaries[str(key)] = self._summarize_bucket_locked(bucket_copy)
+        rec["lead_bucket_summaries"] = bucket_summaries
         rec.update(self._rank_eligibility(now_samples=now_samples, lead_samples=lead_samples))
 
     def _ensure_station_locked(self, stations: Dict[str, Any], sid: str, source: str) -> Dict[str, Any]:
@@ -347,6 +471,157 @@ class PWSLearningStore:
         if prev is None:
             return float(sample)
         return ((1.0 - alpha) * float(prev)) + (alpha * float(sample))
+
+    def _error_stats_summary(
+        self,
+        *,
+        count: int,
+        err_sum_c: Optional[float],
+        abs_err_sum_c: Optional[float],
+        err_sq_sum_c: Optional[float],
+        lead_minutes_sum: Optional[float] = None,
+        hit_counts: Optional[Dict[str, int]] = None,
+        score_scale_c: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        n = max(0, int(count or 0))
+        if n <= 0:
+            return {
+                "count": 0,
+                "bias_c": None,
+                "mae_c": None,
+                "rmse_c": None,
+                "sigma_c": None,
+                "avg_lead_minutes": None,
+                "prob_within_0_5_c": None,
+                "prob_within_1_0_c": None,
+                "score": None,
+            }
+
+        err_sum = float(err_sum_c or 0.0)
+        abs_sum = float(abs_err_sum_c or 0.0)
+        sq_sum = float(err_sq_sum_c or 0.0)
+
+        bias_c = err_sum / float(n)
+        mae_c = abs_sum / float(n)
+        rmse_c = math.sqrt(max(0.0, sq_sum / float(n)))
+        sigma_sq = max(0.0, (sq_sum / float(n)) - (bias_c ** 2))
+        sigma_c = max(MIN_SIGMA_C, math.sqrt(sigma_sq))
+
+        out: Dict[str, Any] = {
+            "count": n,
+            "bias_c": _round_float(bias_c, 4),
+            "mae_c": _round_float(mae_c, 4),
+            "rmse_c": _round_float(rmse_c, 4),
+            "sigma_c": _round_float(sigma_c, 4),
+            "avg_lead_minutes": (
+                _round_float(float(lead_minutes_sum or 0.0) / float(n), 3)
+                if lead_minutes_sum is not None
+                else None
+            ),
+            "prob_within_0_5_c": None,
+            "prob_within_1_0_c": None,
+            "score": None,
+        }
+
+        hit_map = hit_counts or {}
+        out["prob_within_0_5_c"] = (
+            _round_float(float(int(hit_map.get("0.5", 0) or 0)) / float(n), 4)
+            if "0.5" in hit_map or hit_map
+            else None
+        )
+        out["prob_within_1_0_c"] = (
+            _round_float(float(int(hit_map.get("1.0", 0) or 0)) / float(n), 4)
+            if "1.0" in hit_map or hit_map
+            else None
+        )
+
+        scale = float(score_scale_c or self.lead_error_scale_c or 2.0)
+        out["score"] = _round_float(100.0 * math.exp(-mae_c / max(0.1, scale)), 2)
+        return out
+
+    def _ensure_counter_locked(self, rec: Dict[str, Any], key: str) -> Dict[str, Any]:
+        bucket = rec.get(key)
+        if not isinstance(bucket, dict):
+            bucket = {}
+            rec[key] = bucket
+        return bucket
+
+    def _record_hit_counter_locked(self, bucket: Dict[str, Any], abs_err_c: float) -> None:
+        for tol in PROBABILITY_TOLERANCES_C:
+            tol_key = f"hits_within_{tol:.1f}_c"
+            bucket[tol_key] = int(bucket.get(tol_key, 0) or 0) + (1 if abs_err_c <= float(tol) else 0)
+
+    def _update_now_stats_locked(self, rec: Dict[str, Any], signed_err_c: float) -> None:
+        abs_err_c = abs(float(signed_err_c))
+        bucket = self._ensure_counter_locked(rec, "now_stats")
+        bucket["count"] = int(bucket.get("count", 0) or 0) + 1
+        bucket["err_sum_c"] = float(bucket.get("err_sum_c", 0.0) or 0.0) + float(signed_err_c)
+        bucket["abs_err_sum_c"] = float(bucket.get("abs_err_sum_c", 0.0) or 0.0) + abs_err_c
+        bucket["err_sq_sum_c"] = float(bucket.get("err_sq_sum_c", 0.0) or 0.0) + (float(signed_err_c) ** 2)
+        self._record_hit_counter_locked(bucket, abs_err_c)
+
+    def _update_lead_stats_locked(self, rec: Dict[str, Any], signed_err_c: float, lead_minutes: float) -> None:
+        abs_err_c = abs(float(signed_err_c))
+        overall = self._ensure_counter_locked(rec, "lead_stats")
+        overall["count"] = int(overall.get("count", 0) or 0) + 1
+        overall["err_sum_c"] = float(overall.get("err_sum_c", 0.0) or 0.0) + float(signed_err_c)
+        overall["abs_err_sum_c"] = float(overall.get("abs_err_sum_c", 0.0) or 0.0) + abs_err_c
+        overall["err_sq_sum_c"] = float(overall.get("err_sq_sum_c", 0.0) or 0.0) + (float(signed_err_c) ** 2)
+        overall["lead_minutes_sum"] = float(overall.get("lead_minutes_sum", 0.0) or 0.0) + float(lead_minutes)
+        self._record_hit_counter_locked(overall, abs_err_c)
+
+        bucket_key = _lead_bucket_key(lead_minutes)
+        if not bucket_key:
+            return
+
+        bucket_map = self._ensure_counter_locked(rec, "lead_bucket_stats")
+        bucket = bucket_map.get(bucket_key)
+        if not isinstance(bucket, dict):
+            bucket = {"bucket": bucket_key}
+            bucket_map[bucket_key] = bucket
+        bucket["count"] = int(bucket.get("count", 0) or 0) + 1
+        bucket["err_sum_c"] = float(bucket.get("err_sum_c", 0.0) or 0.0) + float(signed_err_c)
+        bucket["abs_err_sum_c"] = float(bucket.get("abs_err_sum_c", 0.0) or 0.0) + abs_err_c
+        bucket["err_sq_sum_c"] = float(bucket.get("err_sq_sum_c", 0.0) or 0.0) + (float(signed_err_c) ** 2)
+        bucket["lead_minutes_sum"] = float(bucket.get("lead_minutes_sum", 0.0) or 0.0) + float(lead_minutes)
+        self._record_hit_counter_locked(bucket, abs_err_c)
+
+    def _summarize_bucket_locked(self, bucket: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "bucket": str(bucket.get("bucket") or ""),
+            **self._error_stats_summary(
+                count=int(bucket.get("count", 0) or 0),
+                err_sum_c=_round_float(bucket.get("err_sum_c"), 8),
+                abs_err_sum_c=_round_float(bucket.get("abs_err_sum_c"), 8),
+                err_sq_sum_c=_round_float(bucket.get("err_sq_sum_c"), 8),
+                lead_minutes_sum=_round_float(bucket.get("lead_minutes_sum"), 8),
+                hit_counts={
+                    "0.5": int(bucket.get("hits_within_0.5_c", 0) or 0),
+                    "1.0": int(bucket.get("hits_within_1.0_c", 0) or 0),
+                },
+                score_scale_c=self.lead_error_scale_c,
+            ),
+        }
+
+    def _audit_file_path(self, market_station_id: str, official_ts: datetime) -> Path:
+        station_tz = _market_timezone(market_station_id)
+        market_date = official_ts.astimezone(station_tz).date().isoformat()
+        market_key = str(market_station_id).upper()
+        return self.audit_dir / f"date={market_date}" / f"station={market_key}" / "events.ndjson"
+
+    def _append_audit_rows_locked(
+        self,
+        market_station_id: str,
+        official_ts: datetime,
+        rows: List[Dict[str, Any]],
+    ) -> None:
+        if not rows:
+            return
+        path = self._audit_file_path(market_station_id, official_ts)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            for row in rows:
+                handle.write(json.dumps(row, ensure_ascii=True) + "\n")
 
     # ---------------------------------------------------------------------
     # Pending queue for lead labels
@@ -372,6 +647,8 @@ class PWSLearningStore:
         return {
             "station_id": sid,
             "source": source,
+            "station_name": str(getattr(reading, "station_name", "") or sid),
+            "distance_km": _round_float(getattr(reading, "distance_km", None), 4),
             "temp_c": round(temp_val, 4),
             "valid": valid,
             "obs_time_utc": obs_iso,
@@ -496,6 +773,15 @@ class PWSLearningStore:
                     "lead_samples": 0,
                     "lead_hits": 0,
                     "quality_band": "INIT",
+                    "lead_skill_score": None,
+                    "next_metar_score": None,
+                    "next_metar_bias_c": None,
+                    "next_metar_mae_c": None,
+                    "next_metar_rmse_c": None,
+                    "next_metar_sigma_c": None,
+                    "next_metar_prob_within_0_5_c": None,
+                    "next_metar_prob_within_1_0_c": None,
+                    "lead_bucket_summaries": {},
                     **rank_meta,
                 }
             if (
@@ -503,6 +789,7 @@ class PWSLearningStore:
                 or rec.get("now_score") is None
                 or rec.get("lead_score") is None
                 or rec.get("rank_eligible") is None
+                or rec.get("next_metar_score") is None
             ):
                 self._recompute_station_locked(rec, rec.get("source") or src)
             return dict(rec)
@@ -542,6 +829,7 @@ class PWSLearningStore:
                     or rec.get("now_score") is None
                     or rec.get("lead_score") is None
                     or rec.get("rank_eligible") is None
+                    or rec.get("next_metar_score") is None
                 ):
                     self._recompute_station_locked(rec, rec.get("source") or "UNKNOWN")
                 rows.append(dict(rec))
@@ -590,6 +878,7 @@ class PWSLearningStore:
                     or rec.get("now_score") is None
                     or rec.get("lead_score") is None
                     or rec.get("rank_eligible") is None
+                    or rec.get("next_metar_score") is None
                 ):
                     self._recompute_station_locked(rec, rec.get("source") or "UNKNOWN")
                 rows.append(dict(rec))
@@ -608,6 +897,60 @@ class PWSLearningStore:
             "top_ready_station_id": top_ready.get("station_id") if isinstance(top_ready, dict) else None,
             **self._rank_policy(),
         }
+
+    def get_predictive_summary(
+        self,
+        market_station_id: str,
+        limit: int = 20,
+        eligible_only: bool = False,
+    ) -> Dict[str, Any]:
+        rows = self.get_top_profiles(
+            market_station_id=market_station_id,
+            limit=max(1, int(limit)),
+            sort_by="next_metar_score",
+            eligible_only=eligible_only,
+        )
+        return {
+            "market_station_id": str(market_station_id).upper(),
+            "lead_window_minutes": [int(self.lead_min_minutes), int(self.lead_max_minutes)],
+            "lead_buckets": [bucket[0] for bucket in LEAD_BUCKETS],
+            "rows": rows,
+        }
+
+    def list_audit_dates(self, market_station_id: str) -> List[str]:
+        market_key = str(market_station_id).upper()
+        if not self.audit_dir.exists():
+            return []
+        dates: List[str] = []
+        for path in self.audit_dir.glob("date=*/station=*/events.ndjson"):
+            if path.parent.name != f"station={market_key}":
+                continue
+            if not path.is_file():
+                continue
+            date_name = path.parent.parent.name
+            if not date_name.startswith("date="):
+                continue
+            dates.append(date_name.replace("date=", "", 1))
+        return sorted(set(dates), reverse=True)
+
+    def load_audit_rows(self, market_station_id: str, date_str: str) -> List[Dict[str, Any]]:
+        market_key = str(market_station_id).upper()
+        path = self.audit_dir / f"date={date_str}" / f"station={market_key}" / "events.ndjson"
+        if not path.exists():
+            return []
+        rows: List[Dict[str, Any]] = []
+        try:
+            for raw_line in path.read_text(encoding="utf-8").splitlines():
+                line = raw_line.strip()
+                if not line:
+                    continue
+                payload = json.loads(line)
+                if isinstance(payload, dict):
+                    rows.append(payload)
+        except Exception as e:
+            logger.warning("Failed to load PWS audit rows from %s: %s", path, e)
+        rows.sort(key=lambda row: str(row.get("official_obs_time_utc") or row.get("sample_obs_time_utc") or ""))
+        return rows
 
     # ---------------------------------------------------------------------
     # Update logic with official labels
@@ -628,7 +971,7 @@ class PWSLearningStore:
 
         lead_score update:
         - counts cumulative lead hits from pending readings whose timestamp is
-          5-30 minutes before official obs timestamp.
+          5-45 minutes before official obs timestamp.
         """
         readings_list = list(readings)
         fallback_ts = _as_utc(obs_time_utc) or _utc_now()
@@ -648,6 +991,7 @@ class PWSLearningStore:
         market_key = str(market_station_id).upper()
         updated: Dict[str, float] = {}
         touched_ids: set[str] = set()
+        audit_rows: List[Dict[str, Any]] = []
 
         with self._lock:
             market = self._market_locked(market_key)
@@ -677,7 +1021,8 @@ class PWSLearningStore:
                 if rec.get("last_now_official_obs_time_utc") == official_iso:
                     continue
 
-                err = abs(float(sample["temp_c"]) - official)
+                signed_err_c = float(sample["temp_c"]) - official
+                err = abs(signed_err_c)
                 if not bool(sample.get("valid", True)):
                     err += 0.15
 
@@ -685,12 +1030,35 @@ class PWSLearningStore:
                 rec["now_ema_abs_error_c"] = round(
                     self._update_ema(rec.get("now_ema_abs_error_c"), err, self.alpha_now), 4
                 )
+                self._update_now_stats_locked(rec, signed_err_c)
                 rec["last_now_abs_error_c"] = round(float(err), 4)
                 rec["last_now_alignment_min"] = round(float(delta_min), 2)
                 rec["last_now_official_obs_time_utc"] = official_iso
                 rec["last_now_sample_obs_time_utc"] = sample["obs_time_utc"]
                 rec["updated_at"] = _utc_now_iso()
                 touched_ids.add(sid)
+                audit_rows.append({
+                    "market_station_id": market_key,
+                    "market_date": official_ts.astimezone(_market_timezone(market_key)).date().isoformat(),
+                    "official_obs_time_utc": official_iso,
+                    "official_temp_c": round(float(official), 4),
+                    "official_temp_f": round((float(official) * 9.0 / 5.0) + 32.0, 2),
+                    "station_id": sid,
+                    "station_name": sample.get("station_name"),
+                    "source": sample.get("source"),
+                    "sample_obs_time_utc": sample.get("obs_time_utc"),
+                    "sample_temp_c": round(float(sample["temp_c"]), 4),
+                    "sample_temp_f": round((float(sample["temp_c"]) * 9.0 / 5.0) + 32.0, 2),
+                    "distance_km": sample.get("distance_km"),
+                    "kind": "NOW",
+                    "lead_minutes": round(float(delta_min), 3),
+                    "lead_bucket": "NOW",
+                    "signed_error_c": round(float(signed_err_c), 4),
+                    "abs_error_c": round(float(abs(float(sample["temp_c"]) - official)), 4),
+                    "hit_within_0_5_c": bool(abs(float(sample["temp_c"]) - official) <= 0.5),
+                    "hit_within_1_0_c": bool(abs(float(sample["temp_c"]) - official) <= 1.0),
+                    "valid": True,
+                })
 
             # LEAD labels: pending queue resolution (5-30 min before official).
             # Use at most ONE lead sample per station per official METAR timestamp:
@@ -753,13 +1121,15 @@ class PWSLearningStore:
                 if rec.get("last_lead_official_obs_time_utc") == official_iso:
                     continue
 
-                err = abs(temp_c - official)
+                signed_err_c = temp_c - official
+                err = abs(signed_err_c)
 
                 lead_min = float(row.get("_lead_min", 0.0) or 0.0)
                 rec["lead_samples"] = int(rec.get("lead_samples", 0) or 0) + 1
                 rec["lead_ema_abs_error_c"] = round(
                     self._update_ema(rec.get("lead_ema_abs_error_c"), err, self.alpha_lead), 4
                 )
+                self._update_lead_stats_locked(rec, signed_err_c, lead_min)
                 lead_hit = bool(err <= float(self.lead_hit_tolerance_c))
                 rec["lead_hits"] = int(rec.get("lead_hits", 0) or 0) + (1 if lead_hit else 0)
                 rec["last_lead_abs_error_c"] = round(float(err), 4)
@@ -770,6 +1140,29 @@ class PWSLearningStore:
                 rec["last_lead_candidates_in_window"] = int(lead_candidate_count_by_station.get(sid, 1) or 1)
                 rec["updated_at"] = _utc_now_iso()
                 touched_ids.add(sid)
+                lead_bucket = _lead_bucket_key(lead_min)
+                audit_rows.append({
+                    "market_station_id": market_key,
+                    "market_date": official_ts.astimezone(_market_timezone(market_key)).date().isoformat(),
+                    "official_obs_time_utc": official_iso,
+                    "official_temp_c": round(float(official), 4),
+                    "official_temp_f": round((float(official) * 9.0 / 5.0) + 32.0, 2),
+                    "station_id": sid,
+                    "station_name": row.get("station_name"),
+                    "source": row.get("source"),
+                    "sample_obs_time_utc": row.get("obs_time_utc"),
+                    "sample_temp_c": round(float(temp_c), 4),
+                    "sample_temp_f": round((float(temp_c) * 9.0 / 5.0) + 32.0, 2),
+                    "distance_km": row.get("distance_km"),
+                    "kind": "LEAD",
+                    "lead_minutes": round(float(lead_min), 3),
+                    "lead_bucket": lead_bucket,
+                    "signed_error_c": round(float(signed_err_c), 4),
+                    "abs_error_c": round(float(err), 4),
+                    "hit_within_0_5_c": bool(err <= 0.5),
+                    "hit_within_1_0_c": bool(err <= 1.0),
+                    "valid": True,
+                })
 
             market["pending"] = keep_pending
             self._cleanup_pending_locked(market, official_ts)
@@ -784,6 +1177,7 @@ class PWSLearningStore:
             market["last_official_obs_time_utc"] = official_iso
             market["updated_at"] = _utc_now_iso()
             self._state["updated_at"] = _utc_now_iso()
+            self._append_audit_rows_locked(market_key, official_ts, audit_rows)
             self._save_locked()
 
         return updated

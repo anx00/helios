@@ -6,10 +6,12 @@ load_dotenv()
 
 import os
 import re
+import csv
+from io import StringIO
 from fastapi import FastAPI, Request, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 import asyncio
 import logging
@@ -3439,25 +3441,6 @@ async def read_prediction(request: Request, station_id: str):
         "active_page": "prediction"
     })
 
-# v12.0: Data page - historical data display
-@app.get("/station/{station_id}/data", response_class=HTMLResponse)
-async def read_data(request: Request, station_id: str):
-    station_id = (station_id or "").upper()
-    station = STATIONS.get(station_id)
-    if not station:
-        return _render_template(request, "home.html", {"active_page": "home"})
-    
-    # Get today's date for default
-    from datetime import date
-    today = date.today().isoformat()
-    
-    return _render_template(request, "data.html", {
-        "station_id": station_id,
-        "station_name": station.name,
-        "active_page": "data",
-        "today": today
-    })
-
 # v7.0: Fullscreen chart view
 @app.get("/station/{station_id}/chart/{chart_type}", response_class=HTMLResponse)
 async def fullscreen_chart(request: Request, station_id: str, chart_type: str):
@@ -3494,12 +3477,6 @@ async def read_prediction_generic(request: Request, station_id: str | None = Non
     resolved_station = _resolve_selected_station(request, fallback=station_id)
     return await read_prediction(request, resolved_station)
 
-
-@app.get("/data", response_class=HTMLResponse)
-async def read_data_generic(request: Request, station_id: str | None = None):
-    resolved_station = _resolve_selected_station(request, fallback=station_id)
-    return await read_data(request, resolved_station)
-
 # Phase 2: World Dashboard - Real-time Event-Driven UI
 @app.get("/world", response_class=HTMLResponse)
 async def world_dashboard(request: Request):
@@ -3507,6 +3484,214 @@ async def world_dashboard(request: Request):
     return _render_template(request, "world.html", {
         "active_page": "world"
     })
+
+
+@app.get("/api/pws/dates")
+async def get_pws_browser_dates(station_id: str):
+    resolved_station = _normalize_station_id(station_id)
+    if not resolved_station:
+        return JSONResponse(
+            status_code=422,
+            content={"error": f"Invalid station_id: {station_id}", "dates": []},
+        )
+
+    from core.pws_browser import list_pws_browser_dates
+
+    dates = await asyncio.to_thread(list_pws_browser_dates, resolved_station)
+    return {
+        "station_id": resolved_station,
+        "dates": dates,
+        "latest_date": dates[0] if dates else None,
+    }
+
+
+@app.get("/api/pws/day")
+async def get_pws_browser_day(station_id: str, date: str | None = None):
+    resolved_station = _normalize_station_id(station_id)
+    if not resolved_station:
+        return JSONResponse(
+            status_code=422,
+            content={"error": f"Invalid station_id: {station_id}"},
+        )
+
+    from core.pws_browser import build_pws_browser_payload, list_pws_browser_dates
+
+    available_dates = await asyncio.to_thread(list_pws_browser_dates, resolved_station)
+    if date:
+        selected_date = date
+    elif available_dates:
+        selected_date = available_dates[0]
+    else:
+        station_tz = ZoneInfo(STATIONS[resolved_station].timezone)
+        selected_date = datetime.now(station_tz).date().isoformat()
+
+    try:
+        payload = await asyncio.to_thread(build_pws_browser_payload, resolved_station, selected_date)
+    except ValueError as exc:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": str(exc),
+                "station_id": resolved_station,
+                "date": selected_date,
+                "available_dates": available_dates,
+            },
+        )
+    except Exception as exc:
+        logger.error("PWS browser payload failed for %s %s: %s", resolved_station, selected_date, exc)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": str(exc),
+                "station_id": resolved_station,
+                "date": selected_date,
+            },
+        )
+
+    payload["available_dates"] = available_dates
+    return payload
+
+
+@app.get("/api/pws/learning/summary")
+async def get_pws_learning_summary(station_id: str, limit: int = 24):
+    resolved_station = _normalize_station_id(station_id)
+    if not resolved_station:
+        return JSONResponse(
+            status_code=422,
+            content={"error": f"Invalid station_id: {station_id}"},
+        )
+
+    from core.pws_learning import get_pws_learning_store
+
+    store = get_pws_learning_store()
+    return store.get_predictive_summary(resolved_station, limit=max(1, int(limit)), eligible_only=False)
+
+
+@app.get("/api/pws/audit/day")
+async def get_pws_audit_day(station_id: str, date: str):
+    resolved_station = _normalize_station_id(station_id)
+    if not resolved_station:
+        return JSONResponse(
+            status_code=422,
+            content={"error": f"Invalid station_id: {station_id}"},
+        )
+
+    from core.pws_browser import build_pws_audit_day_payload
+
+    try:
+        return await asyncio.to_thread(build_pws_audit_day_payload, resolved_station, date)
+    except ValueError as exc:
+        return JSONResponse(
+            status_code=422,
+            content={"error": str(exc), "station_id": resolved_station, "date": date},
+        )
+
+
+@app.get("/api/pws/export/day")
+async def export_pws_day(station_id: str, date: str, format: str = "json"):
+    resolved_station = _normalize_station_id(station_id)
+    if not resolved_station:
+        return JSONResponse(
+            status_code=422,
+            content={"error": f"Invalid station_id: {station_id}"},
+        )
+
+    from core.pws_browser import build_pws_audit_day_payload, build_pws_browser_payload
+
+    fmt = str(format or "json").strip().lower()
+    if fmt not in {"json", "csv"}:
+        return JSONResponse(
+            status_code=422,
+            content={"error": f"Unsupported format: {format}", "supported_formats": ["json", "csv"]},
+        )
+
+    try:
+        day_payload = await asyncio.to_thread(build_pws_browser_payload, resolved_station, date)
+        audit_payload = await asyncio.to_thread(build_pws_audit_day_payload, resolved_station, date)
+    except ValueError as exc:
+        return JSONResponse(
+            status_code=422,
+            content={"error": str(exc), "station_id": resolved_station, "date": date},
+        )
+
+    if fmt == "json":
+        return {
+            "browser": day_payload,
+            "audit": audit_payload,
+        }
+
+    csv_buffer = StringIO()
+    writer = csv.writer(csv_buffer)
+    writer.writerow([
+        "market_station_id",
+        "date",
+        "pws_station_id",
+        "station_name",
+        "source",
+        "distance_km",
+        "kind",
+        "lead_bucket",
+        "lead_minutes",
+        "sample_time_utc",
+        "sample_time_station",
+        "sample_time_es",
+        "sample_temp_c",
+        "sample_temp_f",
+        "official_time_utc",
+        "official_time_station",
+        "official_time_es",
+        "official_temp_c",
+        "official_temp_f",
+        "signed_error_c",
+        "abs_error_c",
+        "hit_within_0_5_c",
+        "hit_within_1_0_c",
+        "next_metar_score",
+        "next_metar_mae_c",
+        "next_metar_prob_within_1_0_c",
+    ])
+
+    for station in audit_payload.get("stations") or []:
+        learning = station.get("learning_profile") or {}
+        for row in station.get("audit_rows") or []:
+            sample_time = row.get("sample_time") or {}
+            official_time = row.get("official_time") or {}
+            writer.writerow([
+                resolved_station,
+                date,
+                station.get("station_id"),
+                station.get("station_name"),
+                station.get("source"),
+                station.get("distance_km"),
+                row.get("kind"),
+                row.get("lead_bucket"),
+                row.get("lead_minutes"),
+                sample_time.get("ts_utc"),
+                sample_time.get("station_time"),
+                sample_time.get("es_time"),
+                row.get("sample_temp_c"),
+                row.get("sample_temp_f"),
+                official_time.get("ts_utc"),
+                official_time.get("station_time"),
+                official_time.get("es_time"),
+                row.get("official_temp_c"),
+                row.get("official_temp_f"),
+                row.get("signed_error_c"),
+                row.get("abs_error_c"),
+                row.get("hit_within_0_5_c"),
+                row.get("hit_within_1_0_c"),
+                learning.get("next_metar_score"),
+                learning.get("next_metar_mae_c"),
+                learning.get("next_metar_prob_within_1_0_c"),
+            ])
+
+    return Response(
+        content=csv_buffer.getvalue(),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="pws_{resolved_station}_{date}.csv"',
+        },
+    )
 
 
 # Phase 3: Nowcast Dashboard - Distribution-based predictions
@@ -4263,6 +4448,14 @@ async def replay_dashboard(request: Request):
     return _render_template(request, "replay.html", {
         "active_page": "replay",
         "station_market_units": station_market_units,
+    })
+
+
+@app.get("/pws", response_class=HTMLResponse)
+async def pws_dashboard(request: Request):
+    """Dedicated PWS dashboard for station-level history vs METAR."""
+    return _render_template(request, "pws.html", {
+        "active_page": "pws",
     })
 
 
