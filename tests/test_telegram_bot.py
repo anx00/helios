@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime
 from pathlib import Path
 import sys
@@ -7,10 +8,15 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from collector.metar_fetcher import MetarData
+import core.telegram_bot as telegram_bot
 from core.telegram_bot import (
+    HeliosTelegramBot,
+    TelegramBotSettings,
     _compute_nominal_next_metar,
     _compute_pws_weighted_consensus_c,
     _estimate_next_metar_c,
+    _fmt_station_temp_from_c,
 )
 
 
@@ -78,3 +84,67 @@ def test_estimated_next_metar_uses_bias_corrected_projection():
     )
 
     assert estimated_c == pytest.approx(11.18152, rel=1e-4)
+
+
+def _metar_row(temp_c: float, obs_time: datetime) -> MetarData:
+    return MetarData(
+        station_id="KLGA",
+        observation_time=obs_time,
+        temp_c=temp_c,
+        dewpoint_c=None,
+        humidity_pct=0.0,
+        wind_dir_degrees=None,
+        wind_speed_kt=None,
+        sky_condition="CLR",
+        sky_conditions_list=["CLR"],
+        visibility_miles=None,
+        altimeter_hg=None,
+        wind_trend="Stable",
+        raw_metar="METAR",
+        report_type="METAR",
+    )
+
+
+def test_cmd_metar_includes_last_five_history_rows(monkeypatch):
+    current = _metar_row(10.0, datetime(2026, 2, 28, 10, 51, tzinfo=UTC))
+    history = [
+        _metar_row(10.0, datetime(2026, 2, 28, 10, 51, tzinfo=UTC)),
+        _metar_row(9.0, datetime(2026, 2, 28, 9, 51, tzinfo=UTC)),
+        _metar_row(8.0, datetime(2026, 2, 28, 8, 51, tzinfo=UTC)),
+        _metar_row(7.0, datetime(2026, 2, 28, 7, 51, tzinfo=UTC)),
+        _metar_row(6.0, datetime(2026, 2, 28, 6, 51, tzinfo=UTC)),
+        _metar_row(5.0, datetime(2026, 2, 28, 5, 51, tzinfo=UTC)),
+    ]
+
+    async def fake_fetch_metar_race(_station_id: str):
+        return current
+
+    async def fake_fetch_metar_history(_station_id: str, hours: int = 12):
+        assert hours == 12
+        return history
+
+    sent_messages = []
+
+    async def fake_send_text(chat_id: str, text: str, reply_markup=None):
+        sent_messages.append((chat_id, text, reply_markup))
+
+    monkeypatch.setattr(telegram_bot, "fetch_metar_race", fake_fetch_metar_race)
+    monkeypatch.setattr(telegram_bot, "fetch_metar_history", fake_fetch_metar_history)
+
+    bot = HeliosTelegramBot(TelegramBotSettings(token="x", allowed_chat_ids=None))
+    bot._chat_station["chat"] = "KLGA"
+    monkeypatch.setattr(bot, "_send_text", fake_send_text)
+
+    asyncio.run(bot._cmd_metar("chat", []))
+
+    assert len(sent_messages) == 1
+    text = sent_messages[0][1]
+    expected_current = _fmt_station_temp_from_c(10.0, "KLGA", 1)
+    expected_last = _fmt_station_temp_from_c(6.0, "KLGA", 1)
+
+    assert f"METAR KLGA: {expected_current}" in text
+    assert "Ultimos 5:" in text
+    assert "2026-02-28 05:51" in text
+    assert "2026-02-28 01:51" in text
+    assert expected_last in text
+    assert "2026-02-28 00:51" not in text

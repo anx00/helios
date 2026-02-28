@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 
 import aiohttp
 
-from collector.metar_fetcher import fetch_metar_race
+from collector.metar_fetcher import fetch_metar_history, fetch_metar_race
 from collector.pws_fetcher import fetch_and_publish_pws
 from config import STATIONS, get_polymarket_temp_unit
 from core.world import get_world
@@ -903,13 +903,36 @@ class HeliosTelegramBot:
             return
 
         station = STATIONS[station_id]
-        metar = await fetch_metar_race(station_id)
+        metar, history = await asyncio.gather(
+            fetch_metar_race(station_id),
+            fetch_metar_history(station_id, hours=12),
+        )
         if not metar:
             await self._send_text(chat_id, f"No se pudo obtener METAR NOAA para {station_id}.")
             return
 
         temp_text = _fmt_station_temp_from_c(metar.temp_c, station_id, 1)
-        await self._send_text(chat_id, f"METAR {station_id}: {temp_text}")
+        history_rows = sorted(
+            [row for row in (history or []) if getattr(row, "observation_time", None) is not None],
+            key=lambda row: row.observation_time,
+            reverse=True,
+        )
+
+        lines = [f"METAR {station_id}: {temp_text}", "", "Ultimos 5:"]
+        seen: Set[tuple[str, Optional[float]]] = set()
+        for row in history_rows:
+            obs_time = row.observation_time.astimezone(ZoneInfo(station.timezone))
+            row_temp_c = _safe_float(getattr(row, "temp_c", None))
+            dedupe_key = (row.observation_time.isoformat(), row_temp_c)
+            if dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
+            row_temp_text = _fmt_station_temp_from_c(row_temp_c, station_id, 1)
+            lines.append(f"{obs_time.strftime('%Y-%m-%d %H:%M')} | {row_temp_text}")
+            if len(seen) >= 5:
+                break
+
+        await self._send_text(chat_id, "\n".join(lines))
 
     async def _cmd_pws(self, chat_id: str, args: Sequence[str]) -> None:
         station_id = self._resolve_station_from_args(chat_id, args)
