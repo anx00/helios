@@ -5,7 +5,7 @@ import json
 import logging
 import os
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
@@ -91,12 +91,46 @@ def _position_key(station_id: str, target_date: str, label: str, side: str) -> s
     return f"{station_id}|{target_date}|{label}|{side}".upper()
 
 
+def _normalize_iso_date(value: Any) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    try:
+        return date.fromisoformat(raw).isoformat()
+    except ValueError:
+        return ""
+
+
+def resolve_station_market_target(
+    station_id: str,
+    config: "AutoTraderConfig",
+    *,
+    override_target_day: Optional[int] = None,
+    override_target_date: Optional[str] = None,
+) -> Tuple[int, str]:
+    station = STATIONS.get(str(station_id or "").upper())
+    tz = ZoneInfo(station.timezone) if station else UTC
+    local_today = datetime.now(tz).date()
+
+    normalized_target_date = _normalize_iso_date(
+        override_target_date if override_target_date is not None else config.target_date
+    )
+    if normalized_target_date:
+        selected_date = date.fromisoformat(normalized_target_date)
+        return int((selected_date - local_today).days), normalized_target_date
+
+    target_day = int(config.target_day if override_target_day is None else override_target_day)
+    selected_date = local_today + timedelta(days=target_day)
+    return target_day, selected_date.isoformat()
+
+
 @dataclass
 class AutoTraderConfig:
     enabled: bool = False
     mode: str = "paper"
     station_ids: List[str] = field(default_factory=list)
     target_day: int = 0
+    target_date: str = ""
     signal_source: str = "internal"
     signal_base_url: str = "http://127.0.0.1:8000"
     loop_seconds: int = 60
@@ -148,6 +182,7 @@ def load_autotrader_config_from_env() -> AutoTraderConfig:
         mode=str(os.environ.get("HELIOS_AUTOTRADE_MODE", "paper")).strip().lower() or "paper",
         station_ids=_env_list("HELIOS_AUTOTRADE_STATIONS"),
         target_day=_env_int("HELIOS_AUTOTRADE_TARGET_DAY", 0),
+        target_date=str(os.environ.get("HELIOS_AUTOTRADE_TARGET_DATE", "")).strip(),
         signal_source=str(os.environ.get("HELIOS_AUTOTRADE_SIGNAL_SOURCE", "internal")).strip().lower() or "internal",
         signal_base_url=str(os.environ.get("HELIOS_AUTOTRADE_SIGNAL_BASE_URL", "http://127.0.0.1:8000")).strip() or "http://127.0.0.1:8000",
         loop_seconds=_env_int("HELIOS_AUTOTRADE_LOOP_SECONDS", 60),
@@ -1140,6 +1175,7 @@ class AutoTrader:
             "prefer_ws_book": bool(self.config.prefer_ws_book),
             "stations": list(self.config.station_ids or []),
             "target_day": int(self.config.target_day),
+            "target_date": str(self.config.target_date or ""),
             "loop_seconds": int(self.config.loop_seconds),
             "risk": {
                 "bankroll_usd": float(self.config.bankroll_usd),
@@ -1283,20 +1319,50 @@ class AutoTrader:
                 events.append(event)
         return events
 
-    async def _fetch_signal_payload(self, station_id: str, target_day: int) -> Dict[str, Any]:
+    async def _fetch_signal_payload(
+        self,
+        station_id: str,
+        target_day: int,
+        *,
+        target_date: Optional[str] = None,
+    ) -> Dict[str, Any]:
         if self.config.signal_source == "api":
             url = f"{self.config.signal_base_url.rstrip('/')}/api/trade/{station_id}"
             async with httpx.AsyncClient(timeout=20.0) as client:
-                response = await client.get(url, params={"target_day": target_day, "depth": 5})
+                params: Dict[str, Any] = {"target_day": target_day, "depth": 5}
+                if target_date:
+                    params["target_date"] = target_date
+                response = await client.get(url, params=params)
                 response.raise_for_status()
                 return response.json()
 
         from web_server import get_polymarket_dashboard_data
 
-        return await get_polymarket_dashboard_data(station_id, target_day=target_day, depth=5)
+        return await get_polymarket_dashboard_data(
+            station_id,
+            target_day=target_day,
+            target_date=target_date,
+            depth=5,
+        )
 
-    async def run_station_once(self, station_id: str, target_day: Optional[int] = None) -> Dict[str, Any]:
-        payload = await self._fetch_signal_payload(station_id, self.config.target_day if target_day is None else int(target_day))
+    async def run_station_once(
+        self,
+        station_id: str,
+        target_day: Optional[int] = None,
+        *,
+        target_date: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        resolved_target_day, resolved_target_date = resolve_station_market_target(
+            station_id,
+            self.config,
+            override_target_day=target_day,
+            override_target_date=target_date,
+        )
+        payload = await self._fetch_signal_payload(
+            station_id,
+            resolved_target_day,
+            target_date=resolved_target_date,
+        )
         async with _get_portfolio_lock():
             self.state = load_autotrader_state(self.config.state_path)
             exit_events = await self._manage_open_positions(station_id, payload)
@@ -1350,19 +1416,41 @@ class AutoTrader:
                 self._append_log(result)
                 return result
 
-            self.execution.ensure_collateral_ready(float(plan["notional_usd"]))
-            if self.config.order_mode == "market_fok":
-                response = self.execution.place_market_buy(
-                    token_id=plan["token_id"],
-                    amount_usd=float(plan["notional_usd"]),
-                    max_price=float(plan["max_payup_price"]),
-                )
-            else:
-                response = self.execution.place_limit_buy(
-                    token_id=plan["token_id"],
-                    price=float(plan["limit_price"]),
-                    size=float(plan["size"]),
-                )
+            try:
+                self.execution.ensure_collateral_ready(float(plan["notional_usd"]))
+                if self.config.order_mode == "market_fok":
+                    response = self.execution.place_market_buy(
+                        token_id=plan["token_id"],
+                        amount_usd=float(plan["notional_usd"]),
+                        max_price=float(plan["max_payup_price"]),
+                    )
+                else:
+                    response = self.execution.place_limit_buy(
+                        token_id=plan["token_id"],
+                        price=float(plan["limit_price"]),
+                        size=float(plan["size"]),
+                    )
+            except Exception as exc:
+                message = str(exc)
+                reasons = ["live_order_failed"]
+                lowered = message.lower()
+                if "not enough balance / allowance" in lowered:
+                    reasons = ["insufficient_balance_or_allowance"]
+                elif "allowance" in lowered:
+                    reasons = ["insufficient_allowance"]
+                elif "balance" in lowered or "collateral" in lowered:
+                    reasons = ["insufficient_balance"]
+                result = {
+                    "station_id": station_id,
+                    "status": "skip",
+                    "reasons": reasons,
+                    "candidate": asdict(candidate),
+                    "plan": plan,
+                    "exits": exit_events,
+                    "error": message,
+                }
+                self._append_log(result)
+                return result
             summary = self.execution.summarize_order_response(
                 response,
                 fallback_size=float(plan["size"]),
@@ -1423,7 +1511,13 @@ class AutoTrader:
                 results.append({"station_id": station_id, "status": "skip", "reasons": ["invalid_station"]})
                 continue
             try:
-                results.append(await self.run_station_once(station_id, target_day=self.config.target_day))
+                results.append(
+                    await self.run_station_once(
+                        station_id,
+                        target_day=self.config.target_day,
+                        target_date=self.config.target_date or None,
+                    )
+                )
             except Exception as exc:
                 logger.exception("Autotrader station run failed for %s", station_id)
                 event = {"station_id": station_id, "status": "error", "error": str(exc)}

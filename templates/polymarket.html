@@ -364,7 +364,7 @@
     }
     .pm-autotrader-fields {
         display: grid;
-        grid-template-columns: 1fr 1fr;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
         gap: 10px;
     }
     .pm-autotrader-field-label {
@@ -1345,6 +1345,8 @@
     }
 
     let autotraderBannerMessage = '';
+    let autotraderDraft = null;
+    let autotraderDraftDirty = false;
 
     function setAutotraderBanner(message = '') {
         autotraderBannerMessage = String(message || '');
@@ -1354,7 +1356,39 @@
         banner.style.display = autotraderBannerMessage ? 'block' : 'none';
     }
 
+    function buildAutotraderDraftFromStatus(status) {
+        const risk = status?.risk || {};
+        return {
+            station_ids: Array.isArray(status?.selected_stations) ? [...status.selected_stations] : [],
+            target_date: String(status?.target_date || status?.control?.target_date || '').trim(),
+            max_total_exposure_usd: Number(risk.max_total_exposure_usd || 0),
+            max_station_exposure_usd: Number(risk.max_station_exposure_usd || 0),
+        };
+    }
+
+    function syncAutotraderDraft(status, force = false) {
+        if (force || !autotraderDraft || !autotraderDraftDirty) {
+            autotraderDraft = buildAutotraderDraftFromStatus(status);
+            autotraderDraftDirty = false;
+        }
+        return autotraderDraft || buildAutotraderDraftFromStatus(status);
+    }
+
+    function autotraderDraftTargetDate() {
+        return String(autotraderDraft?.target_date || '').trim();
+    }
+
+    function autotraderInputValueNumber(key, fallbackValue) {
+        const value = Number(autotraderDraft?.[key]);
+        return Number.isFinite(value) ? value : Number(fallbackValue || 0);
+    }
+
     function getAutotraderSelectedStations() {
+        if (autotraderDraft && Array.isArray(autotraderDraft.station_ids)) {
+            return autotraderDraft.station_ids
+                .map(value => String(value || '').trim().toUpperCase())
+                .filter(Boolean);
+        }
         return Array.from(document.querySelectorAll('.pm-autotrader-station-check:checked'))
             .map(el => String(el.value || '').trim().toUpperCase())
             .filter(Boolean);
@@ -1367,10 +1401,48 @@
         return Number.isFinite(parsed) ? parsed : Number(fallbackValue || 0);
     }
 
+    function getAutotraderTargetDate() {
+        const el = document.getElementById('pm-autotrader-target-date');
+        if (!el) return autotraderDraftTargetDate();
+        return String(el.value || '').trim();
+    }
+
+    function bindAutotraderDraftEvents() {
+        document.querySelectorAll('.pm-autotrader-station-check').forEach((el) => {
+            el.addEventListener('change', () => {
+                autotraderDraft = autotraderDraft || {};
+                autotraderDraft.station_ids = Array.from(document.querySelectorAll('.pm-autotrader-station-check:checked'))
+                    .map(item => String(item.value || '').trim().toUpperCase())
+                    .filter(Boolean);
+                autotraderDraftDirty = true;
+            });
+        });
+
+        ['pm-autotrader-total-cap', 'pm-autotrader-station-cap'].forEach((id) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.addEventListener('input', () => {
+                autotraderDraft = autotraderDraft || {};
+                autotraderDraft[id === 'pm-autotrader-total-cap' ? 'max_total_exposure_usd' : 'max_station_exposure_usd'] = Number(el.value);
+                autotraderDraftDirty = true;
+            });
+        });
+
+        const targetDateEl = document.getElementById('pm-autotrader-target-date');
+        if (targetDateEl) {
+            targetDateEl.addEventListener('input', () => {
+                autotraderDraft = autotraderDraft || {};
+                autotraderDraft.target_date = String(targetDateEl.value || '').trim();
+                autotraderDraftDirty = true;
+            });
+        }
+    }
+
     async function saveAutotraderConfig(options = {}) {
         const silent = Boolean(options.silent);
         const payload = {
             station_ids: getAutotraderSelectedStations(),
+            target_date: getAutotraderTargetDate(),
             max_total_exposure_usd: getAutotraderInputNumber('pm-autotrader-total-cap', 0),
             max_station_exposure_usd: getAutotraderInputNumber('pm-autotrader-station-cap', 0),
         };
@@ -1383,6 +1455,8 @@
             const data = await resp.json();
             if (data.error || data.ok === false) throw new Error(data.error || 'request failed');
             setAutotraderBanner('');
+            autotraderDraft = buildAutotraderDraftFromStatus(data.status || {});
+            autotraderDraftDirty = false;
             if (!silent) await fetchData();
             return data;
         } catch (e) {
@@ -1444,28 +1518,34 @@
         const recent = Array.isArray(status.recent_events) ? status.recent_events.slice(0, 5) : [];
         const openBets = Array.isArray(portfolio.open_positions) ? portfolio.open_positions.slice(0, 6) : [];
         const availableStations = Array.isArray(status.available_stations) ? status.available_stations : [];
-        const selectedStations = Array.isArray(status.selected_stations) ? status.selected_stations : [];
+        const draft = syncAutotraderDraft(status);
+        const selectedStations = Array.isArray(draft.station_ids) ? draft.station_ids : [];
+        const selectedTargetDate = String(draft.target_date || status.target_date || '').trim();
         const headline = status.running
             ? `LIVE running across ${selectedStations.length} station${selectedStations.length === 1 ? '' : 's'}`
             : `${String(status.mode || 'paper').toUpperCase()} ready, stopped`;
         const subline = status.running
-            ? `Cycling every ${Number(status.loop_seconds || 0)}s across the selected stations until today's markets resolve or you press Stop.`
-            : `Select the stations you want, set the exposure cap, then press Start today. It will keep running continuously until today's selected markets resolve or you stop it.`;
+            ? `Cycling every ${Number(status.loop_seconds || 0)}s across the selected stations until the selected market date resolves or you press Stop.`
+            : `Select the stations, choose the market date, set the exposure cap, then press Start loop. It will keep running until that market date resolves or you stop it.`;
         const strategyMix = [];
         if (strategy.terminal_enabled) strategyMix.push(`terminal ${Number(strategy.terminal_take_profit_pts || 0).toFixed(1)}/${Number(strategy.terminal_stop_loss_pts || 0).toFixed(1)} pts`);
         if (strategy.tactical_enabled) strategyMix.push(`tactical ${Number(strategy.tactical_take_profit_pts || 0).toFixed(1)}/${Number(strategy.tactical_stop_loss_pts || 0).toFixed(1)} pts`);
         const pnlToday = Number(portfolio.realized_pnl_today_usd || 0);
         const strategyCounts = state.strategies || {};
+        const walletIssue = recent.find(item => String(item.error || '').toLowerCase().includes('allowance') || (Array.isArray(item.reasons) && item.reasons.some(reason => String(reason).includes('allowance') || String(reason).includes('balance'))));
         const strategyCountText = Object.keys(strategyCounts).length
             ? Object.entries(strategyCounts).map(([key, value]) => `${key.replace('_', ' ')} ${value}`).join(' | ')
             : 'none';
         const stopReasons = {
-            all_selected_markets_resolved: 'Stopped automatically: all selected markets are resolved.',
+            all_selected_markets_resolved: `Stopped automatically: all selected markets for ${selectedTargetDate || 'the chosen date'} are resolved.`,
             manual_stop: 'Stopped manually.',
             no_stations_selected: 'No stations selected.',
             shutdown: 'Stopped by server shutdown.',
         };
         const stopReasonText = status.last_stop_reason ? (stopReasons[status.last_stop_reason] || status.last_stop_reason) : '';
+        const derivedBanner = walletIssue
+            ? 'Wallet blocked: Polymarket is rejecting orders with insufficient balance or allowance. Fix the allowance/balance before restarting the loop.'
+            : '';
 
         panel.innerHTML = `
             <div class="pm-autotrader-head">
@@ -1476,11 +1556,11 @@
                 </div>
                 <div class="pm-autotrader-actions">
                     <button class="pm-autotrader-btn" onclick="saveAutotraderConfig()">Save setup</button>
-                    <button class="pm-autotrader-btn primary" onclick="startAutotraderToday()" ${status.running ? 'disabled' : ''}>Start today</button>
+                    <button class="pm-autotrader-btn primary" onclick="startAutotraderToday()" ${status.running ? 'disabled' : ''}>Start loop</button>
                     <button class="pm-autotrader-btn danger" onclick="stopAutotraderToday()" ${status.running ? '' : 'disabled'}>Stop</button>
                 </div>
             </div>
-            <div id="pm-autotrader-banner" class="pm-autotrader-note" style="${autotraderBannerMessage || stopReasonText ? '' : 'display:none;'}">${autotraderBannerMessage || stopReasonText}</div>
+            <div id="pm-autotrader-banner" class="pm-autotrader-note" style="${autotraderBannerMessage || stopReasonText || derivedBanner ? '' : 'display:none;'}">${autotraderBannerMessage || stopReasonText || derivedBanner}</div>
             <div class="pm-autotrader-config">
                 <div class="pm-autotrader-config-box">
                     <div class="pm-autotrader-cell-label">Stations to trade</div>
@@ -1494,24 +1574,32 @@
                     </div>
                 </div>
                 <div class="pm-autotrader-config-box">
-                    <div class="pm-autotrader-cell-label">Risk setup</div>
+                    <div class="pm-autotrader-cell-label">Market and risk setup</div>
                     <div class="pm-autotrader-fields">
                         <label>
+                            <span class="pm-autotrader-field-label">Market date</span>
+                            <input id="pm-autotrader-target-date" class="pm-autotrader-input" type="date" value="${selectedTargetDate}">
+                        </label>
+                        <label>
                             <span class="pm-autotrader-field-label">Portfolio cap ($)</span>
-                            <input id="pm-autotrader-total-cap" class="pm-autotrader-input" type="number" min="0.5" step="0.25" value="${Number(risk.max_total_exposure_usd || 0).toFixed(2)}">
+                            <input id="pm-autotrader-total-cap" class="pm-autotrader-input" type="number" min="0.5" step="0.25" value="${autotraderInputValueNumber('max_total_exposure_usd', risk.max_total_exposure_usd).toFixed(2)}">
                         </label>
                         <label>
                             <span class="pm-autotrader-field-label">Per-station cap ($)</span>
-                            <input id="pm-autotrader-station-cap" class="pm-autotrader-input" type="number" min="0.25" step="0.25" value="${Number(risk.max_station_exposure_usd || 0).toFixed(2)}">
+                            <input id="pm-autotrader-station-cap" class="pm-autotrader-input" type="number" min="0.25" step="0.25" value="${autotraderInputValueNumber('max_station_exposure_usd', risk.max_station_exposure_usd).toFixed(2)}">
                         </label>
                     </div>
-                    <div class="pm-autotrader-note">Today only. The loop checks the selected stations every ${Number(status.loop_seconds || 0)}s and stops automatically when all selected markets are mature or closed.</div>
+                    <div class="pm-autotrader-note">The loop checks the selected stations every ${Number(status.loop_seconds || 0)}s and stops automatically when the selected market date is mature or closed for every selected station.</div>
                 </div>
             </div>
             <div class="pm-autotrader-grid">
                 <div class="pm-autotrader-cell">
                     <div class="pm-autotrader-cell-label">Selected stations</div>
                     <div class="pm-autotrader-cell-value">${selectedStations.length ? selectedStations.join(', ') : 'None'}</div>
+                </div>
+                <div class="pm-autotrader-cell">
+                    <div class="pm-autotrader-cell-label">Market date</div>
+                    <div class="pm-autotrader-cell-value">${selectedTargetDate || '--'}</div>
                 </div>
                 <div class="pm-autotrader-cell">
                     <div class="pm-autotrader-cell-label">Portfolio Exposure</div>
@@ -1568,6 +1656,7 @@
                 `).join('') : '<div class="pm-autotrader-log-item">No open bets in the portfolio.</div>'}
             </div>
         `;
+        bindAutotraderDraftEvents();
     }
 
     // ========================

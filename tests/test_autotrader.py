@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from pathlib import Path
 import sys
 
@@ -10,6 +11,7 @@ from core.autotrader import (
     apply_orderbook_guardrails,
     compute_trade_budget_usd,
     evaluate_trade_candidate,
+    resolve_station_market_target,
 )
 from market.polymarket_execution import TopOfBook
 from market.polymarket_execution import (
@@ -18,6 +20,10 @@ from market.polymarket_execution import (
     quantize_buy_order_size,
     quantize_market_buy_amount,
 )
+
+
+def _today_iso():
+    return datetime.now(timezone.utc).date().isoformat()
 
 
 def _sample_payload():
@@ -252,33 +258,34 @@ def test_apply_orderbook_guardrails_caps_buy_budget_at_limit_price():
 def test_status_snapshot_shows_global_portfolio_and_station_filtered_positions(tmp_path):
     state_path = tmp_path / "portfolio_state.json"
     log_path = tmp_path / "katl.jsonl"
+    today = _today_iso()
     state_path.write_text(
-        """{
-  "trading_day": "2026-02-28",
+        f"""{{
+  "trading_day": "{today}",
   "spent_today_usd": 3.5,
   "open_risk_usd": 3.5,
   "trades_today": 2,
-  "positions": {
-    "KATL|2026-02-28|68-69 F|YES": {
+  "positions": {{
+    "KATL|{today}|68-69 F|YES": {{
       "station_id": "KATL",
-      "target_date": "2026-02-28",
+      "target_date": "{today}",
       "label": "68-69 F",
       "side": "YES",
       "notional_usd": 1.5,
       "opened_at_utc": "2026-02-28T15:00:00+00:00",
       "status": "OPEN"
-    },
-    "KLGA|2026-02-28|48-49 F|NO": {
+    }},
+    "KLGA|{today}|48-49 F|NO": {{
       "station_id": "KLGA",
-      "target_date": "2026-02-28",
+      "target_date": "{today}",
       "label": "48-49 F",
       "side": "NO",
       "notional_usd": 2.0,
       "opened_at_utc": "2026-02-28T15:05:00+00:00",
       "status": "OPEN"
-    }
-  }
-}""",
+    }}
+  }}
+}}""",
         encoding="utf-8",
     )
     config = AutoTraderConfig(
@@ -303,12 +310,13 @@ def test_status_snapshot_shows_global_portfolio_and_station_filtered_positions(t
 def test_status_snapshot_without_station_returns_global_state_summary(tmp_path):
     state_path = tmp_path / "portfolio_state.json"
     log_path = tmp_path / "katl.jsonl"
+    today = _today_iso()
     state_path.write_text(
-        """{
-  "trading_day": "2026-02-28",
+        f"""{{
+  "trading_day": "{today}",
   "open_risk_usd": 2.75,
-  "positions": {
-    "KATL|2026-02-28|68-69 F|YES": {
+  "positions": {{
+    "KATL|{today}|68-69 F|YES": {{
       "station_id": "KATL",
       "label": "68-69 F",
       "side": "YES",
@@ -316,8 +324,8 @@ def test_status_snapshot_without_station_returns_global_state_summary(tmp_path):
       "cost_basis_open_usd": 1.25,
       "opened_at_utc": "2026-02-28T15:00:00+00:00",
       "status": "OPEN"
-    },
-    "KLGA|2026-02-28|48-49 F|NO": {
+    }},
+    "KLGA|{today}|48-49 F|NO": {{
       "station_id": "KLGA",
       "label": "48-49 F",
       "side": "NO",
@@ -325,9 +333,9 @@ def test_status_snapshot_without_station_returns_global_state_summary(tmp_path):
       "cost_basis_open_usd": 1.50,
       "opened_at_utc": "2026-02-28T15:05:00+00:00",
       "status": "OPEN"
-    }
-  }
-}""",
+    }}
+  }}
+}}""",
         encoding="utf-8",
     )
     config = AutoTraderConfig(
@@ -343,6 +351,15 @@ def test_status_snapshot_without_station_returns_global_state_summary(tmp_path):
     assert snapshot["state"]["open_positions"] == 2
     assert snapshot["state"]["open_risk_usd"] == 2.75
     assert snapshot["state"]["strategies"] == {"terminal_value": 1, "tactical_reprice": 1}
+
+
+def test_resolve_station_market_target_prefers_explicit_date():
+    config = AutoTraderConfig(enabled=True, station_ids=["KATL"], target_day=0, target_date="2026-03-05")
+
+    resolved_day, resolved_date = resolve_station_market_target("KATL", config)
+
+    assert resolved_date == "2026-03-05"
+    assert isinstance(resolved_day, int)
 
 
 def test_evaluate_trade_candidate_can_pick_tactical_reprice():

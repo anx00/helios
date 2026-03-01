@@ -305,6 +305,24 @@ def _sanitize_autotrader_station_ids(values: Optional[List[str]]) -> List[str]:
     return cleaned
 
 
+def _normalize_autotrader_target_date(value: Optional[str]) -> Optional[str]:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw).date().isoformat()
+    except ValueError:
+        return None
+
+
+def _default_autotrader_target_date(station_ids: Optional[List[str]], fallback_target_day: int) -> str:
+    selected = _sanitize_autotrader_station_ids(station_ids)
+    station_id = (selected[0] if selected else DEFAULT_STATION) or DEFAULT_STATION
+    station = STATIONS.get(station_id) or STATIONS[DEFAULT_STATION]
+    local_now = datetime.now(ZoneInfo(station.timezone))
+    return (local_now + timedelta(days=int(fallback_target_day))).date().isoformat()
+
+
 def _load_autotrader_runtime_overrides() -> Dict[str, Any]:
     path = _AUTOTRADER_RUNTIME_PATH
     if not path.exists():
@@ -335,6 +353,11 @@ def _build_autotrader_runtime_config(current_enabled: Optional[bool] = None) -> 
         selected_station_ids = config.station_ids
     config.station_ids = _sanitize_autotrader_station_ids(selected_station_ids)
 
+    target_date = _normalize_autotrader_target_date(overrides.get("target_date"))
+    if not target_date:
+        target_date = _default_autotrader_target_date(config.station_ids, config.target_day)
+    config.target_date = target_date
+
     max_total = overrides.get("max_total_exposure_usd")
     if max_total is not None:
         try:
@@ -350,7 +373,6 @@ def _build_autotrader_runtime_config(current_enabled: Optional[bool] = None) -> 
             pass
 
     config.max_station_exposure_usd = min(float(config.max_station_exposure_usd), float(config.max_total_exposure_usd))
-    config.target_day = 0
     if current_enabled is not None:
         config.enabled = bool(current_enabled)
     return config
@@ -465,8 +487,8 @@ def get_autotrader_status_snapshot(station_id: Optional[str] = None) -> Dict[str
     snapshot["selected_stations"] = list(trader.config.station_ids or [])
     snapshot["available_stations"] = _autotrader_selected_station_options()
     snapshot["control"] = {
-        "loop_mode": "until_resolved_today",
-        "target_day_locked": 0,
+        "loop_mode": "until_selected_market_resolved",
+        "target_date": str(trader.config.target_date or ""),
     }
     snapshot["last_stop_reason"] = _autotrader_last_stop_reason
     return snapshot
@@ -501,8 +523,20 @@ class TelegramMetarSubscriptionToggle(BaseModel):
 
 class AutotraderRuntimeConfigUpdate(BaseModel):
     station_ids: Optional[List[str]] = None
+    target_date: Optional[str] = None
     max_total_exposure_usd: Optional[float] = None
     max_station_exposure_usd: Optional[float] = None
+
+
+def _resolve_station_market_date(station_id: str, target_day: int = 0, target_date: Optional[str] = None) -> Tuple[Any, int]:
+    station = STATIONS[station_id]
+    local_now = datetime.now(ZoneInfo(station.timezone))
+    normalized_target_date = _normalize_autotrader_target_date(target_date)
+    if normalized_target_date:
+        selected_date = datetime.fromisoformat(normalized_target_date).date()
+        return selected_date, int((selected_date - local_now.date()).days)
+    selected_date = (local_now + timedelta(days=int(target_day))).date()
+    return selected_date, int(target_day)
 
 @app.get("/api/stations")
 def get_stations():
@@ -2486,24 +2520,31 @@ async def get_realtime_market(station_id: str, depth: int = 10):
 
 
 @app.get("/api/polymarket/{station_id}")
-async def get_polymarket_dashboard_data(station_id: str, target_day: int = 0, depth: int = 5):
+async def get_polymarket_dashboard_data(
+    station_id: str,
+    target_day: int = 0,
+    target_date: Optional[str] = None,
+    depth: int = 5,
+):
     """Unified Polymarket endpoint: Gamma API prices + WS orderbook + crowd wisdom + maturity."""
     import json as _json
     if station_id not in STATIONS:
         return {"error": "Invalid station"}
 
-    station = STATIONS[station_id]
-    local_now = datetime.now(ZoneInfo(station.timezone))
-    target_date = (local_now + timedelta(days=target_day)).date()
+    target_date_obj, resolved_target_day = _resolve_station_market_date(
+        station_id,
+        target_day=target_day,
+        target_date=target_date,
+    )
 
     # 1. Fetch event data (same pattern as /api/market/)
-    event_data = await fetch_event_for_station_date(station_id, target_date)
+    event_data = await fetch_event_for_station_date(station_id, target_date_obj)
     if not event_data:
-        event_slug = build_event_slug(station_id, target_date)
+        event_slug = build_event_slug(station_id, target_date_obj)
         event_data = await fetch_event_data(event_slug)
         if not event_data:
-            return {"error": "Market not found", "target_date": target_date.isoformat()}
-    event_slug = build_event_slug(station_id, target_date)
+            return {"error": "Market not found", "target_date": target_date_obj.isoformat()}
+    event_slug = build_event_slug(station_id, target_date_obj)
     event_title = event_data.get("title", "Unknown Event")
     markets = event_data.get("markets", [])
 
@@ -2631,7 +2672,7 @@ async def get_polymarket_dashboard_data(station_id: str, target_day: int = 0, de
 
     # 5. Crowd wisdom (sentiment + shifts)
     from market.crowd_wisdom import detect_market_shift, get_crowd_sentiment
-    target_date_str = target_date.isoformat()
+    target_date_str = target_date_obj.isoformat()
     sentiment = get_crowd_sentiment(station_id, target_date_str)
     shifts = detect_market_shift(station_id, target_date_str, threshold=0.03)
 
@@ -2650,7 +2691,7 @@ async def get_polymarket_dashboard_data(station_id: str, target_day: int = 0, de
         pws_details = []
         pws_metrics = {}
 
-        if target_day == 0:
+        if resolved_target_day == 0:
             try:
                 from core.nowcast_integration import get_nowcast_integration
 
@@ -2680,7 +2721,7 @@ async def get_polymarket_dashboard_data(station_id: str, target_day: int = 0, de
 
         trading = build_trading_signal(
             station_id=station_id,
-            target_day=target_day,
+            target_day=resolved_target_day,
             target_date=target_date_str,
             brackets=brackets,
             prediction=pred,
@@ -2695,8 +2736,8 @@ async def get_polymarket_dashboard_data(station_id: str, target_day: int = 0, de
 
     return {
         "station_id": station_id,
-        "target_date": target_date.isoformat(),
-        "target_day": target_day,
+        "target_date": target_date_obj.isoformat(),
+        "target_day": resolved_target_day,
         "event_title": event_title,
         "event_slug": event_slug,
         "total_volume": total_volume,
@@ -2721,9 +2762,19 @@ async def get_polymarket_dashboard_data(station_id: str, target_day: int = 0, de
 @app.get("/api/v3/trading/{station_id}")
 @app.get("/api/trading/{station_id}")
 @app.get("/api/trade/{station_id}")
-async def get_trading_signal_api(station_id: str, target_day: int = 0, depth: int = 5):
+async def get_trading_signal_api(
+    station_id: str,
+    target_day: int = 0,
+    target_date: Optional[str] = None,
+    depth: int = 5,
+):
     """Trading-focused signal: fair buckets, edge and tactical next-METAR pressure."""
-    payload = await get_polymarket_dashboard_data(station_id, target_day=target_day, depth=depth)
+    payload = await get_polymarket_dashboard_data(
+        station_id,
+        target_day=target_day,
+        target_date=target_date,
+        depth=depth,
+    )
     if isinstance(payload, dict) and payload.get("error"):
         return payload
     trading = payload.get("trading") if isinstance(payload, dict) else None
@@ -2755,6 +2806,12 @@ async def update_autotrader_config_api(payload: AutotraderRuntimeConfigUpdate):
 
     if payload.station_ids is not None:
         current["station_ids"] = _sanitize_autotrader_station_ids(payload.station_ids)
+    if payload.target_date is not None:
+        normalized_target_date = _normalize_autotrader_target_date(payload.target_date)
+        if normalized_target_date:
+            current["target_date"] = normalized_target_date
+        else:
+            current.pop("target_date", None)
     if payload.max_total_exposure_usd is not None:
         current["max_total_exposure_usd"] = max(0.5, float(payload.max_total_exposure_usd))
     if payload.max_station_exposure_usd is not None:
