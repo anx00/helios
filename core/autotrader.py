@@ -231,8 +231,6 @@ def load_autotrader_config_from_env() -> AutoTraderConfig:
         log_path=str(os.environ.get("HELIOS_AUTOTRADE_LOG_PATH", "logs/autotrader_trades.jsonl")).strip() or "logs/autotrader_trades.jsonl",
         kill_switch_path=str(os.environ.get("HELIOS_AUTOTRADE_KILL_SWITCH_PATH", "data/AUTOTRADE_STOP")).strip() or "data/AUTOTRADE_STOP",
     )
-    config.max_station_exposure_usd = float(config.max_total_exposure_usd)
-    config.max_station_positions = 0
     return config
 
 
@@ -812,7 +810,14 @@ def compute_trade_budget_usd(
     merged_positions = _merged_open_positions(state, live_positions=live_positions)
     managed_positions = [row for row in merged_positions if _is_autotrader_managed_position(row)]
     merged_open_risk = sum(_position_risk_now_usd(row) for row in merged_positions)
+    station_open_risk = _station_exposure_usd(
+        state,
+        candidate.station_id,
+        candidate.target_date,
+        live_positions=live_positions,
+    )
     remaining_total_exposure = float(config.max_total_exposure_usd) - float(merged_open_risk)
+    remaining_station_exposure = float(config.max_station_exposure_usd) - float(station_open_risk)
     open_positions_count = len(managed_positions)
     station_positions_count = _count_station_open_positions(state, candidate.station_id, live_positions=live_positions)
 
@@ -837,6 +842,7 @@ def compute_trade_budget_usd(
         float(config.max_trade_usd),
         remaining_daily_loss,
         remaining_total_exposure,
+        remaining_station_exposure,
     )
     if available_balance_usd is not None:
         effective_cap = min(effective_cap, float(available_balance_usd))

@@ -12,6 +12,7 @@ from core.autotrader import (
     apply_orderbook_guardrails,
     compute_trade_budget_usd,
     evaluate_trade_candidate,
+    load_autotrader_config_from_env,
     resolve_station_market_target,
 )
 from market.polymarket_execution import TopOfBook
@@ -253,6 +254,70 @@ def test_compute_trade_budget_blocks_when_live_portfolio_already_uses_cap():
     )
 
     assert budget == 0.0
+
+
+def test_compute_trade_budget_respects_station_exposure_limit():
+    config = AutoTraderConfig(
+        enabled=True,
+        station_ids=["KATL"],
+        bankroll_usd=20.0,
+        fractional_kelly=0.2,
+        min_trade_usd=1.0,
+        max_trade_usd=2.5,
+        max_total_exposure_usd=10.0,
+        max_station_exposure_usd=3.0,
+        daily_loss_limit_usd=4.0,
+    )
+    candidate = AutoTradeCandidate(
+        station_id="KATL",
+        target_date="2026-02-28",
+        target_day=0,
+        label="68-69 F",
+        side="YES",
+        token_id="YES1",
+        market_price=0.24,
+        fair_price=0.32,
+        edge_points=8.0,
+        model_probability=0.32,
+        recommendation="BUY_YES",
+        policy_reason="test",
+        forecast_winner_label="68-69 F",
+        forecast_edge_points=8.0,
+        tactical_alignment="aligned",
+        why="test",
+        position_key="KATL|2026-02-28|68-69 F|YES",
+    )
+
+    budget = compute_trade_budget_usd(
+        candidate,
+        config,
+        state={"positions": {}},
+        available_balance_usd=20.0,
+        live_positions=[
+            {
+                "source": "polymarket_live",
+                "station_id": "KATL",
+                "target_date": "2026-02-28",
+                "label": "70-71 F",
+                "side": "YES",
+                "cost_basis_open_usd": 3.5,
+            }
+        ],
+    )
+
+    assert budget == 0.0
+
+
+def test_load_autotrader_config_from_env_keeps_station_limits(monkeypatch):
+    monkeypatch.setenv("HELIOS_AUTOTRADE_MAX_TOTAL_EXPOSURE_USD", "9")
+    monkeypatch.setenv("HELIOS_AUTOTRADE_MAX_STATION_EXPOSURE_USD", "2.5")
+    monkeypatch.setenv("HELIOS_AUTOTRADE_MAX_STATION_POSITIONS", "3")
+
+    config = load_autotrader_config_from_env()
+
+    assert config.max_total_exposure_usd == 9.0
+    assert config.max_station_exposure_usd == 2.5
+    assert config.max_station_positions == 3
 
 
 def test_compute_trade_budget_uses_mark_risk_not_historical_cost():

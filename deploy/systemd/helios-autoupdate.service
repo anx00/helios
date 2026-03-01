@@ -1,0 +1,16 @@
+[Unit]
+Description=Helios auto-update from origin/main
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/opt/helios
+Environment=PATH=/usr/bin:/bin
+
+ExecStartPre=/bin/mkdir -p /opt/helios/logs
+ExecStart=/bin/bash /opt/helios/scripts/helios_autoupdate.sh main
+
+StandardOutput=append:/opt/helios/logs/autoupdate.log
+StandardError=append:/opt/helios/logs/autoupdate_error.log

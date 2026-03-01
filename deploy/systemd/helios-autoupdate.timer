@@ -1,0 +1,12 @@
+[Unit]
+Description=Check for new HELIOS commits and deploy them every 15 minutes
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=15min
+Persistent=true
+
+Unit=helios-autoupdate.service
+
+[Install]
+WantedBy=timers.target
