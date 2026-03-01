@@ -1,4 +1,5 @@
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -1192,6 +1193,33 @@ def test_take_profit_exits_when_bid_has_caught_up_to_fair(tmp_path):
     assert reasons == []
     assert exit_plan is not None
     assert exit_plan["reason"] == "take_profit"
+    assert exit_plan["decision_context"]["fair_value_absorbed"] is True
+    assert exit_plan["decision_context"]["current_best_bid"] == 0.25
+    assert exit_plan["decision_context"]["policy_allowed"] is True
+
+
+def test_append_log_serializes_concurrent_writes_without_corrupting_jsonl(tmp_path):
+    state_path = tmp_path / "portfolio_state.json"
+    log_path = tmp_path / "autotrader.jsonl"
+    config = AutoTraderConfig(
+        enabled=True,
+        mode="paper",
+        station_ids=["KATL"],
+        state_path=str(state_path),
+        log_path=str(log_path),
+    )
+    trader = AutoTrader(config=config)
+
+    def _write(seq: int) -> None:
+        trader._append_log({"status": "threaded_test", "seq": seq})
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        list(executor.map(_write, range(200)))
+
+    lines = log_path.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 200
+    rows = [json.loads(line) for line in lines]
+    assert sorted(int(row["seq"]) for row in rows) == list(range(200))
 
 
 def test_live_entry_balance_failure_sets_station_cooldown_and_blocks_retries(tmp_path):

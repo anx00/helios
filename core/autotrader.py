@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+import threading
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -27,6 +28,7 @@ from market.polymarket_execution import (
 logger = logging.getLogger("autotrader")
 UTC = ZoneInfo("UTC")
 _PORTFOLIO_LOCK: Optional[asyncio.Lock] = None
+_LOG_WRITE_LOCK = threading.Lock()
 _PENDING_ORDER_KINDS = {"entry", "exit"}
 
 
@@ -1493,8 +1495,16 @@ class AutoTrader:
         path.parent.mkdir(parents=True, exist_ok=True)
         record = dict(event)
         record.setdefault("ts_utc", _utc_now().isoformat())
-        with path.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(record, ensure_ascii=True) + "\n")
+        line = (json.dumps(record, ensure_ascii=True) + "\n").encode("utf-8")
+        flags = os.O_APPEND | os.O_CREAT | os.O_WRONLY
+        if hasattr(os, "O_BINARY"):
+            flags |= os.O_BINARY
+        with _LOG_WRITE_LOCK:
+            fd = os.open(path, flags, 0o666)
+            try:
+                os.write(fd, line)
+            finally:
+                os.close(fd)
 
     def _persist_state(self) -> None:
         self.state = _normalize_state(self.state)
@@ -1932,6 +1942,9 @@ class AutoTrader:
         next_obs_utc = _parse_iso_datetime(next_projection.get("next_obs_utc"))
         opened_next_obs_utc = _parse_iso_datetime(position.get("opened_next_obs_utc"))
         current_best_bid = float(_safe_float(book.best_bid) or 0.0)
+        next_obs_slip_minutes = None
+        if opened_next_obs_utc is not None and next_obs_utc is not None:
+            next_obs_slip_minutes = (next_obs_utc - opened_next_obs_utc).total_seconds() / 60.0
 
         buffer_points = float(self.config.exit_edge_buffer_points) / 100.0
         take_profit_points = (
@@ -2006,6 +2019,19 @@ class AutoTrader:
         exit_plan["stop_floor"] = round(float(stop_floor), 6)
         exit_plan["fair_now"] = round(float(fair_now), 6) if fair_now is not None else None
         exit_plan["edge_now_points"] = round(float(edge_now_points), 4) if edge_now_points is not None else None
+        exit_plan["decision_context"] = {
+            "held_minutes": round(float(held_minutes), 3) if held_minutes is not None else None,
+            "entry_price": round(float(entry_price), 6),
+            "current_best_bid": round(float(current_best_bid), 6),
+            "policy_allowed": bool(policy_now.get("allowed", True)),
+            "policy_summary": str(policy_now.get("summary") or "") or None,
+            "next_direction": next_direction,
+            "fair_value_absorbed": fair_value_absorbed,
+            "next_obs_utc": next_obs_utc.isoformat() if next_obs_utc is not None else None,
+            "opened_next_obs_utc": opened_next_obs_utc.isoformat() if opened_next_obs_utc is not None else None,
+            "next_obs_slip_minutes": round(float(next_obs_slip_minutes), 3) if next_obs_slip_minutes is not None else None,
+            "force_exit": force_exit,
+        }
         return exit_plan, reasons
 
     def _persist_trade(self, candidate: AutoTradeCandidate, plan: Dict[str, Any], result: Dict[str, Any], *, mode: str) -> None:
