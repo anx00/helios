@@ -1373,7 +1373,6 @@
             station_ids: Array.isArray(status?.selected_stations) ? [...status.selected_stations] : [],
             target_date: String(status?.target_date || status?.control?.target_date || '').trim(),
             max_total_exposure_usd: Number(risk.max_total_exposure_usd || 0),
-            max_trade_usd: Number(risk.max_trade_usd || 0),
         };
     }
 
@@ -1438,15 +1437,6 @@
             });
         }
 
-        const tradeCapEl = document.getElementById('pm-autotrader-trade-cap');
-        if (tradeCapEl) {
-            tradeCapEl.addEventListener('input', () => {
-                autotraderDraft = autotraderDraft || {};
-                autotraderDraft.max_trade_usd = Number(tradeCapEl.value);
-                autotraderDraftDirty = true;
-            });
-        }
-
         const targetDateEl = document.getElementById('pm-autotrader-target-date');
         if (targetDateEl) {
             targetDateEl.addEventListener('input', () => {
@@ -1463,7 +1453,6 @@
             station_ids: getAutotraderSelectedStations(),
             target_date: getAutotraderTargetDate(),
             max_total_exposure_usd: getAutotraderInputNumber('pm-autotrader-total-cap', 0),
-            max_trade_usd: getAutotraderInputNumber('pm-autotrader-trade-cap', 0),
         };
         try {
             const resp = await fetch('/api/autotrader/config', {
@@ -1555,7 +1544,6 @@
         const walletIssue = recent.find(item => String(item.error || '').toLowerCase().includes('allowance') || (Array.isArray(item.reasons) && item.reasons.some(reason => String(reason).includes('allowance') || String(reason).includes('balance'))));
         const openRisk = Number(portfolio.open_risk_usd || 0);
         const totalCap = Number(risk.max_total_exposure_usd || 0);
-        const maxTrade = Number(risk.max_trade_usd || 0);
         const bankrollRef = Number(risk.bankroll_usd || portfolio.bankroll_usd || 0);
         const portfolioValue = Number(portfolio.portfolio_value_usd || wallet.portfolio_value_usd || 0);
         const freeCollateral = Number(portfolio.free_collateral_usd || wallet.free_collateral_usd || 0);
@@ -1618,12 +1606,8 @@
                             <span class="pm-autotrader-field-label">Portfolio cap ($)</span>
                             <input id="pm-autotrader-total-cap" class="pm-autotrader-input" type="number" min="0.5" step="0.25" value="${autotraderInputValueNumber('max_total_exposure_usd', risk.max_total_exposure_usd).toFixed(2)}">
                         </label>
-                        <label>
-                            <span class="pm-autotrader-field-label">Max per trade ($)</span>
-                            <input id="pm-autotrader-trade-cap" class="pm-autotrader-input" type="number" min="0.25" step="0.25" value="${autotraderInputValueNumber('max_trade_usd', risk.max_trade_usd).toFixed(2)}">
-                        </label>
                     </div>
-                    <div class="pm-autotrader-note">Portfolio cap is the total mark-to-market risk across all open bets now, not the original historical cost basis. Max per trade is the ceiling for a single new entry. The loop checks the selected stations every ${Number(status.loop_seconds || 0)}s and stops automatically when the selected market date is mature or closed for every selected station. Positions imported from your live Polymarket account are tracked for risk but not auto-sold unless the bot opened them.</div>
+                    <div class="pm-autotrader-note">Portfolio cap is the total mark-to-market risk across all open bets now, not the original historical cost basis. Per-trade sizing is automatic and gets distributed inside that cap. The loop checks the selected stations every ${Number(status.loop_seconds || 0)}s and stops automatically when the selected market date is mature or closed for every selected station. Positions imported from your live Polymarket account are tracked for risk but not auto-sold unless the bot opened them.</div>
                 </div>
             </div>
             <div class="pm-autotrader-grid">
@@ -1642,10 +1626,6 @@
                 <div class="pm-autotrader-cell">
                     <div class="pm-autotrader-cell-label">Open cost basis</div>
                     <div class="pm-autotrader-cell-value">$${positionsCostBasis.toFixed(2)}</div>
-                </div>
-                <div class="pm-autotrader-cell">
-                    <div class="pm-autotrader-cell-label">Max per trade</div>
-                    <div class="pm-autotrader-cell-value">$${maxTrade.toFixed(2)}</div>
                 </div>
                 <div class="pm-autotrader-cell">
                     <div class="pm-autotrader-cell-label">Open bets</div>

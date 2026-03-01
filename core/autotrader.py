@@ -148,7 +148,7 @@ class AutoTraderConfig:
     min_fair_probability: float = 0.18
     max_entry_price: float = 0.40
     min_trade_usd: float = 1.0
-    max_trade_usd: float = 2.5
+    max_trade_usd: float = 0.0
     max_total_exposure_usd: float = 6.0
     max_station_exposure_usd: float = 6.0
     daily_loss_limit_usd: float = 4.0
@@ -200,7 +200,7 @@ def load_autotrader_config_from_env() -> AutoTraderConfig:
         min_fair_probability=_env_float("HELIOS_AUTOTRADE_MIN_FAIR_PCT", 0.18),
         max_entry_price=_env_float("HELIOS_AUTOTRADE_MAX_ENTRY_PCT", 0.40),
         min_trade_usd=_env_float("HELIOS_AUTOTRADE_MIN_TRADE_USD", 1.0),
-        max_trade_usd=_env_float("HELIOS_AUTOTRADE_MAX_TRADE_USD", 2.5),
+        max_trade_usd=_env_float("HELIOS_AUTOTRADE_MAX_TRADE_USD", 0.0),
         max_total_exposure_usd=_env_float("HELIOS_AUTOTRADE_MAX_TOTAL_EXPOSURE_USD", 6.0),
         max_station_exposure_usd=_env_float("HELIOS_AUTOTRADE_MAX_STATION_EXPOSURE_USD", 3.0),
         daily_loss_limit_usd=_env_float("HELIOS_AUTOTRADE_DAILY_LOSS_LIMIT_USD", 4.0),
@@ -373,6 +373,16 @@ def _station_exposure_usd(
 
 def _is_station_position_limit_enabled(config: AutoTraderConfig) -> bool:
     return int(config.max_station_positions) > 0
+
+
+def _is_max_trade_cap_enabled(config: AutoTraderConfig) -> bool:
+    return float(config.max_trade_usd) > 0.0
+
+
+def _remaining_slot_count(limit: int, used: int) -> Optional[int]:
+    if int(limit) <= 0:
+        return None
+    return max(0, int(limit) - max(0, int(used)))
 
 
 def _open_positions(state: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -838,12 +848,33 @@ def compute_trade_budget_usd(
         except Exception:
             pass
 
-    effective_cap = min(
-        float(config.max_trade_usd),
+    cap_components = [
         remaining_daily_loss,
         remaining_total_exposure,
         remaining_station_exposure,
-    )
+    ]
+    if not _is_max_trade_cap_enabled(config):
+        remaining_trade_slots = _remaining_slot_count(
+            int(config.max_trades_per_day),
+            int(_safe_float(state.get("trades_today")) or 0),
+        )
+        if remaining_trade_slots:
+            cap_components.append(remaining_daily_loss / remaining_trade_slots)
+
+        remaining_open_slots = _remaining_slot_count(int(config.max_open_positions), open_positions_count)
+        if remaining_open_slots:
+            cap_components.append(remaining_total_exposure / remaining_open_slots)
+
+        remaining_station_slots = _remaining_slot_count(
+            int(config.max_station_positions),
+            station_positions_count,
+        )
+        if _is_station_position_limit_enabled(config) and remaining_station_slots:
+            cap_components.append(remaining_station_exposure / remaining_station_slots)
+
+    if _is_max_trade_cap_enabled(config):
+        cap_components.append(float(config.max_trade_usd))
+    effective_cap = min(cap_components)
     if available_balance_usd is not None:
         effective_cap = min(effective_cap, float(available_balance_usd))
     if effective_cap <= 0:
@@ -1459,7 +1490,11 @@ class AutoTrader:
             return [event]
 
         remaining_over_cap = float(over_cap_usd)
-        reduce_cycle_cap = min(float(self.config.max_trade_usd), remaining_over_cap)
+        reduce_cycle_cap = (
+            min(float(self.config.max_trade_usd), remaining_over_cap)
+            if _is_max_trade_cap_enabled(self.config)
+            else remaining_over_cap
+        )
         for position in candidates[:1]:
             if remaining_over_cap <= 0.009 or reduce_cycle_cap <= 0.009:
                 break
@@ -1624,6 +1659,7 @@ class AutoTrader:
             "risk": {
                 "bankroll_usd": float(self.config.bankroll_usd),
                 "max_trade_usd": float(self.config.max_trade_usd),
+                "max_trade_cap_enabled": _is_max_trade_cap_enabled(self.config),
                 "max_total_exposure_usd": float(self.config.max_total_exposure_usd),
                 "max_station_exposure_usd": float(self.config.max_station_exposure_usd),
                 "daily_loss_limit_usd": float(self.config.daily_loss_limit_usd),

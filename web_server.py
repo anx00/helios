@@ -368,11 +368,12 @@ def _build_autotrader_runtime_config(current_enabled: Optional[bool] = None) -> 
     max_trade = overrides.get("max_trade_usd")
     if max_trade is not None:
         try:
-            config.max_trade_usd = max(0.25, float(max_trade))
+            config.max_trade_usd = max(0.0, float(max_trade))
         except (TypeError, ValueError):
             pass
 
-    config.max_trade_usd = min(float(config.max_trade_usd), float(config.max_total_exposure_usd))
+    if float(config.max_trade_usd) > 0.0:
+        config.max_trade_usd = min(float(config.max_trade_usd), float(config.max_total_exposure_usd))
     config.max_station_exposure_usd = float(config.max_total_exposure_usd)
     config.max_station_positions = 0
     if current_enabled is not None:
@@ -2824,14 +2825,15 @@ async def update_autotrader_config_api(payload: AutotraderRuntimeConfigUpdate):
     if payload.max_total_exposure_usd is not None:
         current["max_total_exposure_usd"] = max(0.5, float(payload.max_total_exposure_usd))
     if payload.max_trade_usd is not None:
-        current["max_trade_usd"] = max(0.25, float(payload.max_trade_usd))
+        current["max_trade_usd"] = max(0.0, float(payload.max_trade_usd))
     current.pop("max_station_exposure_usd", None)
 
     if "max_total_exposure_usd" in current and "max_trade_usd" in current:
-        current["max_trade_usd"] = min(
-            float(current["max_trade_usd"]),
-            float(current["max_total_exposure_usd"]),
-        )
+        if float(current["max_trade_usd"]) > 0.0:
+            current["max_trade_usd"] = min(
+                float(current["max_trade_usd"]),
+                float(current["max_total_exposure_usd"]),
+            )
 
     _save_autotrader_runtime_overrides(current)
     get_autotrader_instance(refresh=True)

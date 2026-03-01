@@ -204,6 +204,96 @@ def test_compute_trade_budget_respects_remaining_limits():
     assert budget <= 2.0
 
 
+def test_compute_trade_budget_auto_mode_ignores_per_trade_cap_when_zero():
+    config = AutoTraderConfig(
+        enabled=True,
+        station_ids=["KATL"],
+        bankroll_usd=20.0,
+        fractional_kelly=0.2,
+        min_trade_usd=1.0,
+        max_trade_usd=0.0,
+        max_total_exposure_usd=6.0,
+        max_station_exposure_usd=6.0,
+        daily_loss_limit_usd=6.0,
+    )
+    candidate = AutoTradeCandidate(
+        station_id="KATL",
+        target_date="2026-02-28",
+        target_day=0,
+        label="68-69 F",
+        side="YES",
+        token_id="YES1",
+        market_price=0.10,
+        fair_price=0.90,
+        edge_points=80.0,
+        model_probability=0.90,
+        recommendation="BUY_YES",
+        policy_reason="test",
+        forecast_winner_label="68-69 F",
+        forecast_edge_points=80.0,
+        tactical_alignment="neutral",
+        why="test",
+        position_key="KATL|2026-02-28|68-69 F|YES",
+    )
+
+    budget = compute_trade_budget_usd(candidate, config, state={"positions": {}}, available_balance_usd=6.0)
+
+    assert budget == 1.5
+
+
+def test_compute_trade_budget_auto_mode_splits_remaining_exposure_across_open_slots():
+    config = AutoTraderConfig(
+        enabled=True,
+        station_ids=["KATL"],
+        bankroll_usd=20.0,
+        fractional_kelly=0.2,
+        min_trade_usd=1.0,
+        max_trade_usd=0.0,
+        max_total_exposure_usd=6.0,
+        max_station_exposure_usd=6.0,
+        daily_loss_limit_usd=6.0,
+        max_open_positions=4,
+    )
+    candidate = AutoTradeCandidate(
+        station_id="KATL",
+        target_date="2026-02-28",
+        target_day=0,
+        label="68-69 F",
+        side="YES",
+        token_id="YES1",
+        market_price=0.10,
+        fair_price=0.90,
+        edge_points=80.0,
+        model_probability=0.90,
+        recommendation="BUY_YES",
+        policy_reason="test",
+        forecast_winner_label="68-69 F",
+        forecast_edge_points=80.0,
+        tactical_alignment="neutral",
+        why="test",
+        position_key="KATL|2026-02-28|68-69 F|YES",
+    )
+    state = {
+        "positions": {
+            "KLGA|2026-02-28|48-49 F|YES": {
+                "station_id": "KLGA",
+                "target_date": "2026-02-28",
+                "label": "48-49 F",
+                "side": "YES",
+                "status": "OPEN",
+                "managed_by_bot": True,
+                "cost_basis_open_usd": 2.0,
+                "shares_open": 10.0,
+                "entry_price": 0.2,
+            }
+        }
+    }
+
+    budget = compute_trade_budget_usd(candidate, config, state=state, available_balance_usd=6.0)
+
+    assert budget == 1.333333
+
+
 def test_compute_trade_budget_blocks_when_live_portfolio_already_uses_cap():
     config = AutoTraderConfig(
         enabled=True,
@@ -312,12 +402,14 @@ def test_load_autotrader_config_from_env_keeps_station_limits(monkeypatch):
     monkeypatch.setenv("HELIOS_AUTOTRADE_MAX_TOTAL_EXPOSURE_USD", "9")
     monkeypatch.setenv("HELIOS_AUTOTRADE_MAX_STATION_EXPOSURE_USD", "2.5")
     monkeypatch.setenv("HELIOS_AUTOTRADE_MAX_STATION_POSITIONS", "3")
+    monkeypatch.setenv("HELIOS_AUTOTRADE_MAX_TRADE_USD", "0")
 
     config = load_autotrader_config_from_env()
 
     assert config.max_total_exposure_usd == 9.0
     assert config.max_station_exposure_usd == 2.5
     assert config.max_station_positions == 3
+    assert config.max_trade_usd == 0.0
 
 
 def test_compute_trade_budget_uses_mark_risk_not_historical_cost():
@@ -729,6 +821,7 @@ def test_status_snapshot_uses_live_polymarket_positions_for_exposure(tmp_path):
     assert snapshot["portfolio"]["external_open_positions_count"] == 3
     assert snapshot["wallet"]["free_collateral_usd"] == 0.840014
     assert snapshot["state"]["strategies"] == {"external_live": 3}
+    assert snapshot["risk"]["max_trade_cap_enabled"] is False
 
 
 def test_sync_live_positions_into_state_imports_external_positions(tmp_path):
