@@ -9,8 +9,9 @@ Channels:
 - pws: PWS cluster consensus
 - features: Environment features
 - nowcast: Model outputs
+- market: Compact market snapshots for replay/backtest
 - health: System health metrics
-- l2_snap: Market snapshots (when available)
+- l2_snap: Higher-frequency market snapshots during event windows
 - event_window: Event window markers
 """
 
@@ -46,11 +47,13 @@ DEFAULT_CHANNELS = [
     "pws",
     "features",
     "nowcast",
+    "market",
     "l2_snap",
     "health",
     "event_window",
 ]
 DEFAULT_PERSIST_CHANNELS = [ch for ch in DEFAULT_CHANNELS if ch != "l2_snap"]
+MARKET_RING_CHANNELS = {"market", "l2_snap"}
 
 
 def _env_int(name: str, default: int) -> int:
@@ -73,11 +76,60 @@ def _env_channel_list(name: str, default: List[str]) -> List[str]:
     return selected or list(default)
 
 
-def _compact_l2_market_state(market_state: Dict[str, Any]) -> Dict[str, Any]:
+def _compact_market_state(
+    market_state: Dict[str, Any],
+    *,
+    detail: bool = False,
+) -> Dict[str, Any]:
     compact: Dict[str, Any] = {}
+    meta_keys = {
+        "book_count",
+        "staleness_ms_avg",
+        "staleness_ms_max",
+        "publisher_lag_ms",
+        "resync_count",
+        "reconnect_count",
+    }
+    summary_keys = {
+        "best_bid",
+        "best_ask",
+        "spread",
+        "mid",
+        "bid_depth",
+        "ask_depth",
+        "yes_best_bid",
+        "yes_best_ask",
+        "yes_spread",
+        "yes_mid",
+        "yes_bid_depth",
+        "yes_ask_depth",
+        "no_best_bid",
+        "no_best_ask",
+        "no_spread",
+        "no_mid",
+        "no_bid_depth",
+        "no_ask_depth",
+    }
+    detail_keys = summary_keys | {
+        "token_id",
+        "yes_token_id",
+        "no_token_id",
+        "staleness_ms",
+        "ts_provider",
+        "yes_staleness_ms",
+        "yes_ts_provider",
+        "no_staleness_ms",
+        "no_ts_provider",
+    }
+    keep_keys = detail_keys if detail else summary_keys
     for bracket, payload in (market_state or {}).items():
         if bracket == "__meta__":
-            compact[bracket] = dict(payload or {})
+            raw_meta = dict(payload or {})
+            compact[bracket] = (
+                raw_meta
+                if detail
+                else {key: raw_meta.get(key) for key in meta_keys if key in raw_meta}
+            )
             continue
         if not isinstance(payload, dict):
             compact[bracket] = payload
@@ -86,7 +138,8 @@ def _compact_l2_market_state(market_state: Dict[str, Any]) -> Dict[str, Any]:
         for key, value in payload.items():
             if key in {"bids", "asks", "yes_bids", "yes_asks", "no_bids", "no_asks"}:
                 continue
-            reduced[key] = value
+            if key in keep_keys:
+                reduced[key] = value
         compact[bracket] = reduced
     return compact
 
@@ -266,6 +319,7 @@ class Recorder:
     - features: Environment features
     - nowcast: Model outputs
     - l2_snap: Market L2 snapshots
+    - market: Compact market snapshots
     - health: System health
     - event_window: Event window markers
     """
@@ -293,7 +347,7 @@ class Recorder:
 
         # Ring buffers (in-memory) for live UI
         self._ring_buffers: Dict[str, RingBuffer] = {
-            ch: RingBuffer(max_size=(l2_ring_size if ch == "l2_snap" else default_ring_size))
+            ch: RingBuffer(max_size=(l2_ring_size if ch in MARKET_RING_CHANNELS else default_ring_size))
             for ch in self._channels
         }
 
@@ -552,15 +606,35 @@ class Recorder:
         station_id: str,
         market_state: Dict[str, Any],
         market_id: Optional[str] = None,
-        correlation_id: Optional[str] = None
+        correlation_id: Optional[str] = None,
+        window_id: Optional[str] = None,
     ):
         """Record L2 market snapshot (Section 4.3 F)."""
         await self.record(
             channel="l2_snap",
-            data=_compact_l2_market_state(market_state),
+            data=_compact_market_state(market_state, detail=True),
             station_id=station_id,
             market_id=market_id,
-            correlation_id=correlation_id
+            correlation_id=correlation_id,
+            window_id=window_id,
+        )
+
+    async def record_market(
+        self,
+        station_id: str,
+        market_state: Dict[str, Any],
+        market_id: Optional[str] = None,
+        correlation_id: Optional[str] = None,
+        window_id: Optional[str] = None,
+    ):
+        """Record compact market snapshot for replay/backtest."""
+        await self.record(
+            channel="market",
+            data=_compact_market_state(market_state, detail=False),
+            station_id=station_id,
+            market_id=market_id,
+            correlation_id=correlation_id,
+            window_id=window_id,
         )
 
     async def record_health(

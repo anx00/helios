@@ -731,7 +731,9 @@ async def startup_event():
     asyncio.create_task(nowcast_loop())
     # Task 5: Phase 4 Recorder
     asyncio.create_task(recorder_loop())
-    # Task 6: Telegram bot (optional, enabled with TELEGRAM_BOT_TOKEN)
+    # Task 6: Background compaction / storage hygiene
+    asyncio.create_task(compactor_loop())
+    # Task 7: Telegram bot (optional, enabled with TELEGRAM_BOT_TOKEN)
     telegram_bot = build_telegram_bot_from_env()
     if telegram_bot:
         asyncio.create_task(telegram_bot.run_forever())
@@ -1473,8 +1475,227 @@ async def recorder_loop():
             from config import get_active_stations
             from market.polymarket_ws import get_ws_client
             logger = logging.getLogger("l2_snapshot_loop")
-            l2_record_interval = max(5.0, float(os.environ.get("HELIOS_RECORDER_L2_INTERVAL_SECONDS", "30") or 30.0))
-            last_recorded_at: Dict[str, float] = {}
+
+            def _env_float(name: str, default: float) -> float:
+                raw = str(os.environ.get(name, "")).strip()
+                if not raw:
+                    return float(default)
+                try:
+                    return float(raw)
+                except (TypeError, ValueError):
+                    return float(default)
+
+            def _env_int(name: str, default: int) -> int:
+                raw = str(os.environ.get(name, "")).strip()
+                if not raw:
+                    return int(default)
+                try:
+                    return int(raw)
+                except (TypeError, ValueError):
+                    return int(default)
+
+            def _safe_float(value: Any) -> Optional[float]:
+                if value is None:
+                    return None
+                try:
+                    return float(value)
+                except (TypeError, ValueError):
+                    return None
+
+            market_record_interval = max(
+                5.0,
+                _env_float(
+                    "HELIOS_RECORDER_MARKET_INTERVAL_SECONDS",
+                    _env_float("HELIOS_RECORDER_L2_INTERVAL_SECONDS", 30.0),
+                ),
+            )
+            dense_l2_interval = max(
+                1.0,
+                _env_float("HELIOS_RECORDER_EVENT_L2_INTERVAL_SECONDS", 5.0),
+            )
+            trigger_min_interval = max(
+                1.0,
+                _env_float("HELIOS_RECORDER_L2_TRIGGER_MIN_INTERVAL_SECONDS", 20.0),
+            )
+            mid_shock_ticks = max(
+                1,
+                _env_int(
+                    "HELIOS_RECORDER_MID_SHOCK_TICKS",
+                    getattr(window_manager.config, "mid_shock_threshold_ticks", 5),
+                ),
+            )
+            tight_spread_threshold = max(
+                0.0,
+                _env_float("HELIOS_RECORDER_TIGHT_SPREAD_THRESHOLD", 0.02),
+            )
+            wide_spread_threshold = max(
+                tight_spread_threshold,
+                _env_float(
+                    "HELIOS_RECORDER_WIDE_SPREAD_THRESHOLD",
+                    getattr(window_manager.config, "spread_wide_threshold", 0.05),
+                ),
+            )
+            depth_cliff_ratio = min(
+                0.95,
+                max(0.05, _env_float("HELIOS_RECORDER_DEPTH_CLIFF_RATIO", 0.35)),
+            )
+            depth_cliff_min_total = max(
+                1.0,
+                _env_float("HELIOS_RECORDER_DEPTH_CLIFF_MIN_TOTAL", 25.0),
+            )
+
+            def _spread_regime(spread: Optional[float]) -> Optional[str]:
+                if spread is None:
+                    return None
+                if spread <= tight_spread_threshold:
+                    return "tight"
+                if spread >= wide_spread_threshold:
+                    return "wide"
+                return "normal"
+
+            def _build_signal_state(market_state: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+                state: Dict[str, Dict[str, Any]] = {}
+                for label, payload in (market_state or {}).items():
+                    if label == "__meta__" or not isinstance(payload, dict):
+                        continue
+                    mid = _safe_float(payload.get("mid"))
+                    spread = _safe_float(payload.get("spread"))
+                    if spread is None:
+                        spread = _safe_float(payload.get("yes_spread"))
+                    if spread is None:
+                        spread = _safe_float(payload.get("no_spread"))
+
+                    bid_depth = _safe_float(payload.get("bid_depth"))
+                    ask_depth = _safe_float(payload.get("ask_depth"))
+                    if bid_depth is None and ask_depth is None:
+                        bid_depth = _safe_float(payload.get("yes_bid_depth"))
+                        ask_depth = _safe_float(payload.get("yes_ask_depth"))
+                    if bid_depth is None and ask_depth is None:
+                        bid_depth = _safe_float(payload.get("no_bid_depth"))
+                        ask_depth = _safe_float(payload.get("no_ask_depth"))
+
+                    total_depth = float((bid_depth or 0.0) + (ask_depth or 0.0))
+                    if mid is None and spread is None and total_depth <= 0.0:
+                        continue
+
+                    state[label] = {
+                        "mid": mid,
+                        "spread": spread,
+                        "spread_regime": _spread_regime(spread),
+                        "total_depth": total_depth,
+                    }
+                return state
+
+            async def _open_market_window_if_needed(
+                station_id: str,
+                signal_state: Dict[str, Dict[str, Any]],
+                loop_now: float,
+            ) -> bool:
+                previous_state = station_signal_state.get(station_id) or {}
+                if not previous_state:
+                    return False
+
+                last_trigger = float(last_triggered_at.get(station_id) or 0.0)
+                if loop_now - last_trigger < trigger_min_interval:
+                    return False
+
+                best_mid_trigger: Optional[Dict[str, Any]] = None
+                best_spread_trigger: Optional[Dict[str, Any]] = None
+                best_depth_trigger: Optional[Dict[str, Any]] = None
+
+                for label, current in signal_state.items():
+                    previous = previous_state.get(label)
+                    if not previous:
+                        continue
+
+                    prev_mid = previous.get("mid")
+                    curr_mid = current.get("mid")
+                    if prev_mid is not None and curr_mid is not None:
+                        delta_ticks = int(round(abs(curr_mid - prev_mid) / 0.01))
+                        if delta_ticks >= mid_shock_ticks:
+                            if (
+                                best_mid_trigger is None
+                                or delta_ticks > int(best_mid_trigger["delta_ticks"])
+                            ):
+                                best_mid_trigger = {
+                                    "label": label,
+                                    "old_mid": prev_mid,
+                                    "new_mid": curr_mid,
+                                    "delta_ticks": delta_ticks,
+                                }
+
+                    prev_regime = previous.get("spread_regime")
+                    curr_regime = current.get("spread_regime")
+                    curr_spread = current.get("spread")
+                    if prev_regime and curr_regime and prev_regime != curr_regime and curr_spread is not None:
+                        if (
+                            best_spread_trigger is None
+                            or float(curr_spread) > float(best_spread_trigger["spread"])
+                        ):
+                            best_spread_trigger = {
+                                "label": label,
+                                "old_regime": prev_regime,
+                                "new_regime": curr_regime,
+                                "spread": curr_spread,
+                            }
+
+                    prev_depth = float(previous.get("total_depth") or 0.0)
+                    curr_depth = float(current.get("total_depth") or 0.0)
+                    if (
+                        prev_depth >= depth_cliff_min_total
+                        and curr_depth < prev_depth
+                        and curr_depth <= prev_depth * depth_cliff_ratio
+                    ):
+                        drop_ratio = 1.0 - (curr_depth / prev_depth if prev_depth > 0 else 0.0)
+                        if (
+                            best_depth_trigger is None
+                            or drop_ratio > float(best_depth_trigger["drop_ratio"])
+                        ):
+                            best_depth_trigger = {
+                                "label": label,
+                                "old_depth": prev_depth,
+                                "new_depth": curr_depth,
+                                "drop_ratio": drop_ratio,
+                            }
+
+                if best_mid_trigger is not None:
+                    await window_manager.on_mid_shock(
+                        market_id=f"{station_id}:{best_mid_trigger['label']}",
+                        old_mid=float(best_mid_trigger["old_mid"]),
+                        new_mid=float(best_mid_trigger["new_mid"]),
+                        delta_ticks=int(best_mid_trigger["delta_ticks"]),
+                        station_id=station_id,
+                    )
+                    last_triggered_at[station_id] = loop_now
+                    return True
+
+                if best_spread_trigger is not None:
+                    await window_manager.on_spread_regime_change(
+                        market_id=f"{station_id}:{best_spread_trigger['label']}",
+                        old_regime=str(best_spread_trigger["old_regime"]),
+                        new_regime=str(best_spread_trigger["new_regime"]),
+                        spread=float(best_spread_trigger["spread"]),
+                        station_id=station_id,
+                    )
+                    last_triggered_at[station_id] = loop_now
+                    return True
+
+                if best_depth_trigger is not None:
+                    await window_manager.on_depth_cliff(
+                        market_id=f"{station_id}:{best_depth_trigger['label']}",
+                        old_depth=float(best_depth_trigger["old_depth"]),
+                        new_depth=float(best_depth_trigger["new_depth"]),
+                        station_id=station_id,
+                    )
+                    last_triggered_at[station_id] = loop_now
+                    return True
+
+                return False
+
+            last_market_recorded_at: Dict[str, float] = {}
+            last_l2_recorded_at: Dict[str, float] = {}
+            last_triggered_at: Dict[str, float] = {}
+            station_signal_state: Dict[str, Dict[str, Dict[str, Any]]] = {}
 
             while True:
                 try:
@@ -1565,13 +1786,35 @@ async def recorder_loop():
                         }
 
                         buckets["__meta__"] = meta
-                        last_ts = float(last_recorded_at.get(station_id) or 0.0)
-                        if loop_now - last_ts >= l2_record_interval:
+                        signal_state = _build_signal_state(buckets)
+                        triggered_window = await _open_market_window_if_needed(
+                            station_id,
+                            signal_state,
+                            loop_now,
+                        )
+                        active_window = window_manager.has_active_window(station_id)
+                        current_window_id = window_manager.get_current_window_id(station_id)
+
+                        last_market_ts = float(last_market_recorded_at.get(station_id) or 0.0)
+                        if loop_now - last_market_ts >= market_record_interval:
+                            asyncio.create_task(recorder.record_market(
+                                station_id=station_id,
+                                market_state=buckets,
+                                window_id=current_window_id,
+                            ))
+                            last_market_recorded_at[station_id] = loop_now
+
+                        should_record_l2 = triggered_window or active_window
+                        last_l2_ts = float(last_l2_recorded_at.get(station_id) or 0.0)
+                        if should_record_l2 and (triggered_window or (loop_now - last_l2_ts >= dense_l2_interval)):
                             asyncio.create_task(recorder.record_l2_snap(
                                 station_id=station_id,
-                                market_state=buckets
+                                market_state=buckets,
+                                window_id=current_window_id,
                             ))
-                            last_recorded_at[station_id] = loop_now
+                            last_l2_recorded_at[station_id] = loop_now
+
+                        station_signal_state[station_id] = signal_state
 
                     await asyncio.sleep(1)
 
@@ -1659,6 +1902,46 @@ async def recorder_loop():
 
     except Exception as e:
         logger.error(f"Recorder initialization failed: {e}")
+
+
+async def compactor_loop():
+    """Background compaction of completed recording dates."""
+    from core.compactor import get_compactor
+
+    logger = logging.getLogger("compactor_loop")
+    enabled_raw = str(os.environ.get("HELIOS_COMPACTOR_ENABLED", "1")).strip().lower()
+    enabled = enabled_raw not in {"0", "false", "no", "off"}
+    if not enabled:
+        logger.info("Compactor loop disabled by HELIOS_COMPACTOR_ENABLED")
+        return
+
+    try:
+        interval_seconds = max(
+            300.0,
+            float(os.environ.get("HELIOS_COMPACTOR_INTERVAL_SECONDS", "1800") or 1800.0),
+        )
+    except (TypeError, ValueError):
+        interval_seconds = 1800.0
+
+    while True:
+        try:
+            compactor = get_compactor()
+            result = await asyncio.to_thread(compactor.compact_all_pending)
+            compacted_dates = list(result.get("compacted_dates", []) or [])
+            if compacted_dates:
+                logger.info(
+                    "Compactor processed %d dates (%s events)",
+                    len(compacted_dates),
+                    result.get("total_events", 0),
+                )
+            if not getattr(compactor, "delete_after_compact", False):
+                deleted = await asyncio.to_thread(compactor.cleanup_old_ndjson)
+                if deleted:
+                    logger.info("Compactor cleanup pruned %d NDJSON partitions", deleted)
+        except Exception as e:
+            logger.error(f"Compactor loop error: {e}")
+
+        await asyncio.sleep(interval_seconds)
 # =============================================================================
 # Phase 3: Nowcast API Endpoints
 # =============================================================================

@@ -321,12 +321,14 @@ class EventWindowManager:
         market_id: str,
         old_mid: float,
         new_mid: float,
-        delta_ticks: int
+        delta_ticks: int,
+        station_id: Optional[str] = None,
     ) -> EventWindow:
         """Trigger window for mid price shock."""
         return await self.open_window(
             trigger=WindowTrigger.MID_SHOCK,
             reason=f"Mid shock: {old_mid:.4f} -> {new_mid:.4f} ({delta_ticks} ticks)",
+            station_id=station_id,
             metadata={
                 "market_id": market_id,
                 "old_mid": old_mid,
@@ -340,18 +342,39 @@ class EventWindowManager:
         market_id: str,
         old_regime: str,
         new_regime: str,
-        spread: float
+        spread: float,
+        station_id: Optional[str] = None,
     ) -> EventWindow:
         """Trigger window for spread regime change."""
         return await self.open_window(
             trigger=WindowTrigger.SPREAD_REGIME,
             reason=f"Spread regime: {old_regime} -> {new_regime} ({spread:.2%})",
+            station_id=station_id,
             metadata={
                 "market_id": market_id,
                 "old_regime": old_regime,
                 "new_regime": new_regime,
                 "spread": spread
             }
+        )
+
+    async def on_depth_cliff(
+        self,
+        market_id: str,
+        old_depth: float,
+        new_depth: float,
+        station_id: Optional[str] = None,
+    ) -> EventWindow:
+        """Trigger window for abrupt depth collapse."""
+        return await self.open_window(
+            trigger=WindowTrigger.DEPTH_CLIFF,
+            reason=f"Depth cliff: {old_depth:.1f} -> {new_depth:.1f}",
+            station_id=station_id,
+            metadata={
+                "market_id": market_id,
+                "old_depth": old_depth,
+                "new_depth": new_depth,
+            },
         )
 
     async def on_hrrr_update(

@@ -979,6 +979,23 @@ _reader: Optional[ParquetReader] = None
 _hybrid_reader: Optional[HybridReader] = None
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = str(os.getenv(name, "")).strip().lower()
+    if not raw:
+        return bool(default)
+    return raw in {"1", "true", "yes", "on"}
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = str(os.getenv(name, "")).strip()
+    if not raw:
+        return int(default)
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return int(default)
+
+
 def get_compactor(
     ndjson_base: str = "data/recordings",
     parquet_base: str = "data/parquet"
@@ -986,7 +1003,17 @@ def get_compactor(
     """Get the global Compactor instance."""
     global _compactor
     if _compactor is None:
-        _compactor = Compactor(ndjson_base, parquet_base)
+        retention_days = _env_int(
+            "HELIOS_RECORDINGS_RETENTION_DAYS",
+            _env_int("HELIOS_RETENTION_DAYS", 14),
+        )
+        delete_after_compact = _env_bool("HELIOS_COMPACTOR_DELETE_AFTER_COMPACT", False)
+        _compactor = Compactor(
+            ndjson_base,
+            parquet_base,
+            delete_after_compact=delete_after_compact,
+            retention_days=retention_days,
+        )
     return _compactor
 
 

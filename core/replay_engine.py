@@ -338,10 +338,10 @@ class ReplaySession:
                 for source_date in self._source_dates:
                     available.update(self._reader.list_channels_for_date(source_date, self.station_id))
                 channels = ["world", "pws", "nowcast", "features", "health", "event_window"]
-                if "l2_snap" in available:
-                    channels.append("l2_snap")
-                elif "market" in available:
+                if "market" in available:
                     channels.append("market")
+                elif "l2_snap" in available:
+                    channels.append("l2_snap")
                 elif "l2_snap_1s" in available:
                     channels.append("l2_snap_1s")
 

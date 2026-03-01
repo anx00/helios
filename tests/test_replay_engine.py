@@ -32,6 +32,24 @@ class _DateAwareStubReader:
         return sorted({str(e.get("ch")) for e in events if e.get("ch")})
 
 
+class _ChannelAwareStubReader:
+    def __init__(self, events, available_channels):
+        self._events = events
+        self._available_channels = list(available_channels)
+        self.last_channels = None
+
+    def get_events_sorted(self, date_str, station_id=None, channels=None):
+        self.last_channels = list(channels) if channels is not None else None
+        allowed = set(channels) if channels is not None else None
+        events = list(self._events)
+        if allowed is not None:
+            events = [e for e in events if e.get("ch") in allowed]
+        return events
+
+    def list_channels_for_date(self, date_str, station_id=None):
+        return list(self._available_channels)
+
+
 class _TimestampLike:
     def __init__(self, dt: datetime):
         self._dt = dt
@@ -565,6 +583,27 @@ def test_replay_state_exposes_loaded_channels():
     state = session.get_state()
     assert "channels_loaded" in state
     assert state["channels_loaded"] == ["market", "world"]
+
+
+def test_replay_load_prefers_market_channel_over_dense_l2():
+    from core.replay_engine import ReplaySession
+
+    start = datetime(2026, 2, 6, 12, 0, 0, tzinfo=UTC)
+    events = [
+        {"ch": "world", "ts_ingest_utc": start, "data": {"src": "METAR"}},
+        {"ch": "market", "ts_ingest_utc": start + timedelta(seconds=1), "data": {"40-41F": {"mid": 0.55}}},
+        {"ch": "l2_snap", "ts_ingest_utc": start + timedelta(seconds=2), "data": {"40-41F": {"mid": 0.56}}},
+    ]
+    reader = _ChannelAwareStubReader(
+        events,
+        available_channels=["world", "market", "l2_snap", "nowcast", "pws", "health", "event_window"],
+    )
+
+    session = ReplaySession("s5b", "2026-02-06", "KLGA")
+    session._reader = reader
+    ok = asyncio.run(session.load())
+    assert ok
+    assert reader.last_channels == ["world", "pws", "nowcast", "features", "health", "event_window", "market"]
 
 
 def test_replay_helpers_map_london_market_day_to_nyc_partitions():
