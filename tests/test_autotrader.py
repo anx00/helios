@@ -1508,6 +1508,54 @@ def test_sync_live_positions_into_state_imports_managed_positions_by_default(tmp
     assert row["status"] == "OPEN"
 
 
+def test_sync_live_positions_marks_missing_bot_live_position_as_closed_unreconciled(tmp_path):
+    state_path = tmp_path / "portfolio_state.json"
+    log_path = tmp_path / "autotrader.jsonl"
+    config = AutoTraderConfig(
+        enabled=True,
+        mode="live",
+        station_ids=["KATL"],
+        state_path=str(state_path),
+        log_path=str(log_path),
+    )
+    trader = AutoTrader(config=config)
+    trader.state["positions"] = {
+        "KATL|2026-03-01|76F OR HIGHER|NO": {
+            "station_id": "KATL",
+            "target_date": "2026-03-01",
+            "label": "76F OR HIGHER",
+            "side": "NO",
+            "token_id": "tok1",
+            "status": "OPEN",
+            "source": "autotrader_live",
+            "strategy": "managed_live",
+            "managed_by_bot": True,
+            "shares": 36.57,
+            "shares_open": 36.57,
+            "entry_price": 0.3599,
+            "cost_basis_open_usd": 13.16,
+            "current_value_usd": 13.9,
+            "live_synced_at_utc": "2026-03-01T12:00:00+00:00",
+        }
+    }
+
+    trader._sync_live_positions_into_state([])
+
+    row = trader.state["positions"]["KATL|2026-03-01|76F OR HIGHER|NO"]
+    assert row["status"] == "CLOSED_UNRECONCILED"
+    assert row["shares_open"] == 36.57
+    assert row["cost_basis_open_usd"] == 13.16
+    assert row["close_reconciliation_status"] == "missing_from_live_snapshot"
+    assert row["unreconciled_close_detected_at_utc"]
+    trader._persist_state()
+    snapshot = trader.get_status_snapshot()
+    assert snapshot["portfolio"]["open_positions_count"] == 0
+    assert snapshot["portfolio"]["unreconciled_closed_positions_count"] == 1
+    assert snapshot["state"]["unreconciled_positions"] == 1
+    log_rows = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
+    assert any(row.get("status") == "live_position_missing_unreconciled" for row in log_rows)
+
+
 def test_status_snapshot_repairs_legacy_live_positions_to_managed_when_account_is_bot_only(tmp_path):
     state_path = tmp_path / "portfolio_state.json"
     log_path = tmp_path / "autotrader.jsonl"
@@ -1696,6 +1744,50 @@ def test_manage_open_positions_skips_explicit_tracking_only_positions(tmp_path):
     assert snapshot["state"]["open_positions"] == 1
 
 
+def test_run_station_once_skips_reentry_when_unreconciled_position_exists(tmp_path):
+    state_path = tmp_path / "portfolio_state.json"
+    log_path = tmp_path / "autotrader.jsonl"
+    config = AutoTraderConfig(
+        enabled=True,
+        mode="paper",
+        station_ids=["KATL"],
+        state_path=str(state_path),
+        log_path=str(log_path),
+    )
+    trader = AutoTrader(config=config, execution=_ReduceOnlyExecutionClient())
+    trader.state["positions"] = {
+        "KATL|2026-02-28|68-69 F|YES": {
+            "station_id": "KATL",
+            "target_date": "2026-02-28",
+            "label": "68-69 F",
+            "side": "YES",
+            "token_id": "YES1",
+            "status": "CLOSED_UNRECONCILED",
+            "source": "autotrader_live",
+            "strategy": "managed_live",
+            "managed_by_bot": True,
+            "shares": 10.0,
+            "shares_open": 10.0,
+            "entry_price": 0.24,
+            "notional_usd": 2.4,
+            "cost_basis_open_usd": 2.4,
+            "current_value_usd": 2.0,
+            "unreconciled_close_detected_at_utc": "2026-02-28T16:00:00+00:00",
+        }
+    }
+    trader._persist_state()
+
+    async def _fake_fetch(*args, **kwargs):
+        return _sample_payload()
+
+    trader._fetch_signal_payload = _fake_fetch
+
+    result = asyncio.run(trader.run_station_once("KATL", target_date="2026-02-28"))
+
+    assert result["status"] == "skip"
+    assert "unreconciled_position_exists" in result["reasons"]
+
+
 def test_evaluate_trade_candidate_can_pick_tactical_reprice():
     payload = _sample_payload()
     payload["trading"]["best_terminal_trade"] = {}
@@ -1776,6 +1868,62 @@ def test_persist_exit_closes_position_and_updates_realized_pnl(tmp_path):
     assert snapshot["portfolio"]["open_risk_usd"] == 0.0
     assert snapshot["portfolio"]["realized_pnl_today_usd"] == 0.4
     assert snapshot["state"]["open_positions"] == 0
+
+
+def test_persist_exit_reconciles_closed_unreconciled_position(tmp_path):
+    state_path = tmp_path / "portfolio_state.json"
+    log_path = tmp_path / "katl.jsonl"
+    config = AutoTraderConfig(
+        enabled=True,
+        station_ids=["KATL"],
+        state_path=str(state_path),
+        log_path=str(log_path),
+    )
+    trader = AutoTrader(config=config)
+    trader.state["positions"] = {
+        "KATL|2026-02-28|68-69 F|YES": {
+            "station_id": "KATL",
+            "target_date": "2026-02-28",
+            "label": "68-69 F",
+            "side": "YES",
+            "token_id": "YES1",
+            "status": "CLOSED_UNRECONCILED",
+            "source": "autotrader_live",
+            "strategy": "managed_live",
+            "managed_by_bot": True,
+            "entry_price": 0.20,
+            "shares": 5.0,
+            "shares_open": 5.0,
+            "notional_usd": 1.0,
+            "cost_basis_open_usd": 1.0,
+            "current_value_usd": 1.1,
+            "unreconciled_close_detected_at_utc": "2026-02-28T15:10:00+00:00",
+            "close_reconciliation_status": "pending_exit_missing_from_live_snapshot",
+            "fills": [],
+        }
+    }
+    trader.state["open_risk_usd"] = 0.0
+    trader._persist_state()
+
+    persisted = trader._persist_exit(
+        "KATL|2026-02-28|68-69 F|YES",
+        {
+            "size": 5.0,
+            "best_bid": 0.28,
+            "proceeds_usd": 1.4,
+            "reason": "take_profit",
+        },
+        {"mode": "live"},
+        mode="live",
+    )
+
+    assert persisted["reason"] == "take_profit"
+    reloaded = json.loads(state_path.read_text(encoding="utf-8"))
+    row = reloaded["positions"]["KATL|2026-02-28|68-69 F|YES"]
+    assert row["status"] == "CLOSED"
+    assert row["close_reconciliation_status"] == "confirmed_by_order_fill"
+    assert row["reconciled_close_at_utc"]
+    assert round(row["realized_pnl_usd"], 2) == 0.40
 
 
 def test_summarize_order_response_uses_matched_amounts():

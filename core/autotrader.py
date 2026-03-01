@@ -678,6 +678,33 @@ def _open_positions(state: Dict[str, Any]) -> List[Dict[str, Any]]:
     return rows
 
 
+def _unreconciled_positions(state: Dict[str, Any]) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for key, position in (state.get("positions") or {}).items():
+        if not isinstance(position, dict):
+            continue
+        if str(position.get("status") or "").upper() != "CLOSED_UNRECONCILED":
+            continue
+        row = dict(position)
+        row.setdefault("position_key", key)
+        row.setdefault("source", "local_state")
+        row["managed_by_bot"] = _boolish(row.get("managed_by_bot"))
+        row["notional_usd"] = float(_safe_float(row.get("notional_usd")) or 0.0)
+        row["cost_basis_open_usd"] = float(_safe_float(row.get("cost_basis_open_usd")) or row["notional_usd"])
+        row["shares_open"] = float(_safe_float(row.get("shares_open")) or _safe_float(row.get("shares")) or 0.0)
+        rows.append(row)
+    rows.sort(
+        key=lambda row: str(
+            row.get("unreconciled_close_detected_at_utc")
+            or row.get("closed_at_utc")
+            or row.get("opened_at_utc")
+            or ""
+        ),
+        reverse=True,
+    )
+    return rows
+
+
 def _position_identity(row: Dict[str, Any]) -> str:
     station_id = str(row.get("station_id") or "").upper()
     target_date = str(row.get("target_date") or "")
@@ -743,6 +770,11 @@ def _station_state_summary(
         for row in _merged_open_positions(state, live_positions=live_positions)
         if str(row.get("station_id") or "").upper() == normalized_station
     ]
+    unreconciled_positions = [
+        row
+        for row in _unreconciled_positions(state)
+        if str(row.get("station_id") or "").upper() == normalized_station
+    ]
     open_risk = sum(_position_risk_now_usd(row) for row in positions)
     last_trade = next((row.get("opened_at_utc") for row in positions if row.get("opened_at_utc")), None)
     strategies: Dict[str, int] = {}
@@ -753,6 +785,8 @@ def _station_state_summary(
         "open_risk_usd": round(open_risk, 6),
         "open_positions": len(positions),
         "positions": positions[:6],
+        "unreconciled_positions": len(unreconciled_positions),
+        "unreconciled_rows": unreconciled_positions[:6],
         "last_trade_utc": last_trade,
         "strategies": strategies,
     }
@@ -763,6 +797,7 @@ def _global_state_summary(
     live_positions: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     positions = _merged_open_positions(state, live_positions=live_positions)
+    unreconciled_positions = _unreconciled_positions(state)
     open_risk = sum(_position_risk_now_usd(row) for row in positions)
     last_trade = next(
         (
@@ -780,6 +815,8 @@ def _global_state_summary(
         "open_risk_usd": round(open_risk, 6),
         "open_positions": len(positions),
         "positions": positions[:10],
+        "unreconciled_positions": len(unreconciled_positions),
+        "unreconciled_rows": unreconciled_positions[:10],
         "last_trade_utc": last_trade,
         "strategies": strategies,
     }
@@ -793,6 +830,7 @@ def _portfolio_summary(
 ) -> Dict[str, Any]:
     live_positions = list((live_snapshot or {}).get("open_positions") or [])
     positions = _merged_open_positions(state, live_positions=live_positions)
+    unreconciled_positions = _unreconciled_positions(state)
     open_risk = round(sum(_position_risk_now_usd(row) for row in positions), 6)
     gross_buys = float(_safe_float(state.get("gross_buys_today_usd")) or _safe_float(state.get("spent_today_usd")) or 0.0)
     gross_sells = float(_safe_float(state.get("gross_sells_today_usd")) or 0.0)
@@ -809,6 +847,7 @@ def _portfolio_summary(
     managed_positions = [row for row in positions if _is_autotrader_managed_position(row)]
     unmanaged_positions = [row for row in positions if not _is_autotrader_managed_position(row)]
     live_only_positions = [row for row in positions if str(row.get("source") or "") == "polymarket_live"]
+    managed_unreconciled_positions = [row for row in unreconciled_positions if _is_autotrader_managed_position(row)]
     return {
         "bankroll_usd": float(config.bankroll_usd),
         "effective_bankroll_usd": _effective_bankroll_usd(
@@ -837,6 +876,8 @@ def _portfolio_summary(
         "external_open_positions_count": len(unmanaged_positions),
         "managed_open_positions_count": len(managed_positions),
         "tracking_only_positions_count": len(unmanaged_positions),
+        "unreconciled_closed_positions_count": len(unreconciled_positions),
+        "managed_unreconciled_positions_count": len(managed_unreconciled_positions),
         "trades_today": int(_safe_float(state.get("trades_today")) or 0),
         "closed_trades_today": int(_safe_float(state.get("closed_trades_today")) or 0),
         "last_trade_utc": state.get("last_trade_utc"),
@@ -1897,10 +1938,29 @@ class AutoTrader:
                 continue
             if str(position.get("status") or "OPEN").upper() != "OPEN":
                 continue
-            positions[key]["status"] = "CLOSED"
-            positions[key]["shares_open"] = 0.0
-            positions[key]["cost_basis_open_usd"] = 0.0
+            missing_reason = (
+                "pending_exit_missing_from_live_snapshot"
+                if self._has_pending_order("exit", key)
+                else "missing_from_live_snapshot"
+            )
+            positions[key]["status"] = "CLOSED_UNRECONCILED"
             positions[key]["closed_at_utc"] = now_iso
+            positions[key]["unreconciled_close_detected_at_utc"] = now_iso
+            positions[key]["close_reconciliation_status"] = missing_reason
+            positions[key]["last_known_live_synced_at_utc"] = str(position.get("live_synced_at_utc") or now_iso)
+            self._append_log(
+                {
+                    "station_id": position.get("station_id"),
+                    "status": "live_position_missing_unreconciled",
+                    "position_key": key,
+                    "position_identity": identity,
+                    "reason": missing_reason,
+                    "managed_by_bot": bool(position.get("managed_by_bot")),
+                    "source": position.get("source"),
+                    "shares_open": float(_safe_float(position.get("shares_open")) or _safe_float(position.get("shares")) or 0.0),
+                    "cost_basis_open_usd": float(_safe_float(position.get("cost_basis_open_usd")) or _safe_float(position.get("notional_usd")) or 0.0),
+                }
+            )
 
     def _position_live_book(self, position: Dict[str, Any], payload: Dict[str, Any]) -> Optional[TopOfBook]:
         bracket = _find_bracket(payload, str(position.get("label") or ""))
@@ -2118,6 +2178,9 @@ class AutoTrader:
         position["realized_pnl_usd"] = round(float(_safe_float(position.get("realized_pnl_usd")) or 0.0) + realized_pnl, 6)
         position["last_exit_reason"] = exit_plan.get("reason")
         position["last_exit_utc"] = now_iso
+        if str(position.get("status") or "").upper() == "CLOSED_UNRECONCILED":
+            position["close_reconciliation_status"] = "confirmed_by_order_fill"
+            position["reconciled_close_at_utc"] = now_iso
         if remaining_shares <= 1e-9:
             position["status"] = "CLOSED"
             position["closed_at_utc"] = now_iso
@@ -2443,11 +2506,13 @@ class AutoTrader:
                 "closed_trades_today": int(_safe_float(self.state.get("closed_trades_today")) or 0),
                 "last_trade_utc": station_state.get("last_trade_utc") or self.state.get("last_trade_utc"),
                 "open_positions": int(station_state.get("open_positions") or 0),
+                "unreconciled_positions": int(station_state.get("unreconciled_positions") or 0),
                 "pending_orders": len(pending_orders),
                 "pending_entries": pending_entries,
                 "pending_exits": pending_exits,
                 "active_station_cooldowns": active_station_cooldowns,
                 "positions": station_state.get("positions") or [],
+                "unreconciled_rows": station_state.get("unreconciled_rows") or [],
                 "strategies": station_state.get("strategies") or {},
             },
             "sync": {
@@ -2700,6 +2765,11 @@ class AutoTrader:
                 for row in _merged_open_positions(self.state, live_positions=live_positions)
                 if isinstance(row, dict) and str(row.get("status") or "OPEN").upper() == "OPEN"
             }
+            unreconciled_position_identities = {
+                str(row.get("position_identity") or _position_identity(row))
+                for row in _unreconciled_positions(self.state)
+                if isinstance(row, dict) and _is_autotrader_managed_position(row)
+            }
             candidate_identity = _position_identity(
                 {
                     "station_id": candidate.station_id,
@@ -2710,6 +2780,16 @@ class AutoTrader:
             )
             if candidate_identity in merged_position_identities:
                 result = {"station_id": station_id, "status": "skip", "reasons": ["duplicate_position"], "candidate": asdict(candidate), "exits": exit_events}
+                self._append_log(result)
+                return result
+            if candidate_identity in unreconciled_position_identities:
+                result = {
+                    "station_id": station_id,
+                    "status": "skip",
+                    "reasons": ["unreconciled_position_exists"],
+                    "candidate": asdict(candidate),
+                    "exits": exit_events,
+                }
                 self._append_log(result)
                 return result
             if self._has_pending_order("entry", candidate.position_key):
