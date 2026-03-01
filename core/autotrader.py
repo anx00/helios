@@ -284,7 +284,7 @@ def _recalculate_open_risk(positions: Dict[str, Any]) -> float:
             continue
         if str(position.get("status") or "OPEN").upper() != "OPEN":
             continue
-        total += float(_safe_float(position.get("cost_basis_open_usd")) or _safe_float(position.get("notional_usd")) or 0.0)
+        total += _position_risk_now_usd(position)
     return round(total, 6)
 
 
@@ -369,7 +369,7 @@ def _station_exposure_usd(
             continue
         if str(position.get("target_date")) != target_date:
             continue
-        total += float(_safe_float(position.get("cost_basis_open_usd")) or _safe_float(position.get("notional_usd")) or 0.0)
+        total += _position_risk_now_usd(position)
     return total
 
 
@@ -461,7 +461,7 @@ def _station_state_summary(
         for row in _merged_open_positions(state, live_positions=live_positions)
         if str(row.get("station_id") or "").upper() == normalized_station
     ]
-    open_risk = sum(float(row.get("cost_basis_open_usd") or 0.0) for row in positions)
+    open_risk = sum(_position_risk_now_usd(row) for row in positions)
     last_trade = next((row.get("opened_at_utc") for row in positions if row.get("opened_at_utc")), None)
     strategies: Dict[str, int] = {}
     for row in positions:
@@ -481,7 +481,7 @@ def _global_state_summary(
     live_positions: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     positions = _merged_open_positions(state, live_positions=live_positions)
-    open_risk = sum(float(row.get("cost_basis_open_usd") or 0.0) for row in positions)
+    open_risk = sum(_position_risk_now_usd(row) for row in positions)
     last_trade = next(
         (
             row.get("opened_at_utc") or row.get("closed_at_utc")
@@ -511,7 +511,7 @@ def _portfolio_summary(
 ) -> Dict[str, Any]:
     live_positions = list((live_snapshot or {}).get("open_positions") or [])
     positions = _merged_open_positions(state, live_positions=live_positions)
-    open_risk = round(sum(float(_safe_float(row.get("cost_basis_open_usd")) or 0.0) for row in positions), 6)
+    open_risk = round(sum(_position_risk_now_usd(row) for row in positions), 6)
     gross_buys = float(_safe_float(state.get("gross_buys_today_usd")) or _safe_float(state.get("spent_today_usd")) or 0.0)
     gross_sells = float(_safe_float(state.get("gross_sells_today_usd")) or 0.0)
     realized_pnl = float(_safe_float(state.get("realized_pnl_today_usd")) or 0.0)
@@ -811,7 +811,7 @@ def compute_trade_budget_usd(
     remaining_daily_loss = float(config.daily_loss_limit_usd) - realized_loss_today
     merged_positions = _merged_open_positions(state, live_positions=live_positions)
     managed_positions = [row for row in merged_positions if _is_autotrader_managed_position(row)]
-    merged_open_risk = sum(float(_safe_float(row.get("cost_basis_open_usd")) or 0.0) for row in merged_positions)
+    merged_open_risk = sum(_position_risk_now_usd(row) for row in merged_positions)
     remaining_total_exposure = float(config.max_total_exposure_usd) - float(merged_open_risk)
     open_positions_count = len(managed_positions)
     station_positions_count = _count_station_open_positions(state, candidate.station_id, live_positions=live_positions)
@@ -1075,6 +1075,17 @@ def _position_unrealized_pnl_usd(position: Dict[str, Any]) -> float:
     current_value = float(_safe_float(position.get("current_value_usd")) or 0.0)
     cost_basis = float(_safe_float(position.get("cost_basis_open_usd")) or _safe_float(position.get("notional_usd")) or 0.0)
     return current_value - cost_basis
+
+
+def _position_risk_now_usd(position: Dict[str, Any]) -> float:
+    current_value = _safe_float(position.get("current_value_usd"))
+    if current_value is not None and current_value >= 0.0:
+        return float(current_value)
+    shares_open = float(_safe_float(position.get("shares_open")) or _safe_float(position.get("shares")) or 0.0)
+    current_price = _safe_float(position.get("current_price"))
+    if current_price is not None and shares_open > 0.0:
+        return float(current_price) * shares_open
+    return float(_safe_float(position.get("cost_basis_open_usd")) or _safe_float(position.get("notional_usd")) or 0.0)
 
 
 def _is_autotrader_managed_position(position: Dict[str, Any]) -> bool:
@@ -1346,12 +1357,15 @@ class AutoTrader:
 
         entry_price = float(_safe_float(position.get("entry_price")) or 0.0)
         cost_basis_open = float(_safe_float(position.get("cost_basis_open_usd")) or _safe_float(position.get("notional_usd")) or (shares_open * entry_price))
+        current_value_open = float(_safe_float(position.get("current_value_usd")) or 0.0)
         average_cost = cost_basis_open / shares_open if shares_open > 0 else entry_price
+        average_mark = current_value_open / shares_open if shares_open > 0 and current_value_open > 0 else 0.0
         cost_basis_closed = average_cost * size
         proceeds_usd = float(_safe_float(exit_plan.get("proceeds_usd")) or 0.0)
         realized_pnl = proceeds_usd - cost_basis_closed
         remaining_shares = max(0.0, shares_open - size)
         remaining_cost_basis = max(0.0, cost_basis_open - cost_basis_closed)
+        remaining_current_value = max(0.0, current_value_open - (average_mark * size))
         now_iso = _utc_now().isoformat()
 
         fill = {
@@ -1368,6 +1382,7 @@ class AutoTrader:
         position["fills"] = list(position.get("fills") or []) + [fill]
         position["shares_open"] = round(remaining_shares, 6)
         position["cost_basis_open_usd"] = round(remaining_cost_basis, 6)
+        position["current_value_usd"] = round(remaining_current_value, 6)
         position["realized_pnl_usd"] = round(float(_safe_float(position.get("realized_pnl_usd")) or 0.0) + realized_pnl, 6)
         position["last_exit_reason"] = exit_plan.get("reason")
         position["last_exit_utc"] = now_iso
@@ -1393,7 +1408,7 @@ class AutoTrader:
     async def _manage_reduce_only_portfolio(self) -> List[Dict[str, Any]]:
         events: List[Dict[str, Any]] = []
         merged_positions = _merged_open_positions(self.state)
-        portfolio_risk = sum(float(_safe_float(row.get("cost_basis_open_usd")) or 0.0) for row in merged_positions)
+        portfolio_risk = sum(_position_risk_now_usd(row) for row in merged_positions)
         over_cap_usd = portfolio_risk - float(self.config.max_total_exposure_usd)
         if over_cap_usd <= 0.009:
             return events
@@ -1415,7 +1430,7 @@ class AutoTrader:
             key=lambda row: (
                 -_position_unrealized_pnl_usd(row),
                 -float(_safe_float(row.get("current_price")) or 0.0),
-                -float(_safe_float(row.get("cost_basis_open_usd")) or 0.0),
+                -_position_risk_now_usd(row),
             ),
         )
 
@@ -1445,14 +1460,15 @@ class AutoTrader:
 
             position_key = str(position.get("position_key") or "")
             shares_open = float(_safe_float(position.get("shares_open")) or _safe_float(position.get("shares")) or 0.0)
+            risk_now_open = _position_risk_now_usd(position)
             cost_basis_open = float(_safe_float(position.get("cost_basis_open_usd")) or _safe_float(position.get("notional_usd")) or 0.0)
-            if shares_open <= 0.0 or cost_basis_open <= 0.0:
+            if shares_open <= 0.0 or max(risk_now_open, cost_basis_open) <= 0.0:
                 continue
 
-            average_cost = cost_basis_open / shares_open if shares_open > 0 else 0.0
+            risk_per_share = risk_now_open / shares_open if shares_open > 0 and risk_now_open > 0 else 0.0
             requested_size = shares_open
-            if average_cost > 0:
-                requested_size = min(shares_open, max(0.01, reduce_cycle_cap / average_cost))
+            if risk_per_share > 0:
+                requested_size = min(shares_open, max(0.01, reduce_cycle_cap / risk_per_share))
 
             try:
                 live_book = self.execution.get_top_of_book(str(position.get("token_id") or ""))
@@ -1495,8 +1511,8 @@ class AutoTrader:
                 if not self.config.is_live:
                     response = {"mode": "paper"}
                     persisted = self._persist_exit(position_key, exit_plan, response, mode="paper")
-                    removed_cost = min(cost_basis_open, average_cost * float(_safe_float(exit_plan.get("size")) or 0.0)) if average_cost > 0 else cost_basis_open
-                    remaining_over_cap = max(0.0, remaining_over_cap - removed_cost)
+                    removed_risk = min(risk_now_open, risk_per_share * float(_safe_float(exit_plan.get("size")) or 0.0)) if risk_per_share > 0 else risk_now_open
+                    remaining_over_cap = max(0.0, remaining_over_cap - removed_risk)
                     event = {
                         "station_id": position.get("station_id"),
                         "status": "paper_reduce_only_exit",
@@ -1547,8 +1563,8 @@ class AutoTrader:
                 reconciled_plan["size"] = float(summary["matched_size"])
                 reconciled_plan["proceeds_usd"] = float(summary["matched_notional"])
                 persisted = self._persist_exit(position_key, reconciled_plan, {"response": response, "summary": summary}, mode="live")
-                removed_cost = min(cost_basis_open, average_cost * float(summary["matched_size"])) if average_cost > 0 else cost_basis_open
-                remaining_over_cap = max(0.0, remaining_over_cap - removed_cost)
+                removed_risk = min(risk_now_open, risk_per_share * float(summary["matched_size"])) if risk_per_share > 0 else risk_now_open
+                remaining_over_cap = max(0.0, remaining_over_cap - removed_risk)
                 event = {
                     "station_id": position.get("station_id"),
                     "status": "live_reduce_only_exit",
@@ -1843,7 +1859,7 @@ class AutoTrader:
             merged_position_identities = {
                 str(row.get("position_identity") or _position_identity(row))
                 for row in _merged_open_positions(self.state, live_positions=live_positions)
-                if isinstance(row, dict)
+                if isinstance(row, dict) and str(row.get("status") or "OPEN").upper() == "OPEN"
             }
             candidate_identity = _position_identity(
                 {
@@ -1853,7 +1869,7 @@ class AutoTrader:
                     "side": candidate.side,
                 }
             )
-            if candidate.position_key in (self.state.get("positions") or {}) or candidate_identity in merged_position_identities:
+            if candidate_identity in merged_position_identities:
                 result = {"station_id": station_id, "status": "skip", "reasons": ["duplicate_position"], "candidate": asdict(candidate), "exits": exit_events}
                 self._append_log(result)
                 return result

@@ -255,6 +255,60 @@ def test_compute_trade_budget_blocks_when_live_portfolio_already_uses_cap():
     assert budget == 0.0
 
 
+def test_compute_trade_budget_uses_mark_risk_not_historical_cost():
+    config = AutoTraderConfig(
+        enabled=True,
+        station_ids=["KATL"],
+        bankroll_usd=20.0,
+        fractional_kelly=0.2,
+        min_trade_usd=1.0,
+        max_trade_usd=5.0,
+        max_total_exposure_usd=20.0,
+        daily_loss_limit_usd=10.0,
+        max_open_positions=10,
+    )
+    candidate = AutoTradeCandidate(
+        station_id="KATL",
+        target_date="2026-02-28",
+        target_day=0,
+        label="68-69 F",
+        side="YES",
+        token_id="YES1",
+        market_price=0.24,
+        fair_price=0.40,
+        edge_points=16.0,
+        model_probability=0.40,
+        recommendation="BUY_YES",
+        policy_reason="test",
+        forecast_winner_label="68-69 F",
+        forecast_edge_points=16.0,
+        tactical_alignment="aligned",
+        why="test",
+        position_key="KATL|2026-02-28|68-69 F|YES",
+    )
+
+    budget = compute_trade_budget_usd(
+        candidate,
+        config,
+        state={"positions": {}},
+        available_balance_usd=25.0,
+        live_positions=[
+            {
+                "source": "polymarket_live",
+                "station_id": "EGLC",
+                "target_date": "2026-02-28",
+                "label": "11C",
+                "side": "YES",
+                "cost_basis_open_usd": 16.0,
+                "current_value_usd": 2.0,
+                "managed_by_bot": False,
+            }
+        ],
+    )
+
+    assert budget == 1.0
+
+
 def test_apply_orderbook_guardrails_uses_live_book_and_depth_caps():
     config = AutoTraderConfig(
         enabled=True,
@@ -470,6 +524,45 @@ def test_resolve_station_market_target_prefers_explicit_date():
     assert isinstance(resolved_day, int)
 
 
+def test_run_station_once_ignores_closed_state_duplicate(tmp_path):
+    state_path = tmp_path / "portfolio_state.json"
+    log_path = tmp_path / "autotrader.jsonl"
+    config = AutoTraderConfig(
+        enabled=True,
+        mode="paper",
+        station_ids=["KATL"],
+        state_path=str(state_path),
+        log_path=str(log_path),
+    )
+    trader = AutoTrader(config=config, execution=_ReduceOnlyExecutionClient())
+    trader.state["positions"] = {
+        "KATL|2026-02-28|68-69 F|YES": {
+            "station_id": "KATL",
+            "target_date": "2026-02-28",
+            "label": "68-69 F",
+            "side": "YES",
+            "token_id": "YES1",
+            "status": "CLOSED",
+            "managed_by_bot": True,
+            "shares": 10.0,
+            "shares_open": 0.0,
+            "entry_price": 0.24,
+            "notional_usd": 2.4,
+            "cost_basis_open_usd": 0.0,
+        }
+    }
+    trader._persist_state()
+
+    async def _fake_fetch(*args, **kwargs):
+        return _sample_payload()
+
+    trader._fetch_signal_payload = _fake_fetch
+
+    result = asyncio.run(trader.run_station_once("KATL", target_date="2026-02-28"))
+
+    assert "duplicate_position" not in result.get("reasons", [])
+
+
 class _FakeExecutionClient(PolymarketExecutionClient):
     def __init__(self, snapshot):
         super().__init__(PolymarketExecutionConfig(private_key="0xabc", derive_api_creds=True))
@@ -565,7 +658,7 @@ def test_status_snapshot_uses_live_polymarket_positions_for_exposure(tmp_path):
     snapshot = trader.get_status_snapshot()
 
     assert snapshot["portfolio"]["open_positions_count"] == 3
-    assert snapshot["portfolio"]["open_risk_usd"] == 26.92
+    assert snapshot["portfolio"]["open_risk_usd"] == 20.19
     assert snapshot["portfolio"]["free_collateral_usd"] == 0.840014
     assert snapshot["portfolio"]["portfolio_value_usd"] == 20.1959
     assert snapshot["portfolio"]["external_open_positions_count"] == 3
@@ -653,7 +746,7 @@ def test_reduce_only_does_not_sell_tracking_only_live_position_in_paper_mode(tmp
     assert events[0]["status"] == "reduce_only_hold"
     assert events[0]["reasons"] == ["no_managed_positions_to_trim"]
     snapshot = trader.get_status_snapshot()
-    assert snapshot["portfolio"]["open_risk_usd"] == 8.0
+    assert snapshot["portfolio"]["open_risk_usd"] == 9.0
     assert snapshot["portfolio"]["reduce_only_active"] is True
 
 
@@ -699,7 +792,7 @@ def test_reduce_only_trims_bot_managed_position_in_paper_mode(tmp_path):
     assert events
     assert events[0]["status"] == "paper_reduce_only_exit"
     snapshot = trader.get_status_snapshot()
-    assert 5.0 < snapshot["portfolio"]["open_risk_usd"] < 8.0
+    assert 5.0 < snapshot["portfolio"]["open_risk_usd"] < 9.0
     assert snapshot["portfolio"]["reduce_only_active"] is True
 
 
