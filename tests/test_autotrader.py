@@ -33,6 +33,17 @@ def _sample_payload():
         "station_id": "KATL",
         "target_date": "2026-02-28",
         "target_day": 0,
+        "confidence": 0.95,
+        "tmax_sigma_f": 1.8,
+        "nowcast": {
+            "confidence": 0.95,
+            "tmax_sigma_f": 1.8,
+            "p_bucket": [
+                {"label": "68-69 F", "probability": 0.44},
+                {"label": "70-71 F", "probability": 0.24},
+                {"label": "66-67 F", "probability": 0.18},
+            ],
+        },
         "market_status": {"event_closed": False, "is_mature": False},
         "brackets": [
             {"name": "68-69 F", "yes_token_id": "YES1", "no_token_id": "NO1"},
@@ -81,6 +92,11 @@ def test_evaluate_trade_candidate_accepts_forecast_winner_yes():
     assert candidate.token_id == "YES1"
     assert candidate.tactical_alignment == "aligned"
     assert candidate.strategy == "terminal_value"
+    assert candidate.signal_confidence == 0.95
+    assert candidate.signal_sigma_f == 1.8
+    assert candidate.distribution_top_probability == 0.44
+    assert candidate.distribution_top_gap == 0.20
+    assert candidate.bucket_rank == 1
 
 
 def test_evaluate_trade_candidate_blocks_secondary_yes_without_extra_edge():
@@ -157,6 +173,18 @@ def test_evaluate_trade_candidate_ignores_tracking_only_open_position_limit():
 
     assert reasons == []
     assert candidate is not None
+
+
+def test_evaluate_trade_candidate_blocks_low_signal_confidence():
+    payload = _sample_payload()
+    payload["confidence"] = 0.2
+    payload["nowcast"]["confidence"] = 0.2
+    config = AutoTraderConfig(enabled=True, station_ids=["KATL"], min_signal_confidence=0.35)
+
+    candidate, reasons = evaluate_trade_candidate(payload, config, state={"positions": {}})
+
+    assert candidate is None
+    assert "signal_confidence_too_low" in reasons
 
 
 def test_compute_trade_budget_respects_remaining_limits():
@@ -238,7 +266,81 @@ def test_compute_trade_budget_auto_mode_ignores_per_trade_cap_when_zero():
 
     budget = compute_trade_budget_usd(candidate, config, state={"positions": {}}, available_balance_usd=6.0)
 
-    assert budget == 1.5
+    assert budget == 1.066667
+
+
+def test_compute_trade_budget_scales_down_with_diffuse_distribution():
+    config = AutoTraderConfig(
+        enabled=True,
+        station_ids=["KATL"],
+        bankroll_usd=20.0,
+        fractional_kelly=0.2,
+        min_trade_usd=0.5,
+        max_trade_usd=0.0,
+        max_total_exposure_usd=10.0,
+        max_station_exposure_usd=10.0,
+        daily_loss_limit_usd=10.0,
+        distribution_top_probability_soft_floor=0.40,
+        distribution_top_probability_hard_floor=0.22,
+        distribution_top_gap_soft_floor=0.08,
+        distribution_top_gap_hard_floor=0.015,
+        distribution_min_budget_multiplier=0.60,
+    )
+    concentrated = AutoTradeCandidate(
+        station_id="KATL",
+        target_date="2026-02-28",
+        target_day=0,
+        label="68-69 F",
+        side="YES",
+        token_id="YES1",
+        market_price=0.10,
+        fair_price=0.90,
+        edge_points=80.0,
+        model_probability=0.90,
+        recommendation="BUY_YES",
+        policy_reason="test",
+        forecast_winner_label="68-69 F",
+        forecast_edge_points=80.0,
+        tactical_alignment="neutral",
+        why="test",
+        position_key="KATL|2026-02-28|68-69 F|YES",
+        signal_confidence=0.95,
+        signal_sigma_f=1.5,
+        distribution_top_probability=0.60,
+        distribution_top_gap=0.20,
+        bucket_rank=1,
+    )
+    diffuse = AutoTradeCandidate(
+        station_id="KATL",
+        target_date="2026-02-28",
+        target_day=0,
+        label="68-69 F",
+        side="YES",
+        token_id="YES1",
+        market_price=0.10,
+        fair_price=0.90,
+        edge_points=80.0,
+        model_probability=0.90,
+        recommendation="BUY_YES",
+        policy_reason="test",
+        forecast_winner_label="68-69 F",
+        forecast_edge_points=80.0,
+        tactical_alignment="neutral",
+        why="test",
+        position_key="KATL|2026-02-28|68-69 F|YES",
+        signal_confidence=0.95,
+        signal_sigma_f=1.5,
+        distribution_top_probability=0.24,
+        distribution_top_gap=0.02,
+        bucket_rank=1,
+    )
+
+    concentrated_budget = compute_trade_budget_usd(concentrated, config, state={"positions": {}}, available_balance_usd=10.0)
+    diffuse_budget = compute_trade_budget_usd(diffuse, config, state={"positions": {}}, available_balance_usd=10.0)
+
+    assert concentrated_budget == 1.723077
+    assert diffuse_budget == 1.086864
+    assert diffuse_budget < concentrated_budget
 
 
 def test_compute_trade_budget_auto_mode_splits_remaining_exposure_across_open_slots():
@@ -403,6 +505,7 @@ def test_load_autotrader_config_from_env_keeps_station_limits(monkeypatch):
     monkeypatch.setenv("HELIOS_AUTOTRADE_MAX_STATION_EXPOSURE_USD", "2.5")
     monkeypatch.setenv("HELIOS_AUTOTRADE_MAX_STATION_POSITIONS", "3")
     monkeypatch.setenv("HELIOS_AUTOTRADE_MAX_TRADE_USD", "0")
+    monkeypatch.setenv("HELIOS_AUTOTRADE_ASSUME_LIVE_POSITIONS_MANAGED", "false")
 
     config = load_autotrader_config_from_env()
 
@@ -410,6 +513,7 @@ def test_load_autotrader_config_from_env_keeps_station_limits(monkeypatch):
     assert config.max_station_exposure_usd == 2.5
     assert config.max_station_positions == 3
     assert config.max_trade_usd == 0.0
+    assert config.assume_live_positions_managed is False
 
 
 def test_compute_trade_budget_uses_mark_risk_not_historical_cost():
@@ -818,13 +922,17 @@ def test_status_snapshot_uses_live_polymarket_positions_for_exposure(tmp_path):
     assert snapshot["portfolio"]["open_risk_usd"] == 20.19
     assert snapshot["portfolio"]["free_collateral_usd"] == 0.840014
     assert snapshot["portfolio"]["portfolio_value_usd"] == 20.1959
-    assert snapshot["portfolio"]["external_open_positions_count"] == 3
+    assert snapshot["portfolio"]["effective_bankroll_usd"] == 20.0
+    assert snapshot["portfolio"]["live_only_open_positions_count"] == 3
+    assert snapshot["portfolio"]["external_open_positions_count"] == 0
+    assert snapshot["portfolio"]["managed_open_positions_count"] == 3
+    assert snapshot["portfolio"]["tracking_only_positions_count"] == 0
     assert snapshot["wallet"]["free_collateral_usd"] == 0.840014
-    assert snapshot["state"]["strategies"] == {"external_live": 3}
+    assert snapshot["state"]["strategies"] == {"managed_live": 3}
     assert snapshot["risk"]["max_trade_cap_enabled"] is False
 
 
-def test_sync_live_positions_into_state_imports_external_positions(tmp_path):
+def test_sync_live_positions_into_state_imports_managed_positions_by_default(tmp_path):
     state_path = tmp_path / "portfolio_state.json"
     log_path = tmp_path / "autotrader.jsonl"
     config = AutoTraderConfig(
@@ -857,14 +965,14 @@ def test_sync_live_positions_into_state_imports_external_positions(tmp_path):
     positions = trader.state.get("positions") or {}
     assert len(positions) == 1
     row = next(iter(positions.values()))
-    assert row["source"] == "polymarket_live"
-    assert row["strategy"] == "external_live"
-    assert row["managed_by_bot"] is False
+    assert row["source"] == "autotrader_live"
+    assert row["strategy"] == "managed_live"
+    assert row["managed_by_bot"] is True
     assert row["cost_basis_open_usd"] == 13.16
     assert row["status"] == "OPEN"
 
 
-def test_reduce_only_does_not_sell_tracking_only_live_position_in_paper_mode(tmp_path):
+def test_reduce_only_does_not_sell_explicit_tracking_only_live_position_in_paper_mode(tmp_path):
     state_path = tmp_path / "portfolio_state.json"
     log_path = tmp_path / "autotrader.jsonl"
     config = AutoTraderConfig(
@@ -893,6 +1001,7 @@ def test_reduce_only_does_not_sell_tracking_only_live_position_in_paper_mode(tmp
                 "shares_open": 200.0,
                 "avg_price": 0.04,
                 "current_price": 0.045,
+                "managed_by_bot": False,
             }
         ]
     )
@@ -954,7 +1063,7 @@ def test_reduce_only_trims_bot_managed_position_in_paper_mode(tmp_path):
     assert snapshot["portfolio"]["reduce_only_active"] is True
 
 
-def test_manage_open_positions_skips_tracking_only_positions(tmp_path):
+def test_manage_open_positions_skips_explicit_tracking_only_positions(tmp_path):
     state_path = tmp_path / "portfolio_state.json"
     log_path = tmp_path / "autotrader.jsonl"
     config = AutoTraderConfig(
@@ -980,6 +1089,7 @@ def test_manage_open_positions_skips_tracking_only_positions(tmp_path):
                 "shares_open": 200.0,
                 "avg_price": 0.04,
                 "current_price": 0.045,
+                "managed_by_bot": False,
             }
         ]
     )

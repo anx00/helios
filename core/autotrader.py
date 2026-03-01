@@ -152,6 +152,16 @@ class AutoTraderConfig:
     max_total_exposure_usd: float = 6.0
     max_station_exposure_usd: float = 6.0
     daily_loss_limit_usd: float = 4.0
+    min_signal_confidence: float = 0.35
+    min_confidence_budget_multiplier: float = 0.60
+    signal_sigma_soft_cap_f: float = 2.0
+    signal_sigma_hard_cap_f: float = 4.0
+    signal_sigma_min_budget_multiplier: float = 0.50
+    distribution_top_probability_soft_floor: float = 0.40
+    distribution_top_probability_hard_floor: float = 0.22
+    distribution_top_gap_soft_floor: float = 0.08
+    distribution_top_gap_hard_floor: float = 0.015
+    distribution_min_budget_multiplier: float = 0.60
     max_trades_per_day: int = 4
     cooldown_seconds: int = 900
     max_spread_points: float = 8.0
@@ -175,6 +185,7 @@ class AutoTraderConfig:
     order_mode: str = "limit_fak"
     limit_slippage_points: float = 1.0
     prefer_ws_book: bool = True
+    assume_live_positions_managed: bool = True
     state_path: str = "data/autotrader_state.json"
     log_path: str = "logs/autotrader_trades.jsonl"
     kill_switch_path: str = "data/AUTOTRADE_STOP"
@@ -204,6 +215,16 @@ def load_autotrader_config_from_env() -> AutoTraderConfig:
         max_total_exposure_usd=_env_float("HELIOS_AUTOTRADE_MAX_TOTAL_EXPOSURE_USD", 6.0),
         max_station_exposure_usd=_env_float("HELIOS_AUTOTRADE_MAX_STATION_EXPOSURE_USD", 3.0),
         daily_loss_limit_usd=_env_float("HELIOS_AUTOTRADE_DAILY_LOSS_LIMIT_USD", 4.0),
+        min_signal_confidence=_env_float("HELIOS_AUTOTRADE_MIN_SIGNAL_CONFIDENCE", 0.35),
+        min_confidence_budget_multiplier=_env_float("HELIOS_AUTOTRADE_MIN_CONFIDENCE_BUDGET_MULTIPLIER", 0.60),
+        signal_sigma_soft_cap_f=_env_float("HELIOS_AUTOTRADE_SIGNAL_SIGMA_SOFT_CAP_F", 2.0),
+        signal_sigma_hard_cap_f=_env_float("HELIOS_AUTOTRADE_SIGNAL_SIGMA_HARD_CAP_F", 4.0),
+        signal_sigma_min_budget_multiplier=_env_float("HELIOS_AUTOTRADE_SIGNAL_SIGMA_MIN_BUDGET_MULTIPLIER", 0.50),
+        distribution_top_probability_soft_floor=_env_float("HELIOS_AUTOTRADE_DISTRIBUTION_TOP_PROB_SOFT_FLOOR", 0.40),
+        distribution_top_probability_hard_floor=_env_float("HELIOS_AUTOTRADE_DISTRIBUTION_TOP_PROB_HARD_FLOOR", 0.22),
+        distribution_top_gap_soft_floor=_env_float("HELIOS_AUTOTRADE_DISTRIBUTION_TOP_GAP_SOFT_FLOOR", 0.08),
+        distribution_top_gap_hard_floor=_env_float("HELIOS_AUTOTRADE_DISTRIBUTION_TOP_GAP_HARD_FLOOR", 0.015),
+        distribution_min_budget_multiplier=_env_float("HELIOS_AUTOTRADE_DISTRIBUTION_MIN_BUDGET_MULTIPLIER", 0.60),
         max_trades_per_day=_env_int("HELIOS_AUTOTRADE_MAX_TRADES_PER_DAY", 4),
         cooldown_seconds=_env_int("HELIOS_AUTOTRADE_COOLDOWN_SECONDS", 900),
         max_spread_points=_env_float("HELIOS_AUTOTRADE_MAX_SPREAD_PTS", 8.0),
@@ -227,6 +248,7 @@ def load_autotrader_config_from_env() -> AutoTraderConfig:
         order_mode=str(os.environ.get("HELIOS_AUTOTRADE_ORDER_MODE", "limit_fak")).strip().lower() or "limit_fak",
         limit_slippage_points=_env_float("HELIOS_AUTOTRADE_LIMIT_SLIPPAGE_PTS", 1.0),
         prefer_ws_book=_env_bool("HELIOS_AUTOTRADE_PREFER_WS_BOOK", True),
+        assume_live_positions_managed=_env_bool("HELIOS_AUTOTRADE_ASSUME_LIVE_POSITIONS_MANAGED", True),
         state_path=str(os.environ.get("HELIOS_AUTOTRADE_STATE_PATH", "data/autotrader_state.json")).strip() or "data/autotrader_state.json",
         log_path=str(os.environ.get("HELIOS_AUTOTRADE_LOG_PATH", "logs/autotrader_trades.jsonl")).strip() or "logs/autotrader_trades.jsonl",
         kill_switch_path=str(os.environ.get("HELIOS_AUTOTRADE_KILL_SWITCH_PATH", "data/AUTOTRADE_STOP")).strip() or "data/AUTOTRADE_STOP",
@@ -255,8 +277,159 @@ class AutoTradeCandidate:
     position_key: str
     strategy: str = "terminal_value"
     strategy_score: float = 0.0
+    signal_confidence: Optional[float] = None
+    signal_sigma_f: Optional[float] = None
+    distribution_top_probability: Optional[float] = None
+    distribution_top_gap: Optional[float] = None
+    bucket_rank: Optional[int] = None
     opened_next_obs_utc: Optional[str] = None
     raw_row: Dict[str, Any] = field(default_factory=dict)
+
+
+def _is_live_position_source(source: Any) -> bool:
+    return str(source or "").strip().lower() in {"polymarket_live", "autotrader_live"}
+
+
+def _default_position_strategy(position: Optional[Dict[str, Any]]) -> str:
+    row = position or {}
+    strategy = str(row.get("strategy") or "").strip()
+    if strategy:
+        return strategy
+    if _is_autotrader_managed_position(row):
+        return "managed_live" if _is_live_position_source(row.get("source")) else "terminal_value"
+    return "external_live" if _is_live_position_source(row.get("source")) else "terminal_value"
+
+
+def _resolve_live_position_managed(
+    existing: Optional[Dict[str, Any]],
+    live_row: Optional[Dict[str, Any]],
+    *,
+    assume_managed: bool,
+) -> bool:
+    if isinstance(live_row, dict) and "managed_by_bot" in live_row:
+        return _boolish(live_row.get("managed_by_bot"))
+    if isinstance(existing, dict) and "managed_by_bot" in existing:
+        return _boolish(existing.get("managed_by_bot"))
+    return bool(assume_managed)
+
+
+def _payload_signal_confidence(payload: Dict[str, Any]) -> Optional[float]:
+    trading = (payload or {}).get("trading") or {}
+    nowcast = (payload or {}).get("nowcast") or {}
+    for value in (
+        payload.get("confidence"),
+        nowcast.get("confidence"),
+        trading.get("confidence"),
+    ):
+        parsed = _safe_float(value)
+        if parsed is not None:
+            return _clamp(float(parsed), 0.0, 1.0)
+    return None
+
+
+def _payload_signal_sigma_f(payload: Dict[str, Any]) -> Optional[float]:
+    trading = (payload or {}).get("trading") or {}
+    nowcast = (payload or {}).get("nowcast") or {}
+    for value in (
+        payload.get("tmax_sigma_f"),
+        nowcast.get("tmax_sigma_f"),
+        trading.get("tmax_sigma_f"),
+    ):
+        parsed = _safe_float(value)
+        if parsed is not None:
+            return max(0.0, float(parsed))
+    return None
+
+
+def _payload_bucket_distribution(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+    sources = [
+        (payload or {}).get("p_bucket"),
+        ((payload or {}).get("nowcast") or {}).get("p_bucket"),
+        ((payload or {}).get("data") or {}).get("p_bucket"),
+        (((payload or {}).get("trading") or {}).get("p_bucket")),
+    ]
+    for source in sources:
+        if not isinstance(source, list) or not source:
+            continue
+        rows: List[Dict[str, Any]] = []
+        for entry in source:
+            if not isinstance(entry, dict):
+                continue
+            label = str(entry.get("label") or entry.get("name") or entry.get("bucket") or "").strip()
+            normalized_label = normalize_label(label) or label
+            probability = _safe_float(entry.get("probability") if "probability" in entry else entry.get("prob"))
+            if not normalized_label or probability is None:
+                continue
+            rows.append(
+                {
+                    "label": label,
+                    "normalized_label": normalized_label,
+                    "probability": _clamp(float(probability), 0.0, 1.0),
+                }
+            )
+        if rows:
+            rows.sort(key=lambda row: float(row.get("probability") or 0.0), reverse=True)
+            return rows
+    return []
+
+
+def _distribution_stats_for_label(payload: Dict[str, Any], label: str) -> Dict[str, Any]:
+    rows = _payload_bucket_distribution(payload)
+    if len(rows) < 2:
+        return {}
+    normalized_label = normalize_label(label) or label
+    top_probability = float(rows[0]["probability"])
+    top_gap = max(0.0, top_probability - float(rows[1]["probability"]))
+    bucket_rank = None
+    for index, row in enumerate(rows, start=1):
+        if str(row.get("normalized_label") or "") == normalized_label:
+            bucket_rank = index
+            break
+    return {
+        "top_probability": top_probability,
+        "top_gap": top_gap,
+        "bucket_rank": bucket_rank,
+    }
+
+
+def _descending_floor_multiplier(
+    value: Optional[float],
+    *,
+    soft_floor: float,
+    hard_floor: float,
+    min_multiplier: float,
+) -> float:
+    if value is None:
+        return 1.0
+    floor = _clamp(float(min_multiplier), 0.05, 1.0)
+    soft = float(soft_floor)
+    hard = float(hard_floor)
+    if soft <= hard:
+        return 1.0
+    current = float(value)
+    if current >= soft:
+        return 1.0
+    if current <= hard:
+        return floor
+    severity = (soft - current) / (soft - hard)
+    return round(_clamp(1.0 - ((1.0 - floor) * severity), floor, 1.0), 6)
+
+
+def _effective_bankroll_usd(
+    config: "AutoTraderConfig",
+    *,
+    available_balance_usd: Optional[float],
+    merged_positions: List[Dict[str, Any]],
+) -> float:
+    configured_bankroll = float(config.bankroll_usd)
+    if available_balance_usd is None:
+        return configured_bankroll
+    live_equity = max(0.0, float(available_balance_usd))
+    for row in merged_positions:
+        live_equity += max(0.0, _position_risk_now_usd(row))
+    if live_equity <= 0.0:
+        return configured_bankroll
+    return round(min(configured_bankroll, live_equity), 6)
 
 
 def _default_state(now_utc: Optional[datetime] = None) -> Dict[str, Any]:
@@ -435,13 +608,13 @@ def _merged_open_positions(
             merged[identity].setdefault("avg_price", float(_safe_float(row.get("avg_price")) or 0.0))
             merged[identity].setdefault("current_price", float(_safe_float(row.get("current_price")) or 0.0))
             merged[identity].setdefault("source", "local_state")
-            merged[identity]["managed_by_bot"] = _boolish(merged[identity].get("managed_by_bot"))
+            merged[identity]["managed_by_bot"] = _is_autotrader_managed_position(merged[identity])
             continue
         prepared = dict(row)
         prepared.setdefault("source", "polymarket_live")
         prepared.setdefault("position_key", identity)
         prepared["position_identity"] = identity
-        prepared["managed_by_bot"] = _boolish(prepared.get("managed_by_bot"))
+        prepared["managed_by_bot"] = _is_autotrader_managed_position(prepared)
         prepared["cost_basis_open_usd"] = float(_safe_float(prepared.get("cost_basis_open_usd")) or _safe_float(prepared.get("initialValue")) or 0.0)
         prepared["notional_usd"] = float(_safe_float(prepared.get("cost_basis_open_usd")) or 0.0)
         prepared["shares_open"] = float(_safe_float(prepared.get("shares_open")) or _safe_float(prepared.get("shares")) or 0.0)
@@ -473,7 +646,7 @@ def _station_state_summary(
     last_trade = next((row.get("opened_at_utc") for row in positions if row.get("opened_at_utc")), None)
     strategies: Dict[str, int] = {}
     for row in positions:
-        strategy = str(row.get("strategy") or ("external_live" if row.get("source") == "polymarket_live" else "terminal_value"))
+        strategy = _default_position_strategy(row)
         strategies[strategy] = strategies.get(strategy, 0) + 1
     return {
         "open_risk_usd": round(open_risk, 6),
@@ -500,7 +673,7 @@ def _global_state_summary(
     )
     strategies: Dict[str, int] = {}
     for row in positions:
-        strategy = str(row.get("strategy") or ("external_live" if row.get("source") == "polymarket_live" else "terminal_value"))
+        strategy = _default_position_strategy(row)
         strategies[strategy] = strategies.get(strategy, 0) + 1
     return {
         "open_risk_usd": round(open_risk, 6),
@@ -524,20 +697,33 @@ def _portfolio_summary(
     gross_sells = float(_safe_float(state.get("gross_sells_today_usd")) or 0.0)
     realized_pnl = float(_safe_float(state.get("realized_pnl_today_usd")) or 0.0)
     realized_loss = max(0.0, -realized_pnl)
-    live_value = float(_safe_float((live_snapshot or {}).get("portfolio_value_usd")) or 0.0)
-    free_collateral = float(_safe_float((live_snapshot or {}).get("free_collateral_usd")) or 0.0)
+    live_value_raw = _safe_float((live_snapshot or {}).get("portfolio_value_usd"))
+    free_collateral_raw = _safe_float((live_snapshot or {}).get("free_collateral_usd"))
+    positions_market_value_raw = _safe_float((live_snapshot or {}).get("positions_market_value_usd"))
+    live_value = float(live_value_raw or 0.0)
+    free_collateral = float(free_collateral_raw or 0.0)
+    positions_market_value = float(positions_market_value_raw or 0.0)
+    total_equity_usd = free_collateral + (positions_market_value if positions_market_value > 0.0 else live_value)
     local_positions = _open_positions(state)
     managed_positions = [row for row in positions if _is_autotrader_managed_position(row)]
+    unmanaged_positions = [row for row in positions if not _is_autotrader_managed_position(row)]
+    live_only_positions = [row for row in positions if str(row.get("source") or "") == "polymarket_live"]
     return {
         "bankroll_usd": float(config.bankroll_usd),
+        "effective_bankroll_usd": _effective_bankroll_usd(
+            config,
+            available_balance_usd=free_collateral_raw,
+            merged_positions=positions,
+        ),
         "open_risk_usd": open_risk,
         "available_exposure_usd": round(max(0.0, float(config.max_total_exposure_usd) - open_risk), 6),
         "over_cap_usd": round(max(0.0, open_risk - float(config.max_total_exposure_usd)), 6),
         "reduce_only_active": bool(open_risk > float(config.max_total_exposure_usd) + 0.009),
         "free_collateral_usd": free_collateral,
         "portfolio_value_usd": live_value,
-        "positions_market_value_usd": float(_safe_float((live_snapshot or {}).get("positions_market_value_usd")) or 0.0),
+        "positions_market_value_usd": positions_market_value,
         "positions_cost_basis_usd": float(_safe_float((live_snapshot or {}).get("positions_cost_basis_usd")) or open_risk),
+        "total_equity_usd": round(total_equity_usd, 6),
         "spent_today_usd": gross_buys,
         "gross_buys_today_usd": gross_buys,
         "gross_sells_today_usd": gross_sells,
@@ -546,9 +732,10 @@ def _portfolio_summary(
         "open_positions": positions[:10],
         "open_positions_count": len(positions),
         "tracked_open_positions_count": len(local_positions),
-        "external_open_positions_count": max(0, len(positions) - len(local_positions)),
+        "live_only_open_positions_count": len(live_only_positions),
+        "external_open_positions_count": len(unmanaged_positions),
         "managed_open_positions_count": len(managed_positions),
-        "tracking_only_positions_count": max(0, len(positions) - len(managed_positions)),
+        "tracking_only_positions_count": len(unmanaged_positions),
         "trades_today": int(_safe_float(state.get("trades_today")) or 0),
         "closed_trades_today": int(_safe_float(state.get("closed_trades_today")) or 0),
         "last_trade_utc": state.get("last_trade_utc"),
@@ -590,6 +777,8 @@ def _build_candidate_from_trade(
     forecast = trading.get("forecast_winner") or {}
     forecast_label = str(forecast.get("label") or "") or None
     forecast_edge = _safe_float(forecast.get("edge_points"))
+    signal_confidence = _payload_signal_confidence(payload)
+    signal_sigma_f = _payload_signal_sigma_f(payload)
 
     tactical = strategy == "tactical_reprice"
     policy_key = "tactical_policy" if tactical else "terminal_policy"
@@ -624,6 +813,8 @@ def _build_candidate_from_trade(
         reasons.append("fair_too_small")
     if market_price > float(config.max_entry_price):
         reasons.append("entry_too_expensive")
+    if signal_confidence is not None and signal_confidence < float(config.min_signal_confidence):
+        reasons.append("signal_confidence_too_low")
 
     if side == "YES" and forecast_label and label != forecast_label:
         required_edge = float(forecast_edge or 0.0) + float(config.secondary_yes_edge_bonus_pts)
@@ -660,6 +851,8 @@ def _build_candidate_from_trade(
     }
     if position_identity in merged_identities:
         reasons.append("duplicate_position")
+
+    distribution_stats = _distribution_stats_for_label(payload, label)
 
     next_projection = ((trading.get("tactical_context") or {}).get("next_metar") or {}) if tactical else {}
     tactical_alignment = "neutral"
@@ -717,6 +910,11 @@ def _build_candidate_from_trade(
         position_key=position_key,
         strategy=strategy,
         strategy_score=float(_safe_float(trade_row.get(score_key)) or 0.0),
+        signal_confidence=signal_confidence,
+        signal_sigma_f=signal_sigma_f,
+        distribution_top_probability=_safe_float(distribution_stats.get("top_probability")),
+        distribution_top_gap=_safe_float(distribution_stats.get("top_gap")),
+        bucket_rank=int(distribution_stats["bucket_rank"]) if distribution_stats.get("bucket_rank") is not None else None,
         opened_next_obs_utc=str(next_projection.get("next_obs_utc") or "") if tactical else None,
         raw_row=dict(trade_row),
     ), []
@@ -880,10 +1078,15 @@ def compute_trade_budget_usd(
     if effective_cap <= 0:
         return 0.0
 
+    effective_bankroll = _effective_bankroll_usd(
+        config,
+        available_balance_usd=available_balance_usd,
+        merged_positions=merged_positions,
+    )
     fair = _clamp(float(candidate.fair_price), 0.001, 0.999)
     price = _clamp(float(candidate.market_price), 0.001, 0.999)
     kelly = max(0.0, (fair - price) / max(0.05, 1.0 - price))
-    raw_size = float(config.bankroll_usd) * float(config.fractional_kelly) * kelly
+    raw_size = effective_bankroll * float(config.fractional_kelly) * kelly
 
     if candidate.strategy == "tactical_reprice":
         raw_size *= 0.85
@@ -892,6 +1095,39 @@ def compute_trade_budget_usd(
         raw_size *= 1.15
     elif candidate.tactical_alignment == "conflict":
         raw_size *= 0.65
+
+    confidence_multiplier = _descending_floor_multiplier(
+        candidate.signal_confidence,
+        soft_floor=1.0,
+        hard_floor=float(config.min_signal_confidence),
+        min_multiplier=float(config.min_confidence_budget_multiplier),
+    )
+    sigma_soft = max(0.5, float(config.signal_sigma_soft_cap_f))
+    sigma_hard = max(sigma_soft + 0.1, float(config.signal_sigma_hard_cap_f))
+    sigma_multiplier = 1.0
+    sigma_f = _safe_float(candidate.signal_sigma_f)
+    if sigma_f is not None and sigma_f > sigma_soft:
+        sigma_floor = _clamp(float(config.signal_sigma_min_budget_multiplier), 0.05, 1.0)
+        if sigma_f >= sigma_hard:
+            sigma_multiplier = sigma_floor
+        else:
+            severity = (float(sigma_f) - sigma_soft) / (sigma_hard - sigma_soft)
+            sigma_multiplier = _clamp(1.0 - ((1.0 - sigma_floor) * severity), sigma_floor, 1.0)
+
+    top_probability_multiplier = _descending_floor_multiplier(
+        candidate.distribution_top_probability,
+        soft_floor=float(config.distribution_top_probability_soft_floor),
+        hard_floor=float(config.distribution_top_probability_hard_floor),
+        min_multiplier=float(config.distribution_min_budget_multiplier),
+    )
+    top_gap_multiplier = _descending_floor_multiplier(
+        candidate.distribution_top_gap,
+        soft_floor=float(config.distribution_top_gap_soft_floor),
+        hard_floor=float(config.distribution_top_gap_hard_floor),
+        min_multiplier=float(config.distribution_min_budget_multiplier),
+    )
+    distribution_multiplier = min(top_probability_multiplier, top_gap_multiplier)
+    raw_size *= confidence_multiplier * sigma_multiplier * distribution_multiplier
 
     if raw_size > 0.0:
         raw_size = max(raw_size, float(config.min_trade_usd))
@@ -1126,7 +1362,10 @@ def _position_risk_now_usd(position: Dict[str, Any]) -> float:
 
 
 def _is_autotrader_managed_position(position: Dict[str, Any]) -> bool:
-    return _boolish((position or {}).get("managed_by_bot"))
+    row = position or {}
+    if "managed_by_bot" in row:
+        return _boolish(row.get("managed_by_bot"))
+    return _is_live_position_source(row.get("source"))
 
 
 def _managed_open_positions(
@@ -1179,8 +1418,12 @@ class AutoTrader:
             seen_identities.add(identity)
             position_key = str(row.get("position_key") or identity)
             existing = dict(positions.get(position_key) or positions.get(identity) or {})
-            managed_by_bot = _boolish(existing.get("managed_by_bot"))
-            strategy = str(existing.get("strategy") or ("external_live" if not managed_by_bot else "terminal_value"))
+            managed_by_bot = _resolve_live_position_managed(
+                existing,
+                row,
+                assume_managed=bool(self.config.assume_live_positions_managed),
+            )
+            strategy = str(existing.get("strategy") or ("managed_live" if managed_by_bot else "external_live"))
             fills = list(existing.get("fills") or [])
             source = str(existing.get("source") or ("autotrader_live" if managed_by_bot else "polymarket_live"))
             positions[position_key] = {
@@ -1209,7 +1452,7 @@ class AutoTrader:
                 "realized_pnl_usd": float(_safe_float(row.get("realized_pnl_usd")) or _safe_float(existing.get("realized_pnl_usd")) or 0.0),
                 "opened_at_utc": str(existing.get("opened_at_utc") or row.get("opened_at_utc") or now_iso),
                 "opened_next_obs_utc": str(existing.get("opened_next_obs_utc") or ""),
-                "thesis": str(existing.get("thesis") or ("Imported from live Polymarket portfolio for tracking only." if not managed_by_bot else "")),
+                "thesis": str(existing.get("thesis") or ("Imported from live Polymarket portfolio and treated as bot-managed exposure." if managed_by_bot else "Imported from live Polymarket portfolio for tracking only.")),
                 "fills": fills,
                 "result": existing.get("result") or {},
                 "live_synced_at_utc": now_iso,
@@ -1663,6 +1906,11 @@ class AutoTrader:
                 "max_total_exposure_usd": float(self.config.max_total_exposure_usd),
                 "max_station_exposure_usd": float(self.config.max_station_exposure_usd),
                 "daily_loss_limit_usd": float(self.config.daily_loss_limit_usd),
+                "min_signal_confidence": float(self.config.min_signal_confidence),
+                "signal_sigma_soft_cap_f": float(self.config.signal_sigma_soft_cap_f),
+                "signal_sigma_hard_cap_f": float(self.config.signal_sigma_hard_cap_f),
+                "distribution_top_probability_soft_floor": float(self.config.distribution_top_probability_soft_floor),
+                "distribution_top_gap_soft_floor": float(self.config.distribution_top_gap_soft_floor),
                 "max_open_positions": int(self.config.max_open_positions),
                 "max_station_positions": int(self.config.max_station_positions),
                 "station_limits_enabled": _is_station_position_limit_enabled(self.config),
@@ -1704,6 +1952,9 @@ class AutoTrader:
                 "open_positions": int(station_state.get("open_positions") or 0),
                 "positions": station_state.get("positions") or [],
                 "strategies": station_state.get("strategies") or {},
+            },
+            "sync": {
+                "assume_live_positions_managed": bool(self.config.assume_live_positions_managed),
             },
             "kill_switch_active": Path(self.config.kill_switch_path).exists(),
             "recent_events": recent_events,

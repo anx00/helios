@@ -6,6 +6,7 @@ Documentacion de replay, backtest y notas de trading historicas.
 - `BACKTEST_REPLAY.md`
 - `STORAGE_REPLAY_IMPLEMENTATION.md`
 - `BACKTEST_CALIBRATION_IMPLEMENTATION.md`
+- `AUTOTRADER_DATA_FINDINGS_2026-03-01.md`
 
 ## Notas de implementacion / debug
 - `BACKTEST_DEBUG_NOTES.md`

@@ -1551,7 +1551,7 @@
         const managedCount = Number(portfolio.managed_open_positions_count || 0);
         const trackingOnlyCount = Number(portfolio.tracking_only_positions_count || 0);
         const capBanner = (totalCap > 0 && openRisk > totalCap + 0.009)
-            ? `Existing live positions already use $${openRisk.toFixed(2)} of risk against a $${totalCap.toFixed(2)} cap. New entries are blocked. The bot only trims positions it opened itself; tracked live positions are never auto-sold.`
+                    ? `Existing live positions already use $${openRisk.toFixed(2)} of risk against a $${totalCap.toFixed(2)} cap. New entries are blocked. Live positions are assumed to belong to the bot unless they are explicitly flagged as tracking-only.`
             : '';
         const strategyCountText = Object.keys(strategyCounts).length
             ? Object.entries(strategyCounts).map(([key, value]) => `${key.replace('_', ' ')} ${value}`).join(' | ')
@@ -1607,7 +1607,7 @@
                             <input id="pm-autotrader-total-cap" class="pm-autotrader-input" type="number" min="0.5" step="0.25" value="${autotraderInputValueNumber('max_total_exposure_usd', risk.max_total_exposure_usd).toFixed(2)}">
                         </label>
                     </div>
-                    <div class="pm-autotrader-note">Portfolio cap is the total mark-to-market risk across all open bets now, not the original historical cost basis. Per-trade sizing is automatic and gets distributed inside that cap. The loop checks the selected stations every ${Number(status.loop_seconds || 0)}s and stops automatically when the selected market date is mature or closed for every selected station. Positions imported from your live Polymarket account are tracked for risk but not auto-sold unless the bot opened them.</div>
+                    <div class="pm-autotrader-note">Portfolio cap is the total mark-to-market risk across all open bets now, not the original historical cost basis. Per-trade sizing is automatic and gets distributed inside that cap. The loop checks the selected stations every ${Number(status.loop_seconds || 0)}s and stops automatically when the selected market date is mature or closed for every selected station. Live Polymarket positions are assumed to belong to the bot unless they are explicitly flagged as tracking-only.</div>
                 </div>
             </div>
             <div class="pm-autotrader-grid">
