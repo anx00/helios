@@ -1,4 +1,5 @@
 import asyncio
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 import sys
@@ -1479,6 +1480,57 @@ def test_sync_live_positions_into_state_imports_managed_positions_by_default(tmp
     assert row["status"] == "OPEN"
 
 
+def test_status_snapshot_repairs_legacy_live_positions_to_managed_when_account_is_bot_only(tmp_path):
+    state_path = tmp_path / "portfolio_state.json"
+    log_path = tmp_path / "autotrader.jsonl"
+    today = _today_iso()
+    state_path.write_text(
+        f"""{{
+  "trading_day": "{today}",
+  "positions": {{
+    "KATL|{today}|76F OR HIGHER|NO": {{
+      "station_id": "KATL",
+      "target_date": "{today}",
+      "label": "76F OR HIGHER",
+      "side": "NO",
+      "token_id": "tok1",
+      "status": "OPEN",
+      "source": "polymarket_live",
+      "strategy": "external_live",
+      "managed_by_bot": false,
+      "shares": 10.0,
+      "shares_open": 10.0,
+      "entry_price": 0.2,
+      "cost_basis_open_usd": 2.0,
+      "current_value_usd": 1.5
+    }}
+  }}
+}}""",
+        encoding="utf-8",
+    )
+    config = AutoTraderConfig(
+        enabled=True,
+        mode="live",
+        station_ids=["KATL"],
+        assume_live_positions_managed=True,
+        state_path=str(state_path),
+        log_path=str(log_path),
+    )
+    trader = AutoTrader(config=config)
+
+    snapshot = trader.get_status_snapshot()
+
+    row = snapshot["portfolio"]["open_positions"][0]
+    assert row["managed_by_bot"] is True
+    assert row["source"] == "autotrader_live"
+    assert row["strategy"] == "managed_live"
+    reloaded = json.loads(state_path.read_text(encoding="utf-8"))
+    persisted = reloaded["positions"][f"KATL|{today}|76F OR HIGHER|NO"]
+    assert persisted["managed_by_bot"] is True
+    assert persisted["source"] == "autotrader_live"
+    assert persisted["strategy"] == "managed_live"
+
+
 def test_reduce_only_does_not_sell_explicit_tracking_only_live_position_in_paper_mode(tmp_path):
     state_path = tmp_path / "portfolio_state.json"
     log_path = tmp_path / "autotrader.jsonl"
@@ -1519,6 +1571,8 @@ def test_reduce_only_does_not_sell_explicit_tracking_only_live_position_in_paper
     assert events
     assert events[0]["status"] == "reduce_only_hold"
     assert events[0]["reasons"] == ["no_managed_positions_to_trim"]
+    row = next(iter((trader.state.get("positions") or {}).values()))
+    assert row["management_override"] == "tracking_only"
     snapshot = trader.get_status_snapshot()
     assert snapshot["portfolio"]["open_risk_usd"] == 9.0
     assert snapshot["portfolio"]["reduce_only_active"] is True

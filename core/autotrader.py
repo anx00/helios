@@ -309,6 +309,21 @@ def _default_position_strategy(position: Optional[Dict[str, Any]]) -> str:
     return "external_live" if _is_live_position_source(row.get("source")) else "terminal_value"
 
 
+def _management_override(position: Optional[Dict[str, Any]]) -> Optional[str]:
+    row = position or {}
+    override = str(row.get("management_override") or "").strip().lower()
+    if override in {"managed", "tracking_only"}:
+        return override
+    return None
+
+
+def _known_managed_live_position(position: Optional[Dict[str, Any]]) -> bool:
+    row = position or {}
+    source = str(row.get("source") or "").strip().lower()
+    strategy = str(row.get("strategy") or "").strip().lower()
+    return source in {"autotrader", "autotrader_live"} or strategy in {"terminal_value", "tactical_reprice", "managed_live"}
+
+
 def _resolve_live_position_managed(
     existing: Optional[Dict[str, Any]],
     live_row: Optional[Dict[str, Any]],
@@ -317,8 +332,13 @@ def _resolve_live_position_managed(
 ) -> bool:
     if isinstance(live_row, dict) and "managed_by_bot" in live_row:
         return _boolish(live_row.get("managed_by_bot"))
-    if isinstance(existing, dict) and "managed_by_bot" in existing:
-        return _boolish(existing.get("managed_by_bot"))
+    override = _management_override(existing)
+    if override == "managed":
+        return True
+    if override == "tracking_only":
+        return False
+    if _known_managed_live_position(existing):
+        return True
     return bool(assume_managed)
 
 
@@ -504,6 +524,11 @@ def _normalize_state(state: Optional[Dict[str, Any]], now_utc: Optional[datetime
         position["realized_pnl_usd"] = round(float(_safe_float(position.get("realized_pnl_usd")) or 0.0), 6)
         position["strategy"] = str(position.get("strategy") or "terminal_value")
         position["managed_by_bot"] = _boolish(position.get("managed_by_bot"))
+        override = _management_override(position)
+        if override:
+            position["management_override"] = override
+        else:
+            position.pop("management_override", None)
         position["fills"] = list(position.get("fills") or [])
         clean_positions[str(key)] = position
 
@@ -1475,6 +1500,65 @@ class AutoTrader:
         self.state = _normalize_state(self.state)
         save_autotrader_state(self.config.state_path, self.state)
 
+    def _repair_live_position_management_flags(self) -> bool:
+        positions = self.state.get("positions") or {}
+        if not isinstance(positions, dict):
+            return False
+
+        changed = False
+        assume_managed = bool(self.config.assume_live_positions_managed)
+        for key, raw_position in list(positions.items()):
+            if not isinstance(raw_position, dict):
+                continue
+            position = dict(raw_position)
+            if str(position.get("status") or "OPEN").upper() != "OPEN":
+                continue
+            if not _is_live_position_source(position.get("source")):
+                continue
+
+            override = _management_override(position)
+            managed_by_bot = bool(_resolve_live_position_managed(position, None, assume_managed=assume_managed))
+            strategy = str(position.get("strategy") or "")
+            thesis = str(position.get("thesis") or "")
+            source = str(position.get("source") or "polymarket_live")
+
+            if override == "tracking_only":
+                managed_by_bot = False
+            elif override == "managed":
+                managed_by_bot = True
+            elif assume_managed:
+                managed_by_bot = True
+
+            expected_source = "autotrader_live" if managed_by_bot else "polymarket_live"
+            expected_strategy = (
+                "managed_live"
+                if managed_by_bot and source in {"autotrader_live", "polymarket_live"}
+                else ("external_live" if source in {"autotrader_live", "polymarket_live"} else strategy)
+            )
+            expected_thesis = (
+                "Imported from live Polymarket portfolio and treated as bot-managed exposure."
+                if managed_by_bot
+                else "Imported from live Polymarket portfolio for tracking only."
+            )
+
+            if bool(position.get("managed_by_bot")) != managed_by_bot:
+                position["managed_by_bot"] = managed_by_bot
+                changed = True
+            if source != expected_source:
+                position["source"] = expected_source
+                changed = True
+            if expected_strategy and strategy != expected_strategy:
+                position["strategy"] = expected_strategy
+                changed = True
+            if (not thesis) or thesis.startswith("Imported from live Polymarket portfolio"):
+                if thesis != expected_thesis:
+                    position["thesis"] = expected_thesis
+                    changed = True
+
+            positions[key] = position
+
+        return changed
+
     def _pending_orders(self) -> Dict[str, Any]:
         pending_orders = self.state.setdefault("pending_orders", {})
         if not isinstance(pending_orders, dict):
@@ -1747,6 +1831,10 @@ class AutoTrader:
             seen_identities.add(identity)
             position_key = str(row.get("position_key") or identity)
             existing = dict(positions.get(position_key) or positions.get(identity) or {})
+            if "managed_by_bot" in row:
+                management_override = "managed" if _boolish(row.get("managed_by_bot")) else "tracking_only"
+            else:
+                management_override = _management_override(existing)
             managed_by_bot = _resolve_live_position_managed(
                 existing,
                 row,
@@ -1768,6 +1856,7 @@ class AutoTrader:
                 "strategy": strategy,
                 "source": source,
                 "managed_by_bot": managed_by_bot,
+                "management_override": management_override,
                 "strategy_score": float(_safe_float(existing.get("strategy_score")) or 0.0),
                 "entry_price": float(_safe_float(row.get("entry_price")) or _safe_float(row.get("avg_price")) or _safe_float(existing.get("entry_price")) or 0.0),
                 "avg_price": float(_safe_float(row.get("avg_price")) or _safe_float(existing.get("avg_price")) or 0.0),
@@ -2242,6 +2331,8 @@ class AutoTrader:
 
     def get_status_snapshot(self, station_id: Optional[str] = None) -> Dict[str, Any]:
         self.state = load_autotrader_state(self.config.state_path)
+        if self._repair_live_position_management_flags():
+            self._persist_state()
         execution_config = self.execution.config
         recent_events = _tail_jsonl(self.config.log_path, limit=8)
         pending_orders = list((self.state.get("pending_orders") or {}).values())
@@ -2528,6 +2619,8 @@ class AutoTrader:
                 available_balance_usd = None
         async with _get_portfolio_lock():
             self.state = load_autotrader_state(self.config.state_path)
+            if self._repair_live_position_management_flags():
+                self._persist_state()
             self._reconcile_pending_orders()
             if live_snapshot_ok:
                 self._sync_live_positions_into_state(live_positions)
@@ -2570,6 +2663,8 @@ class AutoTrader:
 
         async with _get_portfolio_lock():
             self.state = load_autotrader_state(self.config.state_path)
+            if self._repair_live_position_management_flags():
+                self._persist_state()
             self._reconcile_pending_orders()
             if live_snapshot_ok:
                 self._sync_live_positions_into_state(live_positions)
@@ -2770,6 +2865,8 @@ class AutoTrader:
 
         async with _get_portfolio_lock():
             self.state = load_autotrader_state(self.config.state_path)
+            if self._repair_live_position_management_flags():
+                self._persist_state()
             reconcile_events = self._reconcile_pending_orders()
             results.extend(reconcile_events)
             if live_snapshot_ok:
