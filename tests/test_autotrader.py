@@ -584,11 +584,12 @@ def test_sync_live_positions_into_state_imports_external_positions(tmp_path):
     row = next(iter(positions.values()))
     assert row["source"] == "polymarket_live"
     assert row["strategy"] == "external_live"
+    assert row["managed_by_bot"] is False
     assert row["cost_basis_open_usd"] == 13.16
     assert row["status"] == "OPEN"
 
 
-def test_reduce_only_sells_down_imported_live_position_in_paper_mode(tmp_path):
+def test_reduce_only_does_not_sell_tracking_only_live_position_in_paper_mode(tmp_path):
     state_path = tmp_path / "portfolio_state.json"
     log_path = tmp_path / "autotrader.jsonl"
     config = AutoTraderConfig(
@@ -620,14 +621,105 @@ def test_reduce_only_sells_down_imported_live_position_in_paper_mode(tmp_path):
             }
         ]
     )
+    trader._persist_state()
+
+    events = asyncio.run(trader._manage_reduce_only_portfolio())
+
+    assert events
+    assert events[0]["status"] == "reduce_only_hold"
+    assert events[0]["reasons"] == ["no_managed_positions_to_trim"]
+    snapshot = trader.get_status_snapshot()
+    assert snapshot["portfolio"]["open_risk_usd"] == 8.0
+    assert snapshot["portfolio"]["reduce_only_active"] is True
+
+
+def test_reduce_only_trims_bot_managed_position_in_paper_mode(tmp_path):
+    state_path = tmp_path / "portfolio_state.json"
+    log_path = tmp_path / "autotrader.jsonl"
+    config = AutoTraderConfig(
+        enabled=True,
+        mode="paper",
+        station_ids=["EGLC"],
+        max_total_exposure_usd=5.0,
+        max_trade_usd=2.0,
+        max_depth_participation=1.0,
+        state_path=str(state_path),
+        log_path=str(log_path),
+    )
+    trader = AutoTrader(config=config, execution=_ReduceOnlyExecutionClient())
+    trader.state["positions"] = {
+        "EGLC|2026-03-01|14C OR HIGHER|YES": {
+            "station_id": "EGLC",
+            "target_date": "2026-03-01",
+            "label": "14C OR HIGHER",
+            "side": "YES",
+            "token_id": "tok1",
+            "status": "OPEN",
+            "mode": "live",
+            "strategy": "terminal_value",
+            "managed_by_bot": True,
+            "entry_price": 0.04,
+            "shares": 200.0,
+            "shares_open": 200.0,
+            "notional_usd": 8.0,
+            "cost_basis_open_usd": 8.0,
+            "current_value_usd": 9.0,
+            "cash_pnl_usd": 1.0,
+            "opened_at_utc": "2026-03-01T10:00:00+00:00",
+        }
+    }
+    trader._persist_state()
 
     events = asyncio.run(trader._manage_reduce_only_portfolio())
 
     assert events
     assert events[0]["status"] == "paper_reduce_only_exit"
     snapshot = trader.get_status_snapshot()
-    assert snapshot["portfolio"]["open_risk_usd"] <= 5.0
-    assert snapshot["portfolio"]["reduce_only_active"] is False
+    assert 5.0 < snapshot["portfolio"]["open_risk_usd"] < 8.0
+    assert snapshot["portfolio"]["reduce_only_active"] is True
+
+
+def test_manage_open_positions_skips_tracking_only_positions(tmp_path):
+    state_path = tmp_path / "portfolio_state.json"
+    log_path = tmp_path / "autotrader.jsonl"
+    config = AutoTraderConfig(
+        enabled=True,
+        mode="paper",
+        station_ids=["EGLC"],
+        state_path=str(state_path),
+        log_path=str(log_path),
+    )
+    trader = AutoTrader(config=config, execution=_ReduceOnlyExecutionClient())
+    trader._sync_live_positions_into_state(
+        [
+            {
+                "source": "polymarket_live",
+                "station_id": "EGLC",
+                "target_date": "2026-03-01",
+                "label": "14C OR HIGHER",
+                "side": "YES",
+                "token_id": "tok1",
+                "cost_basis_open_usd": 8.0,
+                "current_value_usd": 9.0,
+                "cash_pnl_usd": 1.0,
+                "shares_open": 200.0,
+                "avg_price": 0.04,
+                "current_price": 0.045,
+            }
+        ]
+    )
+    trader._persist_state()
+
+    events = asyncio.run(
+        trader._manage_open_positions(
+            "EGLC",
+            {"station_id": "EGLC", "target_date": "2026-03-01", "trading": {}},
+        )
+    )
+
+    assert events == []
+    snapshot = trader.get_status_snapshot("EGLC")
+    assert snapshot["state"]["open_positions"] == 1
 
 
 def test_evaluate_trade_candidate_can_pick_tactical_reprice():

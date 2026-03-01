@@ -1559,10 +1559,10 @@
         const bankrollRef = Number(risk.bankroll_usd || portfolio.bankroll_usd || 0);
         const portfolioValue = Number(portfolio.portfolio_value_usd || wallet.portfolio_value_usd || 0);
         const freeCollateral = Number(portfolio.free_collateral_usd || wallet.free_collateral_usd || 0);
-        const trackedCount = Number(portfolio.tracked_open_positions_count || 0);
-        const externalCount = Number(portfolio.external_open_positions_count || 0);
+        const managedCount = Number(portfolio.managed_open_positions_count || 0);
+        const trackingOnlyCount = Number(portfolio.tracking_only_positions_count || 0);
         const capBanner = (totalCap > 0 && openRisk > totalCap + 0.009)
-            ? `Existing live positions already use $${openRisk.toFixed(2)} of risk against a $${totalCap.toFixed(2)} cap. Reduce-only mode is active: the bot will block new entries and try to sell down risk.`
+            ? `Existing live positions already use $${openRisk.toFixed(2)} of risk against a $${totalCap.toFixed(2)} cap. New entries are blocked. The bot only trims positions it opened itself; tracked live positions are never auto-sold.`
             : '';
         const strategyCountText = Object.keys(strategyCounts).length
             ? Object.entries(strategyCounts).map(([key, value]) => `${key.replace('_', ' ')} ${value}`).join(' | ')
@@ -1622,7 +1622,7 @@
                             <input id="pm-autotrader-trade-cap" class="pm-autotrader-input" type="number" min="0.25" step="0.25" value="${autotraderInputValueNumber('max_trade_usd', risk.max_trade_usd).toFixed(2)}">
                         </label>
                     </div>
-                    <div class="pm-autotrader-note">Portfolio cap is the total open risk across all bets. Max per trade is the ceiling for a single new entry. The loop checks the selected stations every ${Number(status.loop_seconds || 0)}s and stops automatically when the selected market date is mature or closed for every selected station.</div>
+                    <div class="pm-autotrader-note">Portfolio cap is the total open risk across all bets. Max per trade is the ceiling for a single new entry. The loop checks the selected stations every ${Number(status.loop_seconds || 0)}s and stops automatically when the selected market date is mature or closed for every selected station. Positions imported from your live Polymarket account are tracked for risk but not auto-sold unless the bot opened them.</div>
                 </div>
             </div>
             <div class="pm-autotrader-grid">
@@ -1680,7 +1680,7 @@
                 </div>
                 <div class="pm-autotrader-cell">
                     <div class="pm-autotrader-cell-label">Tracking</div>
-                    <div class="pm-autotrader-cell-value">${trackedCount} local | ${externalCount} live-only</div>
+                    <div class="pm-autotrader-cell-value">${managedCount} bot-managed | ${trackingOnlyCount} tracking-only</div>
                 </div>
             </div>
             <div class="pm-autotrader-log">

@@ -49,6 +49,14 @@ def _clamp(value: float, min_value: float, max_value: float) -> float:
     return max(min_value, min(max_value, float(value)))
 
 
+def _boolish(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _env_bool(name: str, default: bool = False) -> bool:
     raw = str(os.environ.get(name, "")).strip().lower()
     if not raw:
@@ -309,6 +317,7 @@ def _normalize_state(state: Optional[Dict[str, Any]], now_utc: Optional[datetime
         position["cost_basis_open_usd"] = round(max(0.0, cost_basis_open_usd), 6)
         position["realized_pnl_usd"] = round(float(_safe_float(position.get("realized_pnl_usd")) or 0.0), 6)
         position["strategy"] = str(position.get("strategy") or "terminal_value")
+        position["managed_by_bot"] = _boolish(position.get("managed_by_bot"))
         position["fills"] = list(position.get("fills") or [])
         clean_positions[str(key)] = position
 
@@ -378,6 +387,7 @@ def _open_positions(state: Dict[str, Any]) -> List[Dict[str, Any]]:
         row = dict(position)
         row.setdefault("position_key", key)
         row.setdefault("source", "local_state")
+        row["managed_by_bot"] = _boolish(row.get("managed_by_bot"))
         row["notional_usd"] = float(_safe_float(row.get("notional_usd")) or 0.0)
         row["cost_basis_open_usd"] = float(_safe_float(row.get("cost_basis_open_usd")) or row["notional_usd"])
         row["shares_open"] = float(_safe_float(row.get("shares_open")) or _safe_float(row.get("shares")) or 0.0)
@@ -417,11 +427,13 @@ def _merged_open_positions(
             merged[identity].setdefault("avg_price", float(_safe_float(row.get("avg_price")) or 0.0))
             merged[identity].setdefault("current_price", float(_safe_float(row.get("current_price")) or 0.0))
             merged[identity].setdefault("source", "local_state")
+            merged[identity]["managed_by_bot"] = _boolish(merged[identity].get("managed_by_bot"))
             continue
         prepared = dict(row)
         prepared.setdefault("source", "polymarket_live")
         prepared.setdefault("position_key", identity)
         prepared["position_identity"] = identity
+        prepared["managed_by_bot"] = _boolish(prepared.get("managed_by_bot"))
         prepared["cost_basis_open_usd"] = float(_safe_float(prepared.get("cost_basis_open_usd")) or _safe_float(prepared.get("initialValue")) or 0.0)
         prepared["notional_usd"] = float(_safe_float(prepared.get("cost_basis_open_usd")) or 0.0)
         prepared["shares_open"] = float(_safe_float(prepared.get("shares_open")) or _safe_float(prepared.get("shares")) or 0.0)
@@ -507,6 +519,7 @@ def _portfolio_summary(
     live_value = float(_safe_float((live_snapshot or {}).get("portfolio_value_usd")) or 0.0)
     free_collateral = float(_safe_float((live_snapshot or {}).get("free_collateral_usd")) or 0.0)
     local_positions = _open_positions(state)
+    managed_positions = [row for row in positions if _is_autotrader_managed_position(row)]
     return {
         "bankroll_usd": float(config.bankroll_usd),
         "open_risk_usd": open_risk,
@@ -526,6 +539,8 @@ def _portfolio_summary(
         "open_positions_count": len(positions),
         "tracked_open_positions_count": len(local_positions),
         "external_open_positions_count": max(0, len(positions) - len(local_positions)),
+        "managed_open_positions_count": len(managed_positions),
+        "tracking_only_positions_count": max(0, len(positions) - len(managed_positions)),
         "trades_today": int(_safe_float(state.get("trades_today")) or 0),
         "closed_trades_today": int(_safe_float(state.get("closed_trades_today")) or 0),
         "last_trade_utc": state.get("last_trade_utc"),
@@ -1061,6 +1076,10 @@ def _position_unrealized_pnl_usd(position: Dict[str, Any]) -> float:
     return current_value - cost_basis
 
 
+def _is_autotrader_managed_position(position: Dict[str, Any]) -> bool:
+    return _boolish((position or {}).get("managed_by_bot"))
+
+
 class AutoTrader:
     def __init__(
         self,
@@ -1100,8 +1119,10 @@ class AutoTrader:
             seen_identities.add(identity)
             position_key = str(row.get("position_key") or identity)
             existing = dict(positions.get(position_key) or positions.get(identity) or {})
-            strategy = str(existing.get("strategy") or "external_live")
+            managed_by_bot = _boolish(existing.get("managed_by_bot"))
+            strategy = str(existing.get("strategy") or ("external_live" if not managed_by_bot else "terminal_value"))
             fills = list(existing.get("fills") or [])
+            source = str(existing.get("source") or ("autotrader_live" if managed_by_bot else "polymarket_live"))
             positions[position_key] = {
                 "position_identity": identity,
                 "station_id": str(row.get("station_id") or existing.get("station_id") or "").upper(),
@@ -1113,7 +1134,8 @@ class AutoTrader:
                 "status": "OPEN",
                 "mode": str(existing.get("mode") or "live"),
                 "strategy": strategy,
-                "source": "polymarket_live",
+                "source": source,
+                "managed_by_bot": managed_by_bot,
                 "strategy_score": float(_safe_float(existing.get("strategy_score")) or 0.0),
                 "entry_price": float(_safe_float(row.get("entry_price")) or _safe_float(row.get("avg_price")) or _safe_float(existing.get("entry_price")) or 0.0),
                 "avg_price": float(_safe_float(row.get("avg_price")) or _safe_float(existing.get("avg_price")) or 0.0),
@@ -1127,7 +1149,7 @@ class AutoTrader:
                 "realized_pnl_usd": float(_safe_float(row.get("realized_pnl_usd")) or _safe_float(existing.get("realized_pnl_usd")) or 0.0),
                 "opened_at_utc": str(existing.get("opened_at_utc") or row.get("opened_at_utc") or now_iso),
                 "opened_next_obs_utc": str(existing.get("opened_next_obs_utc") or ""),
-                "thesis": str(existing.get("thesis") or "Imported from live Polymarket portfolio."),
+                "thesis": str(existing.get("thesis") or ("Imported from live Polymarket portfolio for tracking only." if not managed_by_bot else "")),
                 "fills": fills,
                 "result": existing.get("result") or {},
                 "live_synced_at_utc": now_iso,
@@ -1136,7 +1158,7 @@ class AutoTrader:
         for key, position in list(positions.items()):
             if not isinstance(position, dict):
                 continue
-            if str(position.get("source") or "") != "polymarket_live":
+            if str(position.get("source") or "") not in {"polymarket_live", "autotrader_live"}:
                 continue
             identity = str(position.get("position_identity") or _position_identity(position))
             if identity in seen_identities:
@@ -1270,6 +1292,8 @@ class AutoTrader:
             "status": "OPEN",
             "mode": mode,
             "strategy": candidate.strategy,
+            "managed_by_bot": True,
+            "source": "autotrader",
             "strategy_score": round(float(candidate.strategy_score), 6),
             "entry_price": plan["limit_price"],
             "shares": plan["size"],
@@ -1362,24 +1386,49 @@ class AutoTrader:
         if over_cap_usd <= 0.009:
             return events
 
-        candidates = [
+        managed_positions = [
             row for row in merged_positions
             if isinstance(row, dict)
             and str(row.get("status") or "OPEN").upper() == "OPEN"
             and str(row.get("token_id") or "").strip()
             and float(_safe_float(row.get("shares_open")) or _safe_float(row.get("shares")) or 0.0) > 0.0
+            and _is_autotrader_managed_position(row)
+        ]
+        candidates = [
+            row for row in managed_positions
+            if isinstance(row, dict)
+            and _position_unrealized_pnl_usd(row) > 0.0
         ]
         candidates.sort(
             key=lambda row: (
-                _position_unrealized_pnl_usd(row),
-                float(_safe_float(row.get("current_price")) or 0.0),
+                -_position_unrealized_pnl_usd(row),
+                -float(_safe_float(row.get("current_price")) or 0.0),
                 -float(_safe_float(row.get("cost_basis_open_usd")) or 0.0),
-            )
+            ),
         )
 
+        if not managed_positions:
+            event = {
+                "status": "reduce_only_hold",
+                "reasons": ["no_managed_positions_to_trim"],
+                "over_cap_usd": round(float(over_cap_usd), 6),
+            }
+            self._append_log(event)
+            return [event]
+
+        if not candidates:
+            event = {
+                "status": "reduce_only_hold",
+                "reasons": ["no_profitable_managed_position_to_trim"],
+                "over_cap_usd": round(float(over_cap_usd), 6),
+            }
+            self._append_log(event)
+            return [event]
+
         remaining_over_cap = float(over_cap_usd)
-        for position in candidates:
-            if remaining_over_cap <= 0.009:
+        reduce_cycle_cap = min(float(self.config.max_trade_usd), remaining_over_cap)
+        for position in candidates[:1]:
+            if remaining_over_cap <= 0.009 or reduce_cycle_cap <= 0.009:
                 break
 
             position_key = str(position.get("position_key") or "")
@@ -1391,15 +1440,29 @@ class AutoTrader:
             average_cost = cost_basis_open / shares_open if shares_open > 0 else 0.0
             requested_size = shares_open
             if average_cost > 0:
-                requested_size = min(shares_open, max(0.01, remaining_over_cap / average_cost))
+                requested_size = min(shares_open, max(0.01, reduce_cycle_cap / average_cost))
 
             try:
                 live_book = self.execution.get_top_of_book(str(position.get("token_id") or ""))
+                best_bid = float(_safe_float(live_book.best_bid) or 0.0)
+                entry_price = float(_safe_float(position.get("entry_price")) or _safe_float(position.get("avg_price")) or 0.0)
+                if best_bid <= 0.0 or best_bid + 1e-9 < entry_price:
+                    event = {
+                        "station_id": position.get("station_id"),
+                        "status": "reduce_only_skip",
+                        "position_key": position_key,
+                        "position": position,
+                        "reasons": ["reduce_only_bid_below_entry"],
+                    }
+                    self._append_log(event)
+                    events.append(event)
+                    continue
                 exit_plan, exit_reasons = apply_exit_guardrails(
                     position,
                     live_book,
                     self.config,
-                    force_exit=True,
+                    target_floor_price=best_bid,
+                    force_exit=False,
                     requested_size=requested_size,
                 )
                 if not exit_plan:
@@ -1587,6 +1650,8 @@ class AutoTrader:
             if str(position.get("target_date") or "") != target_date:
                 continue
             if str(position.get("status") or "OPEN").upper() != "OPEN":
+                continue
+            if not _is_autotrader_managed_position(position):
                 continue
 
             try:
