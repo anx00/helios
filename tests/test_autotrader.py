@@ -824,6 +824,290 @@ def test_run_station_once_ignores_closed_state_duplicate(tmp_path):
     assert "duplicate_position" not in result.get("reasons", [])
 
 
+def test_run_station_once_records_pending_entry_and_blocks_duplicate_reentry(tmp_path):
+    state_path = tmp_path / "portfolio_state.json"
+    log_path = tmp_path / "autotrader.jsonl"
+    execution = _PendingExecutionClient()
+    config = AutoTraderConfig(
+        enabled=True,
+        mode="live",
+        station_ids=["KATL"],
+        state_path=str(state_path),
+        log_path=str(log_path),
+    )
+    trader = AutoTrader(config=config, execution=execution)
+
+    async def _fake_fetch(*args, **kwargs):
+        return _sample_payload()
+
+    trader._fetch_signal_payload = _fake_fetch
+
+    first = asyncio.run(trader.run_station_once("KATL", target_date="2026-02-28"))
+
+    assert first["status"] == "live_entry_pending"
+    assert execution.buy_calls == 1
+    assert trader.state["positions"] == {}
+    pending_orders = trader.state.get("pending_orders") or {}
+    assert len(pending_orders) == 1
+
+    second = asyncio.run(trader.run_station_once("KATL", target_date="2026-02-28"))
+
+    assert second["status"] == "skip"
+    assert "pending_entry_in_flight" in second["reasons"]
+    assert execution.buy_calls == 1
+
+
+def test_reconcile_pending_entry_persists_fill_and_clears_pending(tmp_path):
+    state_path = tmp_path / "portfolio_state.json"
+    log_path = tmp_path / "autotrader.jsonl"
+    execution = _PendingExecutionClient()
+    config = AutoTraderConfig(
+        enabled=True,
+        mode="live",
+        station_ids=["KATL"],
+        state_path=str(state_path),
+        log_path=str(log_path),
+    )
+    trader = AutoTrader(config=config, execution=execution)
+
+    async def _fake_fetch(*args, **kwargs):
+        return _sample_payload()
+
+    trader._fetch_signal_payload = _fake_fetch
+    asyncio.run(trader.run_station_once("KATL", target_date="2026-02-28"))
+
+    pending = next(iter((trader.state.get("pending_orders") or {}).values()))
+    order_id = pending["order_id"]
+    execution.orders[order_id] = {
+        "success": True,
+        "status": "matched",
+        "orderID": order_id,
+        "size_matched": str(pending["size"]),
+    }
+
+    events = trader._reconcile_pending_orders()
+
+    assert any(event["status"] == "pending_entry_filled" for event in events)
+    assert trader.state["pending_orders"] == {}
+    position = trader.state["positions"]["KATL|2026-02-28|68-69 F|YES"]
+    assert position["status"] == "OPEN"
+    assert position["shares_open"] == pending["size"]
+
+
+def test_manage_open_positions_records_pending_exit_and_blocks_duplicate_retry(tmp_path):
+    state_path = tmp_path / "portfolio_state.json"
+    log_path = tmp_path / "autotrader.jsonl"
+    execution = _PendingExecutionClient()
+    config = AutoTraderConfig(
+        enabled=True,
+        mode="live",
+        station_ids=["EGLC"],
+        tactical_timeout_minutes=1,
+        max_depth_participation=1.0,
+        state_path=str(state_path),
+        log_path=str(log_path),
+    )
+    trader = AutoTrader(config=config, execution=execution)
+    trader.state["positions"] = {
+        "EGLC|2026-03-01|14C OR HIGHER|YES": {
+            "station_id": "EGLC",
+            "target_date": "2026-03-01",
+            "label": "14C OR HIGHER",
+            "side": "YES",
+            "token_id": "tok1",
+            "status": "OPEN",
+            "mode": "live",
+            "strategy": "tactical_reprice",
+            "managed_by_bot": True,
+            "entry_price": 0.04,
+            "shares": 200.0,
+            "shares_open": 200.0,
+            "notional_usd": 8.0,
+            "cost_basis_open_usd": 8.0,
+            "current_value_usd": 9.0,
+            "cash_pnl_usd": 1.0,
+            "opened_at_utc": "2026-03-01T00:00:00+00:00",
+        }
+    }
+    trader._persist_state()
+
+    first = asyncio.run(
+        trader._manage_open_positions(
+            "EGLC",
+            {"station_id": "EGLC", "target_date": "2026-03-01", "trading": {}},
+        )
+    )
+
+    assert first
+    assert first[0]["status"] == "live_exit_pending"
+    assert execution.sell_calls == 1
+    assert len(trader.state.get("pending_orders") or {}) == 1
+
+    second = asyncio.run(
+        trader._manage_open_positions(
+            "EGLC",
+            {"station_id": "EGLC", "target_date": "2026-03-01", "trading": {}},
+        )
+    )
+
+    assert second == []
+    assert execution.sell_calls == 1
+
+
+def test_reconcile_pending_exit_closes_position_and_clears_pending(tmp_path):
+    state_path = tmp_path / "portfolio_state.json"
+    log_path = tmp_path / "autotrader.jsonl"
+    execution = _PendingExecutionClient()
+    config = AutoTraderConfig(
+        enabled=True,
+        mode="live",
+        station_ids=["EGLC"],
+        tactical_timeout_minutes=1,
+        max_depth_participation=1.0,
+        state_path=str(state_path),
+        log_path=str(log_path),
+    )
+    trader = AutoTrader(config=config, execution=execution)
+    trader.state["positions"] = {
+        "EGLC|2026-03-01|14C OR HIGHER|YES": {
+            "station_id": "EGLC",
+            "target_date": "2026-03-01",
+            "label": "14C OR HIGHER",
+            "side": "YES",
+            "token_id": "tok1",
+            "status": "OPEN",
+            "mode": "live",
+            "strategy": "tactical_reprice",
+            "managed_by_bot": True,
+            "entry_price": 0.04,
+            "shares": 200.0,
+            "shares_open": 200.0,
+            "notional_usd": 8.0,
+            "cost_basis_open_usd": 8.0,
+            "current_value_usd": 9.0,
+            "cash_pnl_usd": 1.0,
+            "opened_at_utc": "2026-03-01T00:00:00+00:00",
+        }
+    }
+    trader._persist_state()
+    asyncio.run(
+        trader._manage_open_positions(
+            "EGLC",
+            {"station_id": "EGLC", "target_date": "2026-03-01", "trading": {}},
+        )
+    )
+
+    pending = next(iter((trader.state.get("pending_orders") or {}).values()))
+    order_id = pending["order_id"]
+    execution.orders[order_id] = {
+        "success": True,
+        "status": "matched",
+        "orderID": order_id,
+        "size_matched": str(pending["size"]),
+    }
+
+    events = trader._reconcile_pending_orders()
+
+    assert any(event["status"] == "pending_exit_filled" for event in events)
+    assert trader.state["pending_orders"] == {}
+    position = trader.state["positions"]["EGLC|2026-03-01|14C OR HIGHER|YES"]
+    assert position["status"] == "CLOSED"
+    assert position["shares_open"] == 0.0
+
+
+def test_terminal_policy_flip_alone_does_not_force_exit(tmp_path):
+    state_path = tmp_path / "portfolio_state.json"
+    log_path = tmp_path / "autotrader.jsonl"
+    config = AutoTraderConfig(
+        enabled=True,
+        mode="paper",
+        station_ids=["KATL"],
+        state_path=str(state_path),
+        log_path=str(log_path),
+    )
+    trader = AutoTrader(config=config)
+    position = {
+        "station_id": "KATL",
+        "target_date": "2026-02-28",
+        "label": "68-69 F",
+        "side": "YES",
+        "token_id": "YES1",
+        "status": "OPEN",
+        "strategy": "terminal_value",
+        "managed_by_bot": True,
+        "entry_price": 0.20,
+        "shares": 5.0,
+        "shares_open": 5.0,
+        "notional_usd": 1.0,
+        "cost_basis_open_usd": 1.0,
+        "opened_at_utc": "2026-02-28T15:00:00+00:00",
+    }
+    payload = {
+        "station_id": "KATL",
+        "target_date": "2026-02-28",
+        "trading": {
+            "all_terminal_opportunities": [
+                {
+                    "label": "68-69 F",
+                    "fair_yes": 0.23,
+                    "edge_yes": 0.02,
+                    "terminal_policy": {"allowed": False},
+                }
+            ]
+        },
+    }
+    book = TopOfBook(
+        token_id="YES1",
+        best_bid=0.19,
+        best_ask=0.20,
+        bid_size=50.0,
+        ask_size=50.0,
+        spread=0.01,
+        min_order_size=1.0,
+        last_trade_price=0.195,
+        raw={},
+    )
+
+    exit_plan, reasons = trader._evaluate_exit_decision(position, payload, book)
+
+    assert exit_plan is None
+    assert reasons == ["hold"]
+
+
+def test_live_entry_balance_failure_sets_station_cooldown_and_blocks_retries(tmp_path):
+    state_path = tmp_path / "portfolio_state.json"
+    log_path = tmp_path / "autotrader.jsonl"
+    execution = _InsufficientBalanceExecutionClient()
+    config = AutoTraderConfig(
+        enabled=True,
+        mode="live",
+        station_ids=["KATL"],
+        order_failure_cooldown_seconds=1800,
+        state_path=str(state_path),
+        log_path=str(log_path),
+    )
+    trader = AutoTrader(config=config, execution=execution)
+
+    async def _fake_fetch(*args, **kwargs):
+        return _sample_payload()
+
+    trader._fetch_signal_payload = _fake_fetch
+
+    first = asyncio.run(trader.run_station_once("KATL", target_date="2026-02-28"))
+
+    assert first["status"] == "skip"
+    assert first["reasons"] == ["insufficient_balance_or_allowance"]
+    assert execution.buy_calls == 1
+    cooldown = trader.state["station_cooldowns"]["KATL"]
+    assert cooldown["reason"] == "insufficient_balance_or_allowance"
+
+    second = asyncio.run(trader.run_station_once("KATL", target_date="2026-02-28"))
+
+    assert second["status"] == "skip"
+    assert second["reasons"] == ["station_order_failure_cooldown"]
+    assert execution.buy_calls == 1
+
+
 class _FakeExecutionClient(PolymarketExecutionClient):
     def __init__(self, snapshot):
         super().__init__(PolymarketExecutionConfig(private_key="0xabc", derive_api_creds=True))
@@ -849,6 +1133,110 @@ class _ReduceOnlyExecutionClient(PolymarketExecutionClient):
             last_trade_price=0.045,
             raw={},
         )
+
+
+class _PendingExecutionClient(PolymarketExecutionClient):
+    def __init__(self):
+        super().__init__(PolymarketExecutionConfig(private_key="0xabc", derive_api_creds=True))
+        self.buy_calls = 0
+        self.sell_calls = 0
+        self.orders = {}
+        self._snapshot = {
+            "user": "0xuser",
+            "free_collateral_usd": 25.0,
+            "collateral_allowance_ready": True,
+            "portfolio_value_usd": 25.0,
+            "positions_market_value_usd": 0.0,
+            "positions_cost_basis_usd": 0.0,
+            "open_positions": [],
+        }
+
+    def get_live_portfolio_snapshot(self, *, force_refresh: bool = False):
+        return dict(self._snapshot)
+
+    def ensure_collateral_ready(self, required_amount: float):
+        return {"balance": 25.0, "allowance_ready": True}
+
+    def ensure_conditional_ready(self, token_id: str, required_size: float):
+        return {"balance": required_size, "allowance_ready": True}
+
+    def get_top_of_book(self, token_id: str):
+        if token_id == "tok1":
+            return TopOfBook(
+                token_id=token_id,
+                best_bid=0.045,
+                best_ask=0.046,
+                bid_size=500.0,
+                ask_size=500.0,
+                spread=0.001,
+                min_order_size=1.0,
+                last_trade_price=0.045,
+                raw={},
+            )
+        return TopOfBook(
+            token_id=token_id,
+            best_bid=0.23,
+            best_ask=0.24,
+            bid_size=50.0,
+            ask_size=50.0,
+            spread=0.01,
+            min_order_size=1.0,
+            last_trade_price=0.24,
+            raw={},
+        )
+
+    def place_limit_buy(self, *, token_id: str, price: float, size: float, order_type: str = "FAK"):
+        self.buy_calls += 1
+        order_id = f"buy-{self.buy_calls}"
+        self.orders[order_id] = {"success": True, "status": "delayed", "orderID": order_id}
+        return dict(self.orders[order_id])
+
+    def place_limit_sell(self, *, token_id: str, price: float, size: float, order_type: str = "FAK"):
+        self.sell_calls += 1
+        order_id = f"sell-{self.sell_calls}"
+        self.orders[order_id] = {"success": True, "status": "delayed", "orderID": order_id}
+        return dict(self.orders[order_id])
+
+    def get_order(self, order_id: str):
+        return dict(self.orders.get(order_id) or {"success": True, "status": "delayed", "orderID": order_id})
+
+
+class _InsufficientBalanceExecutionClient(PolymarketExecutionClient):
+    def __init__(self):
+        super().__init__(PolymarketExecutionConfig(private_key="0xabc", derive_api_creds=True))
+        self.buy_calls = 0
+        self._snapshot = {
+            "user": "0xuser",
+            "free_collateral_usd": 25.0,
+            "collateral_allowance_ready": True,
+            "portfolio_value_usd": 25.0,
+            "positions_market_value_usd": 0.0,
+            "positions_cost_basis_usd": 0.0,
+            "open_positions": [],
+        }
+
+    def get_live_portfolio_snapshot(self, *, force_refresh: bool = False):
+        return dict(self._snapshot)
+
+    def ensure_collateral_ready(self, required_amount: float):
+        return {"balance": 25.0, "allowance_ready": True}
+
+    def get_top_of_book(self, token_id: str):
+        return TopOfBook(
+            token_id=token_id,
+            best_bid=0.23,
+            best_ask=0.24,
+            bid_size=50.0,
+            ask_size=50.0,
+            spread=0.01,
+            min_order_size=1.0,
+            last_trade_price=0.24,
+            raw={},
+        )
+
+    def place_limit_buy(self, *, token_id: str, price: float, size: float, order_type: str = "FAK"):
+        self.buy_calls += 1
+        raise RuntimeError("PolyApiException[status_code=400, error_message={'error': 'not enough balance / allowance'}]")
 
 
 def test_status_snapshot_uses_live_polymarket_positions_for_exposure(tmp_path):
@@ -1206,3 +1594,22 @@ def test_summarize_order_response_uses_matched_amounts():
     assert summary["success"] is True
     assert summary["matched_size"] == 5.0
     assert summary["matched_notional"] == 1.2
+
+
+def test_summarize_order_response_marks_delayed_as_pending():
+    client = PolymarketExecutionClient(PolymarketExecutionConfig())
+
+    summary = client.summarize_order_response(
+        {
+            "success": True,
+            "status": "delayed",
+            "orderID": "abc123",
+        },
+        fallback_size=5.0,
+        fallback_price=0.24,
+    )
+
+    assert summary["success"] is True
+    assert summary["pending"] is True
+    assert summary["matched_size"] == 0.0
+    assert summary["status"] == "delayed"

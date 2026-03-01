@@ -27,6 +27,7 @@ from market.polymarket_execution import (
 logger = logging.getLogger("autotrader")
 UTC = ZoneInfo("UTC")
 _PORTFOLIO_LOCK: Optional[asyncio.Lock] = None
+_PENDING_ORDER_KINDS = {"entry", "exit"}
 
 
 def _get_portfolio_lock() -> asyncio.Lock:
@@ -99,6 +100,12 @@ def _position_key(station_id: str, target_date: str, label: str, side: str) -> s
     return f"{station_id}|{target_date}|{label}|{side}".upper()
 
 
+def _pending_order_state_key(kind: str, position_key: str) -> str:
+    pending_kind = str(kind or "entry").strip().lower()
+    normalized_key = str(position_key or "").strip().upper()
+    return f"{pending_kind}:{normalized_key}"
+
+
 def _normalize_iso_date(value: Any) -> str:
     raw = str(value or "").strip()
     if not raw:
@@ -164,6 +171,7 @@ class AutoTraderConfig:
     distribution_min_budget_multiplier: float = 0.60
     max_trades_per_day: int = 4
     cooldown_seconds: int = 900
+    order_failure_cooldown_seconds: int = 1800
     max_spread_points: float = 8.0
     min_ask_depth_contracts: float = 15.0
     max_depth_participation: float = 0.25
@@ -227,6 +235,7 @@ def load_autotrader_config_from_env() -> AutoTraderConfig:
         distribution_min_budget_multiplier=_env_float("HELIOS_AUTOTRADE_DISTRIBUTION_MIN_BUDGET_MULTIPLIER", 0.60),
         max_trades_per_day=_env_int("HELIOS_AUTOTRADE_MAX_TRADES_PER_DAY", 4),
         cooldown_seconds=_env_int("HELIOS_AUTOTRADE_COOLDOWN_SECONDS", 900),
+        order_failure_cooldown_seconds=_env_int("HELIOS_AUTOTRADE_ORDER_FAILURE_COOLDOWN_SECONDS", 1800),
         max_spread_points=_env_float("HELIOS_AUTOTRADE_MAX_SPREAD_PTS", 8.0),
         min_ask_depth_contracts=_env_float("HELIOS_AUTOTRADE_MIN_ASK_DEPTH_CONTRACTS", 15.0),
         max_depth_participation=_env_float("HELIOS_AUTOTRADE_MAX_DEPTH_PARTICIPATION", 0.25),
@@ -445,6 +454,8 @@ def _default_state(now_utc: Optional[datetime] = None) -> Dict[str, Any]:
         "closed_trades_today": 0,
         "last_trade_utc": None,
         "positions": {},
+        "pending_orders": {},
+        "station_cooldowns": {},
     }
 
 
@@ -474,11 +485,15 @@ def _normalize_state(state: Optional[Dict[str, Any]], now_utc: Optional[datetime
             continue
         position = dict(raw_position)
         status = str(position.get("status") or "OPEN").upper()
-        shares_total = float(_safe_float(position.get("shares")) or _safe_float(position.get("shares_open")) or 0.0)
-        shares_open = float(_safe_float(position.get("shares_open")) or shares_total)
+        raw_shares = _safe_float(position.get("shares"))
+        raw_shares_open = _safe_float(position.get("shares_open"))
+        shares_total = float(raw_shares if raw_shares is not None else (raw_shares_open if raw_shares_open is not None else 0.0))
+        shares_open = float(raw_shares_open if raw_shares_open is not None else shares_total)
         entry_price = float(_safe_float(position.get("entry_price")) or 0.0)
-        notional_usd = float(_safe_float(position.get("notional_usd")) or (shares_total * entry_price))
-        cost_basis_open_usd = float(_safe_float(position.get("cost_basis_open_usd")) or notional_usd)
+        raw_notional_usd = _safe_float(position.get("notional_usd"))
+        notional_usd = float(raw_notional_usd if raw_notional_usd is not None else (shares_total * entry_price))
+        raw_cost_basis_open_usd = _safe_float(position.get("cost_basis_open_usd"))
+        cost_basis_open_usd = float(raw_cost_basis_open_usd if raw_cost_basis_open_usd is not None else notional_usd)
 
         position["status"] = status
         position["shares"] = round(shares_total, 6)
@@ -493,6 +508,65 @@ def _normalize_state(state: Optional[Dict[str, Any]], now_utc: Optional[datetime
         clean_positions[str(key)] = position
 
     normalized["positions"] = clean_positions
+    pending_orders = normalized.get("pending_orders")
+    if not isinstance(pending_orders, dict):
+        pending_orders = {}
+
+    clean_pending_orders: Dict[str, Any] = {}
+    for raw_key, raw_pending in pending_orders.items():
+        if not isinstance(raw_pending, dict):
+            continue
+        pending = dict(raw_pending)
+        kind = str(pending.get("kind") or "entry").strip().lower()
+        if kind not in _PENDING_ORDER_KINDS:
+            continue
+        position_key = str(pending.get("position_key") or raw_key).strip().upper()
+        if not position_key:
+            continue
+        state_key = _pending_order_state_key(kind, position_key)
+        pending["kind"] = kind
+        pending["position_key"] = position_key
+        pending["station_id"] = str(pending.get("station_id") or "").upper()
+        pending["target_date"] = str(pending.get("target_date") or "")
+        pending["label"] = str(pending.get("label") or "")
+        pending["side"] = str(pending.get("side") or "").upper()
+        pending["token_id"] = str(pending.get("token_id") or "")
+        pending["status"] = str(pending.get("status") or "pending").strip().lower() or "pending"
+        pending["order_id"] = str(pending.get("order_id") or "").strip() or None
+        pending["submitted_at_utc"] = str(pending.get("submitted_at_utc") or "")
+        pending["last_checked_utc"] = str(pending.get("last_checked_utc") or pending["submitted_at_utc"] or "")
+        pending["size"] = round(float(_safe_float(pending.get("size")) or 0.0), 6)
+        pending["notional_usd"] = round(float(_safe_float(pending.get("notional_usd")) or 0.0), 6)
+        pending["matched_size_observed"] = round(float(_safe_float(pending.get("matched_size_observed")) or 0.0), 6)
+        pending["matched_notional_observed"] = round(float(_safe_float(pending.get("matched_notional_observed")) or 0.0), 6)
+        pending["last_error"] = str(pending.get("last_error") or "") or None
+        pending["candidate"] = dict(pending.get("candidate") or {})
+        pending["plan"] = dict(pending.get("plan") or {})
+        pending["result"] = dict(pending.get("result") or {})
+        clean_pending_orders[state_key] = pending
+
+    normalized["pending_orders"] = clean_pending_orders
+    station_cooldowns = normalized.get("station_cooldowns")
+    if not isinstance(station_cooldowns, dict):
+        station_cooldowns = {}
+
+    clean_station_cooldowns: Dict[str, Any] = {}
+    for raw_station_id, raw_cooldown in station_cooldowns.items():
+        if not isinstance(raw_cooldown, dict):
+            continue
+        station_id = str(raw_station_id or raw_cooldown.get("station_id") or "").strip().upper()
+        if not station_id:
+            continue
+        cooldown = dict(raw_cooldown)
+        cooldown["station_id"] = station_id
+        cooldown["stage"] = str(cooldown.get("stage") or "entry").strip().lower() or "entry"
+        cooldown["reason"] = str(cooldown.get("reason") or "").strip() or None
+        cooldown["error"] = str(cooldown.get("error") or "").strip() or None
+        cooldown["activated_at_utc"] = str(cooldown.get("activated_at_utc") or "")
+        cooldown["until_utc"] = str(cooldown.get("until_utc") or "")
+        clean_station_cooldowns[station_id] = cooldown
+
+    normalized["station_cooldowns"] = clean_station_cooldowns
     normalized["spent_today_usd"] = round(float(_safe_float(normalized.get("spent_today_usd")) or 0.0), 6)
     normalized["gross_buys_today_usd"] = round(
         float(_safe_float(normalized.get("gross_buys_today_usd")) or _safe_float(normalized.get("spent_today_usd")) or 0.0),
@@ -1401,6 +1475,261 @@ class AutoTrader:
         self.state = _normalize_state(self.state)
         save_autotrader_state(self.config.state_path, self.state)
 
+    def _pending_orders(self) -> Dict[str, Any]:
+        pending_orders = self.state.setdefault("pending_orders", {})
+        if not isinstance(pending_orders, dict):
+            pending_orders = {}
+            self.state["pending_orders"] = pending_orders
+        return pending_orders
+
+    def _station_cooldowns(self) -> Dict[str, Any]:
+        station_cooldowns = self.state.setdefault("station_cooldowns", {})
+        if not isinstance(station_cooldowns, dict):
+            station_cooldowns = {}
+            self.state["station_cooldowns"] = station_cooldowns
+        return station_cooldowns
+
+    def _get_active_station_cooldown(self, station_id: str) -> Optional[Dict[str, Any]]:
+        key = str(station_id or "").strip().upper()
+        if not key:
+            return None
+        cooldown = dict(self._station_cooldowns().get(key) or {})
+        if not cooldown:
+            return None
+        until_dt = _parse_iso_datetime(cooldown.get("until_utc"))
+        if until_dt is None or until_dt <= _utc_now():
+            self._station_cooldowns().pop(key, None)
+            self._persist_state()
+            return None
+        return cooldown
+
+    def _activate_station_cooldown(
+        self,
+        station_id: str,
+        *,
+        reason: str,
+        error: Optional[str] = None,
+        stage: str = "entry",
+    ) -> None:
+        key = str(station_id or "").strip().upper()
+        if not key:
+            return
+        now_utc = _utc_now()
+        duration_seconds = max(60, int(self.config.order_failure_cooldown_seconds))
+        self._station_cooldowns()[key] = {
+            "station_id": key,
+            "stage": str(stage or "entry").strip().lower() or "entry",
+            "reason": str(reason or "").strip() or None,
+            "error": str(error or "").strip() or None,
+            "activated_at_utc": now_utc.isoformat(),
+            "until_utc": (now_utc + timedelta(seconds=duration_seconds)).isoformat(),
+        }
+        self._persist_state()
+
+    def _clear_station_cooldown(self, station_id: str) -> None:
+        key = str(station_id or "").strip().upper()
+        if not key:
+            return
+        removed = self._station_cooldowns().pop(key, None)
+        if removed is not None:
+            self._persist_state()
+
+    def _has_pending_order(self, kind: str, position_key: str) -> bool:
+        return _pending_order_state_key(kind, position_key) in self._pending_orders()
+
+    def _record_pending_order(
+        self,
+        *,
+        kind: str,
+        position_key: str,
+        station_id: str,
+        target_date: str,
+        label: str,
+        side: str,
+        token_id: str,
+        size: float,
+        notional_usd: float,
+        status: str,
+        order_id: Optional[str],
+        candidate: Optional[AutoTradeCandidate] = None,
+        plan: Optional[Dict[str, Any]] = None,
+        result: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        now_iso = _utc_now().isoformat()
+        self._pending_orders()[_pending_order_state_key(kind, position_key)] = {
+            "kind": str(kind or "entry").strip().lower(),
+            "position_key": str(position_key or "").strip().upper(),
+            "station_id": str(station_id or "").upper(),
+            "target_date": str(target_date or ""),
+            "label": str(label or ""),
+            "side": str(side or "").upper(),
+            "token_id": str(token_id or ""),
+            "status": str(status or "pending").strip().lower() or "pending",
+            "order_id": str(order_id or "").strip() or None,
+            "submitted_at_utc": now_iso,
+            "last_checked_utc": now_iso,
+            "size": round(float(size), 6),
+            "notional_usd": round(float(notional_usd), 6),
+            "matched_size_observed": 0.0,
+            "matched_notional_observed": 0.0,
+            "candidate": asdict(candidate) if isinstance(candidate, AutoTradeCandidate) else {},
+            "plan": dict(plan or {}),
+            "result": dict(result or {}),
+            "last_error": None,
+        }
+        self._persist_state()
+
+    def _reconcile_pending_orders(self) -> List[Dict[str, Any]]:
+        pending_orders = dict(self._pending_orders())
+        if not pending_orders:
+            return []
+
+        events: List[Dict[str, Any]] = []
+        now_utc = _utc_now()
+        now_iso = now_utc.isoformat()
+        dirty = False
+        missing_order_id_grace_seconds = max(60, int(self.config.loop_seconds) * 2)
+
+        for state_key, raw_pending in pending_orders.items():
+            pending = dict(raw_pending or {})
+            kind = str(pending.get("kind") or "entry").strip().lower()
+            position_key = str(pending.get("position_key") or "").strip().upper()
+            if kind not in _PENDING_ORDER_KINDS or not position_key:
+                self._pending_orders().pop(state_key, None)
+                dirty = True
+                continue
+
+            order_id = str(pending.get("order_id") or "").strip()
+            if not order_id:
+                submitted_at = _parse_iso_datetime(pending.get("submitted_at_utc"))
+                if submitted_at is None or (now_utc - submitted_at).total_seconds() >= missing_order_id_grace_seconds:
+                    self._pending_orders().pop(state_key, None)
+                    dirty = True
+                    event = {
+                        "station_id": pending.get("station_id"),
+                        "status": f"pending_{kind}_expired",
+                        "position_key": position_key,
+                        "reason": "missing_order_id",
+                    }
+                    self._append_log(event)
+                    events.append(event)
+                continue
+
+            try:
+                order = self.execution.get_order(order_id)
+            except Exception as exc:
+                current = dict(self._pending_orders().get(state_key) or pending)
+                current["last_checked_utc"] = now_iso
+                current["last_error"] = str(exc)
+                self._pending_orders()[state_key] = current
+                dirty = True
+                continue
+
+            plan = dict(pending.get("plan") or {})
+            summary = self.execution.summarize_order_response(
+                order,
+                fallback_size=float(_safe_float(pending.get("size")) or 0.0),
+                fallback_price=float(
+                    _safe_float(plan.get("limit_price"))
+                    or _safe_float(plan.get("best_bid"))
+                    or 0.0
+                ),
+                fallback_notional=float(_safe_float(pending.get("notional_usd")) or 0.0),
+                assume_full_on_matched=True,
+            )
+            current = dict(self._pending_orders().get(state_key) or pending)
+            current["status"] = str(summary.get("status") or current.get("status") or "pending").strip().lower() or "pending"
+            current["last_checked_utc"] = now_iso
+            current["matched_size_observed"] = round(float(_safe_float(summary.get("matched_size")) or 0.0), 6)
+            current["matched_notional_observed"] = round(float(_safe_float(summary.get("matched_notional")) or 0.0), 6)
+            current["last_error"] = summary.get("error")
+            self._pending_orders()[state_key] = current
+            dirty = True
+
+            if bool(summary.get("pending")):
+                continue
+
+            matched_size = float(_safe_float(summary.get("matched_size")) or 0.0)
+            event: Dict[str, Any]
+            if kind == "entry":
+                if matched_size > 0.0:
+                    candidate_data = dict(current.get("candidate") or {})
+                    try:
+                        candidate = AutoTradeCandidate(**candidate_data)
+                    except TypeError as exc:
+                        event = {
+                            "station_id": current.get("station_id"),
+                            "status": "pending_entry_reconcile_error",
+                            "position_key": position_key,
+                            "error": str(exc),
+                            "summary": summary,
+                        }
+                    else:
+                        reconciled_plan = dict(plan)
+                        reconciled_plan["size"] = round(matched_size, 6)
+                        reconciled_plan["notional_usd"] = round(float(_safe_float(summary.get("matched_notional")) or 0.0), 6)
+                        self._persist_trade(
+                            candidate,
+                            reconciled_plan,
+                            {
+                                "response": (current.get("result") or {}).get("response"),
+                                "summary": summary,
+                                "reconciled_order": order,
+                            },
+                            mode="live",
+                        )
+                        event = {
+                            "station_id": current.get("station_id"),
+                            "status": "pending_entry_filled",
+                            "position_key": position_key,
+                            "summary": summary,
+                        }
+                else:
+                    event = {
+                        "station_id": current.get("station_id"),
+                        "status": "pending_entry_cleared",
+                        "position_key": position_key,
+                        "summary": summary,
+                    }
+            else:
+                if matched_size > 0.0:
+                    reconciled_plan = dict(plan)
+                    reconciled_plan["size"] = round(matched_size, 6)
+                    reconciled_plan["proceeds_usd"] = round(float(_safe_float(summary.get("matched_notional")) or 0.0), 6)
+                    persisted = self._persist_exit(
+                        position_key,
+                        reconciled_plan,
+                        {
+                            "response": (current.get("result") or {}).get("response"),
+                            "summary": summary,
+                            "reconciled_order": order,
+                        },
+                        mode="live",
+                    )
+                    event = {
+                        "station_id": current.get("station_id"),
+                        "status": "pending_exit_filled" if persisted else "pending_exit_missing_position",
+                        "position_key": position_key,
+                        "summary": summary,
+                        "persisted": persisted,
+                    }
+                else:
+                    event = {
+                        "station_id": current.get("station_id"),
+                        "status": "pending_exit_cleared",
+                        "position_key": position_key,
+                        "summary": summary,
+                    }
+
+            self._pending_orders().pop(state_key, None)
+            dirty = True
+            self._append_log(event)
+            events.append(event)
+
+        if dirty:
+            self._persist_state()
+        return events
+
     def _sync_live_positions_into_state(self, live_positions: Optional[List[Dict[str, Any]]] = None) -> None:
         positions = self.state.setdefault("positions", {})
         if not isinstance(positions, dict):
@@ -1556,9 +1885,6 @@ class AutoTrader:
             if fair_now is not None and fair_now < entry_price - buffer_points:
                 force_exit = True
                 reason = "model_broke"
-            elif not policy_now.get("allowed", True) and current_best_bid >= stop_floor:
-                force_exit = True
-                reason = "policy_flip"
             elif current_best_bid <= stop_floor and edge_now_points is not None and edge_now_points <= 0.0:
                 force_exit = True
                 reason = "stop_loss"
@@ -1586,6 +1912,7 @@ class AutoTrader:
 
     def _persist_trade(self, candidate: AutoTradeCandidate, plan: Dict[str, Any], result: Dict[str, Any], *, mode: str) -> None:
         now_iso = _utc_now().isoformat()
+        self._pending_orders().pop(_pending_order_state_key("entry", candidate.position_key), None)
         self.state["positions"][candidate.position_key] = {
             "station_id": candidate.station_id,
             "target_date": candidate.target_date,
@@ -1629,6 +1956,7 @@ class AutoTrader:
         position = dict((self.state.get("positions") or {}).get(position_key) or {})
         if not position:
             return {}
+        self._pending_orders().pop(_pending_order_state_key("exit", position_key), None)
 
         shares_open = float(_safe_float(position.get("shares_open")) or _safe_float(position.get("shares")) or 0.0)
         size = min(shares_open, float(_safe_float(exit_plan.get("size")) or 0.0))
@@ -1743,6 +2071,8 @@ class AutoTrader:
                 break
 
             position_key = str(position.get("position_key") or "")
+            if self._has_pending_order("exit", position_key):
+                continue
             shares_open = float(_safe_float(position.get("shares_open")) or _safe_float(position.get("shares")) or 0.0)
             risk_now_open = _position_risk_now_usd(position)
             cost_basis_open = float(_safe_float(position.get("cost_basis_open_usd")) or _safe_float(position.get("notional_usd")) or 0.0)
@@ -1829,6 +2159,34 @@ class AutoTrader:
                     fallback_notional=float(exit_plan["proceeds_usd"]),
                     assume_full_on_matched=True,
                 )
+                if bool(summary.get("pending")):
+                    self._record_pending_order(
+                        kind="exit",
+                        position_key=position_key,
+                        station_id=str(position.get("station_id") or ""),
+                        target_date=str(position.get("target_date") or ""),
+                        label=str(position.get("label") or ""),
+                        side=str(position.get("side") or ""),
+                        token_id=str(position.get("token_id") or ""),
+                        size=float(exit_plan["size"]),
+                        notional_usd=float(exit_plan["proceeds_usd"]),
+                        status=str(summary.get("status") or "pending"),
+                        order_id=summary.get("order_id"),
+                        plan=exit_plan,
+                        result={"response": response, "summary": summary},
+                    )
+                    event = {
+                        "station_id": position.get("station_id"),
+                        "status": "live_reduce_only_pending",
+                        "position_key": position_key,
+                        "position": position,
+                        "exit_plan": exit_plan,
+                        "summary": summary,
+                        "response": response,
+                    }
+                    self._append_log(event)
+                    events.append(event)
+                    continue
                 if float(summary.get("matched_size") or 0.0) <= 0.0:
                     event = {
                         "station_id": position.get("station_id"),
@@ -1877,6 +2235,14 @@ class AutoTrader:
         self.state = load_autotrader_state(self.config.state_path)
         execution_config = self.execution.config
         recent_events = _tail_jsonl(self.config.log_path, limit=8)
+        pending_orders = list((self.state.get("pending_orders") or {}).values())
+        pending_entries = sum(1 for row in pending_orders if isinstance(row, dict) and str(row.get("kind") or "") == "entry")
+        pending_exits = sum(1 for row in pending_orders if isinstance(row, dict) and str(row.get("kind") or "") == "exit")
+        active_station_cooldowns = {
+            key: value
+            for key, value in (self.state.get("station_cooldowns") or {}).items()
+            if isinstance(value, dict) and _parse_iso_datetime(value.get("until_utc")) and _parse_iso_datetime(value.get("until_utc")) > _utc_now()
+        }
         live_snapshot: Dict[str, Any] = {}
         live_snapshot_error = ""
         if execution_config.is_live_ready:
@@ -1906,6 +2272,7 @@ class AutoTrader:
                 "max_total_exposure_usd": float(self.config.max_total_exposure_usd),
                 "max_station_exposure_usd": float(self.config.max_station_exposure_usd),
                 "daily_loss_limit_usd": float(self.config.daily_loss_limit_usd),
+                "order_failure_cooldown_seconds": int(self.config.order_failure_cooldown_seconds),
                 "min_signal_confidence": float(self.config.min_signal_confidence),
                 "signal_sigma_soft_cap_f": float(self.config.signal_sigma_soft_cap_f),
                 "signal_sigma_hard_cap_f": float(self.config.signal_sigma_hard_cap_f),
@@ -1950,6 +2317,10 @@ class AutoTrader:
                 "closed_trades_today": int(_safe_float(self.state.get("closed_trades_today")) or 0),
                 "last_trade_utc": station_state.get("last_trade_utc") or self.state.get("last_trade_utc"),
                 "open_positions": int(station_state.get("open_positions") or 0),
+                "pending_orders": len(pending_orders),
+                "pending_entries": pending_entries,
+                "pending_exits": pending_exits,
+                "active_station_cooldowns": active_station_cooldowns,
                 "positions": station_state.get("positions") or [],
                 "strategies": station_state.get("strategies") or {},
             },
@@ -1973,6 +2344,8 @@ class AutoTrader:
             if str(position.get("status") or "OPEN").upper() != "OPEN":
                 continue
             if not _is_autotrader_managed_position(position):
+                continue
+            if self._has_pending_order("exit", position_key):
                 continue
 
             try:
@@ -2016,6 +2389,34 @@ class AutoTrader:
                     fallback_notional=float(exit_plan["proceeds_usd"]),
                     assume_full_on_matched=True,
                 )
+                if bool(summary.get("pending")):
+                    self._record_pending_order(
+                        kind="exit",
+                        position_key=position_key,
+                        station_id=station_id,
+                        target_date=target_date,
+                        label=str(position.get("label") or ""),
+                        side=str(position.get("side") or ""),
+                        token_id=str(position.get("token_id") or ""),
+                        size=float(exit_plan["size"]),
+                        notional_usd=float(exit_plan["proceeds_usd"]),
+                        status=str(summary.get("status") or "pending"),
+                        order_id=summary.get("order_id"),
+                        plan=exit_plan,
+                        result={"response": response, "summary": summary},
+                    )
+                    event = {
+                        "station_id": station_id,
+                        "status": "live_exit_pending",
+                        "position_key": position_key,
+                        "position": position,
+                        "exit_plan": exit_plan,
+                        "summary": summary,
+                        "response": response,
+                    }
+                    self._append_log(event)
+                    events.append(event)
+                    continue
                 if float(summary.get("matched_size") or 0.0) <= 0.0:
                     event = {
                         "station_id": station_id,
@@ -2118,10 +2519,24 @@ class AutoTrader:
                 available_balance_usd = None
         async with _get_portfolio_lock():
             self.state = load_autotrader_state(self.config.state_path)
+            self._reconcile_pending_orders()
             if live_snapshot_ok:
                 self._sync_live_positions_into_state(live_positions)
                 self._persist_state()
             exit_events = await self._manage_open_positions(station_id, payload)
+            if self.config.is_live:
+                station_cooldown = self._get_active_station_cooldown(station_id)
+                if station_cooldown:
+                    status = "hold" if exit_events else "skip"
+                    result = {
+                        "station_id": station_id,
+                        "status": status,
+                        "reasons": ["station_order_failure_cooldown"],
+                        "cooldown": station_cooldown,
+                        "exits": exit_events,
+                    }
+                    self._append_log(result)
+                    return result
             candidate, reasons = evaluate_trade_candidate(
                 payload,
                 self.config,
@@ -2146,6 +2561,7 @@ class AutoTrader:
 
         async with _get_portfolio_lock():
             self.state = load_autotrader_state(self.config.state_path)
+            self._reconcile_pending_orders()
             if live_snapshot_ok:
                 self._sync_live_positions_into_state(live_positions)
                 self._persist_state()
@@ -2164,6 +2580,16 @@ class AutoTrader:
             )
             if candidate_identity in merged_position_identities:
                 result = {"station_id": station_id, "status": "skip", "reasons": ["duplicate_position"], "candidate": asdict(candidate), "exits": exit_events}
+                self._append_log(result)
+                return result
+            if self._has_pending_order("entry", candidate.position_key):
+                result = {
+                    "station_id": station_id,
+                    "status": "skip",
+                    "reasons": ["pending_entry_in_flight"],
+                    "candidate": asdict(candidate),
+                    "exits": exit_events,
+                }
                 self._append_log(result)
                 return result
 
@@ -2224,6 +2650,17 @@ class AutoTrader:
                     "exits": exit_events,
                     "error": message,
                 }
+                if reasons and reasons[0] in {
+                    "insufficient_balance_or_allowance",
+                    "insufficient_allowance",
+                    "insufficient_balance",
+                }:
+                    self._activate_station_cooldown(
+                        station_id,
+                        reason=reasons[0],
+                        error=message,
+                        stage="entry",
+                    )
                 self._append_log(result)
                 return result
             summary = self.execution.summarize_order_response(
@@ -2233,6 +2670,35 @@ class AutoTrader:
                 fallback_notional=float(plan["notional_usd"]),
                 assume_full_on_matched=True,
             )
+            if bool(summary.get("pending")):
+                self._record_pending_order(
+                    kind="entry",
+                    position_key=candidate.position_key,
+                    station_id=candidate.station_id,
+                    target_date=candidate.target_date,
+                    label=candidate.label,
+                    side=candidate.side,
+                    token_id=candidate.token_id,
+                    size=float(plan["size"]),
+                    notional_usd=float(plan["notional_usd"]),
+                    status=str(summary.get("status") or "pending"),
+                    order_id=summary.get("order_id"),
+                    candidate=candidate,
+                    plan=plan,
+                    result={"response": response, "summary": summary},
+                )
+                result = {
+                    "station_id": station_id,
+                    "status": "live_entry_pending",
+                    "candidate": asdict(candidate),
+                    "plan": plan,
+                    "exits": exit_events,
+                    "summary": summary,
+                    "response": response,
+                }
+                self._clear_station_cooldown(station_id)
+                self._append_log(result)
+                return result
             if float(summary.get("matched_size") or 0.0) <= 0.0:
                 result = {
                     "station_id": station_id,
@@ -2258,6 +2724,7 @@ class AutoTrader:
                 "summary": summary,
                 "response": response,
             }
+            self._clear_station_cooldown(station_id)
             self._persist_trade(candidate, reconciled_plan, {"response": response, "summary": summary}, mode="live")
             self._append_log(result)
             return result
@@ -2294,6 +2761,8 @@ class AutoTrader:
 
         async with _get_portfolio_lock():
             self.state = load_autotrader_state(self.config.state_path)
+            reconcile_events = self._reconcile_pending_orders()
+            results.extend(reconcile_events)
             if live_snapshot_ok:
                 self._sync_live_positions_into_state(live_positions)
                 self._persist_state()

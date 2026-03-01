@@ -30,6 +30,7 @@ _STATION_TITLE_HINTS = {
     "EGLC": ("london",),
     "LTAC": ("ankara",),
 }
+_PENDING_ORDER_STATUSES = {"live", "unmatched", "delayed", "open", "pending"}
 
 
 def _safe_float(value: Any) -> Optional[float]:
@@ -561,6 +562,7 @@ class PolymarketExecutionClient:
         status = str(payload.get("status") or payload.get("state") or "").strip().lower()
         error_msg = _extract_text(payload, "errorMsg", "error", "message")
         order_id = _extract_order_id(payload)
+        order = None
 
         matched_size = _extract_numeric(payload, "size_matched", "matched_size", "filledSize", "filled_size")
         if matched_size is None and isinstance(payload.get("order"), dict):
@@ -571,6 +573,8 @@ class PolymarketExecutionClient:
         if matched_size is None and order_id:
             try:
                 order = self.get_order(order_id)
+                if not status:
+                    status = str(order.get("status") or order.get("state") or "").strip().lower()
                 matched_size = _extract_numeric(order, "size_matched", "matched_size", "filledSize", "filled_size")
                 if matched_size is None and isinstance(order.get("order"), dict):
                     matched_size = _extract_numeric(order.get("order"), "size_matched", "matched_size", "filledSize", "filled_size")
@@ -590,11 +594,14 @@ class PolymarketExecutionClient:
                 matched_size = 0.0
 
         matched_size = max(0.0, min(float(fallback_size), float(matched_size)))
+        fully_matched = float(fallback_size) > 0.0 and matched_size >= (float(fallback_size) - 1e-6)
+        pending = bool(success and not error_msg and status in _PENDING_ORDER_STATUSES and not fully_matched)
         matched_notional = round(float(matched_size) * float(fallback_price), 6)
         return {
             "success": bool(success and not error_msg),
             "status": status or ("matched" if matched_size > 0 else "unknown"),
             "order_id": order_id or None,
+            "pending": pending,
             "matched_size": round(float(matched_size), 6),
             "matched_notional": matched_notional,
             "error": error_msg or None,
