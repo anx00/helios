@@ -1074,6 +1074,125 @@ def test_terminal_policy_flip_alone_does_not_force_exit(tmp_path):
     assert reasons == ["hold"]
 
 
+def test_take_profit_waits_while_fair_still_has_room(tmp_path):
+    state_path = tmp_path / "portfolio_state.json"
+    log_path = tmp_path / "autotrader.jsonl"
+    config = AutoTraderConfig(
+        enabled=True,
+        mode="paper",
+        station_ids=["KATL"],
+        state_path=str(state_path),
+        log_path=str(log_path),
+    )
+    trader = AutoTrader(config=config)
+    position = {
+        "station_id": "KATL",
+        "target_date": "2026-02-28",
+        "label": "68-69 F",
+        "side": "YES",
+        "token_id": "YES1",
+        "status": "OPEN",
+        "strategy": "terminal_value",
+        "managed_by_bot": True,
+        "entry_price": 0.20,
+        "shares": 5.0,
+        "shares_open": 5.0,
+        "notional_usd": 1.0,
+        "cost_basis_open_usd": 1.0,
+        "opened_at_utc": "2026-02-28T15:00:00+00:00",
+    }
+    payload = {
+        "station_id": "KATL",
+        "target_date": "2026-02-28",
+        "trading": {
+            "all_terminal_opportunities": [
+                {
+                    "label": "68-69 F",
+                    "fair_yes": 0.35,
+                    "edge_yes": 0.10,
+                    "terminal_policy": {"allowed": True},
+                }
+            ]
+        },
+    }
+    book = TopOfBook(
+        token_id="YES1",
+        best_bid=0.27,
+        best_ask=0.28,
+        bid_size=50.0,
+        ask_size=50.0,
+        spread=0.01,
+        min_order_size=1.0,
+        last_trade_price=0.275,
+        raw={},
+    )
+
+    exit_plan, reasons = trader._evaluate_exit_decision(position, payload, book)
+
+    assert exit_plan is None
+    assert reasons == ["hold"]
+
+
+def test_take_profit_exits_when_bid_has_caught_up_to_fair(tmp_path):
+    state_path = tmp_path / "portfolio_state.json"
+    log_path = tmp_path / "autotrader.jsonl"
+    config = AutoTraderConfig(
+        enabled=True,
+        mode="paper",
+        station_ids=["KATL"],
+        state_path=str(state_path),
+        log_path=str(log_path),
+    )
+    trader = AutoTrader(config=config)
+    position = {
+        "station_id": "KATL",
+        "target_date": "2026-02-28",
+        "label": "68-69 F",
+        "side": "YES",
+        "token_id": "YES1",
+        "status": "OPEN",
+        "strategy": "terminal_value",
+        "managed_by_bot": True,
+        "entry_price": 0.20,
+        "shares": 5.0,
+        "shares_open": 5.0,
+        "notional_usd": 1.0,
+        "cost_basis_open_usd": 1.0,
+        "opened_at_utc": "2026-02-28T15:00:00+00:00",
+    }
+    payload = {
+        "station_id": "KATL",
+        "target_date": "2026-02-28",
+        "trading": {
+            "all_terminal_opportunities": [
+                {
+                    "label": "68-69 F",
+                    "fair_yes": 0.26,
+                    "edge_yes": 0.01,
+                    "terminal_policy": {"allowed": True},
+                }
+            ]
+        },
+    }
+    book = TopOfBook(
+        token_id="YES1",
+        best_bid=0.25,
+        best_ask=0.26,
+        bid_size=50.0,
+        ask_size=50.0,
+        spread=0.01,
+        min_order_size=1.0,
+        last_trade_price=0.255,
+        raw={},
+    )
+
+    exit_plan, reasons = trader._evaluate_exit_decision(position, payload, book)
+
+    assert reasons == []
+    assert exit_plan is not None
+    assert exit_plan["reason"] == "take_profit"
+
+
 def test_live_entry_balance_failure_sets_station_cooldown_and_blocks_retries(tmp_path):
     state_path = tmp_path / "portfolio_state.json"
     log_path = tmp_path / "autotrader.jsonl"

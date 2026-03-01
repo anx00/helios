@@ -1862,8 +1862,17 @@ class AutoTrader:
         force_exit = False
         reason = None
         reasons: List[str] = []
+        fair_value_absorbed = bool(
+            fair_now is not None
+            and current_best_bid >= max(0.01, float(fair_now) - buffer_points)
+        )
 
-        if fair_now is not None and current_best_bid >= target_floor and current_best_bid > entry_price + 0.0025:
+        if (
+            fair_now is not None
+            and fair_value_absorbed
+            and current_best_bid >= target_floor
+            and current_best_bid > entry_price + 0.0025
+        ):
             reason = "take_profit"
         elif strategy == "tactical_reprice":
             if held_minutes is not None and held_minutes >= float(self.config.tactical_timeout_minutes):
