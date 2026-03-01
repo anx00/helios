@@ -1562,7 +1562,7 @@
         const trackedCount = Number(portfolio.tracked_open_positions_count || 0);
         const externalCount = Number(portfolio.external_open_positions_count || 0);
         const capBanner = (totalCap > 0 && openRisk > totalCap + 0.009)
-            ? `Existing live positions already use $${openRisk.toFixed(2)} of risk against a $${totalCap.toFixed(2)} cap. The cap only blocks new entries until exposure drops.`
+            ? `Existing live positions already use $${openRisk.toFixed(2)} of risk against a $${totalCap.toFixed(2)} cap. Reduce-only mode is active: the bot will block new entries and try to sell down risk.`
             : '';
         const strategyCountText = Object.keys(strategyCounts).length
             ? Object.entries(strategyCounts).map(([key, value]) => `${key.replace('_', ' ')} ${value}`).join(' | ')

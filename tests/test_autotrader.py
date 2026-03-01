@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
 import sys
@@ -454,6 +455,24 @@ class _FakeExecutionClient(PolymarketExecutionClient):
         return dict(self._snapshot)
 
 
+class _ReduceOnlyExecutionClient(PolymarketExecutionClient):
+    def __init__(self):
+        super().__init__(PolymarketExecutionConfig())
+
+    def get_top_of_book(self, token_id: str):
+        return TopOfBook(
+            token_id=token_id,
+            best_bid=0.045,
+            best_ask=0.046,
+            bid_size=500.0,
+            ask_size=500.0,
+            spread=0.001,
+            min_order_size=1.0,
+            last_trade_price=0.045,
+            raw={},
+        )
+
+
 def test_status_snapshot_uses_live_polymarket_positions_for_exposure(tmp_path):
     state_path = tmp_path / "portfolio_state.json"
     log_path = tmp_path / "autotrader.jsonl"
@@ -567,6 +586,48 @@ def test_sync_live_positions_into_state_imports_external_positions(tmp_path):
     assert row["strategy"] == "external_live"
     assert row["cost_basis_open_usd"] == 13.16
     assert row["status"] == "OPEN"
+
+
+def test_reduce_only_sells_down_imported_live_position_in_paper_mode(tmp_path):
+    state_path = tmp_path / "portfolio_state.json"
+    log_path = tmp_path / "autotrader.jsonl"
+    config = AutoTraderConfig(
+        enabled=True,
+        mode="paper",
+        station_ids=["EGLC"],
+        max_total_exposure_usd=5.0,
+        max_trade_usd=2.0,
+        max_depth_participation=1.0,
+        state_path=str(state_path),
+        log_path=str(log_path),
+    )
+    trader = AutoTrader(config=config, execution=_ReduceOnlyExecutionClient())
+    trader._sync_live_positions_into_state(
+        [
+            {
+                "source": "polymarket_live",
+                "station_id": "EGLC",
+                "target_date": "2026-03-01",
+                "label": "14C OR HIGHER",
+                "side": "YES",
+                "token_id": "tok1",
+                "cost_basis_open_usd": 8.0,
+                "current_value_usd": 9.0,
+                "cash_pnl_usd": 1.0,
+                "shares_open": 200.0,
+                "avg_price": 0.04,
+                "current_price": 0.045,
+            }
+        ]
+    )
+
+    events = asyncio.run(trader._manage_reduce_only_portfolio())
+
+    assert events
+    assert events[0]["status"] == "paper_reduce_only_exit"
+    snapshot = trader.get_status_snapshot()
+    assert snapshot["portfolio"]["open_risk_usd"] <= 5.0
+    assert snapshot["portfolio"]["reduce_only_active"] is False
 
 
 def test_evaluate_trade_candidate_can_pick_tactical_reprice():

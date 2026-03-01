@@ -511,6 +511,8 @@ def _portfolio_summary(
         "bankroll_usd": float(config.bankroll_usd),
         "open_risk_usd": open_risk,
         "available_exposure_usd": round(max(0.0, float(config.max_total_exposure_usd) - open_risk), 6),
+        "over_cap_usd": round(max(0.0, open_risk - float(config.max_total_exposure_usd)), 6),
+        "reduce_only_active": bool(open_risk > float(config.max_total_exposure_usd) + 0.009),
         "free_collateral_usd": free_collateral,
         "portfolio_value_usd": live_value,
         "positions_market_value_usd": float(_safe_float((live_snapshot or {}).get("positions_market_value_usd")) or 0.0),
@@ -909,6 +911,7 @@ def apply_exit_guardrails(
     *,
     target_floor_price: Optional[float] = None,
     force_exit: bool = False,
+    requested_size: Optional[float] = None,
 ) -> Tuple[Optional[Dict[str, Any]], List[str]]:
     bid = _safe_float(book.best_bid)
     if bid is None or bid <= 0:
@@ -923,6 +926,8 @@ def apply_exit_guardrails(
     size_cap = shares_open
     if bid_size > 0:
         size_cap = max(0.0, bid_size * float(config.max_depth_participation))
+    if requested_size is not None:
+        size_cap = min(size_cap, max(0.0, float(requested_size)))
     size = quantize_share_size(min(shares_open, size_cap) if size_cap > 0 else shares_open, 2)
 
     min_order_size = float(_safe_float(book.min_order_size) or 0.0)
@@ -1045,6 +1050,15 @@ def _minutes_since(value: Any, reference_utc: Optional[datetime] = None) -> Opti
     if dt is None:
         return None
     return max(0.0, ((reference_utc or _utc_now()) - dt).total_seconds() / 60.0)
+
+
+def _position_unrealized_pnl_usd(position: Dict[str, Any]) -> float:
+    explicit = _safe_float(position.get("cash_pnl_usd"))
+    if explicit is not None:
+        return float(explicit)
+    current_value = float(_safe_float(position.get("current_value_usd")) or 0.0)
+    cost_basis = float(_safe_float(position.get("cost_basis_open_usd")) or _safe_float(position.get("notional_usd")) or 0.0)
+    return current_value - cost_basis
 
 
 class AutoTrader:
@@ -1339,6 +1353,150 @@ class AutoTrader:
             "reason": exit_plan.get("reason"),
             "mode": mode,
         }
+
+    async def _manage_reduce_only_portfolio(self) -> List[Dict[str, Any]]:
+        events: List[Dict[str, Any]] = []
+        merged_positions = _merged_open_positions(self.state)
+        portfolio_risk = sum(float(_safe_float(row.get("cost_basis_open_usd")) or 0.0) for row in merged_positions)
+        over_cap_usd = portfolio_risk - float(self.config.max_total_exposure_usd)
+        if over_cap_usd <= 0.009:
+            return events
+
+        candidates = [
+            row for row in merged_positions
+            if isinstance(row, dict)
+            and str(row.get("status") or "OPEN").upper() == "OPEN"
+            and str(row.get("token_id") or "").strip()
+            and float(_safe_float(row.get("shares_open")) or _safe_float(row.get("shares")) or 0.0) > 0.0
+        ]
+        candidates.sort(
+            key=lambda row: (
+                _position_unrealized_pnl_usd(row),
+                float(_safe_float(row.get("current_price")) or 0.0),
+                -float(_safe_float(row.get("cost_basis_open_usd")) or 0.0),
+            )
+        )
+
+        remaining_over_cap = float(over_cap_usd)
+        for position in candidates:
+            if remaining_over_cap <= 0.009:
+                break
+
+            position_key = str(position.get("position_key") or "")
+            shares_open = float(_safe_float(position.get("shares_open")) or _safe_float(position.get("shares")) or 0.0)
+            cost_basis_open = float(_safe_float(position.get("cost_basis_open_usd")) or _safe_float(position.get("notional_usd")) or 0.0)
+            if shares_open <= 0.0 or cost_basis_open <= 0.0:
+                continue
+
+            average_cost = cost_basis_open / shares_open if shares_open > 0 else 0.0
+            requested_size = shares_open
+            if average_cost > 0:
+                requested_size = min(shares_open, max(0.01, remaining_over_cap / average_cost))
+
+            try:
+                live_book = self.execution.get_top_of_book(str(position.get("token_id") or ""))
+                exit_plan, exit_reasons = apply_exit_guardrails(
+                    position,
+                    live_book,
+                    self.config,
+                    force_exit=True,
+                    requested_size=requested_size,
+                )
+                if not exit_plan:
+                    event = {
+                        "station_id": position.get("station_id"),
+                        "status": "reduce_only_skip",
+                        "position_key": position_key,
+                        "position": position,
+                        "reasons": exit_reasons or ["reduce_only_guardrail_blocked"],
+                    }
+                    self._append_log(event)
+                    events.append(event)
+                    continue
+
+                exit_plan["reason"] = "reduce_only_cap"
+                exit_plan["strategy"] = str(position.get("strategy") or "external_live")
+
+                if not self.config.is_live:
+                    response = {"mode": "paper"}
+                    persisted = self._persist_exit(position_key, exit_plan, response, mode="paper")
+                    removed_cost = min(cost_basis_open, average_cost * float(_safe_float(exit_plan.get("size")) or 0.0)) if average_cost > 0 else cost_basis_open
+                    remaining_over_cap = max(0.0, remaining_over_cap - removed_cost)
+                    event = {
+                        "station_id": position.get("station_id"),
+                        "status": "paper_reduce_only_exit",
+                        "position_key": position_key,
+                        "position": position,
+                        "exit_plan": exit_plan,
+                        "persisted": persisted,
+                    }
+                    self._append_log(event)
+                    events.append(event)
+                    continue
+
+                self.execution.ensure_conditional_ready(str(position.get("token_id") or ""), float(exit_plan["size"]))
+                if self.config.order_mode == "market_fok":
+                    response = self.execution.place_market_sell(
+                        token_id=str(position.get("token_id") or ""),
+                        size=float(exit_plan["size"]),
+                        min_price=float(exit_plan["min_price"]),
+                    )
+                else:
+                    response = self.execution.place_limit_sell(
+                        token_id=str(position.get("token_id") or ""),
+                        price=float(exit_plan["min_price"]),
+                        size=float(exit_plan["size"]),
+                    )
+                summary = self.execution.summarize_order_response(
+                    response,
+                    fallback_size=float(exit_plan["size"]),
+                    fallback_price=float(exit_plan["best_bid"]),
+                    fallback_notional=float(exit_plan["proceeds_usd"]),
+                    assume_full_on_matched=True,
+                )
+                if float(summary.get("matched_size") or 0.0) <= 0.0:
+                    event = {
+                        "station_id": position.get("station_id"),
+                        "status": "live_reduce_only_unfilled",
+                        "position_key": position_key,
+                        "position": position,
+                        "exit_plan": exit_plan,
+                        "summary": summary,
+                        "response": response,
+                    }
+                    self._append_log(event)
+                    events.append(event)
+                    continue
+
+                reconciled_plan = dict(exit_plan)
+                reconciled_plan["size"] = float(summary["matched_size"])
+                reconciled_plan["proceeds_usd"] = float(summary["matched_notional"])
+                persisted = self._persist_exit(position_key, reconciled_plan, {"response": response, "summary": summary}, mode="live")
+                removed_cost = min(cost_basis_open, average_cost * float(summary["matched_size"])) if average_cost > 0 else cost_basis_open
+                remaining_over_cap = max(0.0, remaining_over_cap - removed_cost)
+                event = {
+                    "station_id": position.get("station_id"),
+                    "status": "live_reduce_only_exit",
+                    "position_key": position_key,
+                    "position": position,
+                    "exit_plan": reconciled_plan,
+                    "persisted": persisted,
+                    "summary": summary,
+                    "response": response,
+                }
+                self._append_log(event)
+                events.append(event)
+            except Exception as exc:
+                logger.exception("Autotrader reduce-only exit failed for %s %s", position.get("station_id"), position_key)
+                event = {
+                    "station_id": position.get("station_id"),
+                    "status": "reduce_only_error",
+                    "position_key": position_key,
+                    "error": str(exc),
+                }
+                self._append_log(event)
+                events.append(event)
+        return events
 
     def get_status_snapshot(self, station_id: Optional[str] = None) -> Dict[str, Any]:
         self.state = load_autotrader_state(self.config.state_path)
@@ -1737,6 +1895,25 @@ class AutoTrader:
             self._append_log(event)
             return [event]
         results: List[Dict[str, Any]] = []
+        live_snapshot_ok = False
+        live_positions: List[Dict[str, Any]] = []
+        if self.config.is_live:
+            try:
+                snapshot = self.execution.get_live_portfolio_snapshot(force_refresh=True)
+                live_positions = list(snapshot.get("open_positions") or [])
+                live_snapshot_ok = True
+            except Exception:
+                live_snapshot_ok = False
+                live_positions = []
+
+        async with _get_portfolio_lock():
+            self.state = load_autotrader_state(self.config.state_path)
+            if live_snapshot_ok:
+                self._sync_live_positions_into_state(live_positions)
+                self._persist_state()
+            reduce_events = await self._manage_reduce_only_portfolio()
+            results.extend(reduce_events)
+
         for station_id in station_ids:
             if station_id not in STATIONS:
                 results.append({"station_id": station_id, "status": "skip", "reasons": ["invalid_station"]})
