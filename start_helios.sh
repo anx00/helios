@@ -5,8 +5,15 @@ BRANCH="${1:-main}"
 APP_DIR="/opt/helios"
 VENV_BIN="$APP_DIR/venv/bin/activate"
 SERVICE_NAME="helios.service"
+RETENTION_DAYS="${HELIOS_RETENTION_DAYS:-3}"
+JOURNAL_RETENTION="${HELIOS_JOURNAL_RETENTION:-7d}"
 
 cd "$APP_DIR"
+
+echo "[helios] Housekeeping old logs and recordings"
+/usr/bin/python3 "$APP_DIR/scripts/helios_housekeeping.py" --repo-root "$APP_DIR" --retention-days "$RETENTION_DAYS" || true
+sudo journalctl --vacuum-time="$JOURNAL_RETENTION" >/dev/null 2>&1 || true
+rm -f "$APP_DIR/.git/index.lock"
 
 echo "[helios] Fetching origin/$BRANCH"
 git fetch origin "$BRANCH"

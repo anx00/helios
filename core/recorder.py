@@ -41,6 +41,54 @@ MAD = ZoneInfo("Europe/Madrid")
 
 # Schema version for all events
 SCHEMA_VERSION = 1
+DEFAULT_CHANNELS = [
+    "world",
+    "pws",
+    "features",
+    "nowcast",
+    "l2_snap",
+    "health",
+    "event_window",
+]
+DEFAULT_PERSIST_CHANNELS = [ch for ch in DEFAULT_CHANNELS if ch != "l2_snap"]
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = str(os.environ.get(name, "")).strip()
+    if not raw:
+        return int(default)
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return int(default)
+
+
+def _env_channel_list(name: str, default: List[str]) -> List[str]:
+    raw = str(os.environ.get(name, "")).strip()
+    if not raw:
+        return list(default)
+    requested = [item.strip() for item in raw.split(",") if item.strip()]
+    allowed = {ch for ch in DEFAULT_CHANNELS}
+    selected = [ch for ch in requested if ch in allowed]
+    return selected or list(default)
+
+
+def _compact_l2_market_state(market_state: Dict[str, Any]) -> Dict[str, Any]:
+    compact: Dict[str, Any] = {}
+    for bracket, payload in (market_state or {}).items():
+        if bracket == "__meta__":
+            compact[bracket] = dict(payload or {})
+            continue
+        if not isinstance(payload, dict):
+            compact[bracket] = payload
+            continue
+        reduced: Dict[str, Any] = {}
+        for key, value in payload.items():
+            if key in {"bids", "asks", "yes_bids", "yes_asks", "no_bids", "no_asks"}:
+                continue
+            reduced[key] = value
+        compact[bracket] = reduced
+    return compact
 
 
 class RingBuffer:
@@ -238,24 +286,20 @@ class Recorder:
         self.base_path.mkdir(parents=True, exist_ok=True)
 
         # Channel definitions
-        self._channels = [
-            "world",      # METAR observations
-            "pws",        # PWS cluster
-            "features",   # Environment features
-            "nowcast",    # Model outputs
-            "l2_snap",    # Market L2 snapshots
-            "health",     # System health
-            "event_window"  # Event windows
-        ]
+        self._channels = list(DEFAULT_CHANNELS)
+        self._persist_channels = set(_env_channel_list("HELIOS_RECORDER_PERSIST_CHANNELS", DEFAULT_PERSIST_CHANNELS))
+        default_ring_size = _env_int("HELIOS_RECORDER_RING_SIZE", 1000)
+        l2_ring_size = _env_int("HELIOS_RECORDER_L2_RING_SIZE", 25)
 
         # Ring buffers (in-memory) for live UI
         self._ring_buffers: Dict[str, RingBuffer] = {
-            ch: RingBuffer(max_size=1000) for ch in self._channels
+            ch: RingBuffer(max_size=(l2_ring_size if ch == "l2_snap" else default_ring_size))
+            for ch in self._channels
         }
 
         # NDJSON writers
         self._writers: Dict[str, NDJSONWriter] = {
-            ch: NDJSONWriter(self.base_path, ch) for ch in self._channels
+            ch: NDJSONWriter(self.base_path, ch) for ch in self._channels if ch in self._persist_channels
         }
 
         # Correlation tracking
@@ -267,7 +311,11 @@ class Recorder:
 
         self._running = False
         self.initialized = True
-        logger.info(f"Recorder initialized at {self.base_path}")
+        logger.info(
+            "Recorder initialized at %s | persist_channels=%s",
+            self.base_path,
+            ",".join(sorted(self._persist_channels)),
+        )
 
     def _make_event(
         self,
@@ -355,7 +403,9 @@ class Recorder:
 
         # Queue for NDJSON write (async, non-blocking)
         if self._running:
-            await self._writers[channel].write(event)
+            writer = self._writers.get(channel)
+            if writer is not None:
+                await writer.write(event)
 
         self._total_events += 1
 
@@ -507,7 +557,7 @@ class Recorder:
         """Record L2 market snapshot (Section 4.3 F)."""
         await self.record(
             channel="l2_snap",
-            data=market_state,
+            data=_compact_l2_market_state(market_state),
             station_id=station_id,
             market_id=market_id,
             correlation_id=correlation_id
@@ -611,6 +661,7 @@ class Recorder:
         return {
             "running": self._running,
             "base_path": str(self.base_path),
+            "persist_channels": sorted(self._persist_channels),
             "total_events": self._total_events,
             "uptime_seconds": uptime,
             "events_per_second": self._total_events / uptime if uptime > 0 else 0,

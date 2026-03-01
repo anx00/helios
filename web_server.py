@@ -1472,6 +1472,8 @@ async def recorder_loop():
             from config import get_active_stations
             from market.polymarket_ws import get_ws_client
             logger = logging.getLogger("l2_snapshot_loop")
+            l2_record_interval = max(5.0, float(os.environ.get("HELIOS_RECORDER_L2_INTERVAL_SECONDS", "30") or 30.0))
+            last_recorded_at: Dict[str, float] = {}
 
             while True:
                 try:
@@ -1546,6 +1548,7 @@ async def recorder_loop():
 
                     metrics = client.state.metrics if client and client.state else {}
 
+                    loop_now = asyncio.get_running_loop().time()
                     for station_id, buckets in station_books.items():
                         if not buckets:
                             continue
@@ -1561,10 +1564,13 @@ async def recorder_loop():
                         }
 
                         buckets["__meta__"] = meta
-                        asyncio.create_task(recorder.record_l2_snap(
-                            station_id=station_id,
-                            market_state=buckets
-                        ))
+                        last_ts = float(last_recorded_at.get(station_id) or 0.0)
+                        if loop_now - last_ts >= l2_record_interval:
+                            asyncio.create_task(recorder.record_l2_snap(
+                                station_id=station_id,
+                                market_state=buckets
+                            ))
+                            last_recorded_at[station_id] = loop_now
 
                     await asyncio.sleep(1)
 

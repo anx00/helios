@@ -13,6 +13,7 @@ import json
 import logging
 import os
 from pathlib import Path
+from logging.handlers import RotatingFileHandler
 from datetime import datetime
 from typing import Dict, Optional, Callable, List
 from dataclasses import dataclass, field
@@ -40,7 +41,14 @@ def _ensure_file_logger():
             if isinstance(handler, logging.FileHandler) and Path(handler.baseFilename) == log_path:
                 return
 
-        file_handler = logging.FileHandler(log_path, encoding="utf-8")
+        max_bytes = int(os.environ.get("POLYMARKET_WS_LOG_MAX_BYTES", str(2 * 1024 * 1024)) or (2 * 1024 * 1024))
+        backup_count = int(os.environ.get("POLYMARKET_WS_LOG_BACKUP_COUNT", "3") or 3)
+        file_handler = RotatingFileHandler(
+            log_path,
+            maxBytes=max_bytes,
+            backupCount=backup_count,
+            encoding="utf-8",
+        )
         file_handler.setLevel(logging.INFO)
         formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s")
         file_handler.setFormatter(formatter)
