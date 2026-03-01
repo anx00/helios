@@ -1149,10 +1149,21 @@
         document.getElementById('pm-last-update').textContent = new Date().toLocaleTimeString();
     }
 
+    const SPAIN_TIME_FORMATTER = new Intl.DateTimeFormat('es-ES', {
+        timeZone: 'Europe/Madrid',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+    });
+
     function shortTs(value) {
         if (!value) return '--';
+        const dt = new Date(String(value));
+        if (!Number.isNaN(dt.getTime())) {
+            return `${SPAIN_TIME_FORMATTER.format(dt)} ES`;
+        }
         const raw = String(value);
-        return raw.length >= 16 ? raw.slice(11, 16) : raw;
+        return raw.length >= 16 ? `${raw.slice(11, 16)} ES` : raw;
     }
 
     async function runAutotraderAction(action) {
@@ -1362,7 +1373,7 @@
             station_ids: Array.isArray(status?.selected_stations) ? [...status.selected_stations] : [],
             target_date: String(status?.target_date || status?.control?.target_date || '').trim(),
             max_total_exposure_usd: Number(risk.max_total_exposure_usd || 0),
-            max_station_exposure_usd: Number(risk.max_station_exposure_usd || 0),
+            max_trade_usd: Number(risk.max_trade_usd || 0),
         };
     }
 
@@ -1418,15 +1429,23 @@
             });
         });
 
-        ['pm-autotrader-total-cap', 'pm-autotrader-station-cap'].forEach((id) => {
-            const el = document.getElementById(id);
-            if (!el) return;
-            el.addEventListener('input', () => {
+        const totalCapEl = document.getElementById('pm-autotrader-total-cap');
+        if (totalCapEl) {
+            totalCapEl.addEventListener('input', () => {
                 autotraderDraft = autotraderDraft || {};
-                autotraderDraft[id === 'pm-autotrader-total-cap' ? 'max_total_exposure_usd' : 'max_station_exposure_usd'] = Number(el.value);
+                autotraderDraft.max_total_exposure_usd = Number(totalCapEl.value);
                 autotraderDraftDirty = true;
             });
-        });
+        }
+
+        const tradeCapEl = document.getElementById('pm-autotrader-trade-cap');
+        if (tradeCapEl) {
+            tradeCapEl.addEventListener('input', () => {
+                autotraderDraft = autotraderDraft || {};
+                autotraderDraft.max_trade_usd = Number(tradeCapEl.value);
+                autotraderDraftDirty = true;
+            });
+        }
 
         const targetDateEl = document.getElementById('pm-autotrader-target-date');
         if (targetDateEl) {
@@ -1444,7 +1463,7 @@
             station_ids: getAutotraderSelectedStations(),
             target_date: getAutotraderTargetDate(),
             max_total_exposure_usd: getAutotraderInputNumber('pm-autotrader-total-cap', 0),
-            max_station_exposure_usd: getAutotraderInputNumber('pm-autotrader-station-cap', 0),
+            max_trade_usd: getAutotraderInputNumber('pm-autotrader-trade-cap', 0),
         };
         try {
             const resp = await fetch('/api/autotrader/config', {
@@ -1516,7 +1535,8 @@
         const strategy = status.strategy || {};
         const wallet = status.wallet || {};
         const recent = Array.isArray(status.recent_events) ? status.recent_events.slice(0, 5) : [];
-        const openBets = Array.isArray(portfolio.open_positions) ? portfolio.open_positions.slice(0, 6) : [];
+        const allOpenBets = Array.isArray(portfolio.open_positions) ? portfolio.open_positions : [];
+        const openBets = allOpenBets.slice(0, 6);
         const availableStations = Array.isArray(status.available_stations) ? status.available_stations : [];
         const draft = syncAutotraderDraft(status);
         const selectedStations = Array.isArray(draft.station_ids) ? draft.station_ids : [];
@@ -1533,6 +1553,17 @@
         const pnlToday = Number(portfolio.realized_pnl_today_usd || 0);
         const strategyCounts = state.strategies || {};
         const walletIssue = recent.find(item => String(item.error || '').toLowerCase().includes('allowance') || (Array.isArray(item.reasons) && item.reasons.some(reason => String(reason).includes('allowance') || String(reason).includes('balance'))));
+        const openRisk = Number(portfolio.open_risk_usd || 0);
+        const totalCap = Number(risk.max_total_exposure_usd || 0);
+        const maxTrade = Number(risk.max_trade_usd || 0);
+        const bankrollRef = Number(risk.bankroll_usd || portfolio.bankroll_usd || 0);
+        const portfolioValue = Number(portfolio.portfolio_value_usd || wallet.portfolio_value_usd || 0);
+        const freeCollateral = Number(portfolio.free_collateral_usd || wallet.free_collateral_usd || 0);
+        const trackedCount = Number(portfolio.tracked_open_positions_count || 0);
+        const externalCount = Number(portfolio.external_open_positions_count || 0);
+        const capBanner = (totalCap > 0 && openRisk > totalCap + 0.009)
+            ? `Existing live positions already use $${openRisk.toFixed(2)} of risk against a $${totalCap.toFixed(2)} cap. The cap only blocks new entries until exposure drops.`
+            : '';
         const strategyCountText = Object.keys(strategyCounts).length
             ? Object.entries(strategyCounts).map(([key, value]) => `${key.replace('_', ' ')} ${value}`).join(' | ')
             : 'none';
@@ -1543,9 +1574,11 @@
             shutdown: 'Stopped by server shutdown.',
         };
         const stopReasonText = status.last_stop_reason ? (stopReasons[status.last_stop_reason] || status.last_stop_reason) : '';
-        const derivedBanner = walletIssue
-            ? 'Wallet blocked: Polymarket is rejecting orders with insufficient balance or allowance. Fix the allowance/balance before restarting the loop.'
-            : '';
+        const derivedBanner = autotraderBannerMessage
+            || stopReasonText
+            || wallet.error
+            || (walletIssue ? 'Wallet blocked: Polymarket is rejecting orders with insufficient balance or allowance. Fix the allowance/balance before restarting the loop.' : '')
+            || capBanner;
 
         panel.innerHTML = `
             <div class="pm-autotrader-head">
@@ -1560,7 +1593,7 @@
                     <button class="pm-autotrader-btn danger" onclick="stopAutotraderToday()" ${status.running ? '' : 'disabled'}>Stop</button>
                 </div>
             </div>
-            <div id="pm-autotrader-banner" class="pm-autotrader-note" style="${autotraderBannerMessage || stopReasonText || derivedBanner ? '' : 'display:none;'}">${autotraderBannerMessage || stopReasonText || derivedBanner}</div>
+            <div id="pm-autotrader-banner" class="pm-autotrader-note" style="${derivedBanner ? '' : 'display:none;'}">${derivedBanner}</div>
             <div class="pm-autotrader-config">
                 <div class="pm-autotrader-config-box">
                     <div class="pm-autotrader-cell-label">Stations to trade</div>
@@ -1585,11 +1618,11 @@
                             <input id="pm-autotrader-total-cap" class="pm-autotrader-input" type="number" min="0.5" step="0.25" value="${autotraderInputValueNumber('max_total_exposure_usd', risk.max_total_exposure_usd).toFixed(2)}">
                         </label>
                         <label>
-                            <span class="pm-autotrader-field-label">Per-station cap ($)</span>
-                            <input id="pm-autotrader-station-cap" class="pm-autotrader-input" type="number" min="0.25" step="0.25" value="${autotraderInputValueNumber('max_station_exposure_usd', risk.max_station_exposure_usd).toFixed(2)}">
+                            <span class="pm-autotrader-field-label">Max per trade ($)</span>
+                            <input id="pm-autotrader-trade-cap" class="pm-autotrader-input" type="number" min="0.25" step="0.25" value="${autotraderInputValueNumber('max_trade_usd', risk.max_trade_usd).toFixed(2)}">
                         </label>
                     </div>
-                    <div class="pm-autotrader-note">The loop checks the selected stations every ${Number(status.loop_seconds || 0)}s and stops automatically when the selected market date is mature or closed for every selected station.</div>
+                    <div class="pm-autotrader-note">Portfolio cap is the total open risk across all bets. Max per trade is the ceiling for a single new entry. The loop checks the selected stations every ${Number(status.loop_seconds || 0)}s and stops automatically when the selected market date is mature or closed for every selected station.</div>
                 </div>
             </div>
             <div class="pm-autotrader-grid">
@@ -1603,11 +1636,27 @@
                 </div>
                 <div class="pm-autotrader-cell">
                     <div class="pm-autotrader-cell-label">Portfolio Exposure</div>
-                    <div class="pm-autotrader-cell-value">$${Number(portfolio.open_risk_usd || 0).toFixed(2)} / $${Number(risk.max_total_exposure_usd || 0).toFixed(2)}</div>
+                    <div class="pm-autotrader-cell-value">$${openRisk.toFixed(2)} / $${totalCap.toFixed(2)}</div>
+                </div>
+                <div class="pm-autotrader-cell">
+                    <div class="pm-autotrader-cell-label">Max per trade</div>
+                    <div class="pm-autotrader-cell-value">$${maxTrade.toFixed(2)}</div>
                 </div>
                 <div class="pm-autotrader-cell">
                     <div class="pm-autotrader-cell-label">Open bets</div>
-                    <div class="pm-autotrader-cell-value">${Number(state.open_positions || 0)} live bets | $${Number(state.open_risk_usd || 0).toFixed(2)}</div>
+                    <div class="pm-autotrader-cell-value">${Number(portfolio.open_positions_count || 0)} live bets | $${openRisk.toFixed(2)}</div>
+                </div>
+                <div class="pm-autotrader-cell">
+                    <div class="pm-autotrader-cell-label">Portfolio value</div>
+                    <div class="pm-autotrader-cell-value">$${portfolioValue.toFixed(2)}</div>
+                </div>
+                <div class="pm-autotrader-cell">
+                    <div class="pm-autotrader-cell-label">Bankroll ref</div>
+                    <div class="pm-autotrader-cell-value">$${bankrollRef.toFixed(2)}</div>
+                </div>
+                <div class="pm-autotrader-cell">
+                    <div class="pm-autotrader-cell-label">Free collateral</div>
+                    <div class="pm-autotrader-cell-value">$${freeCollateral.toFixed(2)}</div>
                 </div>
                 <div class="pm-autotrader-cell">
                     <div class="pm-autotrader-cell-label">Portfolio Day</div>
@@ -1627,7 +1676,11 @@
                 </div>
                 <div class="pm-autotrader-cell">
                     <div class="pm-autotrader-cell-label">Wallet</div>
-                    <div class="pm-autotrader-cell-value">${wallet.live_ready ? 'Ready' : 'Missing keys'}</div>
+                    <div class="pm-autotrader-cell-value">${wallet.live_ready ? `Ready | free $${freeCollateral.toFixed(2)}` : 'Missing keys'}</div>
+                </div>
+                <div class="pm-autotrader-cell">
+                    <div class="pm-autotrader-cell-label">Tracking</div>
+                    <div class="pm-autotrader-cell-value">${trackedCount} local | ${externalCount} live-only</div>
                 </div>
             </div>
             <div class="pm-autotrader-log">
@@ -1648,8 +1701,10 @@
                 <div class="pm-autotrader-title" style="margin:12px 0 8px;">Open bets</div>
                 ${openBets.length ? openBets.map(item => `
                     <div class="pm-autotrader-log-item">
-                        <strong>${item.station_id} | ${item.strategy || 'terminal_value'} | ${item.side} ${item.label}</strong>
+                        <strong>${item.station_id} | ${item.source === 'polymarket_live' && !item.strategy ? 'external live' : (item.strategy || 'terminal_value')} | ${item.side} ${item.label}</strong>
                         | $${Number(item.cost_basis_open_usd || item.notional_usd || 0).toFixed(2)}
+                        | value $${Number(item.current_value_usd || 0).toFixed(2)}
+                        | pnl ${(Number(item.cash_pnl_usd || 0) >= 0 ? '+' : '')}$${Number(item.cash_pnl_usd || 0).toFixed(2)}
                         | ${Number(item.shares_open || item.shares || 0).toFixed(1)} sh
                         <span style="opacity:.7;"> | ${shortTs(item.opened_at_utc)}</span>
                     </div>

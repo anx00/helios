@@ -365,14 +365,16 @@ def _build_autotrader_runtime_config(current_enabled: Optional[bool] = None) -> 
         except (TypeError, ValueError):
             pass
 
-    max_station = overrides.get("max_station_exposure_usd")
-    if max_station is not None:
+    max_trade = overrides.get("max_trade_usd")
+    if max_trade is not None:
         try:
-            config.max_station_exposure_usd = max(0.25, float(max_station))
+            config.max_trade_usd = max(0.25, float(max_trade))
         except (TypeError, ValueError):
             pass
 
-    config.max_station_exposure_usd = min(float(config.max_station_exposure_usd), float(config.max_total_exposure_usd))
+    config.max_trade_usd = min(float(config.max_trade_usd), float(config.max_total_exposure_usd))
+    config.max_station_exposure_usd = float(config.max_total_exposure_usd)
+    config.max_station_positions = 0
     if current_enabled is not None:
         config.enabled = bool(current_enabled)
     return config
@@ -525,6 +527,7 @@ class AutotraderRuntimeConfigUpdate(BaseModel):
     station_ids: Optional[List[str]] = None
     target_date: Optional[str] = None
     max_total_exposure_usd: Optional[float] = None
+    max_trade_usd: Optional[float] = None
     max_station_exposure_usd: Optional[float] = None
 
 
@@ -2814,12 +2817,13 @@ async def update_autotrader_config_api(payload: AutotraderRuntimeConfigUpdate):
             current.pop("target_date", None)
     if payload.max_total_exposure_usd is not None:
         current["max_total_exposure_usd"] = max(0.5, float(payload.max_total_exposure_usd))
-    if payload.max_station_exposure_usd is not None:
-        current["max_station_exposure_usd"] = max(0.25, float(payload.max_station_exposure_usd))
+    if payload.max_trade_usd is not None:
+        current["max_trade_usd"] = max(0.25, float(payload.max_trade_usd))
+    current.pop("max_station_exposure_usd", None)
 
-    if "max_total_exposure_usd" in current and "max_station_exposure_usd" in current:
-        current["max_station_exposure_usd"] = min(
-            float(current["max_station_exposure_usd"]),
+    if "max_total_exposure_usd" in current and "max_trade_usd" in current:
+        current["max_trade_usd"] = min(
+            float(current["max_trade_usd"]),
             float(current["max_total_exposure_usd"]),
         )
 

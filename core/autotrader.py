@@ -142,7 +142,7 @@ class AutoTraderConfig:
     min_trade_usd: float = 1.0
     max_trade_usd: float = 2.5
     max_total_exposure_usd: float = 6.0
-    max_station_exposure_usd: float = 3.0
+    max_station_exposure_usd: float = 6.0
     daily_loss_limit_usd: float = 4.0
     max_trades_per_day: int = 4
     cooldown_seconds: int = 900
@@ -150,7 +150,7 @@ class AutoTraderConfig:
     min_ask_depth_contracts: float = 15.0
     max_depth_participation: float = 0.25
     max_open_positions: int = 4
-    max_station_positions: int = 2
+    max_station_positions: int = 0
     secondary_yes_edge_bonus_pts: float = 8.0
     require_buy_recommendation: bool = True
     allow_terminal_value: bool = True
@@ -177,7 +177,7 @@ class AutoTraderConfig:
 
 
 def load_autotrader_config_from_env() -> AutoTraderConfig:
-    return AutoTraderConfig(
+    config = AutoTraderConfig(
         enabled=_env_bool("HELIOS_AUTOTRADE_ENABLED", False),
         mode=str(os.environ.get("HELIOS_AUTOTRADE_MODE", "paper")).strip().lower() or "paper",
         station_ids=_env_list("HELIOS_AUTOTRADE_STATIONS"),
@@ -223,6 +223,9 @@ def load_autotrader_config_from_env() -> AutoTraderConfig:
         log_path=str(os.environ.get("HELIOS_AUTOTRADE_LOG_PATH", "logs/autotrader_trades.jsonl")).strip() or "logs/autotrader_trades.jsonl",
         kill_switch_path=str(os.environ.get("HELIOS_AUTOTRADE_KILL_SWITCH_PATH", "data/AUTOTRADE_STOP")).strip() or "data/AUTOTRADE_STOP",
     )
+    config.max_station_exposure_usd = float(config.max_total_exposure_usd)
+    config.max_station_positions = 0
+    return config
 
 
 @dataclass
@@ -345,19 +348,24 @@ def save_autotrader_state(path: str, state: Dict[str, Any]) -> None:
     target.write_text(json.dumps(state, indent=2, sort_keys=True), encoding="utf-8")
 
 
-def _station_exposure_usd(state: Dict[str, Any], station_id: str, target_date: str) -> float:
+def _station_exposure_usd(
+    state: Dict[str, Any],
+    station_id: str,
+    target_date: str,
+    live_positions: Optional[List[Dict[str, Any]]] = None,
+) -> float:
     total = 0.0
-    for position in (state.get("positions") or {}).values():
-        if not isinstance(position, dict):
-            continue
+    for position in _merged_open_positions(state, live_positions=live_positions):
         if str(position.get("station_id")) != station_id:
             continue
         if str(position.get("target_date")) != target_date:
             continue
-        if str(position.get("status") or "OPEN").upper() != "OPEN":
-            continue
         total += float(_safe_float(position.get("cost_basis_open_usd")) or _safe_float(position.get("notional_usd")) or 0.0)
     return total
+
+
+def _is_station_position_limit_enabled(config: AutoTraderConfig) -> bool:
+    return int(config.max_station_positions) > 0
 
 
 def _open_positions(state: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -369,6 +377,7 @@ def _open_positions(state: Dict[str, Any]) -> List[Dict[str, Any]]:
             continue
         row = dict(position)
         row.setdefault("position_key", key)
+        row.setdefault("source", "local_state")
         row["notional_usd"] = float(_safe_float(row.get("notional_usd")) or 0.0)
         row["cost_basis_open_usd"] = float(_safe_float(row.get("cost_basis_open_usd")) or row["notional_usd"])
         row["shares_open"] = float(_safe_float(row.get("shares_open")) or _safe_float(row.get("shares")) or 0.0)
@@ -377,14 +386,74 @@ def _open_positions(state: Dict[str, Any]) -> List[Dict[str, Any]]:
     return rows
 
 
-def _station_state_summary(state: Dict[str, Any], station_id: str) -> Dict[str, Any]:
+def _position_identity(row: Dict[str, Any]) -> str:
+    station_id = str(row.get("station_id") or "").upper()
+    target_date = str(row.get("target_date") or "")
+    label = normalize_label(str(row.get("label") or row.get("title") or "")) or str(row.get("label") or row.get("title") or "")
+    side = str(row.get("side") or "").upper()
+    return f"{station_id}|{target_date}|{label}|{side}".upper()
+
+
+def _merged_open_positions(
+    state: Dict[str, Any],
+    live_positions: Optional[List[Dict[str, Any]]] = None,
+) -> List[Dict[str, Any]]:
+    merged: Dict[str, Dict[str, Any]] = {}
+    for row in _open_positions(state):
+        identity = _position_identity(row)
+        if not identity:
+            continue
+        prepared = dict(row)
+        prepared["position_identity"] = identity
+        merged[identity] = prepared
+    for row in list(live_positions or []):
+        if not isinstance(row, dict):
+            continue
+        identity = _position_identity(row)
+        if not identity:
+            continue
+        if identity in merged:
+            merged[identity].setdefault("current_value_usd", float(_safe_float(row.get("current_value_usd")) or 0.0))
+            merged[identity].setdefault("avg_price", float(_safe_float(row.get("avg_price")) or 0.0))
+            merged[identity].setdefault("current_price", float(_safe_float(row.get("current_price")) or 0.0))
+            merged[identity].setdefault("source", "local_state")
+            continue
+        prepared = dict(row)
+        prepared.setdefault("source", "polymarket_live")
+        prepared.setdefault("position_key", identity)
+        prepared["position_identity"] = identity
+        prepared["cost_basis_open_usd"] = float(_safe_float(prepared.get("cost_basis_open_usd")) or _safe_float(prepared.get("initialValue")) or 0.0)
+        prepared["notional_usd"] = float(_safe_float(prepared.get("cost_basis_open_usd")) or 0.0)
+        prepared["shares_open"] = float(_safe_float(prepared.get("shares_open")) or _safe_float(prepared.get("shares")) or 0.0)
+        merged[identity] = prepared
+    rows = list(merged.values())
+    rows.sort(
+        key=lambda row: (
+            str(row.get("opened_at_utc") or ""),
+            float(_safe_float(row.get("current_value_usd")) or 0.0),
+            float(_safe_float(row.get("cost_basis_open_usd")) or 0.0),
+        ),
+        reverse=True,
+    )
+    return rows
+
+
+def _station_state_summary(
+    state: Dict[str, Any],
+    station_id: str,
+    live_positions: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
     normalized_station = str(station_id or "").upper()
-    positions = [row for row in _open_positions(state) if str(row.get("station_id") or "").upper() == normalized_station]
+    positions = [
+        row
+        for row in _merged_open_positions(state, live_positions=live_positions)
+        if str(row.get("station_id") or "").upper() == normalized_station
+    ]
     open_risk = sum(float(row.get("cost_basis_open_usd") or 0.0) for row in positions)
     last_trade = next((row.get("opened_at_utc") for row in positions if row.get("opened_at_utc")), None)
     strategies: Dict[str, int] = {}
     for row in positions:
-        strategy = str(row.get("strategy") or "terminal_value")
+        strategy = str(row.get("strategy") or ("external_live" if row.get("source") == "polymarket_live" else "terminal_value"))
         strategies[strategy] = strategies.get(strategy, 0) + 1
     return {
         "open_risk_usd": round(open_risk, 6),
@@ -395,8 +464,11 @@ def _station_state_summary(state: Dict[str, Any], station_id: str) -> Dict[str, 
     }
 
 
-def _global_state_summary(state: Dict[str, Any]) -> Dict[str, Any]:
-    positions = _open_positions(state)
+def _global_state_summary(
+    state: Dict[str, Any],
+    live_positions: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    positions = _merged_open_positions(state, live_positions=live_positions)
     open_risk = sum(float(row.get("cost_basis_open_usd") or 0.0) for row in positions)
     last_trade = next(
         (
@@ -408,7 +480,7 @@ def _global_state_summary(state: Dict[str, Any]) -> Dict[str, Any]:
     )
     strategies: Dict[str, int] = {}
     for row in positions:
-        strategy = str(row.get("strategy") or "terminal_value")
+        strategy = str(row.get("strategy") or ("external_live" if row.get("source") == "polymarket_live" else "terminal_value"))
         strategies[strategy] = strategies.get(strategy, 0) + 1
     return {
         "open_risk_usd": round(open_risk, 6),
@@ -419,17 +491,30 @@ def _global_state_summary(state: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _portfolio_summary(state: Dict[str, Any], config: AutoTraderConfig) -> Dict[str, Any]:
-    positions = _open_positions(state)
-    open_risk = float(_safe_float(state.get("open_risk_usd")) or 0.0)
+def _portfolio_summary(
+    state: Dict[str, Any],
+    config: AutoTraderConfig,
+    *,
+    live_snapshot: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    live_positions = list((live_snapshot or {}).get("open_positions") or [])
+    positions = _merged_open_positions(state, live_positions=live_positions)
+    open_risk = round(sum(float(_safe_float(row.get("cost_basis_open_usd")) or 0.0) for row in positions), 6)
     gross_buys = float(_safe_float(state.get("gross_buys_today_usd")) or _safe_float(state.get("spent_today_usd")) or 0.0)
     gross_sells = float(_safe_float(state.get("gross_sells_today_usd")) or 0.0)
     realized_pnl = float(_safe_float(state.get("realized_pnl_today_usd")) or 0.0)
     realized_loss = max(0.0, -realized_pnl)
+    live_value = float(_safe_float((live_snapshot or {}).get("portfolio_value_usd")) or 0.0)
+    free_collateral = float(_safe_float((live_snapshot or {}).get("free_collateral_usd")) or 0.0)
+    local_positions = _open_positions(state)
     return {
         "bankroll_usd": float(config.bankroll_usd),
         "open_risk_usd": open_risk,
         "available_exposure_usd": round(max(0.0, float(config.max_total_exposure_usd) - open_risk), 6),
+        "free_collateral_usd": free_collateral,
+        "portfolio_value_usd": live_value,
+        "positions_market_value_usd": float(_safe_float((live_snapshot or {}).get("positions_market_value_usd")) or 0.0),
+        "positions_cost_basis_usd": float(_safe_float((live_snapshot or {}).get("positions_cost_basis_usd")) or open_risk),
         "spent_today_usd": gross_buys,
         "gross_buys_today_usd": gross_buys,
         "gross_sells_today_usd": gross_sells,
@@ -437,6 +522,8 @@ def _portfolio_summary(state: Dict[str, Any], config: AutoTraderConfig) -> Dict[
         "remaining_daily_loss_usd": round(max(0.0, float(config.daily_loss_limit_usd) - realized_loss), 6),
         "open_positions": positions[:10],
         "open_positions_count": len(positions),
+        "tracked_open_positions_count": len(local_positions),
+        "external_open_positions_count": max(0, len(positions) - len(local_positions)),
         "trades_today": int(_safe_float(state.get("trades_today")) or 0),
         "closed_trades_today": int(_safe_float(state.get("closed_trades_today")) or 0),
         "last_trade_utc": state.get("last_trade_utc"),
@@ -452,11 +539,15 @@ def _find_bracket(payload: Dict[str, Any], label: str) -> Optional[Dict[str, Any
     return None
 
 
-def _count_station_open_positions(state: Dict[str, Any], station_id: str) -> int:
+def _count_station_open_positions(
+    state: Dict[str, Any],
+    station_id: str,
+    live_positions: Optional[List[Dict[str, Any]]] = None,
+) -> int:
     normalized_station = str(station_id or "").upper()
     return sum(
         1
-        for row in _open_positions(state)
+        for row in _merged_open_positions(state, live_positions=live_positions)
         if str(row.get("station_id") or "").upper() == normalized_station
     )
 
@@ -468,6 +559,7 @@ def _build_candidate_from_trade(
     *,
     trade_row: Dict[str, Any],
     strategy: str,
+    live_positions: Optional[List[Dict[str, Any]]] = None,
 ) -> Tuple[Optional[AutoTradeCandidate], List[str]]:
     trading = (payload or {}).get("trading") or {}
     forecast = trading.get("forecast_winner") or {}
@@ -527,6 +619,21 @@ def _build_candidate_from_trade(
     position_key = _position_key(str(payload.get("station_id") or ""), target_date, label, side)
     positions = state.get("positions") or {}
     if position_key in positions and str((positions[position_key] or {}).get("status") or "OPEN").upper() == "OPEN":
+        reasons.append("duplicate_position")
+    position_identity = _position_identity(
+        {
+            "station_id": str(payload.get("station_id") or ""),
+            "target_date": target_date,
+            "label": label,
+            "side": side,
+        }
+    )
+    merged_identities = {
+        str(row.get("position_identity") or _position_identity(row))
+        for row in _merged_open_positions(state, live_positions=live_positions)
+        if isinstance(row, dict)
+    }
+    if position_identity in merged_identities:
         reasons.append("duplicate_position")
 
     next_projection = ((trading.get("tactical_context") or {}).get("next_metar") or {}) if tactical else {}
@@ -594,6 +701,8 @@ def evaluate_trade_candidate(
     payload: Dict[str, Any],
     config: AutoTraderConfig,
     state: Optional[Dict[str, Any]] = None,
+    *,
+    live_positions: Optional[List[Dict[str, Any]]] = None,
 ) -> Tuple[Optional[AutoTradeCandidate], List[str]]:
     trading = (payload or {}).get("trading") or {}
     market_status = (payload or {}).get("market_status") or {}
@@ -605,9 +714,13 @@ def evaluate_trade_candidate(
         return None, ["event_mature"]
 
     normalized_state = _normalize_state(state or {})
-    if len(_open_positions(normalized_state)) >= int(config.max_open_positions):
+    if len(_merged_open_positions(normalized_state, live_positions=live_positions)) >= int(config.max_open_positions):
         return None, ["portfolio_full"]
-    if _count_station_open_positions(normalized_state, str(payload.get("station_id") or "")) >= int(config.max_station_positions):
+    if _is_station_position_limit_enabled(config) and _count_station_open_positions(
+        normalized_state,
+        str(payload.get("station_id") or ""),
+        live_positions=live_positions,
+    ) >= int(config.max_station_positions):
         return None, ["station_full"]
 
     terminal_candidate = None
@@ -619,6 +732,7 @@ def evaluate_trade_candidate(
             normalized_state,
             trade_row=dict(trading.get("best_terminal_trade") or {}),
             strategy="terminal_value",
+            live_positions=live_positions,
         )
 
     tactical_candidate = None
@@ -630,6 +744,7 @@ def evaluate_trade_candidate(
             normalized_state,
             trade_row=dict(trading.get("best_tactical_trade") or {}),
             strategy="tactical_reprice",
+            live_positions=live_positions,
         )
 
     if terminal_candidate and tactical_candidate:
@@ -672,24 +787,22 @@ def compute_trade_budget_usd(
     state: Dict[str, Any],
     *,
     available_balance_usd: Optional[float] = None,
+    live_positions: Optional[List[Dict[str, Any]]] = None,
 ) -> float:
     realized_pnl_today = float(_safe_float(state.get("realized_pnl_today_usd")) or 0.0)
     realized_loss_today = max(0.0, -realized_pnl_today)
     remaining_daily_loss = float(config.daily_loss_limit_usd) - realized_loss_today
-    remaining_total_exposure = float(config.max_total_exposure_usd) - float(_safe_float(state.get("open_risk_usd")) or 0.0)
-    remaining_station_exposure = float(config.max_station_exposure_usd) - _station_exposure_usd(
-        state,
-        candidate.station_id,
-        candidate.target_date,
-    )
-    open_positions_count = len(_open_positions(state))
-    station_positions_count = _count_station_open_positions(state, candidate.station_id)
+    merged_positions = _merged_open_positions(state, live_positions=live_positions)
+    merged_open_risk = sum(float(_safe_float(row.get("cost_basis_open_usd")) or 0.0) for row in merged_positions)
+    remaining_total_exposure = float(config.max_total_exposure_usd) - float(merged_open_risk)
+    open_positions_count = len(merged_positions)
+    station_positions_count = _count_station_open_positions(state, candidate.station_id, live_positions=live_positions)
 
     if int(_safe_float(state.get("trades_today")) or 0) >= int(config.max_trades_per_day):
         return 0.0
     if open_positions_count >= int(config.max_open_positions):
         return 0.0
-    if station_positions_count >= int(config.max_station_positions):
+    if _is_station_position_limit_enabled(config) and station_positions_count >= int(config.max_station_positions):
         return 0.0
 
     last_trade_raw = str(state.get("last_trade_utc") or "").strip()
@@ -706,7 +819,6 @@ def compute_trade_budget_usd(
         float(config.max_trade_usd),
         remaining_daily_loss,
         remaining_total_exposure,
-        remaining_station_exposure,
     )
     if available_balance_usd is not None:
         effective_cap = min(effective_cap, float(available_balance_usd))
@@ -957,6 +1069,72 @@ class AutoTrader:
         self.state = _normalize_state(self.state)
         save_autotrader_state(self.config.state_path, self.state)
 
+    def _sync_live_positions_into_state(self, live_positions: Optional[List[Dict[str, Any]]] = None) -> None:
+        positions = self.state.setdefault("positions", {})
+        if not isinstance(positions, dict):
+            self.state["positions"] = {}
+            positions = self.state["positions"]
+
+        seen_identities = set()
+        now_iso = _utc_now().isoformat()
+        for row in list(live_positions or []):
+            if not isinstance(row, dict):
+                continue
+            identity = str(row.get("position_identity") or _position_identity(row))
+            if not identity:
+                continue
+            seen_identities.add(identity)
+            position_key = str(row.get("position_key") or identity)
+            existing = dict(positions.get(position_key) or positions.get(identity) or {})
+            strategy = str(existing.get("strategy") or "external_live")
+            fills = list(existing.get("fills") or [])
+            positions[position_key] = {
+                "position_identity": identity,
+                "station_id": str(row.get("station_id") or existing.get("station_id") or "").upper(),
+                "target_date": str(row.get("target_date") or existing.get("target_date") or ""),
+                "label": str(row.get("label") or existing.get("label") or row.get("title") or ""),
+                "title": str(row.get("title") or existing.get("title") or ""),
+                "side": str(row.get("side") or existing.get("side") or "").upper(),
+                "token_id": str(row.get("token_id") or existing.get("token_id") or ""),
+                "status": "OPEN",
+                "mode": str(existing.get("mode") or "live"),
+                "strategy": strategy,
+                "source": "polymarket_live",
+                "strategy_score": float(_safe_float(existing.get("strategy_score")) or 0.0),
+                "entry_price": float(_safe_float(row.get("entry_price")) or _safe_float(row.get("avg_price")) or _safe_float(existing.get("entry_price")) or 0.0),
+                "avg_price": float(_safe_float(row.get("avg_price")) or _safe_float(existing.get("avg_price")) or 0.0),
+                "current_price": float(_safe_float(row.get("current_price")) or _safe_float(existing.get("current_price")) or 0.0),
+                "shares": float(_safe_float(row.get("shares")) or _safe_float(row.get("shares_open")) or _safe_float(existing.get("shares")) or 0.0),
+                "shares_open": float(_safe_float(row.get("shares_open")) or _safe_float(row.get("shares")) or _safe_float(existing.get("shares_open")) or 0.0),
+                "notional_usd": float(_safe_float(row.get("cost_basis_open_usd")) or _safe_float(existing.get("notional_usd")) or 0.0),
+                "cost_basis_open_usd": float(_safe_float(row.get("cost_basis_open_usd")) or _safe_float(existing.get("cost_basis_open_usd")) or 0.0),
+                "current_value_usd": float(_safe_float(row.get("current_value_usd")) or _safe_float(existing.get("current_value_usd")) or 0.0),
+                "cash_pnl_usd": float(_safe_float(row.get("cash_pnl_usd")) or _safe_float(existing.get("cash_pnl_usd")) or 0.0),
+                "realized_pnl_usd": float(_safe_float(row.get("realized_pnl_usd")) or _safe_float(existing.get("realized_pnl_usd")) or 0.0),
+                "opened_at_utc": str(existing.get("opened_at_utc") or row.get("opened_at_utc") or now_iso),
+                "opened_next_obs_utc": str(existing.get("opened_next_obs_utc") or ""),
+                "thesis": str(existing.get("thesis") or "Imported from live Polymarket portfolio."),
+                "fills": fills,
+                "result": existing.get("result") or {},
+                "live_synced_at_utc": now_iso,
+            }
+
+        for key, position in list(positions.items()):
+            if not isinstance(position, dict):
+                continue
+            if str(position.get("source") or "") != "polymarket_live":
+                continue
+            identity = str(position.get("position_identity") or _position_identity(position))
+            if identity in seen_identities:
+                positions[key]["position_identity"] = identity
+                continue
+            if str(position.get("status") or "OPEN").upper() != "OPEN":
+                continue
+            positions[key]["status"] = "CLOSED"
+            positions[key]["shares_open"] = 0.0
+            positions[key]["cost_basis_open_usd"] = 0.0
+            positions[key]["closed_at_utc"] = now_iso
+
     def _position_live_book(self, position: Dict[str, Any], payload: Dict[str, Any]) -> Optional[TopOfBook]:
         bracket = _find_bracket(payload, str(position.get("label") or ""))
         if self.config.prefer_ws_book and bracket:
@@ -1166,8 +1344,19 @@ class AutoTrader:
         self.state = load_autotrader_state(self.config.state_path)
         execution_config = self.execution.config
         recent_events = _tail_jsonl(self.config.log_path, limit=8)
+        live_snapshot: Dict[str, Any] = {}
+        live_snapshot_error = ""
+        if execution_config.is_live_ready:
+            try:
+                live_snapshot = self.execution.get_live_portfolio_snapshot()
+            except Exception as exc:
+                live_snapshot_error = str(exc)
+        live_positions = list(live_snapshot.get("open_positions") or [])
         station_focus = str(station_id or "").upper()
-        station_state = _station_state_summary(self.state, station_focus) if station_focus else _global_state_summary(self.state)
+        station_state = (
+            _station_state_summary(self.state, station_focus, live_positions=live_positions)
+            if station_focus else _global_state_summary(self.state, live_positions=live_positions)
+        )
         return {
             "enabled": bool(self.config.enabled),
             "mode": self.config.mode,
@@ -1185,6 +1374,7 @@ class AutoTrader:
                 "daily_loss_limit_usd": float(self.config.daily_loss_limit_usd),
                 "max_open_positions": int(self.config.max_open_positions),
                 "max_station_positions": int(self.config.max_station_positions),
+                "station_limits_enabled": _is_station_position_limit_enabled(self.config),
             },
             "strategy": {
                 "terminal_enabled": bool(self.config.allow_terminal_value),
@@ -1205,8 +1395,13 @@ class AutoTrader:
                 "has_api_creds": bool(execution_config.has_api_creds),
                 "signature_type": int(execution_config.signature_type),
                 "has_funder": bool(str(execution_config.funder or "").strip()),
+                "account_user": live_snapshot.get("user"),
+                "free_collateral_usd": float(_safe_float(live_snapshot.get("free_collateral_usd")) or 0.0),
+                "portfolio_value_usd": float(_safe_float(live_snapshot.get("portfolio_value_usd")) or 0.0),
+                "collateral_allowance_ready": bool(live_snapshot.get("collateral_allowance_ready")),
+                "error": live_snapshot_error or None,
             },
-            "portfolio": _portfolio_summary(self.state, self.config),
+            "portfolio": _portfolio_summary(self.state, self.config, live_snapshot=live_snapshot),
             "state": {
                 "trading_day": self.state.get("trading_day"),
                 "spent_today_usd": float(_safe_float(self.state.get("spent_today_usd")) or 0.0),
@@ -1363,10 +1558,32 @@ class AutoTrader:
             resolved_target_day,
             target_date=resolved_target_date,
         )
+        live_snapshot: Dict[str, Any] = {}
+        live_positions: List[Dict[str, Any]] = []
+        available_balance_usd = None
+        live_snapshot_ok = False
+        if self.config.is_live:
+            try:
+                live_snapshot = self.execution.get_live_portfolio_snapshot(force_refresh=True)
+                live_positions = list(live_snapshot.get("open_positions") or [])
+                available_balance_usd = _safe_float(live_snapshot.get("free_collateral_usd"))
+                live_snapshot_ok = True
+            except Exception:
+                live_snapshot = {}
+                live_positions = []
+                available_balance_usd = None
         async with _get_portfolio_lock():
             self.state = load_autotrader_state(self.config.state_path)
+            if live_snapshot_ok:
+                self._sync_live_positions_into_state(live_positions)
+                self._persist_state()
             exit_events = await self._manage_open_positions(station_id, payload)
-            candidate, reasons = evaluate_trade_candidate(payload, self.config, self.state)
+            candidate, reasons = evaluate_trade_candidate(
+                payload,
+                self.config,
+                self.state,
+                live_positions=live_positions,
+            )
             if not candidate:
                 status = "hold" if exit_events else "skip"
                 result = {"station_id": station_id, "status": status, "reasons": reasons, "exits": exit_events}
@@ -1383,22 +1600,36 @@ class AutoTrader:
         if live_book is None or live_book.best_ask is None:
             live_book = self.execution.get_top_of_book(candidate.token_id)
 
-        available_balance_usd = None
-        if self.config.is_live:
-            try:
-                collateral = self.execution.get_collateral_status()
-                available_balance_usd = _safe_float(collateral.get("balance"))
-            except Exception:
-                available_balance_usd = None
-
         async with _get_portfolio_lock():
             self.state = load_autotrader_state(self.config.state_path)
-            if candidate.position_key in (self.state.get("positions") or {}):
+            if live_snapshot_ok:
+                self._sync_live_positions_into_state(live_positions)
+                self._persist_state()
+            merged_position_identities = {
+                str(row.get("position_identity") or _position_identity(row))
+                for row in _merged_open_positions(self.state, live_positions=live_positions)
+                if isinstance(row, dict)
+            }
+            candidate_identity = _position_identity(
+                {
+                    "station_id": candidate.station_id,
+                    "target_date": candidate.target_date,
+                    "label": candidate.label,
+                    "side": candidate.side,
+                }
+            )
+            if candidate.position_key in (self.state.get("positions") or {}) or candidate_identity in merged_position_identities:
                 result = {"station_id": station_id, "status": "skip", "reasons": ["duplicate_position"], "candidate": asdict(candidate), "exits": exit_events}
                 self._append_log(result)
                 return result
 
-            budget_usd = compute_trade_budget_usd(candidate, self.config, self.state, available_balance_usd=available_balance_usd)
+            budget_usd = compute_trade_budget_usd(
+                candidate,
+                self.config,
+                self.state,
+                available_balance_usd=available_balance_usd,
+                live_positions=live_positions,
+            )
             if budget_usd < float(self.config.min_trade_usd):
                 result = {"station_id": station_id, "status": "skip", "reasons": ["budget_too_small"], "candidate": asdict(candidate), "exits": exit_events}
                 self._append_log(result)

@@ -102,6 +102,37 @@ def test_evaluate_trade_candidate_blocks_secondary_yes_without_extra_edge():
     assert "secondary_yes_not_good_enough" in reasons
 
 
+def test_evaluate_trade_candidate_ignores_station_position_limit_when_disabled():
+    payload = _sample_payload()
+    config = AutoTraderConfig(enabled=True, station_ids=["KATL"], max_station_positions=0)
+    candidate, reasons = evaluate_trade_candidate(
+        payload,
+        config,
+        state={"positions": {}},
+        live_positions=[
+            {
+                "source": "polymarket_live",
+                "station_id": "KATL",
+                "target_date": "2026-02-28",
+                "label": "64-65 F",
+                "side": "YES",
+                "cost_basis_open_usd": 1.0,
+            },
+            {
+                "source": "polymarket_live",
+                "station_id": "KATL",
+                "target_date": "2026-02-28",
+                "label": "66-67 F",
+                "side": "YES",
+                "cost_basis_open_usd": 1.0,
+            },
+        ],
+    )
+
+    assert reasons == []
+    assert candidate is not None
+
+
 def test_compute_trade_budget_respects_remaining_limits():
     config = AutoTraderConfig(
         enabled=True,
@@ -145,6 +176,58 @@ def test_compute_trade_budget_respects_remaining_limits():
 
     assert budget >= 1.0
     assert budget <= 2.0
+
+
+def test_compute_trade_budget_blocks_when_live_portfolio_already_uses_cap():
+    config = AutoTraderConfig(
+        enabled=True,
+        station_ids=["KATL"],
+        bankroll_usd=20.0,
+        fractional_kelly=0.2,
+        min_trade_usd=1.0,
+        max_trade_usd=2.5,
+        max_total_exposure_usd=6.0,
+        max_station_exposure_usd=3.0,
+        daily_loss_limit_usd=4.0,
+    )
+    candidate = AutoTradeCandidate(
+        station_id="KATL",
+        target_date="2026-02-28",
+        target_day=0,
+        label="68-69 F",
+        side="YES",
+        token_id="YES1",
+        market_price=0.24,
+        fair_price=0.32,
+        edge_points=8.0,
+        model_probability=0.32,
+        recommendation="BUY_YES",
+        policy_reason="test",
+        forecast_winner_label="68-69 F",
+        forecast_edge_points=8.0,
+        tactical_alignment="aligned",
+        why="test",
+        position_key="KATL|2026-02-28|68-69 F|YES",
+    )
+
+    budget = compute_trade_budget_usd(
+        candidate,
+        config,
+        state={"positions": {}},
+        available_balance_usd=20.0,
+        live_positions=[
+            {
+                "source": "polymarket_live",
+                "station_id": "KATL",
+                "target_date": "2026-02-28",
+                "label": "70-71 F",
+                "side": "YES",
+                "cost_basis_open_usd": 6.5,
+            }
+        ],
+    )
+
+    assert budget == 0.0
 
 
 def test_apply_orderbook_guardrails_uses_live_book_and_depth_caps():
@@ -360,6 +443,130 @@ def test_resolve_station_market_target_prefers_explicit_date():
 
     assert resolved_date == "2026-03-05"
     assert isinstance(resolved_day, int)
+
+
+class _FakeExecutionClient(PolymarketExecutionClient):
+    def __init__(self, snapshot):
+        super().__init__(PolymarketExecutionConfig(private_key="0xabc", derive_api_creds=True))
+        self._snapshot = snapshot
+
+    def get_live_portfolio_snapshot(self, *, force_refresh: bool = False):
+        return dict(self._snapshot)
+
+
+def test_status_snapshot_uses_live_polymarket_positions_for_exposure(tmp_path):
+    state_path = tmp_path / "portfolio_state.json"
+    log_path = tmp_path / "autotrader.jsonl"
+    today = _today_iso()
+    state_path.write_text(
+        f"""{{
+  "trading_day": "{today}",
+  "positions": {{}}
+}}""",
+        encoding="utf-8",
+    )
+    config = AutoTraderConfig(
+        enabled=True,
+        mode="live",
+        station_ids=["KATL", "EGLC"],
+        max_total_exposure_usd=20.0,
+        max_station_exposure_usd=5.0,
+        state_path=str(state_path),
+        log_path=str(log_path),
+    )
+    live_snapshot = {
+        "user": "0xuser",
+        "free_collateral_usd": 0.840014,
+        "collateral_allowance_ready": True,
+        "portfolio_value_usd": 20.1959,
+        "positions_market_value_usd": 20.1959,
+        "positions_cost_basis_usd": 26.92,
+        "open_positions": [
+            {
+                "source": "polymarket_live",
+                "station_id": "KATL",
+                "target_date": today,
+                "label": "76F OR HIGHER",
+                "side": "NO",
+                "cost_basis_open_usd": 13.16,
+                "current_value_usd": 13.90,
+                "cash_pnl_usd": 0.74,
+                "shares_open": 36.6,
+            },
+            {
+                "source": "polymarket_live",
+                "station_id": "EGLC",
+                "target_date": today,
+                "label": "14C OR HIGHER",
+                "side": "YES",
+                "cost_basis_open_usd": 5.73,
+                "current_value_usd": 6.21,
+                "cash_pnl_usd": 0.48,
+                "shares_open": 133.6,
+            },
+            {
+                "source": "polymarket_live",
+                "station_id": "KDAL",
+                "target_date": "2026-02-28",
+                "label": "88F OR HIGHER",
+                "side": "YES",
+                "cost_basis_open_usd": 8.03,
+                "current_value_usd": 0.08,
+                "cash_pnl_usd": -7.95,
+                "shares_open": 168.8,
+            },
+        ],
+    }
+    trader = AutoTrader(config=config, execution=_FakeExecutionClient(live_snapshot))
+
+    snapshot = trader.get_status_snapshot()
+
+    assert snapshot["portfolio"]["open_positions_count"] == 3
+    assert snapshot["portfolio"]["open_risk_usd"] == 26.92
+    assert snapshot["portfolio"]["free_collateral_usd"] == 0.840014
+    assert snapshot["portfolio"]["portfolio_value_usd"] == 20.1959
+    assert snapshot["portfolio"]["external_open_positions_count"] == 3
+    assert snapshot["wallet"]["free_collateral_usd"] == 0.840014
+    assert snapshot["state"]["strategies"] == {"external_live": 3}
+
+
+def test_sync_live_positions_into_state_imports_external_positions(tmp_path):
+    state_path = tmp_path / "portfolio_state.json"
+    log_path = tmp_path / "autotrader.jsonl"
+    config = AutoTraderConfig(
+        enabled=True,
+        mode="live",
+        station_ids=["KATL"],
+        state_path=str(state_path),
+        log_path=str(log_path),
+    )
+    trader = AutoTrader(config=config)
+
+    trader._sync_live_positions_into_state(
+        [
+            {
+                "source": "polymarket_live",
+                "station_id": "KATL",
+                "target_date": "2026-03-01",
+                "label": "76F OR HIGHER",
+                "side": "NO",
+                "token_id": "tok1",
+                "cost_basis_open_usd": 13.16,
+                "current_value_usd": 13.90,
+                "cash_pnl_usd": 0.74,
+                "shares_open": 36.57,
+                "avg_price": 0.3599,
+            }
+        ]
+    )
+
+    positions = trader.state.get("positions") or {}
+    assert len(positions) == 1
+    row = next(iter(positions.values()))
+    assert row["source"] == "polymarket_live"
+    assert row["strategy"] == "external_live"
+    assert row["cost_basis_open_usd"] == 13.16
+    assert row["status"] == "OPEN"
 
 
 def test_evaluate_trade_candidate_can_pick_tactical_reprice():
