@@ -13,6 +13,7 @@ import asyncio
 import logging
 import json
 import os
+import shutil
 from datetime import datetime, date, timedelta
 from pathlib import Path
 from typing import Optional, Dict, List, Any, Generator
@@ -26,6 +27,7 @@ UTC = ZoneInfo("UTC")
 # Try to import pyarrow for Parquet support
 try:
     import pyarrow as pa
+    import pyarrow.dataset as ds
     import pyarrow.parquet as pq
     PARQUET_AVAILABLE = True
 except ImportError:
@@ -73,6 +75,36 @@ def flatten_event(event: Dict) -> Dict:
     return flat
 
 
+def _value_kind(value: Any) -> str:
+    """Return a coarse scalar category for Parquet type normalization."""
+    if isinstance(value, bool):
+        return "bool"
+    if isinstance(value, int):
+        return "int"
+    if isinstance(value, float):
+        return "float"
+    if isinstance(value, str):
+        return "str"
+    return "other"
+
+
+def _normalize_column_values(values: List[Any]) -> List[Any]:
+    """
+    Normalize mixed scalar columns so PyArrow can build a stable schema.
+    Numeric columns keep numeric types; mixed scalar/object columns fall back to strings.
+    """
+    kinds = {_value_kind(v) for v in values if v is not None}
+    if not kinds:
+        return values
+    if kinds.issubset({"int", "float"}):
+        if "float" in kinds:
+            return [float(v) if v is not None else None for v in values]
+        return values
+    if len(kinds) == 1 and "other" not in kinds:
+        return values
+    return [None if v is None else str(v) for v in values]
+
+
 def events_to_table(events: List[Dict]) -> Optional["pa.Table"]:
     """Convert list of events to PyArrow Table."""
     if not PARQUET_AVAILABLE:
@@ -93,7 +125,7 @@ def events_to_table(events: List[Dict]) -> Optional["pa.Table"]:
     columns = {}
     for col in all_columns:
         values = [e.get(col) for e in flattened]
-        columns[col] = values
+        columns[col] = _normalize_column_values(values)
 
     try:
         return pa.table(columns)
@@ -117,12 +149,16 @@ class Compactor:
         ndjson_base: str = "data/recordings",
         parquet_base: str = "data/parquet",
         delete_after_compact: bool = False,
-        retention_days: int = 14
+        retention_days: int = 14,
+        batch_size: int = 500,
+        max_dates_per_run: int = 1,
     ):
         self.ndjson_base = Path(ndjson_base)
         self.parquet_base = Path(parquet_base)
         self.delete_after_compact = delete_after_compact
         self.retention_days = retention_days
+        self.batch_size = max(1, int(batch_size))
+        self.max_dates_per_run = max(1, int(max_dates_per_run))
 
         self.parquet_base.mkdir(parents=True, exist_ok=True)
 
@@ -163,14 +199,14 @@ class Compactor:
         """Get NDJSON file path for date and channel."""
         return self.ndjson_base / f"date={date_str}" / f"ch={channel}" / "events.ndjson"
 
-    def get_parquet_path(
+    def get_parquet_dir(
         self,
         date_str: str,
         channel: str,
         station_id: Optional[str] = None
     ) -> Path:
         """
-        Get Parquet output path.
+        Get Parquet output directory.
 
         Layout: data/parquet/station=KLGA/date=2026-01-29/ch=world/part-0000.parquet
         """
@@ -179,16 +215,119 @@ class Compactor:
                 self.parquet_base /
                 f"station={station_id}" /
                 f"date={date_str}" /
-                f"ch={channel}" /
-                "part-0000.parquet"
+                f"ch={channel}"
             )
         else:
             return (
                 self.parquet_base /
                 f"date={date_str}" /
-                f"ch={channel}" /
-                "part-0000.parquet"
+                f"ch={channel}"
             )
+
+    def get_parquet_path(
+        self,
+        date_str: str,
+        channel: str,
+        station_id: Optional[str] = None,
+        part_index: int = 0,
+    ) -> Path:
+        """Get Parquet output path for a specific part file."""
+        return self.get_parquet_dir(date_str, channel, station_id) / f"part-{part_index:04d}.parquet"
+
+    def _iter_channel_parquet_dirs(
+        self,
+        date_str: str,
+        channel: str,
+        station_id: Optional[str] = None,
+    ) -> Generator[Path, None, None]:
+        """Yield all Parquet directories that can contain a date/channel."""
+        yielded = set()
+
+        def _yield(path: Path):
+            key = str(path)
+            if key not in yielded:
+                yielded.add(key)
+                return path
+            return None
+
+        if station_id:
+            path = _yield(self.get_parquet_dir(date_str, channel, station_id))
+            if path is not None:
+                yield path
+
+        path = _yield(self.get_parquet_dir(date_str, channel, None))
+        if path is not None:
+            yield path
+
+        if not self.parquet_base.exists():
+            return
+
+        for item in self.parquet_base.iterdir():
+            if not (item.is_dir() and item.name.startswith("station=")):
+                continue
+            if station_id and item.name != f"station={station_id}":
+                continue
+            path = _yield(item / f"date={date_str}" / f"ch={channel}")
+            if path is not None:
+                yield path
+
+    def _reset_channel_outputs(self, date_str: str, channel: str):
+        """Remove stale Parquet fragments before recompacting a channel."""
+        for output_dir in self._iter_channel_parquet_dirs(date_str, channel):
+            if not output_dir.exists():
+                continue
+            shutil.rmtree(output_dir, ignore_errors=True)
+
+            parent = output_dir.parent
+            while parent != self.parquet_base and parent.exists():
+                try:
+                    next(parent.iterdir())
+                except StopIteration:
+                    parent.rmdir()
+                    parent = parent.parent
+                    continue
+                break
+
+    def _write_station_batch(
+        self,
+        date_str: str,
+        channel: str,
+        station_id: str,
+        events: List[Dict],
+        part_index: int,
+    ) -> Dict[str, int]:
+        """Write a single station/date/channel batch to Parquet."""
+        if not events:
+            return {"files_written": 0, "bytes_written": 0}
+
+        table = events_to_table(events)
+        if table is None:
+            return {"files_written": 0, "bytes_written": 0}
+
+        parquet_path = self.get_parquet_path(
+            date_str,
+            channel,
+            station_id if station_id != "ALL" else None,
+            part_index=part_index,
+        )
+        parquet_path.parent.mkdir(parents=True, exist_ok=True)
+
+        try:
+            pq.write_table(table, parquet_path, compression="snappy")
+            file_size = parquet_path.stat().st_size
+            logger.info(
+                "Compacted %s for %s (station=%s part=%s): %s events, %.1f KB",
+                channel,
+                date_str,
+                station_id,
+                part_index,
+                len(events),
+                file_size / 1024,
+            )
+            return {"files_written": 1, "bytes_written": file_size}
+        except Exception as e:
+            logger.error(f"Failed to write Parquet: {e}")
+            return {"files_written": 0, "bytes_written": 0}
 
     def compact_channel(
         self,
@@ -209,48 +348,51 @@ class Compactor:
             logger.debug(f"No NDJSON file: {ndjson_path}")
             return {"events_read": 0, "files_written": 0, "bytes_written": 0}
 
-        # Read all events
-        events = list(read_ndjson_file(ndjson_path))
-        if not events:
-            return {"events_read": 0, "files_written": 0, "bytes_written": 0}
-
-        # Group by station_id
-        events_by_station: Dict[str, List[Dict]] = {}
-        for event in events:
-            station = event.get("station_id", "ALL")
-            if station not in events_by_station:
-                events_by_station[station] = []
-            events_by_station[station].append(event)
+        self._reset_channel_outputs(date_str, channel)
 
         total_bytes = 0
         files_written = 0
+        events_read = 0
+        station_batches: Dict[str, List[Dict]] = {}
+        part_indexes: Dict[str, int] = {}
 
-        # Write Parquet for each station
-        for station_id, station_events in events_by_station.items():
-            table = events_to_table(station_events)
-            if table is None:
+        for event in read_ndjson_file(ndjson_path):
+            station = event.get("station_id") or "ALL"
+            bucket = station_batches.setdefault(station, [])
+            bucket.append(event)
+            events_read += 1
+
+            if len(bucket) < self.batch_size:
                 continue
 
-            parquet_path = self.get_parquet_path(
+            stats = self._write_station_batch(
                 date_str,
                 channel,
-                station_id if station_id != "ALL" else None
+                station,
+                bucket,
+                part_indexes.get(station, 0),
             )
-            parquet_path.parent.mkdir(parents=True, exist_ok=True)
+            total_bytes += stats["bytes_written"]
+            files_written += stats["files_written"]
+            part_indexes[station] = part_indexes.get(station, 0) + stats["files_written"]
+            station_batches[station] = []
 
-            try:
-                pq.write_table(table, parquet_path, compression="snappy")
-                file_size = parquet_path.stat().st_size
-                total_bytes += file_size
-                files_written += 1
+        if events_read == 0:
+            return {"events_read": 0, "files_written": 0, "bytes_written": 0}
 
-                logger.info(
-                    f"Compacted {channel} for {date_str} "
-                    f"(station={station_id}): {len(station_events)} events, "
-                    f"{file_size / 1024:.1f} KB"
-                )
-            except Exception as e:
-                logger.error(f"Failed to write Parquet: {e}")
+        for station, bucket in station_batches.items():
+            if not bucket:
+                continue
+            stats = self._write_station_batch(
+                date_str,
+                channel,
+                station,
+                bucket,
+                part_indexes.get(station, 0),
+            )
+            total_bytes += stats["bytes_written"]
+            files_written += stats["files_written"]
+            part_indexes[station] = part_indexes.get(station, 0) + stats["files_written"]
 
         # Optionally delete NDJSON after successful compaction
         if self.delete_after_compact and files_written > 0:
@@ -260,11 +402,11 @@ class Compactor:
             except Exception as e:
                 logger.warning(f"Failed to delete NDJSON: {e}")
 
-        self._events_compacted += len(events)
+        self._events_compacted += events_read
         self._bytes_written += total_bytes
 
         return {
-            "events_read": len(events),
+            "events_read": events_read,
             "files_written": files_written,
             "bytes_written": total_bytes
         }
@@ -308,13 +450,12 @@ class Compactor:
         # Skip today
         dates = [d for d in dates if d < today]
 
-        results = {}
-        for date_str in dates:
-            # Check if already compacted (any parquet exists)
-            if self._is_date_compacted(date_str):
-                logger.debug(f"Skipping already compacted: {date_str}")
-                continue
+        pending_dates = [d for d in dates if not self._is_date_compacted(d)]
+        if self.max_dates_per_run > 0:
+            pending_dates = pending_dates[:self.max_dates_per_run]
 
+        results = {}
+        for date_str in pending_dates:
             results[date_str] = self.compact_date(date_str)
 
         return {
@@ -324,19 +465,17 @@ class Compactor:
         }
 
     def _is_date_compacted(self, date_str: str) -> bool:
-        """Check if any Parquet exists for a date."""
-        # Check in all possible station directories
-        for item in self.parquet_base.iterdir():
-            if item.is_dir():
-                date_path = item / f"date={date_str}"
-                if date_path.exists() and any(date_path.iterdir()):
-                    return True
+        """Check whether every NDJSON channel for a date has Parquet output."""
+        channels = self.list_channels_for_date(date_str)
+        if not channels:
+            return False
+        return all(self._is_channel_compacted(date_str, channel) for channel in channels)
 
-        # Also check dateless path
-        date_path = self.parquet_base / f"date={date_str}"
-        if date_path.exists() and any(date_path.iterdir()):
-            return True
-
+    def _is_channel_compacted(self, date_str: str, channel: str) -> bool:
+        """Check whether a specific date/channel already has Parquet fragments."""
+        for output_dir in self._iter_channel_parquet_dirs(date_str, channel):
+            if output_dir.exists() and any(output_dir.glob("*.parquet")):
+                return True
         return False
 
     def cleanup_old_ndjson(self) -> int:
@@ -374,6 +513,8 @@ class Compactor:
             "events_compacted": self._events_compacted,
             "bytes_written": self._bytes_written,
             "retention_days": self.retention_days,
+            "batch_size": self.batch_size,
+            "max_dates_per_run": self.max_dates_per_run,
             "available_dates": self.list_ndjson_dates()
         }
 
@@ -458,6 +599,54 @@ class ParquetReader:
 
         return list(channels)
 
+    def _collect_parquet_files(
+        self,
+        date_str: str,
+        channel: str,
+        station_id: Optional[str] = None,
+    ) -> List[Path]:
+        """Collect all Parquet fragments that belong to a date/channel selection."""
+        files: List[Path] = []
+
+        def _append_from(channel_dir: Path):
+            if not channel_dir.exists():
+                return
+            files.extend(sorted(channel_dir.glob("*.parquet")))
+
+        if station_id:
+            _append_from(
+                self.parquet_base /
+                f"station={station_id}" /
+                f"date={date_str}" /
+                f"ch={channel}"
+            )
+            _append_from(
+                self.parquet_base /
+                f"date={date_str}" /
+                f"ch={channel}"
+            )
+            return files
+
+        _append_from(
+            self.parquet_base /
+            f"date={date_str}" /
+            f"ch={channel}"
+        )
+
+        if not self.parquet_base.exists():
+            return files
+
+        for station_dir in self.parquet_base.iterdir():
+            if not (station_dir.is_dir() and station_dir.name.startswith("station=")):
+                continue
+            _append_from(
+                station_dir /
+                f"date={date_str}" /
+                f"ch={channel}"
+            )
+
+        return files
+
     def read_channel(
         self,
         date_str: str,
@@ -472,29 +661,19 @@ class ParquetReader:
                 _PARQUET_READ_WARNED = True
             return []
 
-        # Find parquet file
-        if station_id:
-            parquet_path = (
-                self.parquet_base /
-                f"station={station_id}" /
-                f"date={date_str}" /
-                f"ch={channel}" /
-                "part-0000.parquet"
-            )
-        else:
-            parquet_path = (
-                self.parquet_base /
-                f"date={date_str}" /
-                f"ch={channel}" /
-                "part-0000.parquet"
-            )
-
-        if not parquet_path.exists():
+        parquet_files = self._collect_parquet_files(date_str, channel, station_id)
+        if not parquet_files:
             return []
 
         try:
-            table = pq.read_table(parquet_path)
+            if len(parquet_files) == 1:
+                table = pq.read_table(parquet_files[0])
+            else:
+                table = ds.dataset([str(p) for p in parquet_files], format="parquet").to_table()
             df = table.to_pandas()
+
+            if station_id and "station_id" in df.columns:
+                df = df[df["station_id"].isna() | (df["station_id"] == station_id)]
 
             # Convert to list of dicts
             events = df.to_dict(orient="records")
@@ -1008,11 +1187,15 @@ def get_compactor(
             _env_int("HELIOS_RETENTION_DAYS", 14),
         )
         delete_after_compact = _env_bool("HELIOS_COMPACTOR_DELETE_AFTER_COMPACT", False)
+        batch_size = _env_int("HELIOS_COMPACTOR_BATCH_SIZE", 500)
+        max_dates_per_run = _env_int("HELIOS_COMPACTOR_MAX_DATES_PER_RUN", 1)
         _compactor = Compactor(
             ndjson_base,
             parquet_base,
             delete_after_compact=delete_after_compact,
             retention_days=retention_days,
+            batch_size=batch_size,
+            max_dates_per_run=max_dates_per_run,
         )
     return _compactor
 

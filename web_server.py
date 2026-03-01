@@ -2431,7 +2431,7 @@ async def run_compactor():
     """Manually trigger compaction of all pending dates."""
     from core.compactor import get_compactor
     compactor = get_compactor()
-    result = compactor.compact_all_pending()
+    result = await asyncio.to_thread(compactor.compact_all_pending)
     return result
 
 
