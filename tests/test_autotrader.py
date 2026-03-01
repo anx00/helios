@@ -134,6 +134,30 @@ def test_evaluate_trade_candidate_ignores_station_position_limit_when_disabled()
     assert candidate is not None
 
 
+def test_evaluate_trade_candidate_ignores_tracking_only_open_position_limit():
+    payload = _sample_payload()
+    config = AutoTraderConfig(enabled=True, station_ids=["KATL"], max_open_positions=1)
+    candidate, reasons = evaluate_trade_candidate(
+        payload,
+        config,
+        state={"positions": {}},
+        live_positions=[
+            {
+                "source": "polymarket_live",
+                "station_id": "EGLC",
+                "target_date": "2026-02-28",
+                "label": "14C OR HIGHER",
+                "side": "YES",
+                "cost_basis_open_usd": 5.0,
+                "managed_by_bot": False,
+            }
+        ],
+    )
+
+    assert reasons == []
+    assert candidate is not None
+
+
 def test_compute_trade_budget_respects_remaining_limits():
     config = AutoTraderConfig(
         enabled=True,

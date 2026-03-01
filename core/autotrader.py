@@ -731,8 +731,8 @@ def evaluate_trade_candidate(
         return None, ["event_mature"]
 
     normalized_state = _normalize_state(state or {})
-    if len(_merged_open_positions(normalized_state, live_positions=live_positions)) >= int(config.max_open_positions):
-        return None, ["portfolio_full"]
+    if int(config.max_open_positions) > 0 and len(_managed_open_positions(normalized_state, live_positions=live_positions)) >= int(config.max_open_positions):
+        return None, ["open_positions_limit_reached"]
     if _is_station_position_limit_enabled(config) and _count_station_open_positions(
         normalized_state,
         str(payload.get("station_id") or ""),
@@ -810,14 +810,15 @@ def compute_trade_budget_usd(
     realized_loss_today = max(0.0, -realized_pnl_today)
     remaining_daily_loss = float(config.daily_loss_limit_usd) - realized_loss_today
     merged_positions = _merged_open_positions(state, live_positions=live_positions)
+    managed_positions = [row for row in merged_positions if _is_autotrader_managed_position(row)]
     merged_open_risk = sum(float(_safe_float(row.get("cost_basis_open_usd")) or 0.0) for row in merged_positions)
     remaining_total_exposure = float(config.max_total_exposure_usd) - float(merged_open_risk)
-    open_positions_count = len(merged_positions)
+    open_positions_count = len(managed_positions)
     station_positions_count = _count_station_open_positions(state, candidate.station_id, live_positions=live_positions)
 
     if int(_safe_float(state.get("trades_today")) or 0) >= int(config.max_trades_per_day):
         return 0.0
-    if open_positions_count >= int(config.max_open_positions):
+    if int(config.max_open_positions) > 0 and open_positions_count >= int(config.max_open_positions):
         return 0.0
     if _is_station_position_limit_enabled(config) and station_positions_count >= int(config.max_station_positions):
         return 0.0
@@ -1078,6 +1079,17 @@ def _position_unrealized_pnl_usd(position: Dict[str, Any]) -> float:
 
 def _is_autotrader_managed_position(position: Dict[str, Any]) -> bool:
     return _boolish((position or {}).get("managed_by_bot"))
+
+
+def _managed_open_positions(
+    state: Dict[str, Any],
+    *,
+    live_positions: Optional[List[Dict[str, Any]]] = None,
+) -> List[Dict[str, Any]]:
+    return [
+        row for row in _merged_open_positions(state, live_positions=live_positions)
+        if _is_autotrader_managed_position(row)
+    ]
 
 
 class AutoTrader:
