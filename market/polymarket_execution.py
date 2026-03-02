@@ -522,7 +522,11 @@ class PolymarketExecutionClient:
 
         normalized_positions: List[Dict[str, Any]] = []
         if isinstance(positions_payload, list):
-            normalized_positions = [_normalize_live_position(item) for item in positions_payload if isinstance(item, dict)]
+            normalized_positions = [
+                p for p in
+                (_normalize_live_position(item) for item in positions_payload if isinstance(item, dict))
+                if float(p.get("shares_open") or 0.0) > 0.0
+            ]
             normalized_positions.sort(
                 key=lambda row: float(_safe_float(row.get("current_value_usd")) or 0.0),
                 reverse=True,
