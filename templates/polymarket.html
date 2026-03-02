@@ -1091,6 +1091,80 @@
         .pt-grid { grid-template-columns: 1fr; }
         .pt-fields { grid-template-columns: 1fr; }
     }
+
+    /* ============= REDESIGNED AT PANEL ============= */
+    .at-panel {
+        border: 1px solid rgba(34,197,94,0.2);
+        border-radius: 12px;
+        padding: 16px;
+        background: rgba(12,14,18,0.97);
+        backdrop-filter: blur(20px);
+        margin-bottom: 14px;
+    }
+    .at-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+    .at-title-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+    .at-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1.2px; color: #22c55e; font-weight: 700; }
+    .at-live-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #22c55e; animation: atpulse 1.5s ease-in-out infinite; }
+    @keyframes atpulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.8)} }
+    .at-badge { font-size: 9px; font-weight: 700; letter-spacing: 1px; padding: 2px 7px; border-radius: 999px; display: inline-block; }
+    .at-badge.live { background: rgba(34,197,94,0.18); border: 1px solid rgba(34,197,94,0.35); color: #22c55e; }
+    .at-badge.stopped { background: rgba(148,163,184,0.12); border: 1px solid rgba(148,163,184,0.2); color: #94a3b8; }
+    .at-badge.auto-date { background: rgba(56,189,248,0.12); border: 1px solid rgba(56,189,248,0.25); color: #38bdf8; }
+    .at-subinfo { font-size: 11px; color: #94a3b8; margin-top: 2px; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+    .at-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; flex-shrink: 0; }
+    .at-btn { border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.04); color: #f1f5f9; border-radius: 8px; padding: 7px 11px; font-size: 11px; font-weight: 700; cursor: pointer; transition: opacity .15s; }
+    .at-btn:hover { opacity: .8; }
+    .at-btn.primary { border-color: rgba(34,197,94,0.4); background: rgba(34,197,94,0.12); color: #22c55e; }
+    .at-btn.danger { border-color: rgba(239,68,68,0.35); background: rgba(239,68,68,0.10); color: #f87171; }
+    .at-btn:disabled { opacity: .35; cursor: default; }
+    .at-metric-strip { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 8px; margin-bottom: 12px; }
+    .at-metric-cell { border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 9px 11px; background: rgba(255,255,255,0.02); }
+    .at-metric-label { font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: #4b5563; margin-bottom: 4px; display: flex; align-items: center; gap: 4px; }
+    .at-metric-value { font-size: 18px; font-weight: 800; color: #f1f5f9; line-height: 1.1; }
+    .at-metric-value.positive { color: #22c55e; }
+    .at-metric-value.negative { color: #ef4444; }
+    .at-metric-sub { font-size: 10px; color: #4b5563; margin-top: 3px; display: flex; align-items: center; gap: 3px; }
+    .at-config-row { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+    .at-config-box { border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 10px 12px; background: rgba(255,255,255,0.01); }
+    .at-config-label { font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: #4b5563; margin-bottom: 6px; }
+    .at-station-list { display: flex; flex-wrap: wrap; gap: 6px; }
+    .at-station-pill { display: inline-flex; align-items: center; gap: 5px; padding: 5px 9px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.10); background: rgba(255,255,255,0.03); color: #f1f5f9; font-size: 11px; cursor: pointer; }
+    .at-station-pill input { margin: 0; accent-color: #22c55e; }
+    .at-field-label { display: block; font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: #4b5563; margin-bottom: 5px; }
+    .at-input { width: 100%; border: 1px solid rgba(255,255,255,0.10); border-radius: 8px; background: rgba(255,255,255,0.04); color: #f1f5f9; padding: 7px 9px; font-size: 12px; outline: none; font-family: 'Inter',sans-serif; box-sizing: border-box; }
+    .at-input:focus { border-color: rgba(34,197,94,0.45); }
+    .at-banner { border: 1px solid rgba(239,68,68,0.25); background: rgba(239,68,68,0.07); border-radius: 8px; padding: 8px 12px; font-size: 11px; color: #f87171; margin-bottom: 10px; }
+    /* Shared trade tables */
+    .trade-section-title { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #4b5563; margin-bottom: 6px; margin-top: 10px; }
+    .trade-table-wrap { overflow-x: auto; margin-bottom: 10px; border: 1px solid rgba(255,255,255,0.05); border-radius: 8px; }
+    .trade-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    .trade-table th { text-align: left; font-size: 9px; text-transform: uppercase; letter-spacing: .8px; color: #4b5563; padding: 7px 10px; border-bottom: 1px solid rgba(255,255,255,0.05); white-space: nowrap; background: rgba(255,255,255,0.01); }
+    .trade-table td { padding: 7px 10px; border-bottom: 1px solid rgba(255,255,255,0.03); color: #94a3b8; white-space: nowrap; }
+    .trade-table tr:last-child td { border-bottom: none; }
+    .trade-table tr:hover td { background: rgba(255,255,255,0.02); }
+    .trade-table .td-primary { color: #f1f5f9; font-weight: 600; }
+    .trade-table .td-pos { color: #22c55e; font-weight: 700; }
+    .trade-table .td-neg { color: #ef4444; font-weight: 700; }
+    .side-badge { display: inline-block; font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 4px; letter-spacing: .5px; }
+    .side-badge.yes { background: rgba(56,189,248,0.15); color: #38bdf8; border: 1px solid rgba(56,189,248,0.25); }
+    .side-badge.no { background: rgba(245,158,11,0.15); color: #f59e0b; border: 1px solid rgba(245,158,11,0.25); }
+    .strat-badge { display: inline-block; font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 4px; letter-spacing: .5px; }
+    .strat-badge.terminal { background: rgba(14,165,233,0.12); color: #0ea5e9; border: 1px solid rgba(14,165,233,0.2); }
+    .strat-badge.tactical { background: rgba(245,158,11,0.12); color: #f59e0b; border: 1px solid rgba(245,158,11,0.2); }
+    .reason-badge { display: inline-block; font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 4px; }
+    .reason-badge.tp { background: rgba(34,197,94,0.12); color: #22c55e; }
+    .reason-badge.sl { background: rgba(239,68,68,0.12); color: #ef4444; }
+    .reason-badge.to { background: rgba(148,163,184,0.12); color: #94a3b8; }
+    .reason-badge.ot { background: rgba(148,163,184,0.08); color: #64748b; }
+    .trade-tooltip { position: relative; display: inline-flex; align-items: center; cursor: help; }
+    .trade-tooltip .tooltip-text { visibility: hidden; opacity: 0; background: rgba(15,23,42,.97); border: 1px solid rgba(255,255,255,.1); color: #94a3b8; font-size: 10px; font-weight: 400; text-transform: none; letter-spacing: 0; border-radius: 6px; padding: 6px 10px; position: absolute; z-index: 100; bottom: 120%; left: 50%; transform: translateX(-50%); width: 200px; line-height: 1.5; transition: opacity .15s; pointer-events: none; }
+    .trade-tooltip:hover .tooltip-text { visibility: visible; opacity: 1; }
+    .at-log { border-top: 1px solid rgba(255,255,255,0.05); padding-top: 8px; font-size: 11px; line-height: 1.5; }
+    .at-log-item { padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,0.02); color: #64748b; }
+    .at-log-item:last-child { border-bottom: none; }
+    .exit-breakdown { margin: 8px 0 4px; font-size: 10px; color: #4b5563; display: flex; flex-wrap: wrap; gap: 12px; }
+    @media (max-width: 900px) { .at-metric-strip { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+    @media (max-width: 600px) { .at-head { flex-direction: column; } .at-actions { justify-content: flex-start; } }
 </style>
 {% endblock %}
 
@@ -1376,6 +1450,7 @@
             document.getElementById('pm-error').style.display = 'none';
             document.getElementById('pm-content').style.display = 'block';
             renderAll(data);
+            maybeRefreshHistory();
         } catch (e) {
             showError('Failed to fetch market data');
         }
@@ -1463,115 +1538,6 @@
     }
     window.runAutotraderAgentAction = runAutotraderAgentAction;
 
-    function renderAutoTrader(status, trading) {
-        const panel = document.getElementById('pm-autotrader-panel');
-        if (!panel) return;
-        if (!status) {
-            panel.style.display = 'none';
-            return;
-        }
-
-        panel.style.display = 'block';
-        const state = status.state || {};
-        const portfolio = status.portfolio || {};
-        const risk = status.risk || {};
-        const strategy = status.strategy || {};
-        const wallet = status.wallet || {};
-        const recent = Array.isArray(status.recent_events) ? status.recent_events.slice(0, 3) : [];
-        const openBets = Array.isArray(portfolio.open_positions) ? portfolio.open_positions.slice(0, 4) : [];
-        const best = trading?.best_terminal_trade || null;
-        const fast = trading?.best_tactical_trade || null;
-        const bestIdea = best ? `${best.best_side} ${best.label}` : 'No live idea';
-        const fastIdea = fast ? `${fast.tactical_best_side || fast.best_side} ${fast.label}` : 'No tactical idea';
-        const headline = status.running
-            ? `Running ${String(status.mode || 'paper').toUpperCase()} with ${String(status.order_mode || 'limit_fak').toUpperCase()}`
-            : `${String(status.mode || 'paper').toUpperCase()} configured, loop stopped`;
-        const subline = `Terminal: ${bestIdea}. Tactical: ${fastIdea}. WS book ${status.prefer_ws_book ? 'preferred' : 'disabled'} · wallet ${wallet.live_ready ? 'ready' : 'missing keys'}.`;
-        const stations = Array.isArray(status.stations) && status.stations.length ? status.stations.join(', ') : 'None';
-        const strategyMix = [];
-        if (strategy.terminal_enabled) strategyMix.push(`terminal ${Number(strategy.terminal_take_profit_pts || 0).toFixed(1)}/${Number(strategy.terminal_stop_loss_pts || 0).toFixed(1)} pts`);
-        if (strategy.tactical_enabled) strategyMix.push(`tactical ${Number(strategy.tactical_take_profit_pts || 0).toFixed(1)}/${Number(strategy.tactical_stop_loss_pts || 0).toFixed(1)} pts`);
-        const pnlToday = Number(portfolio.realized_pnl_today_usd || 0);
-        const strategyCounts = state.strategies || {};
-        const strategyCountText = Object.keys(strategyCounts).length
-            ? Object.entries(strategyCounts).map(([key, value]) => `${key.replace('_', ' ')} ${value}`).join(' Â· ')
-            : 'none';
-
-        panel.innerHTML = `
-            <div class="pm-autotrader-head">
-                <div>
-                    <div class="pm-autotrader-title">Autotrader</div>
-                    <div class="pm-autotrader-main">${headline}</div>
-                    <div class="pm-autotrader-sub">${subline}</div>
-                </div>
-                <div class="pm-autotrader-actions">
-                    <button class="pm-autotrader-btn primary" onclick="runAutotraderAction('run-once')" ${status.running ? 'disabled' : ''}>Run once</button>
-                    <button class="pm-autotrader-btn" onclick="runAutotraderAction('start')" ${status.running ? 'disabled' : ''}>Start loop</button>
-                    <button class="pm-autotrader-btn danger" onclick="runAutotraderAction('stop')" ${status.running ? '' : 'disabled'}>Stop loop</button>
-                </div>
-            </div>
-            <div class="pm-autotrader-grid">
-                <div class="pm-autotrader-cell">
-                    <div class="pm-autotrader-cell-label">Stations</div>
-                    <div class="pm-autotrader-cell-value">${stations}</div>
-                </div>
-                <div class="pm-autotrader-cell">
-                    <div class="pm-autotrader-cell-label">Portfolio Exposure</div>
-                    <div class="pm-autotrader-cell-value">$${Number(portfolio.open_risk_usd || 0).toFixed(2)} / $${Number(risk.max_total_exposure_usd || 0).toFixed(2)}</div>
-                </div>
-                <div class="pm-autotrader-cell">
-                    <div class="pm-autotrader-cell-label">This Agent</div>
-                    <div class="pm-autotrader-cell-value">${Number(state.open_positions || 0)} live bets · $${Number(state.open_risk_usd || 0).toFixed(2)}</div>
-                </div>
-                <div class="pm-autotrader-cell">
-                    <div class="pm-autotrader-cell-label">Portfolio Day</div>
-                    <div class="pm-autotrader-cell-value">${Number(portfolio.trades_today || 0)} entries · $${Number(portfolio.remaining_daily_loss_usd || 0).toFixed(2)} loss room</div>
-                </div>
-                <div class="pm-autotrader-cell">
-                    <div class="pm-autotrader-cell-label">Day PnL</div>
-                    <div class="pm-autotrader-cell-value">${pnlToday >= 0 ? '+' : ''}$${pnlToday.toFixed(2)} · ${Number(portfolio.closed_trades_today || 0)} exits</div>
-                </div>
-                <div class="pm-autotrader-cell">
-                    <div class="pm-autotrader-cell-label">Strategy</div>
-                    <div class="pm-autotrader-cell-value">${strategyMix.join(' · ') || 'disabled'}</div>
-                </div>
-                <div class="pm-autotrader-cell">
-                    <div class="pm-autotrader-cell-label">Agent Mix</div>
-                    <div class="pm-autotrader-cell-value">${strategyCountText}</div>
-                </div>
-                <div class="pm-autotrader-cell">
-                    <div class="pm-autotrader-cell-label">Loop</div>
-                    <div class="pm-autotrader-cell-value">${Number(status.loop_seconds || 0)}s · ${status.kill_switch_active ? 'STOP FILE ON' : 'clear'}</div>
-                </div>
-            </div>
-            <div class="pm-autotrader-log">
-                <div class="pm-autotrader-title" style="margin-bottom:8px;">Recent activity</div>
-                ${recent.length ? recent.map(item => `
-                    <div class="pm-autotrader-log-item">
-                        <strong>${item.status || 'event'}</strong>
-                        ${item.station_id ? ` · ${item.station_id}` : ''}
-                        ${item.candidate ? ` · ${item.candidate.strategy || 'terminal_value'} · ${item.candidate.side} ${item.candidate.label}` : ''}
-                        ${item.exit_plan ? ` · exit ${item.exit_plan.reason || '--'}` : ''}
-                        ${item.reasons && item.reasons.length ? ` · ${item.reasons.join(', ')}` : ''}
-                        ${item.error ? ` · ${String(item.error).slice(0, 180)}` : ''}
-                        ${item.plan ? ` · $${Number(item.plan.notional_usd || 0).toFixed(2)}` : ''}
-                        ${item.persisted ? ` · pnl $${Number(item.persisted.realized_pnl_usd || 0).toFixed(2)}` : ''}
-                        <span style="opacity:.7;"> · ${shortTs(item.ts_utc)}</span>
-                    </div>
-                `).join('') : '<div class="pm-autotrader-log-item">No runs yet.</div>'}
-                <div class="pm-autotrader-title" style="margin:12px 0 8px;">Open bets</div>
-                ${openBets.length ? openBets.map(item => `
-                    <div class="pm-autotrader-log-item">
-                        <strong>${item.station_id} · ${item.strategy || 'terminal_value'} · ${item.side} ${item.label}</strong>
-                        · $${Number(item.cost_basis_open_usd || item.notional_usd || 0).toFixed(2)}
-                        · ${Number(item.shares_open || item.shares || 0).toFixed(1)} sh
-                        <span style="opacity:.7;"> · ${shortTs(item.opened_at_utc)}</span>
-                    </div>
-                `).join('') : '<div class="pm-autotrader-log-item">No open bets in the portfolio.</div>'}
-            </div>
-        `;
-    }
-
     function renderAutotraderAgents(statusPayload) {
         const grid = document.getElementById('pm-agent-grid');
         if (!grid) return;
@@ -1630,7 +1596,7 @@
         const risk = status?.risk || {};
         return {
             station_ids: Array.isArray(status?.selected_stations) ? [...status.selected_stations] : [],
-            target_date: String(status?.target_date || status?.control?.target_date || '').trim(),
+            // target_date intentionally omitted — autonomous date mode
             max_total_exposure_usd: Number(risk.max_total_exposure_usd || 0),
         };
     }
@@ -1696,21 +1662,14 @@
             });
         }
 
-        const targetDateEl = document.getElementById('pm-autotrader-target-date');
-        if (targetDateEl) {
-            targetDateEl.addEventListener('input', () => {
-                autotraderDraft = autotraderDraft || {};
-                autotraderDraft.target_date = String(targetDateEl.value || '').trim();
-                autotraderDraftDirty = true;
-            });
-        }
+        // No target_date binding — autonomous date mode
     }
 
     async function saveAutotraderConfig(options = {}) {
         const silent = Boolean(options.silent);
+        // target_date intentionally omitted — autonomous date mode auto-resolves
         const payload = {
             station_ids: getAutotraderSelectedStations(),
-            target_date: getAutotraderTargetDate(),
             max_total_exposure_usd: getAutotraderInputNumber('pm-autotrader-total-cap', 0),
         };
         try {
@@ -1768,195 +1727,242 @@
     }
     window.stopAutotraderToday = stopAutotraderToday;
 
+    // ── Trade table helpers ──────────────────────────────────────────────────
+    function _ageStr(utcIso) {
+        if (!utcIso) return '—';
+        try {
+            const diff = (Date.now() - new Date(utcIso).getTime()) / 1000;
+            if (diff < 0) return '—';
+            const h = Math.floor(diff / 3600);
+            const m = Math.floor((diff % 3600) / 60);
+            return h === 0 ? `${m}m` : `${h}h ${m}m`;
+        } catch { return '—'; }
+    }
+    function _fmtTs(utcIso) {
+        if (!utcIso) return '—';
+        try {
+            const d = new Date(utcIso);
+            const hh = String(d.getHours()).padStart(2,'0');
+            const mm = String(d.getMinutes()).padStart(2,'0');
+            const dd = String(d.getDate()).padStart(2,'0');
+            const mo = String(d.getMonth()+1).padStart(2,'0');
+            return `${hh}:${mm} ${dd}/${mo}`;
+        } catch { return '—'; }
+    }
+    function _fmtTime(utcIso) {
+        if (!utcIso) return '—';
+        try {
+            const d = new Date(utcIso);
+            return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+        } catch { return '—'; }
+    }
+    function _sideBadge(side) {
+        const s = String(side || 'YES').toUpperCase();
+        return `<span class="side-badge ${s === 'YES' ? 'yes' : 'no'}">${s}</span>`;
+    }
+    function _stratBadge(strategy) {
+        const isTactical = String(strategy || '').includes('tactical');
+        return `<span class="strat-badge ${isTactical ? 'tactical' : 'terminal'}">${isTactical ? 'tactical' : 'terminal'}</span>`;
+    }
+    function _reasonBadge(reason) {
+        const r = String(reason || 'unknown');
+        let cls = 'ot';
+        if (r.includes('take_profit')) cls = 'tp';
+        else if (r.includes('stop_loss') || r.includes('stop-loss')) cls = 'sl';
+        else if (r.includes('timeout')) cls = 'to';
+        return `<span class="reason-badge ${cls}">${r.replace(/_/g,' ')}</span>`;
+    }
+    function _pnlSpan(v) {
+        const n = Number(v || 0);
+        const cls = n > 0 ? 'td-pos' : n < 0 ? 'td-neg' : '';
+        return `<span class="${cls}">${n >= 0 ? '+' : ''}$${Math.abs(n).toFixed(2)}</span>`;
+    }
+
     function renderAutoTrader(status, trading) {
         const panel = document.getElementById('pm-autotrader-panel');
         if (!panel) return;
-        if (!status) {
-            panel.style.display = 'none';
-            return;
-        }
+        if (!status) { panel.style.display = 'none'; return; }
 
         panel.style.display = 'block';
-        const state = status.state || {};
+        panel.className = 'at-panel';
+
         const portfolio = status.portfolio || {};
         const risk = status.risk || {};
-        const strategy = status.strategy || {};
         const wallet = status.wallet || {};
-        const recent = Array.isArray(status.recent_events) ? status.recent_events.slice(0, 5) : [];
-        const allOpenBets = Array.isArray(portfolio.open_positions) ? portfolio.open_positions : [];
-        const openBets = allOpenBets.slice(0, 6);
+        const recent = Array.isArray(status.recent_events) ? status.recent_events.slice(0, 8) : [];
+        const openBets = Array.isArray(portfolio.open_positions) ? portfolio.open_positions : [];
         const availableStations = Array.isArray(status.available_stations) ? status.available_stations : [];
         const draft = syncAutotraderDraft(status);
         const selectedStations = Array.isArray(draft.station_ids) ? draft.station_ids : [];
-        const selectedTargetDate = String(draft.target_date || status.target_date || '').trim();
-        const headline = status.running
-            ? `LIVE running across ${selectedStations.length} station${selectedStations.length === 1 ? '' : 's'}`
-            : `${String(status.mode || 'paper').toUpperCase()} ready, stopped`;
-        const subline = status.running
-            ? `Cycling every ${Number(status.loop_seconds || 0)}s across the selected stations until the selected market date resolves or you press Stop.`
-            : `Select the stations, choose the market date, set the exposure cap, then press Start loop. It will keep running until that market date resolves or you stop it.`;
-        const strategyMix = [];
-        if (strategy.terminal_enabled) strategyMix.push(`terminal ${Number(strategy.terminal_take_profit_pts || 0).toFixed(1)}/${Number(strategy.terminal_stop_loss_pts || 0).toFixed(1)} pts`);
-        if (strategy.tactical_enabled) strategyMix.push(`tactical ${Number(strategy.tactical_take_profit_pts || 0).toFixed(1)}/${Number(strategy.tactical_stop_loss_pts || 0).toFixed(1)} pts`);
-        const pnlToday = Number(portfolio.realized_pnl_today_usd || 0);
-        const strategyCounts = state.strategies || {};
-        const walletIssue = recent.find(item => String(item.error || '').toLowerCase().includes('allowance') || (Array.isArray(item.reasons) && item.reasons.some(reason => String(reason).includes('allowance') || String(reason).includes('balance'))));
+        const running = !!status.running;
+
         const openRisk = Number(portfolio.open_risk_usd || 0);
         const totalCap = Number(risk.max_total_exposure_usd || 0);
-        const bankrollRef = Number(risk.bankroll_usd || portfolio.bankroll_usd || 0);
-        const portfolioValue = Number(portfolio.portfolio_value_usd || wallet.portfolio_value_usd || 0);
         const freeCollateral = Number(portfolio.free_collateral_usd || wallet.free_collateral_usd || 0);
-        const positionsCostBasis = Number(portfolio.positions_cost_basis_usd || 0);
-        const managedCount = Number(portfolio.managed_open_positions_count || 0);
-        const trackingOnlyCount = Number(portfolio.tracking_only_positions_count || 0);
-        const capBanner = (totalCap > 0 && openRisk > totalCap + 0.009)
-                    ? `Existing live positions already use $${openRisk.toFixed(2)} of risk against a $${totalCap.toFixed(2)} cap. New entries are blocked. Live positions are assumed to belong to the bot unless they are explicitly flagged as tracking-only.`
-            : '';
-        const strategyCountText = Object.keys(strategyCounts).length
-            ? Object.entries(strategyCounts).map(([key, value]) => `${key.replace('_', ' ')} ${value}`).join(' | ')
-            : 'none';
-        const stopReasons = {
-            all_selected_markets_resolved: `Stopped automatically: all selected markets for ${selectedTargetDate || 'the chosen date'} are resolved.`,
-            manual_stop: 'Stopped manually.',
-            no_stations_selected: 'No stations selected.',
-            shutdown: 'Stopped by server shutdown.',
-        };
-        const stopReasonText = status.last_stop_reason ? (stopReasons[status.last_stop_reason] || status.last_stop_reason) : '';
+        const bankrollRef = Number(risk.bankroll_usd || portfolio.bankroll_usd || 0);
+        const pnlToday = Number(portfolio.realized_pnl_today_usd || 0);
+        const openCount = Number(portfolio.open_positions_count || openBets.length || 0);
+        const maxOpen = Number(risk.max_open_positions || 12);
+        const orderMode = String(status.order_mode || risk.order_mode || 'limit_fak').toUpperCase();
+
+        const walletIssue = recent.find(ev => String(ev.error||'').toLowerCase().includes('allowance') || (Array.isArray(ev.reasons) && ev.reasons.some(r => String(r).includes('allowance')||String(r).includes('balance'))));
+        const stopReasonMap = { all_selected_markets_resolved: 'Stopped: all selected markets resolved.', manual_stop: 'Stopped manually.', no_stations_selected: 'No stations selected.', shutdown: 'Stopped by server shutdown.' };
         const derivedBanner = autotraderBannerMessage
-            || stopReasonText
+            || (status.last_stop_reason ? (stopReasonMap[status.last_stop_reason] || status.last_stop_reason) : '')
             || wallet.error
-            || (walletIssue ? 'Wallet blocked: Polymarket is rejecting orders with insufficient balance or allowance. Fix the allowance/balance before restarting the loop.' : '')
-            || capBanner;
+            || (walletIssue ? 'Wallet blocked: insufficient balance or allowance.' : '')
+            || (totalCap > 0 && openRisk > totalCap + 0.009 ? `Exposure cap hit ($${openRisk.toFixed(2)} / $${totalCap.toFixed(2)}). New entries blocked.` : '');
+
+        const openRows = openBets.length ? openBets.map(p => {
+            const pnl = Number(p.cash_pnl_usd || p.unrealized_pnl_usd || 0);
+            const curPrice = p.current_price != null ? Number(p.current_price).toFixed(3) : (p.current_yes_price != null ? Number(p.current_yes_price).toFixed(3) : '—');
+            return `<tr>
+                <td title="${p.opened_at_utc||''}">${_fmtTime(p.opened_at_utc)}</td>
+                <td class="td-primary">${p.station_id||'—'}</td>
+                <td>${p.label||'—'}</td>
+                <td>${_sideBadge(p.side)}</td>
+                <td>${_stratBadge(p.strategy)}</td>
+                <td>${Number(p.entry_price||0).toFixed(3)}</td>
+                <td>${curPrice}</td>
+                <td>${Number(p.shares_open||p.shares||0).toFixed(1)}</td>
+                <td>$${Number(p.cost_basis_open_usd||p.notional_usd||0).toFixed(2)}</td>
+                <td>$${Number(p.current_value_usd||0).toFixed(2)}</td>
+                <td>${_pnlSpan(pnl)}</td>
+                <td>${_ageStr(p.opened_at_utc)}</td>
+            </tr>`;
+        }).join('') : `<tr><td colspan="12" style="text-align:center;padding:14px;color:#4b5563;">No open positions</td></tr>`;
+
+        const logItems = recent.length ? recent.map(ev => {
+            const pnl = ev.persisted?.realized_pnl_usd;
+            const pnlStr = pnl !== undefined ? ` pnl ${Number(pnl)>=0?'+':''}$${Number(pnl).toFixed(2)}` : '';
+            const fillStr = ev.fill ? ` ${Number(ev.fill.filled_size||0).toFixed(1)}sh@${Number(ev.fill.avg_price||0).toFixed(3)}` : '';
+            const rsn = ev.reason ? ` [${ev.reason.replace(/_/g,' ')}]` : '';
+            const stn = ev.station_id ? ` ${ev.station_id}` : '';
+            const cand = ev.candidate ? ` ${ev.candidate.side} ${ev.candidate.label}` : '';
+            return `<div class="at-log-item"><strong>${ev.event||ev.status||'event'}</strong>${stn}${cand}${fillStr}${rsn}${pnlStr}<span style="float:right;opacity:.45;">${shortTs(ev.ts_utc)}</span></div>`;
+        }).join('') : '<div class="at-log-item" style="opacity:.4;">No runs yet.</div>';
 
         panel.innerHTML = `
-            <div class="pm-autotrader-head">
+            ${derivedBanner ? `<div class="at-banner" id="pm-autotrader-banner">${derivedBanner}</div>` : `<div id="pm-autotrader-banner" class="at-banner" style="display:none;"></div>`}
+            <div class="at-head">
                 <div>
-                    <div class="pm-autotrader-title">Autotrader</div>
-                    <div class="pm-autotrader-main">${headline}</div>
-                    <div class="pm-autotrader-sub">${subline}</div>
+                    <div class="at-title-row">
+                        ${running ? '<span class="at-live-dot"></span>' : ''}
+                        <span class="at-title">Live Autotrader</span>
+                        <span class="at-badge ${running ? 'live' : 'stopped'}">${running ? 'LIVE' : 'STOPPED'}</span>
+                    </div>
+                    <div class="at-subinfo">
+                        $${bankrollRef.toFixed(0)} bankroll · Free: $${freeCollateral.toFixed(2)} · ${orderMode}
+                        <span class="at-badge auto-date">📅 AUTO-DATE</span>
+                    </div>
                 </div>
-                <div class="pm-autotrader-actions">
-                    <button class="pm-autotrader-btn" onclick="saveAutotraderConfig()">Save setup</button>
-                    <button class="pm-autotrader-btn primary" onclick="startAutotraderToday()" ${status.running ? 'disabled' : ''}>Start loop</button>
-                    <button class="pm-autotrader-btn danger" onclick="stopAutotraderToday()" ${status.running ? '' : 'disabled'}>Stop</button>
+                <div class="at-actions">
+                    <button class="at-btn" onclick="runAutotraderAction('run-once')" ${running ? 'disabled' : ''}>Run Once</button>
+                    <button class="at-btn primary" onclick="startAutotraderToday()" ${running ? 'disabled' : ''}>▶ Start</button>
+                    <button class="at-btn danger" onclick="stopAutotraderToday()" ${running ? '' : 'disabled'}>■ Stop</button>
                 </div>
             </div>
-            <div id="pm-autotrader-banner" class="pm-autotrader-note" style="${derivedBanner ? '' : 'display:none;'}">${derivedBanner}</div>
-            <div class="pm-autotrader-config">
-                <div class="pm-autotrader-config-box">
-                    <div class="pm-autotrader-cell-label">Stations to trade</div>
-                    <div class="pm-autotrader-station-list">
-                        ${availableStations.map(option => `
-                            <label class="pm-autotrader-station-pill">
-                                <input type="checkbox" class="pm-autotrader-station-check" value="${option.id}" ${selectedStations.includes(option.id) ? 'checked' : ''}>
-                                <span>${option.city_name} (${option.id})</span>
+            <div class="at-metric-strip">
+                <div class="at-metric-cell">
+                    <div class="at-metric-label">Open Risk <span class="trade-tooltip">ⓘ<span class="tooltip-text">Max capital held in open positions simultaneously. Bot pauses new bets when this cap is hit.</span></span></div>
+                    <div class="at-metric-value">$${openRisk.toFixed(2)}</div>
+                    <div class="at-metric-sub">of $${totalCap.toFixed(0)} cap</div>
+                </div>
+                <div class="at-metric-cell">
+                    <div class="at-metric-label">Day PnL</div>
+                    <div class="at-metric-value ${pnlToday >= 0 ? 'positive' : 'negative'}">${pnlToday >= 0 ? '+' : ''}$${Math.abs(pnlToday).toFixed(2)}</div>
+                </div>
+                <div class="at-metric-cell">
+                    <div class="at-metric-label">Wallet</div>
+                    <div class="at-metric-value" style="font-size:14px;">${wallet.live_ready ? '✓ Ready' : '✗ Missing'}</div>
+                    <div class="at-metric-sub">free $${freeCollateral.toFixed(2)}</div>
+                </div>
+                <div class="at-metric-cell">
+                    <div class="at-metric-label">Open Positions</div>
+                    <div class="at-metric-value">${openCount}<span style="font-size:13px;color:#4b5563;"> / ${maxOpen}</span></div>
+                </div>
+            </div>
+            <div class="at-config-row">
+                <div class="at-config-box" style="flex:2;min-width:200px;">
+                    <div class="at-config-label">Stations</div>
+                    <div class="at-station-list">
+                        ${availableStations.map(opt => `
+                            <label class="at-station-pill">
+                                <input type="checkbox" class="pm-autotrader-station-check" value="${opt.id}" ${selectedStations.includes(opt.id) ? 'checked' : ''}>
+                                <span>${opt.city_name} (${opt.id})</span>
                             </label>
                         `).join('')}
                     </div>
                 </div>
-                <div class="pm-autotrader-config-box">
-                    <div class="pm-autotrader-cell-label">Market and risk setup</div>
-                    <div class="pm-autotrader-fields">
-                        <label>
-                            <span class="pm-autotrader-field-label">Market date</span>
-                            <input id="pm-autotrader-target-date" class="pm-autotrader-input" type="date" value="${selectedTargetDate}">
-                        </label>
-                        <label>
-                            <span class="pm-autotrader-field-label">Portfolio cap ($)</span>
-                            <input id="pm-autotrader-total-cap" class="pm-autotrader-input" type="number" min="0.5" step="0.25" value="${autotraderInputValueNumber('max_total_exposure_usd', risk.max_total_exposure_usd).toFixed(2)}">
-                        </label>
+                <div class="at-config-box" style="flex:1;min-width:150px;">
+                    <div class="at-config-label">Exposure Cap</div>
+                    <label>
+                        <span class="at-field-label">Cap ($)</span>
+                        <input id="pm-autotrader-total-cap" class="at-input" type="number" min="0.5" step="0.25" value="${autotraderInputValueNumber('max_total_exposure_usd', risk.max_total_exposure_usd).toFixed(2)}">
+                    </label>
+                    <div style="margin-top:8px;">
+                        <button class="at-btn" onclick="saveAutotraderConfig()" style="width:100%;font-size:10px;">Save Setup</button>
                     </div>
-                    <div class="pm-autotrader-note">Portfolio cap is the total mark-to-market risk across all open bets now, not the original historical cost basis. Per-trade sizing is automatic and gets distributed inside that cap. The loop checks the selected stations every ${Number(status.loop_seconds || 0)}s and stops automatically when the selected market date is mature or closed for every selected station. Live Polymarket positions are assumed to belong to the bot unless they are explicitly flagged as tracking-only.</div>
+                </div>
+                <div class="at-config-box" style="flex:0 0 auto;min-width:100px;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;">
+                    <div class="at-config-label">Market Date</div>
+                    <span class="at-badge auto-date" style="font-size:11px;padding:4px 10px;">📅 AUTO</span>
+                    <div style="font-size:10px;color:#4b5563;">${status.target_date || 'auto-resolved'}</div>
                 </div>
             </div>
-            <div class="pm-autotrader-grid">
-                <div class="pm-autotrader-cell">
-                    <div class="pm-autotrader-cell-label">Selected stations</div>
-                    <div class="pm-autotrader-cell-value">${selectedStations.length ? selectedStations.join(', ') : 'None'}</div>
-                </div>
-                <div class="pm-autotrader-cell">
-                    <div class="pm-autotrader-cell-label">Market date</div>
-                    <div class="pm-autotrader-cell-value">${selectedTargetDate || '--'}</div>
-                </div>
-                <div class="pm-autotrader-cell">
-                    <div class="pm-autotrader-cell-label">Portfolio Exposure</div>
-                    <div class="pm-autotrader-cell-value">$${openRisk.toFixed(2)} / $${totalCap.toFixed(2)}</div>
-                </div>
-                <div class="pm-autotrader-cell">
-                    <div class="pm-autotrader-cell-label">Open cost basis</div>
-                    <div class="pm-autotrader-cell-value">$${positionsCostBasis.toFixed(2)}</div>
-                </div>
-                <div class="pm-autotrader-cell">
-                    <div class="pm-autotrader-cell-label">Open bets</div>
-                    <div class="pm-autotrader-cell-value">${Number(portfolio.open_positions_count || 0)} live bets | $${openRisk.toFixed(2)}</div>
-                </div>
-                <div class="pm-autotrader-cell">
-                    <div class="pm-autotrader-cell-label">Portfolio value</div>
-                    <div class="pm-autotrader-cell-value">$${portfolioValue.toFixed(2)}</div>
-                </div>
-                <div class="pm-autotrader-cell">
-                    <div class="pm-autotrader-cell-label">Bankroll ref</div>
-                    <div class="pm-autotrader-cell-value">$${bankrollRef.toFixed(2)}</div>
-                </div>
-                <div class="pm-autotrader-cell">
-                    <div class="pm-autotrader-cell-label">Free collateral</div>
-                    <div class="pm-autotrader-cell-value">$${freeCollateral.toFixed(2)}</div>
-                </div>
-                <div class="pm-autotrader-cell">
-                    <div class="pm-autotrader-cell-label">Portfolio Day</div>
-                    <div class="pm-autotrader-cell-value">${Number(portfolio.trades_today || 0)} entries | $${Number(portfolio.remaining_daily_loss_usd || 0).toFixed(2)} loss room</div>
-                </div>
-                <div class="pm-autotrader-cell">
-                    <div class="pm-autotrader-cell-label">Day PnL</div>
-                    <div class="pm-autotrader-cell-value">${pnlToday >= 0 ? '+' : ''}$${pnlToday.toFixed(2)} | ${Number(portfolio.closed_trades_today || 0)} exits</div>
-                </div>
-                <div class="pm-autotrader-cell">
-                    <div class="pm-autotrader-cell-label">Strategy</div>
-                    <div class="pm-autotrader-cell-value">${strategyMix.join(' | ') || 'disabled'}</div>
-                </div>
-                <div class="pm-autotrader-cell">
-                    <div class="pm-autotrader-cell-label">Open mix</div>
-                    <div class="pm-autotrader-cell-value">${strategyCountText}</div>
-                </div>
-                <div class="pm-autotrader-cell">
-                    <div class="pm-autotrader-cell-label">Wallet</div>
-                    <div class="pm-autotrader-cell-value">${wallet.live_ready ? `Ready | free $${freeCollateral.toFixed(2)}` : 'Missing keys'}</div>
-                </div>
-                <div class="pm-autotrader-cell">
-                    <div class="pm-autotrader-cell-label">Tracking</div>
-                    <div class="pm-autotrader-cell-value">${managedCount} bot-managed | ${trackingOnlyCount} tracking-only</div>
-                </div>
+            <div class="trade-section-title">Open Positions (${openBets.length})</div>
+            <div class="trade-table-wrap">
+                <table class="trade-table trade-table--open">
+                    <thead><tr>
+                        <th>Opened</th><th>Station</th><th>Market</th><th>Side</th><th>Strategy</th>
+                        <th>Entry</th><th>Current</th><th>Shares</th><th>Cost</th><th>Value</th><th>PnL</th><th>Age</th>
+                    </tr></thead>
+                    <tbody>${openRows}</tbody>
+                </table>
             </div>
-            <div class="pm-autotrader-log">
-                <div class="pm-autotrader-title" style="margin-bottom:8px;">Recent activity</div>
-                ${recent.length ? recent.map(item => `
-                    <div class="pm-autotrader-log-item">
-                        <strong>${item.status || 'event'}</strong>
-                        ${item.station_id ? ` | ${item.station_id}` : ''}
-                        ${item.candidate ? ` | ${item.candidate.strategy || 'terminal_value'} | ${item.candidate.side} ${item.candidate.label}` : ''}
-                        ${item.exit_plan ? ` | exit ${item.exit_plan.reason || '--'}` : ''}
-                        ${item.reasons && item.reasons.length ? ` | ${item.reasons.join(', ')}` : ''}
-                        ${item.error ? ` | ${String(item.error).slice(0, 180)}` : ''}
-                        ${item.plan ? ` | $${Number(item.plan.notional_usd || 0).toFixed(2)}` : ''}
-                        ${item.persisted ? ` | pnl $${Number(item.persisted.realized_pnl_usd || 0).toFixed(2)}` : ''}
-                        <span style="opacity:.7;"> | ${shortTs(item.ts_utc)}</span>
-                    </div>
-                `).join('') : '<div class="pm-autotrader-log-item">No runs yet.</div>'}
-                <div class="pm-autotrader-title" style="margin:12px 0 8px;">Open bets</div>
-                ${openBets.length ? openBets.map(item => `
-                    <div class="pm-autotrader-log-item">
-                        <strong>${item.station_id} | ${item.source === 'polymarket_live' && !item.strategy ? 'external live' : (item.strategy || 'terminal_value')} | ${item.side} ${item.label}</strong>
-                        | $${Number(item.cost_basis_open_usd || item.notional_usd || 0).toFixed(2)}
-                        | value $${Number(item.current_value_usd || 0).toFixed(2)}
-                        | pnl ${(Number(item.cash_pnl_usd || 0) >= 0 ? '+' : '')}$${Number(item.cash_pnl_usd || 0).toFixed(2)}
-                        | ${Number(item.shares_open || item.shares || 0).toFixed(1)} sh
-                        <span style="opacity:.7;"> | ${shortTs(item.opened_at_utc)}</span>
-                    </div>
-                `).join('') : '<div class="pm-autotrader-log-item">No open bets in the portfolio.</div>'}
-            </div>
+            <div id="at-history-section"></div>
+            <div class="trade-section-title">Recent Activity (last 8)</div>
+            <div class="at-log">${logItems}</div>
         `;
         bindAutotraderDraftEvents();
+        renderAutoTraderHistory();
     }
+
+    function renderAutoTraderHistory() {
+        const section = document.getElementById('at-history-section');
+        if (!section) return;
+        const positions = (_historyCache && _historyCache.at) ? _historyCache.at : [];
+        if (!positions.length) { section.innerHTML = ''; return; }
+        const rows = positions.slice(0, 50).map(p => {
+            const fills = Array.isArray(p.fills) ? p.fills : [];
+            const exitPrice = fills.length ? Number(fills[fills.length-1].price || 0) : 0;
+            return `<tr>
+                <td>${_fmtTs(p.closed_at_utc || p.last_exit_utc)}</td>
+                <td class="td-primary">${p.station_id||'—'}</td>
+                <td>${p.label||'—'}</td>
+                <td>${_sideBadge(p.side)}</td>
+                <td>${_stratBadge(p.strategy)}</td>
+                <td>${Number(p.entry_price||0).toFixed(3)}</td>
+                <td>${exitPrice ? exitPrice.toFixed(3) : '—'}</td>
+                <td>${Number(p.shares||p.shares_open||0).toFixed(1)}</td>
+                <td>$${Number(p.notional_usd||p.cost_basis_open_usd||0).toFixed(2)}</td>
+                <td>${_pnlSpan(p.realized_pnl_usd)}</td>
+                <td>${_reasonBadge(p.last_exit_reason)}</td>
+            </tr>`;
+        }).join('');
+        section.innerHTML = `
+            <div class="trade-section-title">Trade History (${Math.min(positions.length,50)} most recent closed)</div>
+            <div class="trade-table-wrap">
+                <table class="trade-table trade-table--history">
+                    <thead><tr>
+                        <th>Closed</th><th>Station</th><th>Market</th><th>Side</th><th>Strategy</th>
+                        <th>Entry</th><th>Exit</th><th>Shares</th><th>Notional</th><th>PnL</th><th>Reason</th>
+                    </tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            </div>`;
+    }
+    window.renderAutoTraderHistory = renderAutoTraderHistory;
 
     // ========================
     // OVERVIEW
@@ -2343,6 +2349,29 @@
     }
 
     // ========================
+    // HISTORY CACHE
+    // ========================
+    let _historyCache = { at: [], pt: [] };
+    let _historyTs = 0;
+
+    async function maybeRefreshHistory() {
+        if (Date.now() - _historyTs < 30000) return;
+        _historyTs = Date.now();
+        try {
+            const [at, pt] = await Promise.all([
+                fetch('/api/autotrader/history').then(r => r.json()).catch(() => ({})),
+                fetch('/api/papertrader/history').then(r => r.json()).catch(() => ({})),
+            ]);
+            _historyCache.at = (at.positions || []).filter(p => p.status !== 'OPEN').slice(0, 50);
+            _historyCache.pt = (pt.positions || []).filter(p => p.status !== 'OPEN').slice(0, 50);
+            renderAutoTraderHistory();
+            renderPaperTraderHistory();
+        } catch (e) {
+            console.error('History refresh error:', e);
+        }
+    }
+
+    // ========================
     // PAPERTRADER UI
     // ========================
     let ptDraft = {};
@@ -2352,7 +2381,7 @@
         if (!existing._synced) {
             ptDraft = {
                 station_ids: Array.isArray(status?.station_ids) ? [...status.station_ids] : [],
-                target_date: status?.target_date || '',
+                // target_date intentionally omitted — autonomous date mode
                 max_total_exposure_usd: status?.max_total_exposure_usd ?? 25,
                 initial_bankroll_usd: status?.initial_bankroll_usd ?? 100,
                 _synced: true,
@@ -2367,8 +2396,7 @@
                 ptDraft.station_ids = Array.from(document.querySelectorAll('.pt-station-check:checked')).map(c => c.value);
             });
         });
-        const dateEl = document.getElementById('pt-target-date');
-        if (dateEl) dateEl.addEventListener('change', () => { ptDraft.target_date = dateEl.value; });
+        // No target_date binding — autonomous date mode
         const capEl = document.getElementById('pt-total-cap');
         if (capEl) capEl.addEventListener('change', () => { ptDraft.max_total_exposure_usd = parseFloat(capEl.value) || 25; });
         const bankEl = document.getElementById('pt-bankroll');
@@ -2389,12 +2417,12 @@
 
     async function savePapertraderConfig() {
         try {
+            // target_date intentionally omitted — autonomous date mode auto-resolves
             const resp = await fetch('/api/papertrader/config', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     station_ids: ptDraft.station_ids,
-                    target_date: ptDraft.target_date,
                     max_total_exposure_usd: ptDraft.max_total_exposure_usd,
                     initial_bankroll_usd: ptDraft.initial_bankroll_usd,
                 }),
@@ -2452,51 +2480,52 @@
         const fillRatio = Number(status.fill_ratio || 0);
         const hitRate = Number(status.hit_rate || 0);
         const avgSlip = Number(status.avg_slippage_bps || 0);
-        const exitReasonsSummary = Object.entries(exits).map(([k,v]) => `${k.replace('_',' ')} ×${v}`).join(' | ') || '—';
 
         const headline = running
             ? `<span class="pt-running-dot"></span>SHADOW running — ${stations.length} station${stations.length===1?'':'s'}`
-            : `SHADOW ready${status.last_stop_reason ? ` — ${status.last_stop_reason.replace('_',' ')}` : ''}`;
+            : `SHADOW ready${status.last_stop_reason ? ` — ${status.last_stop_reason.replace(/_/g,' ')}` : ''}`;
         const subline = running
             ? `Cycling every ${status.loop_seconds || 60}s. Paper fills walk real L2 orderbook data — no real orders sent.`
-            : `Configure stations and market date, then press Start to begin shadow trading. All fills are simulated against live orderbook depth.`;
+            : `Configure stations, set exposure cap, then press Start. All fills are simulated against live orderbook depth.`;
 
-        // Positions rows
         const posRows = openPositions.length
             ? openPositions.map(p => {
                 const pnl = Number(p.unrealized_pnl_usd || 0);
-                const pnlClass = _ptPnlClass(pnl);
-                const ago = shortTs(p.opened_at_utc);
+                const curPrice = p.current_price != null ? Number(p.current_price).toFixed(3) : '—';
                 return `<tr>
-                    <td class="pt-td-label">${p.station_id || '—'}</td>
-                    <td>${p.label || '—'}</td>
-                    <td>${p.side || '—'}</td>
-                    <td>${(p.strategy || 'terminal').replace('_value','').replace('_reprice','')}</td>
+                    <td title="${p.opened_at_utc||''}">${_fmtTime(p.opened_at_utc)}</td>
+                    <td class="td-primary">${p.station_id||'—'}</td>
+                    <td>${p.label||'—'}</td>
+                    <td>${_sideBadge(p.side)}</td>
+                    <td>${_stratBadge(p.strategy)}</td>
                     <td>${Number(p.entry_price||0).toFixed(3)}</td>
+                    <td>${curPrice}</td>
                     <td>${Number(p.shares_open||0).toFixed(1)}</td>
-                    <td>${_ptFmt(p.cost_basis_open_usd)}</td>
-                    <td class="pt-td-pnl ${pnlClass}">${_ptPnlFmt(pnl)}</td>
-                    <td style="opacity:.6">${ago}</td>
+                    <td>$${Number(p.cost_basis_open_usd||0).toFixed(2)}</td>
+                    <td>$${Number(p.current_value_usd||0).toFixed(2)}</td>
+                    <td>${_pnlSpan(pnl)}</td>
+                    <td>${_ageStr(p.opened_at_utc)}</td>
                 </tr>`;
             }).join('')
-            : `<tr><td colspan="9" style="text-align:center;opacity:.5;padding:16px;">No open positions</td></tr>`;
+            : `<tr><td colspan="12" style="text-align:center;padding:14px;color:#4b5563;">No open positions</td></tr>`;
 
-        // Recent events log
         const logItems = recent.length
             ? recent.map(ev => {
                 const evType = ev.event || ev.status || 'event';
                 const pnl = ev.persisted?.realized_pnl_usd;
-                const pnlStr = pnl !== undefined ? ` | pnl ${Number(pnl)>=0?'+':''}$${Number(pnl).toFixed(2)}` : '';
-                const fillStr = ev.fill ? ` | ${Number(ev.fill.filled_size||0).toFixed(1)}sh @ $${Number(ev.fill.avg_price||0).toFixed(3)}` : '';
-                const slip = ev.fill?.slippage_vs_best ? ` slip ${(Number(ev.fill.slippage_vs_best)*100).toFixed(2)}¢` : '';
-                const reason = ev.reason ? ` [${ev.reason.replace('_',' ')}]` : '';
-                const pos = ev.position_key ? ` | ${ev.position_key.split('|').slice(-2).join(' ')}` : '';
-                return `<div class="pt-log-item">
-                    <strong>${evType}</strong>${pos}${fillStr}${slip}${reason}${pnlStr}
-                    <span style="opacity:.55;"> | ${shortTs(ev.ts_utc)}</span>
-                </div>`;
+                const pnlStr = pnl !== undefined ? ` pnl ${Number(pnl)>=0?'+':''}$${Number(pnl).toFixed(2)}` : '';
+                const fillStr = ev.fill ? ` ${Number(ev.fill.filled_size||0).toFixed(1)}sh@${Number(ev.fill.avg_price||0).toFixed(3)}` : '';
+                const reason = ev.reason ? ` [${ev.reason.replace(/_/g,' ')}]` : '';
+                const pos = ev.position_key ? ` ${ev.position_key.split('|').slice(-2).join(' ')}` : '';
+                return `<div class="pt-log-item"><strong>${evType}</strong>${pos}${fillStr}${reason}${pnlStr}<span style="float:right;opacity:.45;">${shortTs(ev.ts_utc)}</span></div>`;
             }).join('')
             : '<div class="pt-log-item" style="opacity:.5;">No activity yet — press Run once or Start loop.</div>';
+
+        // Exit breakdown pills
+        const exitPills = Object.entries(exits).map(([k,v]) => {
+            const cls = k.includes('take_profit') ? 'tp' : k.includes('stop_loss') ? 'sl' : k.includes('timeout') ? 'to' : 'ot';
+            return `<span class="reason-badge ${cls}" style="font-size:10px;">${k.replace(/_/g,' ')} ×${v}</span>`;
+        }).join(' ');
 
         panel.innerHTML = `
             <div class="pt-head">
@@ -2508,8 +2537,8 @@
                 <div class="pt-actions">
                     <button class="pt-btn" onclick="savePapertraderConfig()">Save setup</button>
                     <button class="pt-btn" onclick="runPapertraderAction('run-once')" ${running ? 'disabled' : ''}>Run once</button>
-                    <button class="pt-btn primary" onclick="startPapertrader()" ${running ? 'disabled' : ''}>Start loop</button>
-                    <button class="pt-btn danger" onclick="runPapertraderAction('stop')" ${running ? '' : 'disabled'}>Stop</button>
+                    <button class="pt-btn primary" onclick="startPapertrader()" ${running ? 'disabled' : ''}>▶ Start</button>
+                    <button class="pt-btn danger" onclick="runPapertraderAction('stop')" ${running ? '' : 'disabled'}>■ Stop</button>
                 </div>
             </div>
 
@@ -2526,12 +2555,8 @@
                     </div>
                 </div>
                 <div class="pt-config-box">
-                    <div class="pt-config-label">Market setup</div>
-                    <div class="pt-fields">
-                        <label>
-                            <span class="pt-field-label">Market date</span>
-                            <input id="pt-target-date" class="pt-input" type="date" value="${draft.target_date || ''}">
-                        </label>
+                    <div class="pt-config-label">Setup</div>
+                    <div class="pt-fields" style="grid-template-columns:repeat(2,minmax(0,1fr));">
                         <label>
                             <span class="pt-field-label">Exposure cap ($)</span>
                             <input id="pt-total-cap" class="pt-input" type="number" min="1" step="1" value="${draft.max_total_exposure_usd || 25}">
@@ -2541,72 +2566,65 @@
                             <input id="pt-bankroll" class="pt-input" type="number" min="1" step="10" value="${draft.initial_bankroll_usd || 100}">
                         </label>
                     </div>
-                    <div class="pt-note">Paper fills walk the live L2 orderbook level-by-level. No real orders are sent. All fills, slippage, and PnL are simulated.</div>
+                    <div class="pt-note" style="margin-top:8px;">Paper fills walk the live L2 orderbook level-by-level. No real orders are sent.</div>
+                </div>
+                <div class="pt-config-box" style="text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;">
+                    <div class="pt-config-label">Market Date</div>
+                    <span class="at-badge auto-date" style="font-size:11px;padding:4px 10px;">📅 AUTO</span>
+                    <div style="font-size:10px;color:#4b5563;">${status.target_date || 'auto-resolved'}</div>
                 </div>
             </div>
 
             <div class="pt-grid">
                 <div class="pt-cell">
-                    <div class="pt-cell-label">Paper equity</div>
-                    <div class="pt-cell-value purple">${_ptFmt(equity)}</div>
+                    <div class="pt-cell-label">Paper Equity</div>
+                    <div class="pt-cell-value purple">$${equity.toFixed(2)}</div>
                 </div>
                 <div class="pt-cell">
-                    <div class="pt-cell-label">Total PnL</div>
-                    <div class="pt-cell-value ${_ptPnlClass(totalPnl)}">${_ptPnlFmt(totalPnl)} <span style="font-size:11px;opacity:.7">(${totalPnlPct>=0?'+':''}${totalPnlPct.toFixed(1)}%)</span></div>
+                    <div class="pt-cell-label">Open Risk <span class="trade-tooltip">ⓘ<span class="tooltip-text">Max capital held in open positions simultaneously. Bot pauses new bets when this cap is hit.</span></span></div>
+                    <div class="pt-cell-value">$${openRisk.toFixed(2)}</div>
+                    <div style="font-size:10px;color:#4b5563;">of $${Number(status.max_total_exposure_usd||25).toFixed(0)} cap</div>
                 </div>
                 <div class="pt-cell">
                     <div class="pt-cell-label">Realized PnL</div>
                     <div class="pt-cell-value ${_ptPnlClass(realizedPnl)}">${_ptPnlFmt(realizedPnl)}</div>
                 </div>
                 <div class="pt-cell">
-                    <div class="pt-cell-label">Unrealized PnL</div>
-                    <div class="pt-cell-value ${_ptPnlClass(unrealizedPnl)}">${_ptPnlFmt(unrealizedPnl)}</div>
+                    <div class="pt-cell-label">Today PnL</div>
+                    <div class="pt-cell-value ${_ptPnlClass(Number(status.realized_pnl_today_usd||0))}">${_ptPnlFmt(status.realized_pnl_today_usd)}</div>
                 </div>
                 <div class="pt-cell">
-                    <div class="pt-cell-label">Open risk</div>
-                    <div class="pt-cell-value">${_ptFmt(openRisk)} / ${_ptFmt(status.max_total_exposure_usd || 25)}</div>
+                    <div class="pt-cell-label">Open Positions</div>
+                    <div class="pt-cell-value">${status.open_positions_count||0} / ${Number(status.max_open_positions||12)}</div>
                 </div>
                 <div class="pt-cell">
-                    <div class="pt-cell-label">Open positions</div>
-                    <div class="pt-cell-value">${status.open_positions_count || 0} open · ${status.closed_positions_count || 0} closed</div>
+                    <div class="pt-cell-label">Fill Rate</div>
+                    <div class="pt-cell-value">${(fillRatio*100).toFixed(0)}%</div>
                 </div>
                 <div class="pt-cell">
-                    <div class="pt-cell-label">Today</div>
-                    <div class="pt-cell-value">${status.trades_today || 0} entries · ${_ptPnlFmt(status.realized_pnl_today_usd)}</div>
+                    <div class="pt-cell-label">Hit Rate</div>
+                    <div class="pt-cell-value">${(hitRate*100).toFixed(0)}%</div>
                 </div>
                 <div class="pt-cell">
-                    <div class="pt-cell-label">All time</div>
-                    <div class="pt-cell-value">${status.total_entries || 0} in · ${status.total_exits || 0} out</div>
-                </div>
-                <div class="pt-cell">
-                    <div class="pt-cell-label">Fill ratio</div>
-                    <div class="pt-cell-value">${(fillRatio*100).toFixed(0)}% <span style="font-size:11px;opacity:.7">${status.total_fills||0}/${(status.total_fills||0)+(status.total_rejections||0)} orders</span></div>
-                </div>
-                <div class="pt-cell">
-                    <div class="pt-cell-label">Hit rate</div>
-                    <div class="pt-cell-value">${(hitRate*100).toFixed(0)}% <span style="font-size:11px;opacity:.7">winners</span></div>
-                </div>
-                <div class="pt-cell">
-                    <div class="pt-cell-label">Avg slippage</div>
+                    <div class="pt-cell-label">Avg Slippage</div>
                     <div class="pt-cell-value">${avgSlip.toFixed(1)} bps</div>
-                </div>
-                <div class="pt-cell">
-                    <div class="pt-cell-label">Exit breakdown</div>
-                    <div class="pt-cell-value" style="font-size:11px;font-weight:600;">${exitReasonsSummary}</div>
                 </div>
             </div>
 
-            ${openPositions.length > 0 ? `
-            <div class="pt-section-title">Open positions <span style="opacity:.5">(${openPositions.length})</span></div>
-            <div class="pt-table-wrap">
-                <table class="pt-table">
+            <div class="trade-section-title">Open Positions (${openPositions.length})</div>
+            <div class="trade-table-wrap">
+                <table class="trade-table trade-table--open">
                     <thead><tr>
-                        <th>Station</th><th>Label</th><th>Side</th><th>Strategy</th>
-                        <th>Entry</th><th>Shares</th><th>Cost</th><th>Unr. PnL</th><th>Age</th>
+                        <th>Opened</th><th>Station</th><th>Market</th><th>Side</th><th>Strategy</th>
+                        <th>Entry</th><th>Current</th><th>Shares</th><th>Cost</th><th>Value</th><th>PnL</th><th>Age</th>
                     </tr></thead>
                     <tbody>${posRows}</tbody>
                 </table>
-            </div>` : ''}
+            </div>
+
+            <div id="pt-history-section"></div>
+
+            ${exitPills ? `<div class="exit-breakdown"><span style="color:#4b5563;text-transform:uppercase;font-size:9px;letter-spacing:1px;">Exits:</span> ${exitPills}</div>` : ''}
 
             <div class="pt-log">
                 <div class="pt-section-title">Recent activity</div>
@@ -2614,8 +2632,45 @@
             </div>
         `;
         bindPapertraderDraftEvents();
+        renderPaperTraderHistory();
     }
     window.renderPaperTrader = renderPaperTrader;
+
+    function renderPaperTraderHistory() {
+        const section = document.getElementById('pt-history-section');
+        if (!section) return;
+        const positions = (_historyCache && _historyCache.pt) ? _historyCache.pt : [];
+        if (!positions.length) { section.innerHTML = ''; return; }
+        const rows = positions.slice(0, 50).map(p => {
+            const fills = Array.isArray(p.fills) ? p.fills : [];
+            const exitPrice = fills.length ? Number(fills[fills.length-1].price || 0) : 0;
+            return `<tr>
+                <td>${_fmtTs(p.closed_at_utc || p.last_exit_utc)}</td>
+                <td class="td-primary">${p.station_id||'—'}</td>
+                <td>${p.label||'—'}</td>
+                <td>${_sideBadge(p.side)}</td>
+                <td>${_stratBadge(p.strategy)}</td>
+                <td>${Number(p.entry_price||0).toFixed(3)}</td>
+                <td>${exitPrice ? exitPrice.toFixed(3) : '—'}</td>
+                <td>${Number(p.shares||p.shares_open||0).toFixed(1)}</td>
+                <td>$${Number(p.notional_usd||p.cost_basis_open_usd||0).toFixed(2)}</td>
+                <td>${_pnlSpan(p.realized_pnl_usd)}</td>
+                <td>${_reasonBadge(p.last_exit_reason)}</td>
+            </tr>`;
+        }).join('');
+        section.innerHTML = `
+            <div class="trade-section-title">Trade History (${Math.min(positions.length,50)} most recent closed)</div>
+            <div class="trade-table-wrap">
+                <table class="trade-table trade-table--history">
+                    <thead><tr>
+                        <th>Closed</th><th>Station</th><th>Market</th><th>Side</th><th>Strategy</th>
+                        <th>Entry</th><th>Exit</th><th>Shares</th><th>Notional</th><th>PnL</th><th>Reason</th>
+                    </tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            </div>`;
+    }
+    window.renderPaperTraderHistory = renderPaperTraderHistory;
 
     let diagOpen = false;
     function toggleDiagnostics() {

@@ -1189,4 +1189,5 @@ class PaperTrader:
             "exits_by_reason": dict(self.state.get("exits_by_reason") or {}),
             "max_total_exposure_usd": self.config.max_total_exposure_usd,
             "recent_events": recent,
+            "closed_positions": closed_positions,
         }

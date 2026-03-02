@@ -354,10 +354,8 @@ def _build_autotrader_runtime_config(current_enabled: Optional[bool] = None) -> 
         selected_station_ids = config.station_ids
     config.station_ids = _sanitize_autotrader_station_ids(selected_station_ids)
 
-    target_date = _normalize_autotrader_target_date(overrides.get("target_date"))
-    if not target_date:
-        target_date = _default_autotrader_target_date(config.station_ids, config.target_day)
-    config.target_date = target_date
+    # Autonomous date: always auto-resolve from station market; never use saved overrides
+    config.target_date = _default_autotrader_target_date(config.station_ids, config.target_day)
 
     max_total = overrides.get("max_total_exposure_usd")
     if max_total is not None:
@@ -3101,12 +3099,8 @@ async def update_autotrader_config_api(payload: AutotraderRuntimeConfigUpdate):
 
     if payload.station_ids is not None:
         current["station_ids"] = _sanitize_autotrader_station_ids(payload.station_ids)
-    if payload.target_date is not None:
-        normalized_target_date = _normalize_autotrader_target_date(payload.target_date)
-        if normalized_target_date:
-            current["target_date"] = normalized_target_date
-        else:
-            current.pop("target_date", None)
+    # Never persist target_date — autonomous date mode always auto-resolves
+    current.pop("target_date", None)
     if payload.max_total_exposure_usd is not None:
         current["max_total_exposure_usd"] = max(0.5, float(payload.max_total_exposure_usd))
     if payload.max_trade_usd is not None:
@@ -3223,10 +3217,8 @@ def _build_papertrader_config(current_enabled: Optional[bool] = None) -> PaperTr
         if at_stations:
             config.station_ids = _sanitize_autotrader_station_ids(at_stations)
 
-    target_date = _normalize_autotrader_target_date(overrides.get("target_date"))
-    if target_date:
-        config.target_date = target_date
-    elif config.station_ids:
+    # Autonomous date: always auto-resolve from station market; never use saved overrides
+    if config.station_ids:
         config.target_date = _default_autotrader_target_date(config.station_ids, config.target_day)
 
     max_total = overrides.get("max_total_exposure_usd")
@@ -3324,12 +3316,8 @@ async def update_papertrader_config_api(payload: PapertraderRuntimeConfigUpdate)
 
     if payload.station_ids is not None:
         current["station_ids"] = _sanitize_autotrader_station_ids(payload.station_ids)
-    if payload.target_date is not None:
-        normalized = _normalize_autotrader_target_date(payload.target_date)
-        if normalized:
-            current["target_date"] = normalized
-        else:
-            current.pop("target_date", None)
+    # Never persist target_date — autonomous date mode always auto-resolves
+    current.pop("target_date", None)
     if payload.max_total_exposure_usd is not None:
         current["max_total_exposure_usd"] = max(0.5, float(payload.max_total_exposure_usd))
     if payload.initial_bankroll_usd is not None:
@@ -3365,6 +3353,58 @@ async def start_papertrader_api():
 async def stop_papertrader_api():
     status = await stop_papertrader_loop(reason="manual_stop")
     return {"ok": True, "status": status}
+
+
+@app.get("/api/papertrader/history")
+async def get_papertrader_history_api():
+    """Return all positions (open + closed) sorted by closed_at_utc desc."""
+    import json as _json
+    path = Path("data/papertrader_state.json")
+    if not path.exists():
+        return {"ok": True, "positions": []}
+    try:
+        state = _json.loads(path.read_text(encoding="utf-8"))
+        raw = state.get("positions") or {}
+        positions = []
+        for pkey, pos in (raw.items() if isinstance(raw, dict) else []):
+            if not isinstance(pos, dict):
+                continue
+            p = dict(pos)
+            p["position_key"] = pkey
+            positions.append(p)
+        def _sort_key(p):
+            ts = p.get("closed_at_utc") or p.get("last_exit_utc") or p.get("opened_at_utc") or ""
+            return str(ts)
+        positions.sort(key=_sort_key, reverse=True)
+        return {"ok": True, "positions": positions}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc), "positions": []}
+
+
+@app.get("/api/autotrader/history")
+async def get_autotrader_history_api():
+    """Return all autotrader positions (open + closed) sorted by closed_at_utc desc."""
+    import json as _json
+    path = Path("data/autotrader_state.json")
+    if not path.exists():
+        return {"ok": True, "positions": []}
+    try:
+        state = _json.loads(path.read_text(encoding="utf-8"))
+        raw = state.get("positions") or {}
+        positions = []
+        for pkey, pos in (raw.items() if isinstance(raw, dict) else []):
+            if not isinstance(pos, dict):
+                continue
+            p = dict(pos)
+            p["position_key"] = pkey
+            positions.append(p)
+        def _sort_key(p):
+            ts = p.get("closed_at_utc") or p.get("last_exit_utc") or p.get("opened_at_utc") or ""
+            return str(ts)
+        positions.sort(key=_sort_key, reverse=True)
+        return {"ok": True, "positions": positions}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc), "positions": []}
 
 
 async def prediction_loop():
