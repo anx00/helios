@@ -1,0 +1,259 @@
+{% extends "base.html" %}
+
+{% block title %}HELIOS - External Sources{% endblock %}
+
+{% block head_extra %}
+<style>
+    .ext-shell { display: flex; flex-direction: column; gap: 20px; }
+    .ext-hero, .ext-panel, .ext-source { background: rgba(255,255,255,0.025); border: 1px solid rgba(255,255,255,0.06); border-radius: 16px; }
+    .ext-hero { padding: 24px; display: flex; justify-content: space-between; gap: 20px; background: radial-gradient(circle at top right, rgba(0,120,255,0.2), transparent 30%), rgba(255,255,255,0.02); }
+    .ext-kicker, .ext-panel-title, .ext-section-title, .ext-stat-label { font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: var(--text-muted); font-weight: 700; }
+    .ext-kicker { color: #7dd3fc; margin-bottom: 10px; }
+    .ext-title { font-size: 28px; font-family: 'Space Grotesk', sans-serif; font-weight: 700; margin-bottom: 10px; }
+    .ext-copy { color: var(--text-secondary); max-width: 760px; line-height: 1.6; font-size: 14px; }
+    .ext-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; min-width: 220px; }
+    .ext-refresh { border: 1px solid rgba(125,211,252,0.35); background: rgba(14,165,233,0.14); color: #e0f2fe; border-radius: 999px; padding: 10px 16px; font-size: 12px; font-weight: 700; text-transform: uppercase; cursor: pointer; }
+    .ext-refresh:disabled { opacity: 0.55; cursor: wait; }
+    .ext-meta { text-align: right; color: var(--text-secondary); font-size: 12px; display: flex; flex-direction: column; gap: 6px; }
+    .ext-summary, .ext-sources, .ext-charts { display: grid; gap: 16px; }
+    .ext-summary { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .ext-stat { padding: 18px; }
+    .ext-stat-value { font-size: 30px; font-family: 'Space Grotesk', sans-serif; font-weight: 700; margin: 8px 0; }
+    .ext-stat-meta { color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
+    .ext-charts { grid-template-columns: 1.2fr 1fr; }
+    .ext-panel { padding: 20px; }
+    .ext-panel-sub { color: var(--text-secondary); font-size: 12px; margin-top: 6px; margin-bottom: 14px; line-height: 1.5; }
+    .ext-chart-wrap { height: 320px; }
+    .ext-sources { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .ext-source { padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+    .ext-source.disabled { border-style: dashed; }
+    .ext-source.error { border-color: rgba(239,68,68,0.3); }
+    .ext-source.partial { border-color: rgba(245,158,11,0.28); }
+    .ext-source.ok { border-color: rgba(34,197,94,0.2); }
+    .ext-source-head { display: flex; justify-content: space-between; gap: 12px; }
+    .ext-source-name { font-size: 20px; font-family: 'Space Grotesk', sans-serif; font-weight: 700; }
+    .ext-source-code { color: var(--text-secondary); font-size: 12px; }
+    .ext-badge { border-radius: 999px; padding: 7px 10px; font-size: 11px; font-weight: 700; text-transform: uppercase; align-self: flex-start; }
+    .ext-badge.ok { background: rgba(16,185,129,0.14); color: #6ee7b7; border: 1px solid rgba(16,185,129,0.28); }
+    .ext-badge.partial { background: rgba(245,158,11,0.14); color: #fcd34d; border: 1px solid rgba(245,158,11,0.28); }
+    .ext-badge.error { background: rgba(239,68,68,0.14); color: #fca5a5; border: 1px solid rgba(239,68,68,0.28); }
+    .ext-badge.disabled { background: rgba(148,163,184,0.12); color: #cbd5e1; border: 1px solid rgba(148,163,184,0.22); }
+    .ext-source-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    .ext-source-stat { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 12px; }
+    .ext-source-value { font-size: 18px; font-weight: 700; font-family: 'Space Grotesk', sans-serif; margin-top: 6px; }
+    .ext-source-meta { color: var(--text-secondary); font-size: 11px; margin-top: 6px; line-height: 1.4; }
+    .ext-detail-grid, .ext-forecast { display: grid; gap: 8px; }
+    .ext-detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .ext-detail, .ext-forecast-item, .ext-msg { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); border-radius: 10px; padding: 10px 12px; font-size: 12px; line-height: 1.5; }
+    .ext-detail strong { display: block; font-size: 10px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 5px; }
+    .ext-forecast { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .ext-forecast-item strong { display: block; margin-bottom: 4px; }
+    .ext-msg.note { color: var(--text-secondary); }
+    .ext-msg.error { background: rgba(239,68,68,0.12); border-color: rgba(239,68,68,0.22); color: #fecaca; }
+    .ext-msg.setup { background: rgba(14,165,233,0.12); border-color: rgba(14,165,233,0.22); color: #bae6fd; }
+    .ext-empty { padding: 28px; text-align: center; color: var(--text-secondary); border: 1px dashed rgba(255,255,255,0.12); border-radius: 16px; }
+    @media (max-width: 1180px) { .ext-summary, .ext-charts, .ext-sources { grid-template-columns: 1fr; } }
+    @media (max-width: 820px) { .ext-hero { flex-direction: column; } .ext-actions { align-items: flex-start; } .ext-source-stats, .ext-detail-grid, .ext-forecast { grid-template-columns: 1fr; } .ext-chart-wrap { height: 260px; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1 class="page-title">External Sources</h1>
+        <div class="breadcrumbs">
+            <a href="/">Home</a><span>/</span><span>External Sources</span><span>/</span><span id="extBreadcrumb">{{ station_id }}</span>
+        </div>
+    </div>
+</div>
+
+<div class="page-content">
+    <div class="ext-shell">
+        <section class="ext-hero">
+            <div>
+                <div class="ext-kicker">Cross-provider temperature audit</div>
+                <div class="ext-title" id="extTitle">{{ station_name }} ({{ station_id }})</div>
+                <div class="ext-copy">Compare day history, realtime marks and hourly forward curves across independent providers. Confirmed observations, modeled history and future provider scaffolds are separated explicitly.</div>
+            </div>
+            <div class="ext-actions">
+                <button class="ext-refresh" id="extRefresh" type="button">Refresh Sources</button>
+                <div class="ext-meta">
+                    <span id="extGeneratedAt">Waiting for payload</span>
+                    <span id="extPayloadMeta">No data loaded yet</span>
+                </div>
+            </div>
+        </section>
+
+        <section class="ext-summary" id="extSummary"></section>
+
+        <section class="ext-charts">
+            <article class="ext-panel">
+                <div class="ext-panel-title">Today History + Current</div>
+                <div class="ext-panel-sub">Observed and modeled history in a single view so source drift is obvious.</div>
+                <div class="ext-chart-wrap"><canvas id="extHistoryChart"></canvas></div>
+            </article>
+            <article class="ext-panel">
+                <div class="ext-panel-title">Next 54 Hours</div>
+                <div class="ext-panel-sub">Hourly forward curves for the rest of today and the next two days.</div>
+                <div class="ext-chart-wrap"><canvas id="extForecastChart"></canvas></div>
+            </article>
+        </section>
+
+        <section class="ext-sources" id="extSources">
+            <div class="ext-empty">Loading source cards...</div>
+        </section>
+    </div>
+</div>
+
+<script>
+(() => {
+    const colors = { wunderground: '#f59e0b', open_meteo: '#38bdf8', noaa_nws: '#22c55e', accuweather: '#fb923c' };
+    const els = {
+        title: document.getElementById('extTitle'),
+        breadcrumb: document.getElementById('extBreadcrumb'),
+        generatedAt: document.getElementById('extGeneratedAt'),
+        payloadMeta: document.getElementById('extPayloadMeta'),
+        refresh: document.getElementById('extRefresh'),
+        summary: document.getElementById('extSummary'),
+        sources: document.getElementById('extSources'),
+        hist: document.getElementById('extHistoryChart'),
+        forecast: document.getElementById('extForecastChart'),
+    };
+    let histChart = null;
+    let forecastChart = null;
+
+    const esc = (v) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    const fmtTemp = (f, c) => typeof f === 'number' || typeof c === 'number' ? [typeof f === 'number' ? `${f.toFixed(1)} F` : null, typeof c === 'number' ? `${c.toFixed(1)} C` : null].filter(Boolean).join(' / ') : '--';
+    const fmtStamp = (v) => { if (!v) return '--'; const d = new Date(v); return Number.isNaN(d.getTime()) ? v : d.toLocaleString([], { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' }); };
+    const axisLabel = (v) => { const d = new Date(v); return Number.isNaN(d.getTime()) ? v : d.toLocaleString([], { month: 'short', day: '2-digit', hour: '2-digit' }); };
+    const statusLabel = (s) => ({ ok: 'Online', partial: 'Partial', error: 'Error', disabled: 'Disabled' }[s] || s || 'Unknown');
+    const stationLabel = (stationId) => { const opt = window.HeliosStationState?.getOption?.(stationId); return opt ? `${opt.city_name || opt.id} (${opt.id})` : stationId; };
+
+    function chartData(sources, key, includeRealtime) {
+        const labels = new Set();
+        const active = (sources || []).filter((s) => !['disabled', 'error'].includes(s.status));
+        active.forEach((s) => {
+            const rows = [...((s[key] || {}).points || [])];
+            if (includeRealtime && s.realtime?.as_of_local && typeof s.realtime?.temp_f === 'number') rows.push({ timestamp_local: s.realtime.as_of_local, temp_f: s.realtime.temp_f });
+            rows.forEach((r) => { if (r?.timestamp_local && typeof r?.temp_f === 'number') labels.add(r.timestamp_local); });
+        });
+        const sorted = [...labels].sort((a, b) => new Date(a) - new Date(b));
+        return {
+            labels: sorted.map(axisLabel),
+            datasets: active.map((s) => {
+                const map = new Map();
+                const rows = [...((s[key] || {}).points || [])];
+                if (includeRealtime && s.realtime?.as_of_local && typeof s.realtime?.temp_f === 'number') rows.push({ timestamp_local: s.realtime.as_of_local, temp_f: s.realtime.temp_f });
+                rows.forEach((r) => { if (r?.timestamp_local && typeof r?.temp_f === 'number') map.set(r.timestamp_local, r.temp_f); });
+                return { label: s.display_name || s.source, data: sorted.map((t) => map.has(t) ? map.get(t) : null), borderColor: colors[s.source] || '#cbd5e1', backgroundColor: 'transparent', spanGaps: true, pointRadius: 2, tension: 0.28, borderWidth: 2 };
+            }),
+        };
+    }
+
+    function renderCharts(payload) {
+        if (histChart) histChart.destroy();
+        if (forecastChart) forecastChart.destroy();
+        histChart = new Chart(els.hist.getContext('2d'), { type: 'line', data: chartData(payload.sources, 'historical_day', true), options: chartOptions() });
+        forecastChart = new Chart(els.forecast.getContext('2d'), { type: 'line', data: chartData(payload.sources, 'forecast_hourly', false), options: chartOptions() });
+    }
+
+    function chartOptions() {
+        return {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'nearest', intersect: false },
+            plugins: { legend: { labels: { color: '#cbd5e1' } } },
+            scales: {
+                x: { ticks: { color: '#94a3b8', maxRotation: 0, autoSkip: true, maxTicksLimit: 8 }, grid: { color: 'rgba(148,163,184,0.12)' } },
+                y: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,0.12)' } },
+            },
+        };
+    }
+
+    function renderSummary(payload) {
+        const sources = payload.sources || [];
+        const active = sources.filter((s) => s.status !== 'disabled');
+        const current = active.map((s) => s.realtime?.temp_f).filter((v) => typeof v === 'number');
+        const observed = active.map((s) => s.historical_day?.max_temp_f).filter((v) => typeof v === 'number');
+        const future = active.flatMap((s) => s.forecast_hourly?.points || []).map((p) => p?.temp_f).filter((v) => typeof v === 'number');
+        const spread = current.length >= 2 ? (Math.max(...current) - Math.min(...current)).toFixed(1) + ' F' : '--';
+        els.summary.innerHTML = `
+            <article class="ext-panel ext-stat"><div class="ext-stat-label">Coverage</div><div class="ext-stat-value">${active.filter((s) => ['ok', 'partial'].includes(s.status)).length}/${sources.length}</div><div class="ext-stat-meta">${active.filter((s) => s.historical_day?.confirmed).length} confirmed-history sources.</div></article>
+            <article class="ext-panel ext-stat"><div class="ext-stat-label">Realtime Spread</div><div class="ext-stat-value">${spread}</div><div class="ext-stat-meta">Current disagreement among sources exposing realtime.</div></article>
+            <article class="ext-panel ext-stat"><div class="ext-stat-label">Observed Peak</div><div class="ext-stat-value">${observed.length ? Math.max(...observed).toFixed(1) + ' F' : '--'}</div><div class="ext-stat-meta">Highest daily max exposed in history blocks.</div></article>
+            <article class="ext-panel ext-stat"><div class="ext-stat-label">Forward Peak</div><div class="ext-stat-value">${future.length ? Math.max(...future).toFixed(1) + ' F' : '--'}</div><div class="ext-stat-meta">Maximum hourly forecast over the next 54 hours.</div></article>
+        `;
+    }
+
+    function renderSources(payload) {
+        const sources = payload.sources || [];
+        if (!sources.length) { els.sources.innerHTML = '<div class="ext-empty">No providers returned data.</div>'; return; }
+        els.sources.innerHTML = sources.map((s) => {
+            const h = s.historical_day || {};
+            const r = s.realtime || {};
+            const f = s.forecast_hourly || {};
+            const preview = (f.points || []).slice(0, 6);
+            const setup = [s.setup?.requires_env ? `Requires env: ${s.setup.requires_env}` : '', s.setup?.enabled_env ? `Feature flag: ${s.setup.enabled_env}` : ''].filter(Boolean).join(' | ');
+            return `
+                <article class="ext-source ${esc(s.status)}">
+                    <div class="ext-source-head">
+                        <div><div class="ext-source-name">${esc(s.display_name || s.source)}</div><div class="ext-source-code">${esc(s.source || '')}</div></div>
+                        <div class="ext-badge ${esc(s.status)}">${esc(statusLabel(s.status))}</div>
+                    </div>
+                    <div class="ext-source-stats">
+                        <div class="ext-source-stat"><div class="ext-stat-label">Realtime</div><div class="ext-source-value">${esc(fmtTemp(r.temp_f, r.temp_c))}</div><div class="ext-source-meta">As of ${esc(fmtStamp(r.as_of_local))}</div></div>
+                        <div class="ext-source-stat"><div class="ext-stat-label">Day Max</div><div class="ext-source-value">${esc(fmtTemp(h.max_temp_f, h.max_temp_c))}</div><div class="ext-source-meta">${h.confirmed ? 'Confirmed history' : 'Not confirmed'}</div></div>
+                        <div class="ext-source-stat"><div class="ext-stat-label">Forecast Rows</div><div class="ext-source-value">${esc(String((f.points || []).length))}</div><div class="ext-source-meta">Horizon ${esc(String(f.horizon_days || 3))} days</div></div>
+                    </div>
+                    <div><div class="ext-section-title">Metadata</div><div class="ext-detail-grid">
+                        <div class="ext-detail"><strong>History Kind</strong>${esc(h.kind || '--')}</div>
+                        <div class="ext-detail"><strong>Published Through</strong>${esc(fmtStamp(h.published_through_local))}</div>
+                        <div class="ext-detail"><strong>Current Kind</strong>${esc(r.kind || '--')}</div>
+                        <div class="ext-detail"><strong>History Rows</strong>${esc(String((h.points || []).length))}</div>
+                    </div></div>
+                    <div><div class="ext-section-title">Next Hours</div>${preview.length ? `<div class="ext-forecast">${preview.map((p) => `<div class="ext-forecast-item"><strong>${esc(fmtStamp(p.timestamp_local))}</strong>${esc(fmtTemp(p.temp_f, p.temp_c))}${p.conditions ? ` | ${esc(p.conditions)}` : ''}</div>`).join('')}</div>` : '<div class="ext-msg note">No forecast rows exposed for this source.</div>'}</div>
+                    <div><div class="ext-section-title">Notes</div>
+                        ${(s.notes || []).map((m) => `<div class="ext-msg note">${esc(m)}</div>`).join('') || '<div class="ext-msg note">No notes.</div>'}
+                        ${setup ? `<div class="ext-msg setup">${esc(setup)}</div>` : ''}
+                        ${(s.errors || []).map((m) => `<div class="ext-msg error">${esc(m)}</div>`).join('')}
+                    </div>
+                </article>
+            `;
+        }).join('');
+    }
+
+    async function load() {
+        const stationId = window.HeliosStationState?.get?.() || {{ station_id|tojson }};
+        els.refresh.disabled = true;
+        els.title.textContent = stationLabel(stationId);
+        els.breadcrumb.textContent = stationId;
+        els.payloadMeta.textContent = 'Loading provider payload...';
+        try {
+            const response = await fetch(`/api/external_sources/${encodeURIComponent(stationId)}`);
+            const payload = await response.json();
+            if (!response.ok || payload?.error) throw new Error(payload?.error || `HTTP ${response.status}`);
+            els.generatedAt.textContent = `Payload generated ${fmtStamp(payload.generated_at_local)}`;
+            els.payloadMeta.textContent = `${(payload.sources || []).length} providers for ${payload.station_id}`;
+            els.title.textContent = stationLabel(payload.station_id);
+            els.breadcrumb.textContent = payload.station_id;
+            renderSummary(payload);
+            renderSources(payload);
+            renderCharts(payload);
+        } catch (error) {
+            els.generatedAt.textContent = 'Payload unavailable';
+            els.payloadMeta.textContent = String(error?.message || error || 'Unknown error');
+            els.summary.innerHTML = `<article class="ext-panel ext-stat"><div class="ext-stat-label">Error</div><div class="ext-stat-value">--</div><div class="ext-stat-meta">${esc(String(error?.message || error || 'Unknown error'))}</div></article>`;
+            els.sources.innerHTML = `<div class="ext-empty">${esc(String(error?.message || error || 'Unknown error'))}</div>`;
+            if (histChart) histChart.destroy();
+            if (forecastChart) forecastChart.destroy();
+        } finally {
+            els.refresh.disabled = false;
+        }
+    }
+
+    els.refresh.addEventListener('click', load);
+    window.addEventListener('helios:stationchange', load);
+    document.addEventListener('DOMContentLoaded', load);
+})();
+</script>
+{% endblock %}

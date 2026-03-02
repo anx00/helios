@@ -302,6 +302,14 @@ WUNDERGROUND_PWS_REGISTRY_PATH = _os.environ.get(
     "data/wu_pws_station_registry.json",
 )
 
+# AccuWeather scaffold (future external source)
+ACCUWEATHER_ENABLED = _env_bool("ACCUWEATHER_ENABLED", True)
+ACCUWEATHER_API_KEY = (
+    _os.environ.get("ACCUWEATHER_API_KEY")
+    or _os.environ.get("AW_API_KEY")
+    or ""
+)
+
 # Provider selection by station.
 # APRSWXNET = CWOP (Citizen Weather Observer Program)
 MADIS_PROVIDER_CONFIG = {

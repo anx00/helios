@@ -776,6 +776,10 @@
                     <i data-lucide="cpu"></i>
                     <span>Prediction</span>
                 </a>
+                <a href="/external-sources" class="nav-item {% if active_page == 'external-sources' %}active{% endif %}">
+                    <i data-lucide="satellite-dish"></i>
+                    <span>External Sources</span>
+                </a>
                 <a href="/atenea" class="nav-item {% if active_page == 'atenea' %}active{% endif %}" style="background: linear-gradient(135deg, rgba(139, 92, 246, 0.15), rgba(59, 130, 246, 0.15)); border: 1px solid rgba(139, 92, 246, 0.3);">
                     <i data-lucide="bot"></i>
                     <span>🜂 Atenea</span>
@@ -911,7 +915,7 @@
         }
 
         function maybeRedirectStationScopedPage(stationId) {
-            if (!['analytics', 'prediction', 'data'].includes(HELIOS_ACTIVE_PAGE)) return;
+            if (!['analytics', 'prediction', 'data', 'external-sources'].includes(HELIOS_ACTIVE_PAGE)) return;
             const routeStation = normalizeHeliosStationId(HELIOS_ROUTE_STATION_ID);
             if (!routeStation || routeStation === stationId) return;
             const target = `/${HELIOS_ACTIVE_PAGE}`;

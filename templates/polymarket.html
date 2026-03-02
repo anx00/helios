@@ -775,8 +775,54 @@
     .trade-tooltip { position: relative; display: inline-flex; align-items: center; cursor: help; }
     .trade-tooltip .tooltip-text { visibility: hidden; opacity: 0; background: rgba(15,23,42,.97); border: 1px solid rgba(255,255,255,.1); color: #94a3b8; font-size: 10px; font-weight: 400; text-transform: none; letter-spacing: 0; border-radius: 6px; padding: 6px 10px; position: absolute; z-index: 100; bottom: 120%; left: 50%; transform: translateX(-50%); width: 200px; line-height: 1.5; transition: opacity .15s; pointer-events: none; }
     .trade-tooltip:hover .tooltip-text { visibility: visible; opacity: 1; }
+    .strat-badge.winner { background: rgba(53,212,255,0.14); color: #7de7ff; border: 1px solid rgba(53,212,255,0.28); }
+    .strat-badge.legacy { background: rgba(245,158,11,0.14); color: #f8c15d; border: 1px solid rgba(245,158,11,0.28); }
+    .strat-badge.fade { background: rgba(244,114,182,0.14); color: #f9a8d4; border: 1px solid rgba(244,114,182,0.28); }
+    .pt-arena-shell { display: grid; gap: 18px; margin-top: 6px; }
+    .pt-hero { display: flex; justify-content: space-between; gap: 16px; padding: 20px 22px; border-radius: 24px; border: 1px solid rgba(125,231,255,0.10); background: radial-gradient(circle at top left, rgba(53,212,255,0.14), transparent 34%), linear-gradient(140deg, rgba(8,16,30,0.96), rgba(8,13,24,0.92)); box-shadow: 0 24px 60px rgba(0,0,0,0.28); }
+    .pt-hero-copy h3 { margin: 6px 0 8px; font-size: 28px; line-height: 1.05; letter-spacing: -0.03em; }
+    .pt-hero-copy p { margin: 0; max-width: 720px; color: var(--text-secondary); line-height: 1.55; }
+    .pt-hero-kicker { display: flex; align-items: center; gap: 8px; font-size: 12px; letter-spacing: 0.24em; font-weight: 700; color: #7de7ff; }
+    .pt-hero-actions { display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
+    .pt-summary-grid, .pt-strategy-grid, .pt-stream-grid, .pt-setup-grid { display: grid; gap: 14px; }
+    .pt-summary-grid { grid-template-columns: repeat(6, minmax(0,1fr)); }
+    .pt-summary-card, .pt-setup-card, .pt-stream-card, .pt-lane-card { border-radius: 20px; border: 1px solid rgba(255,255,255,0.08); background: linear-gradient(180deg, rgba(8,14,26,0.94), rgba(7,11,20,0.90)); box-shadow: 0 18px 40px rgba(0,0,0,0.22); }
+    .pt-summary-card { padding: 16px 18px; display: flex; flex-direction: column; gap: 6px; }
+    .pt-summary-card span, .pt-section-kicker, .pt-lane-section-title, .pt-runtime-grid span { text-transform: uppercase; letter-spacing: 0.14em; font-size: 11px; color: #7c8ba6; }
+    .pt-summary-card strong { font-size: 26px; letter-spacing: -0.03em; }
+    .pt-summary-card small, .pt-runtime-note, .pt-lane-subtitle, .pt-mini-meta { color: var(--text-secondary); }
+    .pt-setup-grid { grid-template-columns: 1.5fr 1fr; }
+    .pt-setup-card, .pt-stream-card, .pt-lane-card { padding: 18px; }
+    .pt-station-list { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+    .pt-station-pill { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.03); color: var(--text-primary); cursor: pointer; }
+    .pt-runtime-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px; margin-top: 12px; }
+    .pt-runtime-grid label { display: flex; flex-direction: column; gap: 8px; }
+    .pt-runtime-stat { display: flex; flex-direction: column; justify-content: center; gap: 8px; padding: 12px 14px; border-radius: 16px; background: rgba(255,255,255,0.03); }
+    .pt-runtime-stat strong { font-size: 22px; letter-spacing: -0.03em; }
+    .pt-strategy-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+    .pt-lane-card { border-color: rgba(255,255,255,0.10); background: radial-gradient(circle at top right, color-mix(in srgb, var(--lane-accent) 14%, transparent), transparent 40%), linear-gradient(180deg, rgba(8,14,26,0.96), rgba(7,11,20,0.92)); }
+    .pt-lane-top { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+    .pt-lane-title { margin-top: 6px; font-size: 22px; letter-spacing: -0.03em; font-weight: 700; }
+    .pt-lane-equity { font-size: 28px; font-weight: 700; letter-spacing: -0.04em; }
+    .pt-lane-metric-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 10px; margin: 16px 0; }
+    .pt-lane-metric-grid > div, .pt-lane-section { padding: 12px 14px; border-radius: 16px; background: rgba(255,255,255,0.03); }
+    .pt-lane-metric-grid strong { display: block; margin-top: 6px; font-size: 19px; }
+    .pt-lane-section { margin-top: 12px; }
+    .pt-mini-row, .pt-lane-event, .pt-feed-item { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.06); }
+    .pt-mini-row:last-child, .pt-lane-event:last-child, .pt-feed-item:last-child { border-bottom: none; padding-bottom: 0; }
+    .pt-mini-market { font-weight: 600; }
+    .pt-mini-pnl { text-align: right; }
+    .pt-stream-grid { grid-template-columns: 1fr 1.2fr; }
+    .pt-stream-head h4 { margin: 6px 0 0; font-size: 22px; letter-spacing: -0.03em; }
+    .pt-feed { margin-top: 14px; }
+    .pt-feed-item time { color: #7c8ba6; white-space: nowrap; }
+    .pt-empty { padding: 14px 0; color: #6f7d97; }
+    .pos { color: #33d08f; }
+    .neg { color: #ff6b6b; }
     @media (max-width: 900px) { .tp-metric-strip { grid-template-columns: repeat(2,minmax(0,1fr)); } .tp-config-row { flex-direction: column; } }
     @media (max-width: 600px) { .tp-head { flex-direction: column; } .tp-actions { justify-content: flex-start; } }
+    @media (max-width: 1200px) { .pt-summary-grid { grid-template-columns: repeat(3,minmax(0,1fr)); } .pt-setup-grid, .pt-strategy-grid, .pt-stream-grid { grid-template-columns: 1fr; } }
+    @media (max-width: 760px) { .pt-hero { flex-direction: column; } .pt-summary-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } .pt-runtime-grid, .pt-lane-metric-grid { grid-template-columns: 1fr; } .pt-hero-copy h3 { font-size: 24px; } }
 </style>
 {% endblock %}
 
@@ -821,7 +867,7 @@
     <!-- Section 2: Trading -->
     <div class="pm-trading" id="pm-trading-section" style="display:none;">
         <div class="pm-section-title">
-            <i data-lucide="crosshair"></i> Trading
+            <i data-lucide="crosshair"></i> Paper Trading
         </div>
         <div id="pm-autotrader-panel" style="display:none;"></div>
         <div id="pt-panel" style="display:none;"></div>
@@ -1081,7 +1127,6 @@
     // ========================
     function renderAll(data) {
         renderOverview(data);
-        renderAutoTrader(data.autotrader, data.trading);
         renderPaperTrader(data.papertrader);
         renderTrading(data.trading);
         renderBrackets(data.brackets);
@@ -1374,8 +1419,24 @@
         return `<span class="side-badge ${s === 'YES' ? 'yes' : 'no'}">${s}</span>`;
     }
     function _stratBadge(strategy) {
-        const isTactical = String(strategy || '').includes('tactical');
-        return `<span class="strat-badge ${isTactical ? 'tactical' : 'terminal'}">${isTactical ? 'tactical' : 'terminal'}</span>`;
+        const value = String(strategy || '').toLowerCase();
+        const labels = {
+            winner_value_core: 'winner',
+            terminal_value_legacy: 'legacy',
+            tactical_reprice: 'tactical',
+            event_fade_qc: 'fade',
+            terminal_value: 'legacy',
+        };
+        const css = {
+            winner_value_core: 'winner',
+            terminal_value_legacy: 'legacy',
+            tactical_reprice: 'tactical',
+            event_fade_qc: 'fade',
+            terminal_value: 'legacy',
+        };
+        const text = labels[value] || value.replace(/_/g, ' ') || 'strategy';
+        const cls = css[value] || 'terminal';
+        return `<span class="strat-badge ${cls}">${text}</span>`;
     }
     function _reasonBadge(reason) {
         const r = String(reason || 'unknown');
@@ -2051,20 +2112,16 @@
     // ========================
     // HISTORY CACHE
     // ========================
-    let _historyCache = { at: [], pt: [] };
+    let _historyCache = { pt: [], ptByStrategy: {} };
     let _historyTs = 0;
 
     async function maybeRefreshHistory() {
         if (Date.now() - _historyTs < 30000) return;
         _historyTs = Date.now();
         try {
-            const [at, pt] = await Promise.all([
-                fetch('/api/autotrader/history').then(r => r.json()).catch(() => ({})),
-                fetch('/api/papertrader/history').then(r => r.json()).catch(() => ({})),
-            ]);
-            _historyCache.at = (at.positions || []).filter(p => p.status !== 'OPEN').slice(0, 50);
+            const pt = await fetch('/api/papertrader/history').then(r => r.json()).catch(() => ({}));
             _historyCache.pt = (pt.positions || []).filter(p => p.status !== 'OPEN').slice(0, 50);
-            renderAutoTraderHistory();
+            _historyCache.ptByStrategy = pt.strategies || {};
             renderPaperTraderHistory();
         } catch (e) {
             console.error('History refresh error:', e);
@@ -2141,7 +2198,7 @@
     }
     window.startPapertrader = startPapertrader;
 
-    function renderPaperTrader(status) {
+    function _renderPaperTraderLegacy(status) {
         const panel = document.getElementById('pt-panel');
         if (!panel) return;
         if (!status) { panel.style.display = 'none'; return; }
@@ -2180,11 +2237,11 @@
             exits: status.exits_by_reason || {},
         });
         bindPapertraderDraftEvents();
-        renderPaperTraderHistory();
+        _renderPaperTraderHistoryLegacy();
     }
     window.renderPaperTrader = renderPaperTrader;
 
-    function renderPaperTraderHistory() {
+    function _renderPaperTraderHistoryLegacy() {
         const section = document.getElementById('pt-history-section');
         if (!section) return;
         const positions = (_historyCache && _historyCache.pt) ? _historyCache.pt : [];
@@ -2217,6 +2274,282 @@
                     <tbody>${rows}</tbody>
                 </table>
             </div>`;
+    }
+    window.renderPaperTraderHistory = _renderPaperTraderHistoryLegacy;
+
+    let ptStatus = null;
+
+    function syncPapertraderDraft(status) {
+        if (!ptDraft._synced) {
+            ptDraft = {
+                station_ids: Array.isArray(status?.station_ids) ? [...status.station_ids] : [],
+                max_total_exposure_usd: Number(status?.max_total_exposure_usd ?? 4),
+                initial_bankroll_usd: 100,
+                _synced: true,
+            };
+        }
+        return ptDraft;
+    }
+
+    function bindPapertraderDraftEvents() {
+        document.querySelectorAll('.pt-station-check').forEach((chk) => {
+            chk.addEventListener('change', () => {
+                ptDraft.station_ids = Array.from(document.querySelectorAll('.pt-station-check:checked')).map((c) => c.value);
+            });
+        });
+        const capEl = document.getElementById('pt-total-cap');
+        if (capEl) {
+            capEl.addEventListener('input', () => {
+                ptDraft.max_total_exposure_usd = parseFloat(capEl.value) || 4;
+            });
+        }
+    }
+
+    async function savePapertraderConfig() {
+        try {
+            const resp = await fetch('/api/papertrader/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    station_ids: ptDraft.station_ids,
+                    max_total_exposure_usd: ptDraft.max_total_exposure_usd,
+                    initial_bankroll_usd: 100,
+                }),
+            });
+            const data = await resp.json();
+            if (data.status) renderPaperTrader(data.status);
+        } catch (e) {
+            console.error('Papertrader config save error:', e);
+        }
+    }
+    window.savePapertraderConfig = savePapertraderConfig;
+
+    async function startPapertrader() {
+        await savePapertraderConfig();
+        await runPapertraderAction('start');
+    }
+    window.startPapertrader = startPapertrader;
+
+    function _paperEventSummary(ev) {
+        const event = String(ev?.event || ev?.status || 'event').replace(/_/g, ' ');
+        const station = ev?.station_id ? ` ${ev.station_id}` : '';
+        const strategy = ev?.strategy_id ? ` ${_stratBadge(ev.strategy_id)}` : '';
+        const reason = ev?.reason ? ` ${_reasonBadge(ev.reason)}` : '';
+        let detail = '';
+        if (ev?.candidate) detail = ` ${ev.candidate.side || ''} ${ev.candidate.label || ''}`.trim();
+        if (ev?.fill) detail += ` ${Number(ev.fill.filled_size || 0).toFixed(1)}sh @ ${Number(ev.fill.avg_price || 0).toFixed(3)}`;
+        return `<div class="pt-feed-item"><div><strong>${event}</strong>${station}${strategy}${detail ? ` <span>${detail}</span>` : ''}${reason}</div><time>${shortTs(ev?.ts_utc)}</time></div>`;
+    }
+
+    function _paperLanePositionRows(positions) {
+        if (!positions.length) return '<div class="pt-empty">No open positions</div>';
+        return positions.slice(0, 3).map((p) => `
+            <div class="pt-mini-row">
+                <div>
+                    <div class="pt-mini-market">${p.station_id || '--'} · ${p.label || '--'}</div>
+                    <div class="pt-mini-meta">${_sideBadge(p.side)} entry ${Number(p.entry_price || 0).toFixed(3)} · ${Number(p.shares_open || p.shares || 0).toFixed(1)} sh</div>
+                </div>
+                <div class="pt-mini-pnl ${Number(p.unrealized_pnl_usd || 0) >= 0 ? 'pos' : 'neg'}">${_pnlSpan(p.unrealized_pnl_usd)}</div>
+            </div>
+        `).join('');
+    }
+
+    function _paperLaneEvents(events) {
+        if (!events.length) return '<div class="pt-empty">Waiting for trades</div>';
+        return events.slice(0, 3).map((ev) => `
+            <div class="pt-lane-event">
+                <span>${String(ev.event || ev.status || 'event').replace(/_/g, ' ')}</span>
+                <span>${shortTs(ev.ts_utc)}</span>
+            </div>
+        `).join('');
+    }
+
+    function renderPaperTrader(status) {
+        const panel = document.getElementById('pt-panel');
+        if (!panel) return;
+        if (!status) { panel.style.display = 'none'; return; }
+        ptStatus = status;
+
+        document.getElementById('pm-trading-section').style.display = 'block';
+
+        const draft = syncPapertraderDraft(status);
+        const running = !!status.running;
+        const strategies = Array.isArray(status.strategies) ? status.strategies : [];
+        const aggregateEquity = Number(status.paper_equity_usd || 0);
+        const aggregateInitial = Number(status.aggregate_initial_bankroll_usd || 0);
+        const openRisk = Number(status.open_risk_usd || 0);
+        const realized = Number(status.realized_pnl_usd || 0);
+        const unrealized = Number(status.unrealized_pnl_usd || 0);
+        const free = Number(status.free_equity_usd || (aggregateEquity - openRisk));
+        const historyPositions = (_historyCache?.pt?.length ? _historyCache.pt : (status.closed_positions || [])).slice(0, 24);
+        const historyRows = historyPositions.length ? historyPositions.map((p) => {
+            const fills = Array.isArray(p.fills) ? p.fills : [];
+            const exitPrice = fills.length ? Number(fills[fills.length - 1].price || 0) : 0;
+            return `<tr>
+                <td>${_fmtTs(p.closed_at_utc || p.last_exit_utc)}</td>
+                <td class="td-primary">${p.station_id || '--'}</td>
+                <td>${p.label || '--'}</td>
+                <td>${_sideBadge(p.side)}</td>
+                <td>${_stratBadge(p.strategy_id || p.strategy)}</td>
+                <td>${Number(p.entry_price || 0).toFixed(3)}</td>
+                <td>${exitPrice ? exitPrice.toFixed(3) : '--'}</td>
+                <td>${Number(p.shares || p.shares_open || 0).toFixed(1)}</td>
+                <td>${_pnlSpan(p.realized_pnl_usd)}</td>
+                <td>${_reasonBadge(p.last_exit_reason)}</td>
+            </tr>`;
+        }).join('') : '<tr><td colspan="10" style="text-align:center;padding:16px;color:#61708f;">No closed trades yet.</td></tr>';
+        const feedHtml = Array.isArray(status.recent_events) && status.recent_events.length
+            ? status.recent_events.map(_paperEventSummary).join('')
+            : '<div class="pt-empty">The tape will populate as soon as the first fills or exits hit the journal.</div>';
+        const strategyCards = strategies.map((strategy) => `
+            <article class="pt-lane-card" style="--lane-accent:${strategy.accent || '#35d4ff'};">
+                <div class="pt-lane-top">
+                    <div>
+                        <div class="pt-lane-badge-row">${_stratBadge(strategy.strategy_id)}</div>
+                        <div class="pt-lane-title">${strategy.title || strategy.strategy_id}</div>
+                        <div class="pt-lane-subtitle">${strategy.subtitle || ''}</div>
+                    </div>
+                    <div class="pt-lane-equity ${Number(strategy.realized_pnl_usd || 0) + Number(strategy.unrealized_pnl_usd || 0) >= 0 ? 'pos' : 'neg'}">$${Number(strategy.paper_equity_usd || 0).toFixed(2)}</div>
+                </div>
+                <div class="pt-lane-metric-grid">
+                    <div><span>Start</span><strong>$${Number(strategy.initial_bankroll_usd || 100).toFixed(0)}</strong></div>
+                    <div><span>Open risk</span><strong>$${Number(strategy.open_risk_usd || 0).toFixed(2)}</strong></div>
+                    <div><span>Realized</span><strong class="${Number(strategy.realized_pnl_usd || 0) >= 0 ? 'pos' : 'neg'}">${Number(strategy.realized_pnl_usd || 0) >= 0 ? '+' : ''}$${Math.abs(Number(strategy.realized_pnl_usd || 0)).toFixed(2)}</strong></div>
+                    <div><span>Unrealized</span><strong class="${Number(strategy.unrealized_pnl_usd || 0) >= 0 ? 'pos' : 'neg'}">${Number(strategy.unrealized_pnl_usd || 0) >= 0 ? '+' : ''}$${Math.abs(Number(strategy.unrealized_pnl_usd || 0)).toFixed(2)}</strong></div>
+                    <div><span>Trades today</span><strong>${Number(strategy.trades_today || 0)}</strong></div>
+                    <div><span>Hit rate</span><strong>${(Number(strategy.hit_rate || 0) * 100).toFixed(0)}%</strong></div>
+                </div>
+                <div class="pt-lane-section">
+                    <div class="pt-lane-section-title">Open positions</div>
+                    ${_paperLanePositionRows(Array.isArray(strategy.open_positions) ? strategy.open_positions : [])}
+                </div>
+                <div class="pt-lane-section">
+                    <div class="pt-lane-section-title">Recent lane activity</div>
+                    ${_paperLaneEvents(Array.isArray(strategy.recent_events) ? strategy.recent_events : [])}
+                </div>
+            </article>
+        `).join('');
+        const stationPills = (status.available_stations || []).map((opt) => `
+            <label class="pt-station-pill">
+                <input type="checkbox" class="pt-station-check" value="${opt.id}" ${draft.station_ids.includes(opt.id) ? 'checked' : ''}>
+                <span>${opt.city_name} (${opt.id})</span>
+            </label>
+        `).join('');
+
+        panel.style.display = 'block';
+        panel.className = 'pt-arena';
+        panel.innerHTML = `
+            <div class="pt-arena-shell">
+                <section class="pt-hero">
+                    <div class="pt-hero-copy">
+                        <div class="pt-hero-kicker">${running ? '<span class="pt-live-dot"></span>' : ''}PAPER ARENA</div>
+                        <h3>4 independent strategies, same $100 starting bank</h3>
+                        <p>Each lane trades the same live market feed with its own paper account. No real orders are sent.</p>
+                    </div>
+                    <div class="pt-hero-actions">
+                        <button class="tp-btn primary" onclick="startPapertrader()" ${running ? 'disabled' : ''}>Start</button>
+                        <button class="tp-btn danger" onclick="runPapertraderAction('stop')" ${running ? '' : 'disabled'}>Stop</button>
+                    </div>
+                </section>
+
+                <section class="pt-summary-grid">
+                    <div class="pt-summary-card">
+                        <span>Simulation bank</span>
+                        <strong>$${aggregateInitial.toFixed(0)}</strong>
+                        <small>4 lanes x $100</small>
+                    </div>
+                    <div class="pt-summary-card">
+                        <span>Total equity</span>
+                        <strong class="${aggregateEquity - aggregateInitial >= 0 ? 'pos' : 'neg'}">${aggregateEquity >= aggregateInitial ? '+' : ''}$${Math.abs(aggregateEquity - aggregateInitial).toFixed(2)}</strong>
+                        <small>$${aggregateEquity.toFixed(2)} current</small>
+                    </div>
+                    <div class="pt-summary-card">
+                        <span>Open risk</span>
+                        <strong>$${openRisk.toFixed(2)}</strong>
+                        <small>Free $${free.toFixed(2)}</small>
+                    </div>
+                    <div class="pt-summary-card">
+                        <span>Total PnL</span>
+                        <strong class="${realized + unrealized >= 0 ? 'pos' : 'neg'}">${realized + unrealized >= 0 ? '+' : ''}$${Math.abs(realized + unrealized).toFixed(2)}</strong>
+                        <small>Realized ${realized >= 0 ? '+' : '-'}$${Math.abs(realized).toFixed(2)}</small>
+                    </div>
+                    <div class="pt-summary-card">
+                        <span>Open positions</span>
+                        <strong>${Number(status.open_positions_count || 0)}</strong>
+                        <small>Across ${strategies.length} lanes</small>
+                    </div>
+                    <div class="pt-summary-card">
+                        <span>Market date</span>
+                        <strong>${status.target_date || 'AUTO'}</strong>
+                        <small>${running ? 'loop running' : 'ready'}</small>
+                    </div>
+                </section>
+
+                <section class="pt-setup-grid">
+                    <div class="pt-setup-card">
+                        <div class="pt-section-kicker">Stations</div>
+                        <div class="pt-station-list">${stationPills}</div>
+                    </div>
+                    <div class="pt-setup-card">
+                        <div class="pt-section-kicker">Runtime</div>
+                        <div class="pt-runtime-grid">
+                            <label>
+                                <span>Exposure cap per lane ($)</span>
+                                <input id="pt-total-cap" class="tp-input" type="number" min="1" step="0.5" value="${Number(draft.max_total_exposure_usd || 4)}">
+                            </label>
+                            <div class="pt-runtime-stat">
+                                <span>Starting bank per lane</span>
+                                <strong>$100</strong>
+                            </div>
+                            <div class="pt-runtime-stat">
+                                <span>Execution model</span>
+                                <strong>LIMIT_FAK</strong>
+                            </div>
+                        </div>
+                        <div class="pt-runtime-note">Setup changes are saved automatically when you press Start.</div>
+                    </div>
+                </section>
+
+                <section class="pt-strategy-grid">${strategyCards}</section>
+
+                <section class="pt-stream-grid">
+                    <div class="pt-stream-card">
+                        <div class="pt-stream-head">
+                            <div>
+                                <div class="pt-section-kicker">Live tape</div>
+                                <h4>Recent activity</h4>
+                            </div>
+                        </div>
+                        <div class="pt-feed">${feedHtml}</div>
+                    </div>
+                    <div class="pt-stream-card">
+                        <div class="pt-stream-head">
+                            <div>
+                                <div class="pt-section-kicker">History</div>
+                                <h4>Closed trades</h4>
+                            </div>
+                        </div>
+                        <div class="trade-table-wrap">
+                            <table class="trade-table trade-table--history">
+                                <thead>
+                                    <tr>
+                                        <th>Closed</th><th>Station</th><th>Market</th><th>Side</th><th>Strategy</th>
+                                        <th>Entry</th><th>Exit</th><th>Shares</th><th>PnL</th><th>Reason</th>
+                                    </tr>
+                                </thead>
+                                <tbody>${historyRows}</tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        `;
+        bindPapertraderDraftEvents();
+    }
+    window.renderPaperTrader = renderPaperTrader;
+
+    function renderPaperTraderHistory() {
+        if (ptStatus) renderPaperTrader(ptStatus);
     }
     window.renderPaperTraderHistory = renderPaperTraderHistory;
 

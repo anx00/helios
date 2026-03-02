@@ -10,3 +10,4 @@ Paris:
 - 28/02/2026: KAKA. 13ºC era la temperatura ya practicamente con +90% y los pws no marcaban mas de 13.3 en ningun momento, sin embargo el metar marco 14º. Solo una antena: IROISS4 marcó la temperatura bien.
 London:
 - 26/02/2026: Muy predecible también, el PWS rondaba sobre los 13 todo el rato y se podía cobrar a <50c.
+- 02/03/2026: Hoy me ha fallado por completo. 2 horas marcando 17.8 incluso la main station y nada, se quedó en 17º...

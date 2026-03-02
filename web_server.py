@@ -737,19 +737,13 @@ async def startup_event():
     if telegram_bot:
         asyncio.create_task(telegram_bot.run_forever())
         logger.info("Telegram bot enabled")
-    try:
-        config = _build_autotrader_runtime_config()
-        if config.enabled:
-            await start_autotrader_loop(force_enable=True)
-            if config.station_ids:
-                logger.info("Autotrader enabled on startup for %s", ",".join(config.station_ids))
-    except Exception as e:
-        logger.warning("Autotrader startup failed: %s", e)
+    logger.info("Paper-only trading mode active; live autotrader startup disabled")
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
     await stop_all_autotrader_loops()
+    await stop_papertrader_loop(reason="shutdown")
 
 async def _resolve_station_tokens(
     station_id: str,
@@ -3357,28 +3351,34 @@ async def stop_papertrader_api():
 
 @app.get("/api/papertrader/history")
 async def get_papertrader_history_api():
-    """Return all positions (open + closed) sorted by closed_at_utc desc."""
+    """Return papertrader positions grouped by strategy."""
     import json as _json
-    path = Path("data/papertrader_state.json")
+    trader = get_papertrader_instance(refresh=False)
+    path = Path(trader.config.state_path)
     if not path.exists():
-        return {"ok": True, "positions": []}
+        return {"ok": True, "positions": [], "strategies": {}}
     try:
         state = _json.loads(path.read_text(encoding="utf-8"))
         raw = state.get("positions") or {}
         positions = []
+        strategy_positions: Dict[str, List[Dict[str, Any]]] = {}
         for pkey, pos in (raw.items() if isinstance(raw, dict) else []):
             if not isinstance(pos, dict):
                 continue
             p = dict(pos)
             p["position_key"] = pkey
             positions.append(p)
+            strategy_id = str(p.get("strategy_id") or p.get("strategy") or "")
+            strategy_positions.setdefault(strategy_id, []).append(dict(p))
         def _sort_key(p):
             ts = p.get("closed_at_utc") or p.get("last_exit_utc") or p.get("opened_at_utc") or ""
             return str(ts)
         positions.sort(key=_sort_key, reverse=True)
-        return {"ok": True, "positions": positions}
+        for items in strategy_positions.values():
+            items.sort(key=_sort_key, reverse=True)
+        return {"ok": True, "positions": positions, "strategies": strategy_positions}
     except Exception as exc:
-        return {"ok": False, "error": str(exc), "positions": []}
+        return {"ok": False, "error": str(exc), "positions": [], "strategies": {}}
 
 
 @app.get("/api/autotrader/history")
@@ -4290,6 +4290,25 @@ def get_history_api():
     """Get 7-day accuracy report."""
     return get_accuracy_report(7)
 
+@app.get("/api/external_sources/{station_id}")
+@app.get("/api/external-sources/{station_id}")
+async def get_external_sources_api(station_id: str):
+    """Expose normalized temperature data from third-party sources."""
+    station_id = (station_id or "").upper()
+    if station_id not in STATIONS:
+        return JSONResponse({"error": "Invalid station"}, status_code=400)
+
+    try:
+        from collector.external_sources_fetcher import fetch_external_sources_snapshot
+
+        return await fetch_external_sources_snapshot(station_id)
+    except Exception as e:
+        logger.exception("External sources fetch failed (%s): %s", station_id, e)
+        return JSONResponse(
+            {"error": str(e), "station_id": station_id},
+            status_code=500,
+        )
+
 @app.get("/api/observed/{station_id}")
 async def get_observed_max_api(station_id: str):
     """Get observed maximum temperature for today with cross-verification."""
@@ -4392,6 +4411,18 @@ async def read_prediction(request: Request, station_id: str):
         "active_page": "prediction"
     })
 
+@app.get("/station/{station_id}/external-sources", response_class=HTMLResponse)
+async def read_external_sources(request: Request, station_id: str):
+    station_id = (station_id or "").upper()
+    station = STATIONS.get(station_id)
+    if not station:
+        return _render_template(request, "home.html", {"active_page": "home"})
+    return _render_template(request, "external_sources.html", {
+        "station_id": station_id,
+        "station_name": station.name,
+        "active_page": "external-sources",
+    })
+
 # v7.0: Fullscreen chart view
 @app.get("/station/{station_id}/chart/{chart_type}", response_class=HTMLResponse)
 async def fullscreen_chart(request: Request, station_id: str, chart_type: str):
@@ -4427,6 +4458,11 @@ async def read_analytics_redirect(request: Request, station_id: str | None = Non
 async def read_prediction_generic(request: Request, station_id: str | None = None):
     resolved_station = _resolve_selected_station(request, fallback=station_id)
     return await read_prediction(request, resolved_station)
+
+@app.get("/external-sources", response_class=HTMLResponse)
+async def read_external_sources_generic(request: Request, station_id: str | None = None):
+    resolved_station = _resolve_selected_station(request, fallback=station_id)
+    return await read_external_sources(request, resolved_station)
 
 # Phase 2: World Dashboard - Real-time Event-Driven UI
 @app.get("/world", response_class=HTMLResponse)

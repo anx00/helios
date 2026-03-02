@@ -509,6 +509,10 @@
                     style="text-decoration: none;">
                     <i data-lucide="bar-chart-2"></i>
                 </a>
+                <a href="/station/{{ station_id }}/external-sources" class="refresh-btn" title="External Sources"
+                    style="text-decoration: none;">
+                    <i data-lucide="satellite-dish"></i>
+                </a>
                 <button class="refresh-btn" id="export-btn" onclick="exportJSON()" title="Export JSON">
                     <i data-lucide="download"></i>
                 </button>
@@ -722,6 +726,51 @@
                     </div>
                 </section>
             </a>
+
+            <!-- External Sources Tile -->
+            <a href="/station/{{ station_id }}/external-sources" style="text-decoration: none;">
+                <section class="detail-card glass-panel"
+                    style="position: relative; overflow: hidden; transition: all 0.3s; cursor: pointer; background: radial-gradient(circle at top right, rgba(14,165,233,0.16), transparent 34%), rgba(255,255,255,0.02);">
+                    <div style="position: absolute; top: 0; right: 0; padding: 15px; opacity: 0.12;">
+                        <i data-lucide="satellite-dish" style="width: 100px; height: 100px;"></i>
+                    </div>
+
+                    <h2 style="margin-bottom: 5px;"><i data-lucide="satellite-dish"></i> External Sources</h2>
+                    <div style="color: var(--text-secondary); font-size: 13px; margin-bottom: 15px;">
+                        Compare Wunderground, NOAA/NWS, Open-Meteo and future providers for this station
+                    </div>
+
+                    <div style="display: flex; gap: 20px; align-items: flex-end; flex-wrap: wrap;">
+                        <div>
+                            <div
+                                style="font-size: 11px; text-transform: uppercase; color: var(--text-secondary); letter-spacing: 1px;">
+                                Online</div>
+                            <div
+                                style="font-size: 24px; font-weight: 700; font-family: 'Space Grotesk', sans-serif; color: #7dd3fc;">
+                                <span id="mini-ext-online">--</span>
+                            </div>
+                        </div>
+                        <div style="height: 30px; width: 1px; background: rgba(255,255,255,0.1);"></div>
+                        <div>
+                            <div
+                                style="font-size: 11px; text-transform: uppercase; color: var(--text-secondary); letter-spacing: 1px;">
+                                Confirmed</div>
+                            <div style="font-size: 24px; font-weight: 700; font-family: 'Space Grotesk', sans-serif; color: var(--accent-green);">
+                                <span id="mini-ext-confirmed">--</span>
+                            </div>
+                        </div>
+                        <div style="height: 30px; width: 1px; background: rgba(255,255,255,0.1);"></div>
+                        <div>
+                            <div
+                                style="font-size: 11px; text-transform: uppercase; color: var(--text-secondary); letter-spacing: 1px;">
+                                Disabled</div>
+                            <div style="font-size: 24px; font-weight: 700; font-family: 'Space Grotesk', sans-serif;">
+                                <span id="mini-ext-disabled">--</span>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </a>
         </div>
     </div>
 
@@ -792,6 +841,25 @@
                 document.getElementById('mini-mae').textContent = data.stats.mae.toFixed(1);
             } catch (e) {
                 console.error("Error fetching mini analytics", e);
+            }
+        }
+
+        async function fetchMiniExternalSources() {
+            try {
+                const response = await fetch(`/api/external_sources/${STATION_ID}`);
+                const data = await response.json();
+                if (data.error) return;
+
+                const sources = Array.isArray(data.sources) ? data.sources : [];
+                const online = sources.filter(s => s.status === 'ok' || s.status === 'partial').length;
+                const confirmed = sources.filter(s => s.historical_day && s.historical_day.confirmed).length;
+                const disabled = sources.filter(s => s.status === 'disabled').length;
+
+                document.getElementById('mini-ext-online').textContent = `${online}/${sources.length}`;
+                document.getElementById('mini-ext-confirmed').textContent = confirmed;
+                document.getElementById('mini-ext-disabled').textContent = disabled;
+            } catch (e) {
+                console.error("Error fetching mini external sources", e);
             }
         }
 
@@ -1144,6 +1212,7 @@
                     await fetchPrediction();
                     await fetchMarket();
                     await fetchObserved();
+                    await fetchMiniExternalSources();
                 } else {
                     alert('Refresh failed: ' + (result.error || 'Unknown error'));
                 }
@@ -1182,6 +1251,7 @@
             fetchMarket();
             fetchObserved();
             fetchMiniAnalytics();
+            fetchMiniExternalSources();
             updateClock();
 
             // Real-time clock update

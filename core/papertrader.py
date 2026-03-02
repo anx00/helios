@@ -33,6 +33,7 @@ from core.autotrader import (
     AutoTradeCandidate,
     AutoTraderConfig,
     TopOfBook,
+    _build_candidate_from_trade,
     _normalize_state,
     _position_key,
     _recalculate_open_risk,
@@ -50,6 +51,47 @@ logger = logging.getLogger("papertrader")
 
 UTC = timezone.utc
 _LOG_WRITE_LOCK = threading.Lock()
+PAPER_STATE_SCHEMA_VERSION = 2
+
+PAPER_STRATEGY_DEFS: Tuple[Dict[str, str], ...] = (
+    {
+        "id": "winner_value_core",
+        "title": "Winner Value",
+        "subtitle": "Top bucket YES only",
+        "description": "Conservative lane that only backs the model winner when the live ask is still cheap enough.",
+        "accent": "#35d4ff",
+    },
+    {
+        "id": "terminal_value_legacy",
+        "title": "Legacy Terminal",
+        "subtitle": "Current terminal selector",
+        "description": "Baseline lane that keeps the old terminal-value behavior for side-by-side comparison.",
+        "accent": "#f59e0b",
+    },
+    {
+        "id": "tactical_reprice",
+        "title": "Tactical Reprice",
+        "subtitle": "Next official catalyst",
+        "description": "Short-horizon repricing trades around the next official observation when tactical pressure is strong.",
+        "accent": "#22c55e",
+    },
+    {
+        "id": "event_fade_qc",
+        "title": "Event Fade QC",
+        "subtitle": "Fade overheated moves",
+        "description": "Contrarian NO lane that only fades stretched intraday buckets when the next official is supportive.",
+        "accent": "#f472b6",
+    },
+)
+PAPER_STRATEGY_ORDER: Tuple[str, ...] = tuple(spec["id"] for spec in PAPER_STRATEGY_DEFS)
+PAPER_STRATEGY_BY_ID: Dict[str, Dict[str, str]] = {spec["id"]: spec for spec in PAPER_STRATEGY_DEFS}
+PAPER_STRATEGY_ID_MAP: Dict[str, str] = {
+    "terminal_value": "terminal_value_legacy",
+    "terminal_value_legacy": "terminal_value_legacy",
+    "winner_value_core": "winner_value_core",
+    "tactical_reprice": "tactical_reprice",
+    "event_fade_qc": "event_fade_qc",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -171,6 +213,262 @@ def _tail_jsonl(path: str, limit: int = 8) -> List[Dict[str, Any]]:
         return result
     except Exception:
         return []
+
+
+def _nyc_trading_day() -> str:
+    return datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d")
+
+
+def _normalize_strategy_id(value: Any) -> str:
+    raw = str(value or "").strip().lower()
+    return PAPER_STRATEGY_ID_MAP.get(raw, "terminal_value_legacy")
+
+
+def _strategy_position_key(strategy_id: str, base_key: str) -> str:
+    return f"{strategy_id}::{base_key}"
+
+
+def _position_base_key(position: Dict[str, Any], fallback_key: Optional[str] = None) -> str:
+    explicit = str(position.get("base_position_key") or "").strip()
+    if explicit:
+        return explicit
+    station_id = str(position.get("station_id") or "").strip().upper()
+    target_date = str(position.get("target_date") or "").strip()
+    label = str(position.get("label") or "").strip()
+    side = str(position.get("side") or "YES").strip().upper()
+    if station_id and target_date and label and side:
+        return _position_key(station_id, target_date, label, side)
+    raw = str(fallback_key or "").strip()
+    if "::" in raw:
+        return raw.split("::", 1)[1]
+    return raw
+
+
+def _default_strategy_state(
+    config: "PaperTraderConfig",
+    strategy_id: str,
+    *,
+    now_iso: Optional[str] = None,
+    trading_day: Optional[str] = None,
+) -> Dict[str, Any]:
+    now_iso = now_iso or _utc_now().isoformat()
+    trading_day = trading_day or _nyc_trading_day()
+    meta = PAPER_STRATEGY_BY_ID[strategy_id]
+    return {
+        "strategy_id": strategy_id,
+        "title": meta["title"],
+        "subtitle": meta["subtitle"],
+        "description": meta["description"],
+        "paper_equity_usd": config.initial_bankroll_usd,
+        "initial_bankroll_usd": config.initial_bankroll_usd,
+        "positions": {},
+        "trades_today": 0,
+        "spent_today_usd": 0.0,
+        "gross_buys_today_usd": 0.0,
+        "gross_sells_today_usd": 0.0,
+        "realized_pnl_today_usd": 0.0,
+        "closed_trades_today": 0,
+        "open_risk_usd": 0.0,
+        "trading_day": trading_day,
+        "last_trade_utc": None,
+        "total_fills": 0,
+        "total_partial_fills": 0,
+        "total_rejections": 0,
+        "total_slippage_usd": 0.0,
+        "total_fill_notional_usd": 0.0,
+        "exits_by_reason": {},
+        "total_realized_pnl_usd": 0.0,
+        "total_entries": 0,
+        "total_exits": 0,
+        "session_started_utc": now_iso,
+    }
+
+
+def _ensure_strategy_state(
+    raw_state: Optional[Dict[str, Any]],
+    config: "PaperTraderConfig",
+    strategy_id: str,
+    *,
+    now_iso: Optional[str] = None,
+    trading_day: Optional[str] = None,
+) -> Dict[str, Any]:
+    state = _default_strategy_state(config, strategy_id, now_iso=now_iso, trading_day=trading_day)
+    if isinstance(raw_state, dict):
+        for key, value in raw_state.items():
+            state[key] = value
+    if not isinstance(state.get("positions"), dict):
+        state["positions"] = {}
+    if not isinstance(state.get("exits_by_reason"), dict):
+        state["exits_by_reason"] = {}
+    if _safe_float(state.get("initial_bankroll_usd")) is None or float(_safe_float(state.get("initial_bankroll_usd")) or 0.0) <= 0.0:
+        state["initial_bankroll_usd"] = config.initial_bankroll_usd
+    if _safe_float(state.get("paper_equity_usd")) is None:
+        state["paper_equity_usd"] = float(state["initial_bankroll_usd"])
+    state["strategy_id"] = strategy_id
+    meta = PAPER_STRATEGY_BY_ID[strategy_id]
+    state["title"] = meta["title"]
+    state["subtitle"] = meta["subtitle"]
+    state["description"] = meta["description"]
+    return state
+
+
+def _position_record_for_strategy(
+    position: Dict[str, Any],
+    *,
+    strategy_id: Optional[str] = None,
+    fallback_key: Optional[str] = None,
+) -> Tuple[str, str, Dict[str, Any]]:
+    normalized_strategy = _normalize_strategy_id(strategy_id or position.get("strategy_id") or position.get("strategy"))
+    base_key = _position_base_key(position, fallback_key=fallback_key)
+    full_key = _strategy_position_key(normalized_strategy, base_key)
+    normalized = dict(position)
+    normalized["strategy_id"] = normalized_strategy
+    normalized["strategy"] = normalized_strategy
+    normalized["base_position_key"] = base_key
+    normalized["position_key"] = full_key
+    return normalized_strategy, base_key, normalized
+
+
+def _repair_position_maps(state: Dict[str, Any], config: "PaperTraderConfig") -> None:
+    now_iso = _utc_now().isoformat()
+    trading_day = _nyc_trading_day()
+    raw_strategies = state.get("strategies") if isinstance(state.get("strategies"), dict) else {}
+    strategies = {
+        strategy_id: _ensure_strategy_state(raw_strategies.get(strategy_id), config, strategy_id, now_iso=now_iso, trading_day=trading_day)
+        for strategy_id in PAPER_STRATEGY_ORDER
+    }
+    global_positions = state.get("positions") if isinstance(state.get("positions"), dict) else {}
+    normalized_global: Dict[str, Dict[str, Any]] = {}
+    if global_positions:
+        for raw_key, raw_position in global_positions.items():
+            if not isinstance(raw_position, dict):
+                continue
+            strategy_id, base_key, normalized = _position_record_for_strategy(raw_position, fallback_key=str(raw_key))
+            full_key = _strategy_position_key(strategy_id, base_key)
+            normalized_global[full_key] = normalized
+            strategies[strategy_id]["positions"][base_key] = dict(normalized)
+    else:
+        for strategy_id, strategy_state in strategies.items():
+            normalized_positions: Dict[str, Dict[str, Any]] = {}
+            for raw_key, raw_position in ((strategy_state.get("positions") or {}).items() if isinstance(strategy_state.get("positions"), dict) else []):
+                if not isinstance(raw_position, dict):
+                    continue
+                _, base_key, normalized = _position_record_for_strategy(
+                    raw_position,
+                    strategy_id=strategy_id,
+                    fallback_key=str(raw_key),
+                )
+                normalized_positions[base_key] = dict(normalized)
+                normalized_global[normalized["position_key"]] = dict(normalized)
+            strategy_state["positions"] = normalized_positions
+    state["positions"] = normalized_global
+    state["strategies"] = strategies
+
+
+def _refresh_aggregate_state(state: Dict[str, Any], config: "PaperTraderConfig") -> None:
+    strategies = state.get("strategies") or {}
+    state["schema_version"] = PAPER_STATE_SCHEMA_VERSION
+    state["strategy_count"] = len(PAPER_STRATEGY_ORDER)
+    state["initial_bankroll_usd"] = config.initial_bankroll_usd
+    state["aggregate_initial_bankroll_usd"] = 0.0
+    state["paper_equity_usd"] = 0.0
+    state["open_risk_usd"] = 0.0
+    state["trades_today"] = 0
+    state["spent_today_usd"] = 0.0
+    state["gross_buys_today_usd"] = 0.0
+    state["gross_sells_today_usd"] = 0.0
+    state["realized_pnl_today_usd"] = 0.0
+    state["closed_trades_today"] = 0
+    state["total_fills"] = 0
+    state["total_partial_fills"] = 0
+    state["total_rejections"] = 0
+    state["total_slippage_usd"] = 0.0
+    state["total_fill_notional_usd"] = 0.0
+    state["total_realized_pnl_usd"] = 0.0
+    state["total_entries"] = 0
+    state["total_exits"] = 0
+    merged_exit_reasons: Dict[str, int] = {}
+    last_trade_values: List[str] = []
+    session_started_values: List[str] = []
+    for strategy_id in PAPER_STRATEGY_ORDER:
+        strategy_state = _ensure_strategy_state(strategies.get(strategy_id), config, strategy_id)
+        strategy_state["open_risk_usd"] = _recalculate_open_risk(strategy_state.get("positions") or {})
+        strategies[strategy_id] = strategy_state
+        state["aggregate_initial_bankroll_usd"] += float(_safe_float(strategy_state.get("initial_bankroll_usd")) or 0.0)
+        state["paper_equity_usd"] += float(_safe_float(strategy_state.get("paper_equity_usd")) or 0.0)
+        state["open_risk_usd"] += float(_safe_float(strategy_state.get("open_risk_usd")) or 0.0)
+        state["trades_today"] += int(_safe_float(strategy_state.get("trades_today")) or 0)
+        state["spent_today_usd"] += float(_safe_float(strategy_state.get("spent_today_usd")) or 0.0)
+        state["gross_buys_today_usd"] += float(_safe_float(strategy_state.get("gross_buys_today_usd")) or 0.0)
+        state["gross_sells_today_usd"] += float(_safe_float(strategy_state.get("gross_sells_today_usd")) or 0.0)
+        state["realized_pnl_today_usd"] += float(_safe_float(strategy_state.get("realized_pnl_today_usd")) or 0.0)
+        state["closed_trades_today"] += int(_safe_float(strategy_state.get("closed_trades_today")) or 0)
+        state["total_fills"] += int(_safe_float(strategy_state.get("total_fills")) or 0)
+        state["total_partial_fills"] += int(_safe_float(strategy_state.get("total_partial_fills")) or 0)
+        state["total_rejections"] += int(_safe_float(strategy_state.get("total_rejections")) or 0)
+        state["total_slippage_usd"] += float(_safe_float(strategy_state.get("total_slippage_usd")) or 0.0)
+        state["total_fill_notional_usd"] += float(_safe_float(strategy_state.get("total_fill_notional_usd")) or 0.0)
+        state["total_realized_pnl_usd"] += float(_safe_float(strategy_state.get("total_realized_pnl_usd")) or 0.0)
+        state["total_entries"] += int(_safe_float(strategy_state.get("total_entries")) or 0)
+        state["total_exits"] += int(_safe_float(strategy_state.get("total_exits")) or 0)
+        for reason, count in (strategy_state.get("exits_by_reason") or {}).items():
+            merged_exit_reasons[str(reason)] = merged_exit_reasons.get(str(reason), 0) + int(_safe_float(count) or 0)
+        last_trade = str(strategy_state.get("last_trade_utc") or "").strip()
+        if last_trade:
+            last_trade_values.append(last_trade)
+        session_started = str(strategy_state.get("session_started_utc") or "").strip()
+        if session_started:
+            session_started_values.append(session_started)
+    state["strategies"] = strategies
+    state["paper_equity_usd"] = round(float(state["paper_equity_usd"]), 4)
+    state["aggregate_initial_bankroll_usd"] = round(float(state["aggregate_initial_bankroll_usd"]), 4)
+    state["open_risk_usd"] = round(float(state["open_risk_usd"]), 4)
+    state["spent_today_usd"] = round(float(state["spent_today_usd"]), 6)
+    state["gross_buys_today_usd"] = round(float(state["gross_buys_today_usd"]), 6)
+    state["gross_sells_today_usd"] = round(float(state["gross_sells_today_usd"]), 6)
+    state["realized_pnl_today_usd"] = round(float(state["realized_pnl_today_usd"]), 6)
+    state["total_slippage_usd"] = round(float(state["total_slippage_usd"]), 6)
+    state["total_fill_notional_usd"] = round(float(state["total_fill_notional_usd"]), 6)
+    state["total_realized_pnl_usd"] = round(float(state["total_realized_pnl_usd"]), 6)
+    state["exits_by_reason"] = merged_exit_reasons
+    state["trading_day"] = _nyc_trading_day()
+    if last_trade_values:
+        state["last_trade_utc"] = max(last_trade_values)
+    if session_started_values:
+        state["session_started_utc"] = min(session_started_values)
+
+
+def _migrate_legacy_top_level_state(state: Dict[str, Any], config: "PaperTraderConfig") -> None:
+    raw_strategies = state.get("strategies")
+    if isinstance(raw_strategies, dict) and raw_strategies:
+        return
+    legacy_state = _default_strategy_state(config, "terminal_value_legacy")
+    for key in (
+        "paper_equity_usd",
+        "initial_bankroll_usd",
+        "trades_today",
+        "spent_today_usd",
+        "gross_buys_today_usd",
+        "gross_sells_today_usd",
+        "realized_pnl_today_usd",
+        "closed_trades_today",
+        "open_risk_usd",
+        "trading_day",
+        "last_trade_utc",
+        "total_fills",
+        "total_partial_fills",
+        "total_rejections",
+        "total_slippage_usd",
+        "total_fill_notional_usd",
+        "exits_by_reason",
+        "total_realized_pnl_usd",
+        "total_entries",
+        "total_exits",
+        "session_started_utc",
+    ):
+        if key in state:
+            legacy_state[key] = state.get(key)
+    state["strategies"] = {"terminal_value_legacy": legacy_state}
 
 
 # ---------------------------------------------------------------------------
@@ -381,17 +679,24 @@ def load_papertrader_config() -> PaperTraderConfig:
 
 def _default_paper_state(config: PaperTraderConfig) -> Dict[str, Any]:
     now_iso = _utc_now().isoformat()
-    nyc_today = datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d")
-    return {
-        "paper_equity_usd": config.initial_bankroll_usd,
+    nyc_today = _nyc_trading_day()
+    state = {
+        "schema_version": PAPER_STATE_SCHEMA_VERSION,
+        "paper_equity_usd": config.initial_bankroll_usd * len(PAPER_STRATEGY_ORDER),
         "initial_bankroll_usd": config.initial_bankroll_usd,
+        "aggregate_initial_bankroll_usd": config.initial_bankroll_usd * len(PAPER_STRATEGY_ORDER),
         "positions": {},
         "pending_orders": {},
+        "strategies": {
+            strategy_id: _default_strategy_state(config, strategy_id, now_iso=now_iso, trading_day=nyc_today)
+            for strategy_id in PAPER_STRATEGY_ORDER
+        },
         "trades_today": 0,
         "spent_today_usd": 0.0,
         "gross_buys_today_usd": 0.0,
         "gross_sells_today_usd": 0.0,
         "realized_pnl_today_usd": 0.0,
+        "closed_trades_today": 0,
         "open_risk_usd": 0.0,
         "trading_day": nyc_today,
         "last_trade_utc": None,
@@ -406,12 +711,43 @@ def _default_paper_state(config: PaperTraderConfig) -> Dict[str, Any]:
         "total_exits": 0,
         "session_started_utc": now_iso,
     }
+    _refresh_aggregate_state(state, config)
+    return state
 
 
 def _paper_session_has_activity(state: Dict[str, Any]) -> bool:
     positions = state.get("positions") or {}
     if isinstance(positions, dict) and positions:
         return True
+
+    strategies = state.get("strategies") or {}
+    if isinstance(strategies, dict):
+        for strategy_state in strategies.values():
+            if not isinstance(strategy_state, dict):
+                continue
+            if strategy_state.get("positions"):
+                return True
+            strategy_equity = float(_safe_float(strategy_state.get("paper_equity_usd")) or 0.0)
+            strategy_initial = float(_safe_float(strategy_state.get("initial_bankroll_usd")) or 0.0)
+            if abs(strategy_equity - strategy_initial) > 1e-9:
+                return True
+            for key in (
+                "trades_today",
+                "gross_buys_today_usd",
+                "gross_sells_today_usd",
+                "realized_pnl_today_usd",
+                "open_risk_usd",
+                "total_fills",
+                "total_partial_fills",
+                "total_rejections",
+                "total_slippage_usd",
+                "total_fill_notional_usd",
+                "total_realized_pnl_usd",
+                "total_entries",
+                "total_exits",
+            ):
+                if abs(float(_safe_float(strategy_state.get(key)) or 0.0)) > 1e-9:
+                    return True
 
     counters = (
         "trades_today",
@@ -433,7 +769,11 @@ def _paper_session_has_activity(state: Dict[str, Any]) -> bool:
             return True
 
     paper_equity = float(_safe_float(state.get("paper_equity_usd")) or 0.0)
-    initial_bankroll = float(_safe_float(state.get("initial_bankroll_usd")) or 0.0)
+    initial_bankroll = float(
+        _safe_float(state.get("aggregate_initial_bankroll_usd"))
+        or _safe_float(state.get("initial_bankroll_usd"))
+        or 0.0
+    )
     return abs(paper_equity - initial_bankroll) > 1e-9
 
 
@@ -452,15 +792,13 @@ def load_paper_state(path: str, config: PaperTraderConfig) -> Dict[str, Any]:
                     state["pending_orders"] = {}
                 if not isinstance(state.get("exits_by_reason"), dict):
                     state["exits_by_reason"] = {}
-                initial_bankroll = _safe_float(state.get("initial_bankroll_usd"))
-                if initial_bankroll is None or initial_bankroll <= 0:
-                    state["initial_bankroll_usd"] = config.initial_bankroll_usd
-                    initial_bankroll = config.initial_bankroll_usd
+                _migrate_legacy_top_level_state(state, config)
+                _repair_position_maps(state, config)
                 if not _paper_session_has_activity(state):
                     state["initial_bankroll_usd"] = config.initial_bankroll_usd
-                    state["paper_equity_usd"] = config.initial_bankroll_usd
-                elif _safe_float(state.get("paper_equity_usd")) is None:
-                    state["paper_equity_usd"] = float(initial_bankroll)
+                    for strategy_id in PAPER_STRATEGY_ORDER:
+                        state["strategies"][strategy_id] = _default_strategy_state(config, strategy_id)
+                _refresh_aggregate_state(state, config)
                 return state
     except Exception as exc:
         logger.warning("Failed to load paper state from %s: %s", path, exc)
@@ -504,30 +842,89 @@ class PaperTrader:
         save_paper_state(self.config.state_path, self.state)
 
     def _sync_config_bankroll_with_state(self) -> None:
-        state_initial = float(_safe_float(self.state.get("initial_bankroll_usd")) or self.config.initial_bankroll_usd)
+        first_strategy = self._strategy_state(PAPER_STRATEGY_ORDER[0])
+        state_initial = float(
+            _safe_float(first_strategy.get("initial_bankroll_usd"))
+            or _safe_float(self.state.get("initial_bankroll_usd"))
+            or self.config.initial_bankroll_usd
+        )
         self.config.initial_bankroll_usd = state_initial
         self.config.bankroll_usd = state_initial
 
-    def _record_fill_metrics(self, fill: Any) -> None:
+    def _strategy_state(self, strategy_id: str) -> Dict[str, Any]:
+        normalized = _normalize_strategy_id(strategy_id)
+        strategies = self.state.setdefault("strategies", {})
+        if not isinstance(strategies.get(normalized), dict):
+            strategies[normalized] = _default_strategy_state(self.config, normalized)
+        strategy_state = strategies[normalized]
+        if not isinstance(strategy_state.get("positions"), dict):
+            strategy_state["positions"] = {}
+        if not isinstance(strategy_state.get("exits_by_reason"), dict):
+            strategy_state["exits_by_reason"] = {}
+        return strategy_state
+
+    def _refresh_state_totals(self) -> None:
+        _refresh_aggregate_state(self.state, self.config)
+
+    def _resolve_position_keys(self, position_key: str) -> Tuple[str, str, str]:
+        raw = str(position_key or "").strip()
+        positions = self.state.get("positions") or {}
+        if raw in positions:
+            position = dict(positions.get(raw) or {})
+            strategy_id = _normalize_strategy_id(position.get("strategy_id") or position.get("strategy"))
+            base_key = str(position.get("base_position_key") or _position_base_key(position, fallback_key=raw))
+            return raw, strategy_id, base_key
+        if "::" in raw:
+            strategy_id, base_key = raw.split("::", 1)
+            return raw, _normalize_strategy_id(strategy_id), base_key
+        matches = []
+        for full_key, position in positions.items():
+            if not isinstance(position, dict):
+                continue
+            base_key = str(position.get("base_position_key") or _position_base_key(position, fallback_key=full_key))
+            if base_key == raw or str(full_key).endswith(f"::{raw}"):
+                matches.append((str(full_key), dict(position)))
+        if len(matches) == 1:
+            full_key, position = matches[0]
+            strategy_id = _normalize_strategy_id(position.get("strategy_id") or position.get("strategy"))
+            base_key = str(position.get("base_position_key") or _position_base_key(position, fallback_key=full_key))
+            return full_key, strategy_id, base_key
+        return raw, _normalize_strategy_id(None), raw
+
+    def _store_position_record(self, position: Dict[str, Any], *, strategy_id: Optional[str] = None) -> Dict[str, Any]:
+        normalized_strategy, base_key, normalized = _position_record_for_strategy(position, strategy_id=strategy_id)
+        full_key = normalized["position_key"]
+        self.state.setdefault("positions", {})[full_key] = dict(normalized)
+        strategy_state = self._strategy_state(normalized_strategy)
+        strategy_state.setdefault("positions", {})[base_key] = dict(normalized)
+        return normalized
+
+    def _record_fill_metrics(self, fill: Any, strategy_id: Optional[str] = None) -> None:
         filled_size = float(_safe_float(getattr(fill, "filled_size", None)) or 0.0)
         if filled_size <= 0.0:
             return
-        self.state["total_fills"] = int(_safe_float(self.state.get("total_fills")) or 0) + 1
+        target = self._strategy_state(strategy_id) if strategy_id else self.state
+        target["total_fills"] = int(_safe_float(target.get("total_fills")) or 0) + 1
         if str(getattr(fill, "status", "") or "").upper() == "PARTIAL":
-            self.state["total_partial_fills"] = int(_safe_float(self.state.get("total_partial_fills")) or 0) + 1
+            target["total_partial_fills"] = int(_safe_float(target.get("total_partial_fills")) or 0) + 1
         slippage_usd = float(_safe_float(getattr(fill, "slippage_vs_best", None)) or 0.0) * filled_size
-        self.state["total_slippage_usd"] = round(
-            float(_safe_float(self.state.get("total_slippage_usd")) or 0.0) + slippage_usd,
+        target["total_slippage_usd"] = round(
+            float(_safe_float(target.get("total_slippage_usd")) or 0.0) + slippage_usd,
             6,
         )
-        self.state["total_fill_notional_usd"] = round(
-            float(_safe_float(self.state.get("total_fill_notional_usd")) or 0.0)
+        target["total_fill_notional_usd"] = round(
+            float(_safe_float(target.get("total_fill_notional_usd")) or 0.0)
             + float(_safe_float(getattr(fill, "notional_usd", None)) or 0.0),
             6,
         )
+        if strategy_id:
+            self._refresh_state_totals()
 
-    def _record_rejection(self) -> None:
-        self.state["total_rejections"] = int(_safe_float(self.state.get("total_rejections")) or 0) + 1
+    def _record_rejection(self, strategy_id: Optional[str] = None) -> None:
+        target = self._strategy_state(strategy_id) if strategy_id else self.state
+        target["total_rejections"] = int(_safe_float(target.get("total_rejections")) or 0) + 1
+        if strategy_id:
+            self._refresh_state_totals()
 
     def _append_journal(self, event: Dict[str, Any]) -> None:
         path = Path(self.config.log_path)
@@ -550,15 +947,22 @@ class PaperTrader:
     # -- Daily reset --
 
     def _reset_daily_counters_if_needed(self) -> None:
-        nyc_today = datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d")
-        if self.state.get("trading_day") != nyc_today:
+        nyc_today = _nyc_trading_day()
+        needs_reset = self.state.get("trading_day") != nyc_today
+        for strategy_id in PAPER_STRATEGY_ORDER:
+            strategy_state = self._strategy_state(strategy_id)
+            if strategy_state.get("trading_day") != nyc_today:
+                needs_reset = True
+                strategy_state["trading_day"] = nyc_today
+                strategy_state["trades_today"] = 0
+                strategy_state["spent_today_usd"] = 0.0
+                strategy_state["gross_buys_today_usd"] = 0.0
+                strategy_state["gross_sells_today_usd"] = 0.0
+                strategy_state["realized_pnl_today_usd"] = 0.0
+                strategy_state["closed_trades_today"] = 0
+        if needs_reset:
             self.state["trading_day"] = nyc_today
-            self.state["trades_today"] = 0
-            self.state["spent_today_usd"] = 0.0
-            self.state["gross_buys_today_usd"] = 0.0
-            self.state["gross_sells_today_usd"] = 0.0
-            self.state["realized_pnl_today_usd"] = 0.0
-            self.state["closed_trades_today"] = 0
+            self._refresh_state_totals()
 
     # -- Signal fetching --
 
@@ -615,6 +1019,134 @@ class PaperTrader:
                     "asks": list(row.get(f"ws_{key}_asks") or []),
                 }
         return {"bids": [], "asks": [], "best_bid": None, "best_ask": None}
+
+    def _terminal_opportunities(self, payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+        rows = list(((payload.get("trading") or {}).get("all_terminal_opportunities") or []))
+        rows.sort(
+            key=lambda row: (
+                float(_safe_float(row.get("policy_score")) or -1.0),
+                float(_safe_float(row.get("score")) or -1.0),
+            ),
+            reverse=True,
+        )
+        return [dict(row) for row in rows if isinstance(row, dict)]
+
+    def _build_strategy_candidate_from_row(
+        self,
+        payload: Dict[str, Any],
+        strategy_state: Dict[str, Any],
+        strategy_id: str,
+        trade_row: Dict[str, Any],
+    ) -> Tuple[Optional[AutoTradeCandidate], List[str]]:
+        candidate, reasons = _build_candidate_from_trade(
+            payload,
+            self._atc(),
+            _normalize_state(strategy_state),
+            trade_row=dict(trade_row or {}),
+            strategy=strategy_id,
+        )
+        if candidate is None:
+            return None, reasons
+        base_key = candidate.position_key
+        full_key = _strategy_position_key(strategy_id, base_key)
+        candidate.position_key = full_key
+        candidate.strategy = strategy_id
+        candidate.raw_row = dict(candidate.raw_row or {})
+        candidate.raw_row["strategy_lane"] = strategy_id
+        return candidate, reasons
+
+    def _select_winner_value_candidate(
+        self,
+        payload: Dict[str, Any],
+        strategy_state: Dict[str, Any],
+    ) -> Tuple[Optional[AutoTradeCandidate], List[str]]:
+        trading = payload.get("trading") or {}
+        forecast = trading.get("forecast_winner") or {}
+        forecast_label = normalize_label(str(forecast.get("label") or ""))
+        if not forecast_label:
+            return None, ["missing_forecast_winner"]
+        opportunities = self._terminal_opportunities(payload)
+        row = next(
+            (
+                dict(item)
+                for item in opportunities
+                if normalize_label(str(item.get("label") or "")) == forecast_label
+                and str(item.get("best_side") or "").upper() == "YES"
+                and bool((item.get("terminal_policy") or {}).get("allowed"))
+            ),
+            None,
+        )
+        if not row:
+            return None, ["winner_lane_no_yes_candidate"]
+        return self._build_strategy_candidate_from_row(payload, strategy_state, "winner_value_core", row)
+
+    def _select_terminal_legacy_candidate(
+        self,
+        payload: Dict[str, Any],
+        strategy_state: Dict[str, Any],
+    ) -> Tuple[Optional[AutoTradeCandidate], List[str]]:
+        best_terminal = dict(((payload.get("trading") or {}).get("best_terminal_trade") or {}))
+        if not best_terminal:
+            return None, ["missing_best_terminal_trade"]
+        return self._build_strategy_candidate_from_row(payload, strategy_state, "terminal_value_legacy", best_terminal)
+
+    def _select_tactical_candidate(
+        self,
+        payload: Dict[str, Any],
+        strategy_state: Dict[str, Any],
+    ) -> Tuple[Optional[AutoTradeCandidate], List[str]]:
+        best_tactical = dict(((payload.get("trading") or {}).get("best_tactical_trade") or {}))
+        if not best_tactical:
+            return None, ["missing_best_tactical_trade"]
+        return self._build_strategy_candidate_from_row(payload, strategy_state, "tactical_reprice", best_tactical)
+
+    def _select_event_fade_candidate(
+        self,
+        payload: Dict[str, Any],
+        strategy_state: Dict[str, Any],
+    ) -> Tuple[Optional[AutoTradeCandidate], List[str]]:
+        trading = payload.get("trading") or {}
+        next_projection = ((trading.get("tactical_context") or {}).get("next_metar") or {})
+        next_direction = str(next_projection.get("direction") or "FLAT").upper()
+        repricing_influence = float(_safe_float((trading.get("tactical_context") or {}).get("repricing_influence")) or 0.0)
+        if int(payload.get("target_day") or self.config.target_day) != 0:
+            return None, ["event_fade_intraday_only"]
+        if next_direction != "DOWN":
+            return None, ["no_downside_event_pressure"]
+        if repricing_influence < 0.18:
+            return None, ["repricing_quality_too_low"]
+        opportunities = self._terminal_opportunities(payload)
+        row = next(
+            (
+                dict(item)
+                for item in opportunities
+                if str(item.get("best_side") or "").upper() == "NO"
+                and bool((item.get("terminal_policy") or {}).get("allowed"))
+                and (item.get("distance_from_top") is None or int(item.get("distance_from_top") or 0) <= 1)
+                and float(_safe_float(item.get("best_edge")) or 0.0) >= 0.05
+                and float(_safe_float(item.get("no_entry")) or 1.0) <= 0.55
+            ),
+            None,
+        )
+        if not row:
+            return None, ["event_fade_no_candidate"]
+        return self._build_strategy_candidate_from_row(payload, strategy_state, "event_fade_qc", row)
+
+    def _evaluate_strategy_candidate(
+        self,
+        strategy_id: str,
+        payload: Dict[str, Any],
+    ) -> Tuple[Optional[AutoTradeCandidate], List[str]]:
+        strategy_state = self._strategy_state(strategy_id)
+        if strategy_id == "winner_value_core":
+            return self._select_winner_value_candidate(payload, strategy_state)
+        if strategy_id == "terminal_value_legacy":
+            return self._select_terminal_legacy_candidate(payload, strategy_state)
+        if strategy_id == "tactical_reprice":
+            return self._select_tactical_candidate(payload, strategy_state)
+        if strategy_id == "event_fade_qc":
+            return self._select_event_fade_candidate(payload, strategy_state)
+        return None, ["unknown_strategy"]
 
     # -- Exit decision (replicated from AutoTrader._evaluate_exit_decision) --
 
@@ -765,12 +1297,14 @@ class PaperTrader:
                 book_snapshot=l2,
             )
 
+            strategy_id = _normalize_strategy_id(position.get("strategy_id") or position.get("strategy"))
             if fill.filled_size > 0:
                 persisted = self._persist_exit(pkey, exit_plan, fill)
-                self._record_fill_metrics(fill)
+                self._record_fill_metrics(fill, strategy_id=strategy_id)
                 event = {
                     "event": "exit_fill",
                     "station_id": station_id,
+                    "strategy_id": strategy_id,
                     "position_key": pkey,
                     "reason": exit_plan.get("reason"),
                     "fill": fill.to_dict(),
@@ -779,10 +1313,11 @@ class PaperTrader:
                 self._append_journal(event)
                 exit_events.append(event)
             else:
-                self._record_rejection()
+                self._record_rejection(strategy_id=strategy_id)
                 event = {
                     "event": "exit_rejected",
                     "station_id": station_id,
+                    "strategy_id": strategy_id,
                     "position_key": pkey,
                     "reason": exit_plan.get("reason"),
                     "fill_status": fill.status,
@@ -797,8 +1332,13 @@ class PaperTrader:
         notional = fill.notional_usd if fill.notional_usd > 0 else float(plan.get("notional_usd") or 0.0)
         entry_price = fill.avg_price if fill.avg_price > 0 else float(plan.get("limit_price") or 0.0)
         shares = fill.filled_size if fill.filled_size > 0 else float(plan.get("size") or 0.0)
+        strategy_id = _normalize_strategy_id(candidate.strategy)
+        strategy_state = self._strategy_state(strategy_id)
+        raw_position_key = str(candidate.position_key or "").strip()
+        base_key = raw_position_key.split("::", 1)[1] if "::" in raw_position_key else raw_position_key
+        full_key = _strategy_position_key(strategy_id, base_key)
 
-        self.state["positions"][candidate.position_key] = {
+        position = {
             "station_id": candidate.station_id,
             "target_date": candidate.target_date,
             "label": candidate.label,
@@ -806,7 +1346,8 @@ class PaperTrader:
             "token_id": candidate.token_id,
             "status": "OPEN",
             "mode": "paper_shadow",
-            "strategy": candidate.strategy,
+            "strategy": strategy_id,
+            "strategy_id": strategy_id,
             "managed_by_bot": True,
             "source": "papertrader",
             "strategy_score": round(float(candidate.strategy_score), 6),
@@ -823,28 +1364,33 @@ class PaperTrader:
             "realized_pnl_usd": 0.0,
             "unrealized_pnl_usd": 0.0,
             "fills": [],
-            "position_key": candidate.position_key,
+            "base_position_key": base_key,
+            "position_key": full_key,
         }
+        self._store_position_record(position, strategy_id=strategy_id)
 
-        gross = float(_safe_float(self.state.get("gross_buys_today_usd")) or 0.0)
-        self.state["gross_buys_today_usd"] = round(gross + notional, 6)
-        self.state["spent_today_usd"] = self.state["gross_buys_today_usd"]
-        self.state["trades_today"] = int(_safe_float(self.state.get("trades_today")) or 0) + 1
-        self.state["total_entries"] = int(_safe_float(self.state.get("total_entries")) or 0) + 1
-        # _record_fill_metrics handles total_fills, total_partial_fills,
-        # total_slippage_usd AND total_fill_notional_usd in one place.
-        self._record_fill_metrics(fill)
-        self.state["last_trade_utc"] = now_iso
-        self.state["paper_equity_usd"] = round(
-            float(_safe_float(self.state.get("paper_equity_usd")) or self.config.initial_bankroll_usd) - notional, 4
+        gross = float(_safe_float(strategy_state.get("gross_buys_today_usd")) or 0.0)
+        strategy_state["gross_buys_today_usd"] = round(gross + notional, 6)
+        strategy_state["spent_today_usd"] = strategy_state["gross_buys_today_usd"]
+        strategy_state["trades_today"] = int(_safe_float(strategy_state.get("trades_today")) or 0) + 1
+        strategy_state["total_entries"] = int(_safe_float(strategy_state.get("total_entries")) or 0) + 1
+        strategy_state["last_trade_utc"] = now_iso
+        strategy_state["paper_equity_usd"] = round(
+            float(_safe_float(strategy_state.get("paper_equity_usd")) or strategy_state.get("initial_bankroll_usd") or self.config.initial_bankroll_usd)
+            - notional,
+            4,
         )
-        self.state["open_risk_usd"] = _recalculate_open_risk(self.state.get("positions") or {})
+        self._record_fill_metrics(fill, strategy_id=strategy_id)
+        strategy_state["open_risk_usd"] = _recalculate_open_risk(strategy_state.get("positions") or {})
+        self._refresh_state_totals()
 
     def _persist_exit(self, position_key: str, exit_plan: Dict[str, Any], fill) -> Dict[str, Any]:
         """Persist a paper exit (partial or full close)."""
-        position = dict((self.state.get("positions") or {}).get(position_key) or {})
+        full_key, strategy_id, base_key = self._resolve_position_keys(position_key)
+        position = dict((self.state.get("positions") or {}).get(full_key) or {})
         if not position:
             return {}
+        strategy_state = self._strategy_state(strategy_id)
 
         shares_open = float(_safe_float(position.get("shares_open")) or _safe_float(position.get("shares")) or 0.0)
         size = min(shares_open, fill.filled_size)
@@ -883,30 +1429,39 @@ class PaperTrader:
             position["status"] = "CLOSED"
             position["closed_at_utc"] = now_iso
 
-        self.state["positions"][position_key] = position
-        self.state["gross_sells_today_usd"] = round(
-            float(_safe_float(self.state.get("gross_sells_today_usd")) or 0.0) + proceeds_usd, 6
+        position["strategy"] = strategy_id
+        position["strategy_id"] = strategy_id
+        position["base_position_key"] = base_key
+        position["position_key"] = full_key
+        self._store_position_record(position, strategy_id=strategy_id)
+
+        strategy_state["gross_sells_today_usd"] = round(
+            float(_safe_float(strategy_state.get("gross_sells_today_usd")) or 0.0) + proceeds_usd, 6
         )
-        self.state["realized_pnl_today_usd"] = round(
-            float(_safe_float(self.state.get("realized_pnl_today_usd")) or 0.0) + realized_pnl, 6
+        strategy_state["realized_pnl_today_usd"] = round(
+            float(_safe_float(strategy_state.get("realized_pnl_today_usd")) or 0.0) + realized_pnl, 6
         )
-        self.state["total_realized_pnl_usd"] = round(
-            float(_safe_float(self.state.get("total_realized_pnl_usd")) or 0.0) + realized_pnl, 6
+        strategy_state["total_realized_pnl_usd"] = round(
+            float(_safe_float(strategy_state.get("total_realized_pnl_usd")) or 0.0) + realized_pnl, 6
         )
-        self.state["total_exits"] = int(_safe_float(self.state.get("total_exits")) or 0) + 1
-        self.state["closed_trades_today"] = int(_safe_float(self.state.get("closed_trades_today")) or 0) + 1
-        self.state["paper_equity_usd"] = round(
-            float(_safe_float(self.state.get("paper_equity_usd")) or self.config.initial_bankroll_usd) + proceeds_usd, 4
+        strategy_state["total_exits"] = int(_safe_float(strategy_state.get("total_exits")) or 0) + 1
+        strategy_state["closed_trades_today"] = int(_safe_float(strategy_state.get("closed_trades_today")) or 0) + 1
+        strategy_state["paper_equity_usd"] = round(
+            float(_safe_float(strategy_state.get("paper_equity_usd")) or strategy_state.get("initial_bankroll_usd") or self.config.initial_bankroll_usd)
+            + proceeds_usd,
+            4,
         )
         # Track exit reasons
         reason = str(exit_plan.get("reason") or "unknown")
-        exits_by_reason = self.state.get("exits_by_reason") or {}
+        exits_by_reason = strategy_state.get("exits_by_reason") or {}
         exits_by_reason[reason] = int(_safe_float(exits_by_reason.get(reason)) or 0) + 1
-        self.state["exits_by_reason"] = exits_by_reason
-        self.state["open_risk_usd"] = _recalculate_open_risk(self.state.get("positions") or {})
+        strategy_state["exits_by_reason"] = exits_by_reason
+        strategy_state["open_risk_usd"] = _recalculate_open_risk(strategy_state.get("positions") or {})
+        self._refresh_state_totals()
 
         return {
-            "position_key": position_key,
+            "position_key": full_key,
+            "strategy_id": strategy_id,
             "remaining_shares": round(remaining_shares, 6),
             "realized_pnl_usd": round(realized_pnl, 6),
             "reason": exit_plan.get("reason"),
@@ -944,8 +1499,9 @@ class PaperTrader:
                 position["current_value_usd"] = round(shares_open * current_price, 4)
                 cost_basis = float(_safe_float(position.get("cost_basis_open_usd")) or (shares_open * entry_price))
                 position["unrealized_pnl_usd"] = round(position["current_value_usd"] - cost_basis, 4)
+                self._store_position_record(position, strategy_id=_normalize_strategy_id(position.get("strategy_id") or position.get("strategy")))
 
-        self.state["open_risk_usd"] = _recalculate_open_risk(positions)
+        self._refresh_state_totals()
 
     # -- Main execution loop --
 
@@ -974,97 +1530,130 @@ class PaperTrader:
 
         # Manage exits first
         exit_events = await self._manage_open_positions(station_id, payload)
+        strategy_results: List[Dict[str, Any]] = []
+        any_fill = False
+        any_hold = bool(exit_events)
 
-        # Evaluate trade candidate
-        candidate, reasons = evaluate_trade_candidate(payload, atc, self.state)
-        if not candidate:
-            status = "hold" if exit_events else "skip"
-            result = {"station_id": station_id, "status": status, "reasons": reasons, "exits": exit_events}
-            if status != "skip" or exit_events:
-                self._append_journal({"event": "tick", **result})
-            return result
+        for strategy_id in PAPER_STRATEGY_ORDER:
+            strategy_state = self._strategy_state(strategy_id)
+            candidate, reasons = self._evaluate_strategy_candidate(strategy_id, payload)
+            if not candidate:
+                strategy_results.append({"strategy_id": strategy_id, "status": "skip", "reasons": reasons})
+                continue
 
-        # Check duplicate position
-        existing = self.state.get("positions", {}).get(candidate.position_key)
-        if existing and str(existing.get("status") or "").upper() == "OPEN":
-            result = {"station_id": station_id, "status": "skip", "reasons": ["duplicate_position"], "exits": exit_events}
-            return result
+            live_book = self._get_live_book_from_payload(payload, candidate.label, candidate.side)
+            if live_book is None or live_book.best_ask is None:
+                strategy_results.append(
+                    {
+                        "strategy_id": strategy_id,
+                        "status": "skip",
+                        "reasons": ["no_live_book"],
+                        "candidate": asdict(candidate),
+                    }
+                )
+                continue
 
-        # Get live book for guardrails
-        live_book = self._get_live_book_from_payload(payload, candidate.label, candidate.side)
-        if live_book is None or live_book.best_ask is None:
-            result = {"station_id": station_id, "status": "skip", "reasons": ["no_live_book"], "exits": exit_events}
-            self._append_journal({"event": "no_book", **result})
-            return result
+            budget_usd = compute_trade_budget_usd(
+                candidate,
+                atc,
+                _normalize_state(strategy_state),
+                available_balance_usd=float(_safe_float(strategy_state.get("paper_equity_usd")) or 0.0),
+            )
+            if budget_usd < float(self.config.min_trade_usd):
+                strategy_results.append(
+                    {
+                        "strategy_id": strategy_id,
+                        "status": "skip",
+                        "reasons": ["budget_too_small"],
+                        "candidate": asdict(candidate),
+                    }
+                )
+                continue
 
-        # Compute budget
-        budget_usd = compute_trade_budget_usd(candidate, atc, self.state)
-        if budget_usd < float(self.config.min_trade_usd):
-            result = {"station_id": station_id, "status": "skip", "reasons": ["budget_too_small"], "candidate": asdict(candidate), "exits": exit_events}
-            self._append_journal({"event": "budget_skip", **result})
-            return result
+            plan, plan_reasons = apply_orderbook_guardrails(candidate, live_book, atc, budget_usd)
+            if not plan:
+                strategy_results.append(
+                    {
+                        "strategy_id": strategy_id,
+                        "status": "skip",
+                        "reasons": plan_reasons,
+                        "candidate": asdict(candidate),
+                    }
+                )
+                continue
 
-        # Apply guardrails
-        plan, plan_reasons = apply_orderbook_guardrails(candidate, live_book, atc, budget_usd)
-        if not plan:
-            result = {"station_id": station_id, "status": "skip", "reasons": plan_reasons, "candidate": asdict(candidate), "exits": exit_events}
-            self._append_journal({"event": "guardrail_skip", **result})
-            return result
+            l2 = self._get_l2_from_payload(payload, candidate.label, candidate.side)
+            limit_price = float(plan["limit_price"])
+            size = float(plan["size"])
+            if self.config.order_mode == "market_fok":
+                fill = self.execution.execute_market_fok_buy(candidate.token_id, limit_price, size, l2)
+            else:
+                fill = self.execution.execute_limit_fak_buy(candidate.token_id, limit_price, size, l2)
 
-        # Execute paper order against L2 book
-        l2 = self._get_l2_from_payload(payload, candidate.label, candidate.side)
-        limit_price = float(plan["limit_price"])
-        size = float(plan["size"])
+            if fill.filled_size <= 0:
+                self._record_rejection(strategy_id=strategy_id)
+                rejected = {
+                    "strategy_id": strategy_id,
+                    "station_id": station_id,
+                    "status": "paper_rejected",
+                    "reasons": ["no_fill"],
+                    "candidate": asdict(candidate),
+                    "plan": plan,
+                    "fill_status": fill.status,
+                }
+                strategy_results.append(rejected)
+                self._append_journal({"event": "entry_rejected", **rejected})
+                continue
 
-        if self.config.order_mode == "market_fok":
-            fill = self.execution.execute_market_fok_buy(candidate.token_id, limit_price, size, l2)
-        else:
-            fill = self.execution.execute_limit_fak_buy(candidate.token_id, limit_price, size, l2)
-
-        if fill.filled_size <= 0:
-            self._record_rejection()
-            result = {
+            self._persist_trade(candidate, plan, fill)
+            any_fill = True
+            signal_snap = {
+                "fair_price": round(candidate.fair_price, 6),
+                "market_price": round(candidate.market_price, 6),
+                "edge_points": round(candidate.edge_points, 4),
+                "strategy": candidate.strategy,
+                "recommendation": candidate.recommendation,
+            }
+            book_snap = compact_book_snapshot(l2)
+            filled = {
+                "strategy_id": strategy_id,
                 "station_id": station_id,
-                "status": "paper_rejected",
-                "reasons": ["no_fill"],
+                "status": "paper_fill",
                 "candidate": asdict(candidate),
                 "plan": plan,
-                "fill_status": fill.status,
-                "exits": exit_events,
+                "fill": fill.to_dict(),
             }
-            self._append_journal({"event": "entry_rejected", **result})
-            return result
+            strategy_results.append(filled)
+            self._append_journal(
+                {
+                    "event": "entry_fill",
+                    "strategy_id": strategy_id,
+                    "station_id": station_id,
+                    "position_key": candidate.position_key,
+                    "signal_snapshot": signal_snap,
+                    "book_snapshot": book_snap,
+                    "order": {"order_type": self.config.order_mode, "limit_price": limit_price, "size": size},
+                    "fill": fill.to_dict(),
+                }
+            )
 
-        # Persist paper position (total_partial_fills counted inside _record_fill_metrics)
-        self._persist_trade(candidate, plan, fill)
-
-        signal_snap = {
-            "fair_price": round(candidate.fair_price, 6),
-            "market_price": round(candidate.market_price, 6),
-            "edge_points": round(candidate.edge_points, 4),
-            "strategy": candidate.strategy,
-            "recommendation": candidate.recommendation,
-        }
-        book_snap = compact_book_snapshot(l2)
-
+        status = "paper_fill" if any_fill else "hold" if any_hold else "skip"
         result = {
             "station_id": station_id,
-            "status": "paper_fill",
-            "candidate": asdict(candidate),
-            "plan": plan,
-            "fill": fill.to_dict(),
+            "status": status,
             "exits": exit_events,
+            "strategy_results": strategy_results,
         }
-        self._append_journal({
-            "event": "entry_fill",
-            "station_id": station_id,
-            "position_key": candidate.position_key,
-            "signal_snapshot": signal_snap,
-            "book_snapshot": book_snap,
-            "order": {"order_type": self.config.order_mode, "limit_price": limit_price, "size": size},
-            "fill": fill.to_dict(),
-        })
-
+        if any_fill or exit_events:
+            self._append_journal(
+                {
+                    "event": "station_tick",
+                    "station_id": station_id,
+                    "status": status,
+                    "fills": sum(1 for item in strategy_results if item.get("status") == "paper_fill"),
+                    "exits": len(exit_events),
+                }
+            )
         self._save_state()
         return result
 
@@ -1112,7 +1701,12 @@ class PaperTrader:
         while self.config.enabled:
             try:
                 results = await self.run_once()
-                fills = sum(1 for r in results if r.get("status") == "paper_fill")
+                fills = sum(
+                    1
+                    for station_result in results
+                    for strategy_result in (station_result.get("strategy_results") or [])
+                    if strategy_result.get("status") == "paper_fill"
+                )
                 exits = sum(len(r.get("exits") or []) for r in results)
                 if fills or exits:
                     logger.info("Papertrader tick: %d fills, %d exits across %d stations", fills, exits, len(results))
@@ -1123,7 +1717,7 @@ class PaperTrader:
 
     # -- Status snapshot --
 
-    def get_status_snapshot(self) -> Dict[str, Any]:
+    def _get_status_snapshot_legacy(self) -> Dict[str, Any]:
         """Build a comprehensive status snapshot for the API/UI."""
         self.state = load_paper_state(self.config.state_path, self.config)
         positions = self.state.get("positions") or {}
@@ -1190,4 +1784,143 @@ class PaperTrader:
             "max_total_exposure_usd": self.config.max_total_exposure_usd,
             "recent_events": recent,
             "closed_positions": closed_positions,
+        }
+
+    def get_status_snapshot(self) -> Dict[str, Any]:
+        """Build a multi-strategy status snapshot for the API/UI."""
+        self.state = load_paper_state(self.config.state_path, self.config)
+        positions = self.state.get("positions") or {}
+        all_positions: List[Dict[str, Any]] = []
+        for pkey, pos in positions.items():
+            if not isinstance(pos, dict):
+                continue
+            pos_copy = dict(pos)
+            pos_copy["position_key"] = pkey
+            pos_copy["strategy_id"] = _normalize_strategy_id(pos_copy.get("strategy_id") or pos_copy.get("strategy"))
+            all_positions.append(pos_copy)
+
+        def _sort_key(position: Dict[str, Any]) -> str:
+            return str(position.get("closed_at_utc") or position.get("last_exit_utc") or position.get("opened_at_utc") or "")
+
+        open_positions = [position for position in all_positions if str(position.get("status") or "").upper() == "OPEN"]
+        closed_positions = [position for position in all_positions if str(position.get("status") or "").upper() != "OPEN"]
+        open_positions.sort(key=_sort_key, reverse=True)
+        closed_positions.sort(key=_sort_key, reverse=True)
+
+        open_risk = float(_safe_float(self.state.get("open_risk_usd")) or 0.0)
+        total_realized = float(_safe_float(self.state.get("total_realized_pnl_usd")) or 0.0)
+        total_unrealized = sum(float(_safe_float(position.get("unrealized_pnl_usd")) or 0.0) for position in open_positions)
+        total_entries = int(_safe_float(self.state.get("total_entries")) or 0)
+        total_exits = int(_safe_float(self.state.get("total_exits")) or 0)
+        total_fills = int(_safe_float(self.state.get("total_fills")) or 0)
+        total_partial = int(_safe_float(self.state.get("total_partial_fills")) or 0)
+        total_rejections = int(_safe_float(self.state.get("total_rejections")) or 0)
+        total_attempts = total_fills + total_rejections
+        fill_ratio = round(total_fills / total_attempts, 4) if total_attempts > 0 else 0.0
+        total_slippage = float(_safe_float(self.state.get("total_slippage_usd")) or 0.0)
+        total_fill_notional = float(_safe_float(self.state.get("total_fill_notional_usd")) or 0.0)
+        avg_slippage_bps = round((total_slippage / total_fill_notional) * 10000, 2) if total_fill_notional > 0 else 0.0
+        winners = sum(1 for position in closed_positions if float(_safe_float(position.get("realized_pnl_usd")) or 0.0) > 0)
+        hit_rate = round(winners / len(closed_positions), 4) if closed_positions else 0.0
+        recent = self._recent_events[:24] if self._recent_events else _tail_jsonl(self.config.log_path, limit=24)
+
+        strategy_snapshots: List[Dict[str, Any]] = []
+        for strategy_id in PAPER_STRATEGY_ORDER:
+            strategy_state = self._strategy_state(strategy_id)
+            strategy_positions = [position for position in all_positions if position.get("strategy_id") == strategy_id]
+            strategy_open = [position for position in strategy_positions if str(position.get("status") or "").upper() == "OPEN"]
+            strategy_closed = [position for position in strategy_positions if str(position.get("status") or "").upper() != "OPEN"]
+            strategy_unrealized = sum(float(_safe_float(position.get("unrealized_pnl_usd")) or 0.0) for position in strategy_open)
+            strategy_fills = int(_safe_float(strategy_state.get("total_fills")) or 0)
+            strategy_rejections = int(_safe_float(strategy_state.get("total_rejections")) or 0)
+            strategy_attempts = strategy_fills + strategy_rejections
+            strategy_fill_ratio = round(strategy_fills / strategy_attempts, 4) if strategy_attempts > 0 else 0.0
+            strategy_slippage = float(_safe_float(strategy_state.get("total_slippage_usd")) or 0.0)
+            strategy_notional = float(_safe_float(strategy_state.get("total_fill_notional_usd")) or 0.0)
+            strategy_hit_rate = (
+                round(
+                    sum(1 for position in strategy_closed if float(_safe_float(position.get("realized_pnl_usd")) or 0.0) > 0) / len(strategy_closed),
+                    4,
+                )
+                if strategy_closed
+                else 0.0
+            )
+            strategy_recent = [
+                dict(event)
+                for event in recent
+                if _normalize_strategy_id((event or {}).get("strategy_id")) == strategy_id
+            ][:8]
+            meta = PAPER_STRATEGY_BY_ID[strategy_id]
+            strategy_snapshots.append(
+                {
+                    "strategy_id": strategy_id,
+                    "title": meta["title"],
+                    "subtitle": meta["subtitle"],
+                    "description": meta["description"],
+                    "accent": meta["accent"],
+                    "initial_bankroll_usd": round(float(_safe_float(strategy_state.get("initial_bankroll_usd")) or self.config.initial_bankroll_usd), 4),
+                    "paper_equity_usd": round(float(_safe_float(strategy_state.get("paper_equity_usd")) or self.config.initial_bankroll_usd), 4),
+                    "free_equity_usd": round(
+                        float(_safe_float(strategy_state.get("paper_equity_usd")) or self.config.initial_bankroll_usd)
+                        - float(_safe_float(strategy_state.get("open_risk_usd")) or 0.0),
+                        4,
+                    ),
+                    "open_risk_usd": round(float(_safe_float(strategy_state.get("open_risk_usd")) or 0.0), 4),
+                    "realized_pnl_usd": round(float(_safe_float(strategy_state.get("total_realized_pnl_usd")) or 0.0), 4),
+                    "realized_pnl_today_usd": round(float(_safe_float(strategy_state.get("realized_pnl_today_usd")) or 0.0), 4),
+                    "unrealized_pnl_usd": round(strategy_unrealized, 4),
+                    "trades_today": int(_safe_float(strategy_state.get("trades_today")) or 0),
+                    "total_entries": int(_safe_float(strategy_state.get("total_entries")) or 0),
+                    "total_exits": int(_safe_float(strategy_state.get("total_exits")) or 0),
+                    "total_fills": strategy_fills,
+                    "total_partial_fills": int(_safe_float(strategy_state.get("total_partial_fills")) or 0),
+                    "total_rejections": strategy_rejections,
+                    "fill_ratio": strategy_fill_ratio,
+                    "hit_rate": strategy_hit_rate,
+                    "avg_slippage_bps": round((strategy_slippage / strategy_notional) * 10000, 2) if strategy_notional > 0 else 0.0,
+                    "last_trade_utc": strategy_state.get("last_trade_utc"),
+                    "open_positions_count": len(strategy_open),
+                    "closed_positions_count": len(strategy_closed),
+                    "open_positions": strategy_open[:6],
+                    "closed_positions_recent": strategy_closed[:12],
+                    "recent_events": strategy_recent,
+                    "exits_by_reason": dict(strategy_state.get("exits_by_reason") or {}),
+                }
+            )
+
+        return {
+            "mode": "paper_multi_strategy",
+            "station_ids": list(self.config.station_ids),
+            "target_date": self.config.target_date,
+            "loop_seconds": self.config.loop_seconds,
+            "strategy_count": len(PAPER_STRATEGY_ORDER),
+            "strategy_order": list(PAPER_STRATEGY_ORDER),
+            "aggregate_initial_bankroll_usd": round(float(_safe_float(self.state.get("aggregate_initial_bankroll_usd")) or 0.0), 4),
+            "paper_equity_usd": round(float(_safe_float(self.state.get("paper_equity_usd")) or 0.0), 4),
+            "initial_bankroll_usd": self.config.initial_bankroll_usd,
+            "free_equity_usd": round(float(_safe_float(self.state.get("paper_equity_usd")) or 0.0) - open_risk, 4),
+            "open_positions": open_positions,
+            "open_positions_count": len(open_positions),
+            "closed_positions_count": len(closed_positions),
+            "open_risk_usd": round(open_risk, 4),
+            "realized_pnl_usd": round(total_realized, 4),
+            "realized_pnl_today_usd": round(float(_safe_float(self.state.get("realized_pnl_today_usd")) or 0.0), 4),
+            "unrealized_pnl_usd": round(total_unrealized, 4),
+            "trades_today": int(_safe_float(self.state.get("trades_today")) or 0),
+            "total_entries": total_entries,
+            "total_exits": total_exits,
+            "total_fills": total_fills,
+            "total_partial_fills": total_partial,
+            "total_rejections": total_rejections,
+            "fill_ratio": fill_ratio,
+            "hit_rate": hit_rate,
+            "avg_slippage_bps": avg_slippage_bps,
+            "total_slippage_usd": round(total_slippage, 6),
+            "total_fill_notional_usd": round(total_fill_notional, 4),
+            "exits_by_reason": dict(self.state.get("exits_by_reason") or {}),
+            "max_total_exposure_usd": self.config.max_total_exposure_usd,
+            "max_open_positions": self.config.max_open_positions,
+            "recent_events": recent[:16],
+            "closed_positions": closed_positions[:50],
+            "strategies": strategy_snapshots,
         }

@@ -83,6 +83,19 @@ def _make_trader(tmp_path, **cfg_kwargs) -> PaperTrader:
     return PaperTrader(config=cfg)
 
 
+def _legacy_state(subject):
+    state = subject.state if hasattr(subject, "state") else subject
+    return state["strategies"]["terminal_value_legacy"]
+
+
+def _legacy_position_key(trader, base_key: str) -> str:
+    return next(key for key in trader.state["positions"] if key.endswith(f"::{base_key}"))
+
+
+def _legacy_position(trader, base_key: str):
+    return trader.state["positions"][_legacy_position_key(trader, base_key)]
+
+
 # ---------------------------------------------------------------------------
 # State persistence
 # ---------------------------------------------------------------------------
@@ -92,7 +105,9 @@ class TestStatePersistence:
     def test_default_state_has_correct_equity(self, tmp_path):
         cfg = _make_config()
         state = _default_paper_state(cfg)
-        assert state["paper_equity_usd"] == 100.0
+        assert state["paper_equity_usd"] == 400.0
+        assert state["aggregate_initial_bankroll_usd"] == 400.0
+        assert _legacy_state(state)["paper_equity_usd"] == 100.0
         assert state["positions"] == {}
         assert state["trades_today"] == 0
 
@@ -100,25 +115,26 @@ class TestStatePersistence:
         cfg = _make_config()
         path = str(tmp_path / "state.json")
         state = _default_paper_state(cfg)
-        state["paper_equity_usd"] = 87.5
-        state["trades_today"] = 3
+        state["strategies"]["terminal_value_legacy"]["paper_equity_usd"] = 87.5
+        state["strategies"]["terminal_value_legacy"]["trades_today"] = 3
         save_paper_state(path, state)
         loaded = load_paper_state(path, cfg)
-        assert loaded["paper_equity_usd"] == 87.5
+        assert loaded["paper_equity_usd"] == 387.5
+        assert _legacy_state(loaded)["paper_equity_usd"] == 87.5
         assert loaded["trades_today"] == 3
 
     def test_missing_file_returns_default(self, tmp_path):
         cfg = _make_config()
         path = str(tmp_path / "nonexistent.json")
         state = load_paper_state(path, cfg)
-        assert state["paper_equity_usd"] == 100.0
+        assert state["paper_equity_usd"] == 400.0
 
     def test_corrupted_file_returns_default(self, tmp_path):
         path = tmp_path / "state.json"
         path.write_text("{{invalid json{{", encoding="utf-8")
         cfg = _make_config()
         state = load_paper_state(str(path), cfg)
-        assert state["paper_equity_usd"] == 100.0
+        assert state["paper_equity_usd"] == 400.0
 
 
 # ---------------------------------------------------------------------------
@@ -135,7 +151,8 @@ class TestPersistTrade:
 
         trader._persist_trade(candidate, plan, fill)
 
-        assert trader.state["paper_equity_usd"] == pytest.approx(91.0, abs=0.01)
+        assert trader.state["paper_equity_usd"] == pytest.approx(391.0, abs=0.01)
+        assert _legacy_state(trader)["paper_equity_usd"] == pytest.approx(91.0, abs=0.01)
 
     def test_position_created_correctly(self, tmp_path):
         trader = _make_trader(tmp_path)
@@ -145,7 +162,7 @@ class TestPersistTrade:
 
         trader._persist_trade(candidate, plan, fill)
 
-        pos = trader.state["positions"]["KLGA|2026-03-05|33-34F|YES"]
+        pos = _legacy_position(trader, "KLGA|2026-03-05|33-34F|YES")
         assert pos["status"] == "OPEN"
         assert pos["mode"] == "paper_shadow"
         assert pos["shares"] == 25.0
@@ -216,8 +233,8 @@ class TestPersistExit:
         exit_plan = {"reason": "take_profit", "size": 50.0, "min_price": 0.40, "proceeds_usd": 21.0}
         trader._persist_exit(pkey, exit_plan, exit_fill)
 
-        assert trader.state["positions"][pkey]["status"] == "CLOSED"
-        assert trader.state["positions"][pkey]["shares_open"] == pytest.approx(0.0, abs=1e-6)
+        assert _legacy_position(trader, pkey)["status"] == "CLOSED"
+        assert _legacy_position(trader, pkey)["shares_open"] == pytest.approx(0.0, abs=1e-6)
 
     def test_equity_increases_after_exit(self, tmp_path):
         trader = _make_trader(tmp_path)
@@ -249,7 +266,7 @@ class TestPersistExit:
         exit_plan = {"reason": "take_profit", "size": 25.0, "min_price": 0.40, "proceeds_usd": 10.5}
         trader._persist_exit(pkey, exit_plan, exit_fill)
 
-        pos = trader.state["positions"][pkey]
+        pos = _legacy_position(trader, pkey)
         assert pos["status"] == "OPEN"
         assert pos["shares_open"] == pytest.approx(25.0, abs=1e-4)
 
@@ -269,9 +286,10 @@ class TestPersistExit:
         trader._persist_exit(candidate.position_key, exit_plan, exit_fill)
 
         # equity should be initial - cost + proceeds = 100 - 17.5 + 21 = 103.5
-        assert trader.state["paper_equity_usd"] == pytest.approx(103.5, abs=0.01)
+        assert trader.state["paper_equity_usd"] == pytest.approx(403.5, abs=0.01)
+        assert _legacy_state(trader)["paper_equity_usd"] == pytest.approx(103.5, abs=0.01)
         assert trader.state["total_realized_pnl_usd"] == pytest.approx(3.5, abs=0.01)
-        assert trader.state["positions"][candidate.position_key]["status"] == "CLOSED"
+        assert _legacy_position(trader, candidate.position_key)["status"] == "CLOSED"
 
 
 # ---------------------------------------------------------------------------
@@ -435,7 +453,7 @@ class TestMarkToMarket:
         payload_cache = {"KLGA": mock_payload}
         trader._mark_to_market_all(payload_cache=payload_cache)
 
-        pos = trader.state["positions"][candidate.position_key]
+        pos = _legacy_position(trader, candidate.position_key)
         assert pos.get("current_price") == pytest.approx(0.42, abs=1e-6)
         # current_value = 50 * 0.42 = 21.0
         assert pos.get("current_value_usd") == pytest.approx(21.0, abs=0.01)
@@ -451,7 +469,7 @@ class TestMarkToMarket:
 
         trader._mark_to_market_all(payload_cache={})
 
-        pos = trader.state["positions"][candidate.position_key]
+        pos = _legacy_position(trader, candidate.position_key)
         # Without book data, current_value unchanged from cost basis
         assert pos.get("current_price") is None
 
@@ -465,8 +483,10 @@ class TestStatusSnapshot:
     def test_snapshot_initial(self, tmp_path):
         trader = _make_trader(tmp_path)
         status = trader.get_status_snapshot()
-        assert status["mode"] == "paper_shadow"
-        assert status["paper_equity_usd"] == 100.0
+        assert status["mode"] == "paper_multi_strategy"
+        assert status["paper_equity_usd"] == 400.0
+        assert status["aggregate_initial_bankroll_usd"] == 400.0
+        assert len(status["strategies"]) == 4
         assert status["open_positions_count"] == 0
         assert status["fill_ratio"] == 0.0
         assert status["hit_rate"] == 0.0
@@ -487,8 +507,10 @@ class TestStatusSnapshot:
 
     def test_snapshot_fill_ratio(self, tmp_path):
         trader = _make_trader(tmp_path)
-        trader.state["total_fills"] = 7
-        trader.state["total_rejections"] = 3
+        lane = _legacy_state(trader)
+        lane["total_fills"] = 7
+        lane["total_rejections"] = 3
+        trader._refresh_state_totals()
         trader._save_state()
 
         status = trader.get_status_snapshot()
@@ -525,9 +547,11 @@ class TestStatusSnapshot:
         NOT (slippage_usd / fills) × 10000."""
         trader = _make_trader(tmp_path)
         # Slippage = $0.50, notional = $100, bps = 50
-        trader.state["total_slippage_usd"] = 0.50
-        trader.state["total_fill_notional_usd"] = 100.0
-        trader.state["total_fills"] = 2  # irrelevant to the bps formula
+        lane = _legacy_state(trader)
+        lane["total_slippage_usd"] = 0.50
+        lane["total_fill_notional_usd"] = 100.0
+        lane["total_fills"] = 2  # irrelevant to the bps formula
+        trader._refresh_state_totals()
         trader._save_state()
 
         status = trader.get_status_snapshot()
@@ -559,7 +583,7 @@ class TestStatusSnapshot:
         exit_fill = _make_filled_fill(size=25.0, price=0.42)  # notional = 10.5
         exit_plan = {"reason": "take_profit", "min_price": 0.40, "size": 25.0}
         trader._persist_exit(candidate.position_key, exit_plan, exit_fill)
-        trader._record_fill_metrics(exit_fill)
+        trader._record_fill_metrics(exit_fill, strategy_id="terminal_value_legacy")
 
         # total_fills: 1 entry + 1 exit = 2
         assert trader.state["total_fills"] == 2
@@ -577,7 +601,8 @@ class TestStatusSnapshot:
     def test_snapshot_total_fill_notional_exposed(self, tmp_path):
         """[P2a] Status snapshot must expose total_fill_notional_usd for UI."""
         trader = _make_trader(tmp_path)
-        trader.state["total_fill_notional_usd"] = 55.5
+        _legacy_state(trader)["total_fill_notional_usd"] = 55.5
+        trader._refresh_state_totals()
         trader._save_state()
 
         status = trader.get_status_snapshot()
