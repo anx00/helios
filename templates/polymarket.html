@@ -236,43 +236,6 @@
     }
     .pm-edge-positive { color: #10B981; font-weight: 700; }
     .pm-edge-neutral { color: var(--text-secondary); }
-    .pm-autotrader {
-        border: 1px solid rgba(255,255,255,0.08);
-        border-radius: 12px;
-        padding: 14px;
-        background: rgba(255,255,255,0.02);
-        margin-bottom: 14px;
-    }
-    .pm-autotrader-head {
-        display: flex;
-        align-items: flex-start;
-        justify-content: space-between;
-        gap: 12px;
-        margin-bottom: 12px;
-    }
-    .pm-autotrader-title {
-        font-size: 12px;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        color: var(--text-secondary);
-        margin-bottom: 4px;
-    }
-    .pm-autotrader-main {
-        font-size: 22px;
-        font-weight: 800;
-        color: #fff;
-    }
-    .pm-autotrader-sub {
-        font-size: 12px;
-        color: var(--text-secondary);
-        line-height: 1.5;
-    }
-    .pm-autotrader-actions {
-        display: flex;
-        gap: 8px;
-        flex-wrap: wrap;
-        justify-content: flex-end;
-    }
     .pm-autotrader-btn {
         border: 1px solid rgba(255,255,255,0.12);
         background: rgba(255,255,255,0.04);
@@ -296,100 +259,6 @@
     .pm-autotrader-btn:disabled {
         opacity: 0.45;
         cursor: default;
-    }
-    .pm-autotrader-grid {
-        display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: 10px;
-        margin-bottom: 12px;
-    }
-    .pm-autotrader-cell {
-        border: 1px solid rgba(255,255,255,0.06);
-        border-radius: 10px;
-        padding: 10px 12px;
-        background: rgba(255,255,255,0.02);
-    }
-    .pm-autotrader-cell-label {
-        font-size: 10px;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        color: var(--text-secondary);
-        margin-bottom: 4px;
-    }
-    .pm-autotrader-cell-value {
-        font-size: 15px;
-        font-weight: 800;
-        color: #fff;
-    }
-    .pm-autotrader-log {
-        border-top: 1px solid rgba(255,255,255,0.06);
-        padding-top: 10px;
-        color: var(--text-secondary);
-        font-size: 12px;
-        line-height: 1.45;
-    }
-    .pm-autotrader-log-item + .pm-autotrader-log-item {
-        margin-top: 6px;
-    }
-    .pm-autotrader-config {
-        display: grid;
-        grid-template-columns: 1.6fr 1fr;
-        gap: 12px;
-        margin-bottom: 12px;
-    }
-    .pm-autotrader-config-box {
-        border: 1px solid rgba(255,255,255,0.06);
-        border-radius: 10px;
-        padding: 12px;
-        background: rgba(255,255,255,0.02);
-    }
-    .pm-autotrader-station-list {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-    }
-    .pm-autotrader-station-pill {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        padding: 7px 10px;
-        border-radius: 999px;
-        border: 1px solid rgba(255,255,255,0.10);
-        background: rgba(255,255,255,0.03);
-        color: #fff;
-        font-size: 12px;
-    }
-    .pm-autotrader-station-pill input {
-        margin: 0;
-    }
-    .pm-autotrader-fields {
-        display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 10px;
-    }
-    .pm-autotrader-field-label {
-        display: block;
-        font-size: 10px;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        color: var(--text-secondary);
-        margin-bottom: 6px;
-    }
-    .pm-autotrader-input {
-        width: 100%;
-        border: 1px solid rgba(255,255,255,0.10);
-        border-radius: 10px;
-        background: rgba(255,255,255,0.04);
-        color: #fff;
-        padding: 9px 10px;
-        font-size: 13px;
-        outline: none;
-    }
-    .pm-autotrader-note {
-        margin-top: 10px;
-        font-size: 12px;
-        color: var(--text-secondary);
-        line-height: 1.45;
     }
     .pm-agent-grid {
         display: grid;
@@ -819,8 +688,6 @@
         .ob-outcomes { grid-template-columns: 1fr; }
         .ob-book { grid-template-columns: 1fr; }
         .pm-trading-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-        .pm-autotrader-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-        .pm-autotrader-config { grid-template-columns: 1fr; }
         .pm-agent-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
     @media (max-width: 600px) {
@@ -828,312 +695,61 @@
         .pm-overview { flex-direction: column; align-items: flex-start; }
         .pm-overview-right { align-items: flex-start; }
         .pm-trading-grid { grid-template-columns: 1fr; }
-        .pm-autotrader-head { flex-direction: column; }
-        .pm-autotrader-actions { justify-content: flex-start; }
-        .pm-autotrader-grid { grid-template-columns: 1fr; }
-        .pm-autotrader-fields { grid-template-columns: 1fr; }
         .pm-agent-grid { grid-template-columns: 1fr; }
     }
 
-    /* ============= PAPERTRADER PANEL ============= */
-    .pt-panel {
-        border: 1px solid rgba(139,92,246,0.2);
-        border-radius: 12px;
-        padding: 14px;
-        background: rgba(139,92,246,0.04);
-        margin-bottom: 14px;
-    }
-    .pt-head {
-        display: flex;
-        align-items: flex-start;
-        justify-content: space-between;
-        gap: 12px;
-        margin-bottom: 12px;
-    }
-    .pt-label {
-        font-size: 10px;
-        text-transform: uppercase;
-        letter-spacing: 1.2px;
-        color: #8B5CF6;
-        margin-bottom: 4px;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-    }
-    .pt-shadow-badge {
-        display: inline-block;
-        font-size: 9px;
-        font-weight: 700;
-        letter-spacing: 1px;
-        padding: 2px 7px;
-        border-radius: 999px;
-        background: rgba(139,92,246,0.18);
-        border: 1px solid rgba(139,92,246,0.35);
-        color: #A78BFA;
-    }
-    .pt-headline {
-        font-size: 20px;
-        font-weight: 800;
-        color: #fff;
-    }
-    .pt-subline {
-        font-size: 12px;
-        color: var(--text-secondary);
-        line-height: 1.5;
-        margin-top: 3px;
-    }
-    .pt-actions {
-        display: flex;
-        gap: 8px;
-        flex-wrap: wrap;
-        justify-content: flex-end;
-    }
-    .pt-btn {
-        border: 1px solid rgba(255,255,255,0.12);
-        background: rgba(255,255,255,0.04);
-        color: #fff;
-        border-radius: 10px;
-        padding: 8px 12px;
-        font-size: 12px;
-        font-weight: 700;
-        cursor: pointer;
-        transition: opacity 0.2s;
-    }
-    .pt-btn:hover { opacity: 0.85; }
-    .pt-btn.primary {
-        border-color: rgba(139,92,246,0.4);
-        background: rgba(139,92,246,0.14);
-        color: #A78BFA;
-    }
-    .pt-btn.danger {
-        border-color: rgba(239,68,68,0.35);
-        background: rgba(239,68,68,0.10);
-        color: #F87171;
-    }
-    .pt-btn:disabled { opacity: 0.40; cursor: default; }
-    /* Config section */
-    .pt-config {
-        display: grid;
-        grid-template-columns: 1.6fr 1fr;
-        gap: 12px;
-        margin-bottom: 12px;
-    }
-    .pt-config-box {
-        border: 1px solid rgba(139,92,246,0.12);
-        border-radius: 10px;
-        padding: 12px;
-        background: rgba(255,255,255,0.01);
-    }
-    .pt-config-label {
-        font-size: 10px;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        color: var(--text-secondary);
-        margin-bottom: 8px;
-    }
-    .pt-station-list {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-    }
-    .pt-station-pill {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        padding: 7px 10px;
-        border-radius: 999px;
-        border: 1px solid rgba(139,92,246,0.20);
-        background: rgba(139,92,246,0.06);
-        color: #fff;
-        font-size: 12px;
-        cursor: pointer;
-    }
-    .pt-station-pill input { margin: 0; accent-color: #8B5CF6; }
-    .pt-fields {
-        display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 10px;
-    }
-    .pt-field-label {
-        display: block;
-        font-size: 10px;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        color: var(--text-secondary);
-        margin-bottom: 6px;
-    }
-    .pt-input {
-        width: 100%;
-        border: 1px solid rgba(139,92,246,0.18);
-        border-radius: 10px;
-        background: rgba(255,255,255,0.04);
-        color: #fff;
-        padding: 9px 10px;
-        font-size: 13px;
-        outline: none;
-        font-family: 'Inter', sans-serif;
-    }
-    .pt-input:focus { border-color: rgba(139,92,246,0.5); }
-    .pt-note {
-        margin-top: 10px;
-        font-size: 11px;
-        color: var(--text-secondary);
-        line-height: 1.45;
-    }
-    /* Metrics grid */
-    .pt-grid {
-        display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: 10px;
-        margin-bottom: 12px;
-    }
-    .pt-cell {
-        border: 1px solid rgba(139,92,246,0.10);
-        border-radius: 10px;
-        padding: 10px 12px;
-        background: rgba(255,255,255,0.01);
-    }
-    .pt-cell-label {
-        font-size: 10px;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        color: var(--text-secondary);
-        margin-bottom: 4px;
-    }
-    .pt-cell-value {
-        font-size: 15px;
-        font-weight: 800;
-        color: #fff;
-    }
-    .pt-cell-value.positive { color: #10B981; }
-    .pt-cell-value.negative { color: #F87171; }
-    .pt-cell-value.purple { color: #A78BFA; }
-    /* Positions table */
-    .pt-section-title {
-        font-size: 11px;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        color: var(--text-secondary);
-        margin-bottom: 8px;
-    }
-    .pt-table-wrap {
-        overflow-x: auto;
-        margin-bottom: 12px;
-    }
-    .pt-table {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: 12px;
-    }
-    .pt-table th {
-        text-align: left;
-        font-size: 10px;
-        text-transform: uppercase;
-        letter-spacing: 0.8px;
-        color: var(--text-secondary);
-        padding: 6px 10px;
-        border-bottom: 1px solid rgba(255,255,255,0.06);
-        white-space: nowrap;
-    }
-    .pt-table td {
-        padding: 8px 10px;
-        border-bottom: 1px solid rgba(255,255,255,0.04);
-        color: var(--text-secondary);
-        white-space: nowrap;
-    }
-    .pt-table tr:hover td { background: rgba(139,92,246,0.05); }
-    .pt-table .pt-td-label { color: #fff; font-weight: 600; }
-    .pt-table .pt-td-pnl.positive { color: #10B981; font-weight: 700; }
-    .pt-table .pt-td-pnl.negative { color: #F87171; font-weight: 700; }
-    .pt-mode-badge {
-        display: inline-block;
-        font-size: 9px;
-        font-weight: 700;
-        padding: 2px 6px;
-        border-radius: 999px;
-        background: rgba(139,92,246,0.2);
-        color: #A78BFA;
-        border: 1px solid rgba(139,92,246,0.3);
-    }
-    /* Activity log */
-    .pt-log {
-        border-top: 1px solid rgba(139,92,246,0.10);
-        padding-top: 10px;
-        color: var(--text-secondary);
-        font-size: 12px;
-        line-height: 1.45;
-    }
-    .pt-log-item {
-        padding: 4px 0;
-        border-bottom: 1px solid rgba(255,255,255,0.03);
-    }
-    .pt-log-item:last-child { border-bottom: none; }
-    .pt-running-dot {
-        display: inline-block;
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        background: #8B5CF6;
-        margin-right: 6px;
-        animation: ptpulse 1.5s ease-in-out infinite;
-    }
-    @keyframes ptpulse {
-        0%, 100% { opacity: 1; transform: scale(1); }
-        50% { opacity: 0.4; transform: scale(0.8); }
-    }
-    @media (max-width: 900px) {
-        .pt-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-        .pt-config { grid-template-columns: 1fr; }
-    }
-    @media (max-width: 600px) {
-        .pt-head { flex-direction: column; }
-        .pt-actions { justify-content: flex-start; }
-        .pt-grid { grid-template-columns: 1fr; }
-        .pt-fields { grid-template-columns: 1fr; }
-    }
-
-    /* ============= REDESIGNED AT PANEL ============= */
-    .at-panel {
-        border: 1px solid rgba(34,197,94,0.2);
+    /* ============= UNIFIED TRADING PANEL (.tp-*) ============= */
+    .tp-panel {
+        --tp-accent: #22c55e;
+        --tp-accent-rgb: 34,197,94;
+        border: 1px solid rgba(var(--tp-accent-rgb),0.2);
         border-radius: 12px;
         padding: 16px;
         background: rgba(12,14,18,0.97);
         backdrop-filter: blur(20px);
         margin-bottom: 14px;
     }
-    .at-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
-    .at-title-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
-    .at-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1.2px; color: #22c55e; font-weight: 700; }
-    .at-live-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #22c55e; animation: atpulse 1.5s ease-in-out infinite; }
-    @keyframes atpulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.8)} }
-    .at-badge { font-size: 9px; font-weight: 700; letter-spacing: 1px; padding: 2px 7px; border-radius: 999px; display: inline-block; }
-    .at-badge.live { background: rgba(34,197,94,0.18); border: 1px solid rgba(34,197,94,0.35); color: #22c55e; }
-    .at-badge.stopped { background: rgba(148,163,184,0.12); border: 1px solid rgba(148,163,184,0.2); color: #94a3b8; }
-    .at-badge.auto-date { background: rgba(56,189,248,0.12); border: 1px solid rgba(56,189,248,0.25); color: #38bdf8; }
-    .at-subinfo { font-size: 11px; color: #94a3b8; margin-top: 2px; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
-    .at-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; flex-shrink: 0; }
-    .at-btn { border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.04); color: #f1f5f9; border-radius: 8px; padding: 7px 11px; font-size: 11px; font-weight: 700; cursor: pointer; transition: opacity .15s; }
-    .at-btn:hover { opacity: .8; }
-    .at-btn.primary { border-color: rgba(34,197,94,0.4); background: rgba(34,197,94,0.12); color: #22c55e; }
-    .at-btn.danger { border-color: rgba(239,68,68,0.35); background: rgba(239,68,68,0.10); color: #f87171; }
-    .at-btn:disabled { opacity: .35; cursor: default; }
-    .at-metric-strip { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 8px; margin-bottom: 12px; }
-    .at-metric-cell { border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 9px 11px; background: rgba(255,255,255,0.02); }
-    .at-metric-label { font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: #4b5563; margin-bottom: 4px; display: flex; align-items: center; gap: 4px; }
-    .at-metric-value { font-size: 18px; font-weight: 800; color: #f1f5f9; line-height: 1.1; }
-    .at-metric-value.positive { color: #22c55e; }
-    .at-metric-value.negative { color: #ef4444; }
-    .at-metric-sub { font-size: 10px; color: #4b5563; margin-top: 3px; display: flex; align-items: center; gap: 3px; }
-    .at-config-row { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
-    .at-config-box { border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 10px 12px; background: rgba(255,255,255,0.01); }
-    .at-config-label { font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: #4b5563; margin-bottom: 6px; }
-    .at-station-list { display: flex; flex-wrap: wrap; gap: 6px; }
-    .at-station-pill { display: inline-flex; align-items: center; gap: 5px; padding: 5px 9px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.10); background: rgba(255,255,255,0.03); color: #f1f5f9; font-size: 11px; cursor: pointer; }
-    .at-station-pill input { margin: 0; accent-color: #22c55e; }
-    .at-field-label { display: block; font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: #4b5563; margin-bottom: 5px; }
-    .at-input { width: 100%; border: 1px solid rgba(255,255,255,0.10); border-radius: 8px; background: rgba(255,255,255,0.04); color: #f1f5f9; padding: 7px 9px; font-size: 12px; outline: none; font-family: 'Inter',sans-serif; box-sizing: border-box; }
-    .at-input:focus { border-color: rgba(34,197,94,0.45); }
-    .at-banner { border: 1px solid rgba(239,68,68,0.25); background: rgba(239,68,68,0.07); border-radius: 8px; padding: 8px 12px; font-size: 11px; color: #f87171; margin-bottom: 10px; }
+    .tp-panel[data-accent="purple"] {
+        --tp-accent: #8B5CF6;
+        --tp-accent-rgb: 139,92,246;
+    }
+    .tp-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+    .tp-title-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+    .tp-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1.2px; color: var(--tp-accent); font-weight: 700; }
+    .tp-live-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--tp-accent); animation: tppulse 1.5s ease-in-out infinite; }
+    @keyframes tppulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.8)} }
+    .tp-badge { font-size: 9px; font-weight: 700; letter-spacing: 1px; padding: 2px 7px; border-radius: 999px; display: inline-block; }
+    .tp-badge.live { background: rgba(var(--tp-accent-rgb),0.18); border: 1px solid rgba(var(--tp-accent-rgb),0.35); color: var(--tp-accent); }
+    .tp-badge.stopped { background: rgba(148,163,184,0.12); border: 1px solid rgba(148,163,184,0.2); color: #94a3b8; }
+    .tp-badge.auto-date { background: rgba(56,189,248,0.12); border: 1px solid rgba(56,189,248,0.25); color: #38bdf8; }
+    .tp-subinfo { font-size: 11px; color: #94a3b8; margin-top: 2px; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+    .tp-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; flex-shrink: 0; }
+    .tp-btn { border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.04); color: #f1f5f9; border-radius: 8px; padding: 7px 11px; font-size: 11px; font-weight: 700; cursor: pointer; transition: opacity .15s; }
+    .tp-btn:hover { opacity: .8; }
+    .tp-btn.primary { border-color: rgba(var(--tp-accent-rgb),0.4); background: rgba(var(--tp-accent-rgb),0.12); color: var(--tp-accent); }
+    .tp-btn.danger { border-color: rgba(239,68,68,0.35); background: rgba(239,68,68,0.10); color: #f87171; }
+    .tp-btn:disabled { opacity: .35; cursor: default; }
+    .tp-metric-strip { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 8px; margin-bottom: 12px; }
+    .tp-metric-cell { border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 9px 11px; background: rgba(255,255,255,0.02); }
+    .tp-metric-label { font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: #4b5563; margin-bottom: 4px; display: flex; align-items: center; gap: 4px; }
+    .tp-metric-value { font-size: 18px; font-weight: 800; color: #f1f5f9; line-height: 1.1; }
+    .tp-metric-value.positive { color: #22c55e; }
+    .tp-metric-value.negative { color: #ef4444; }
+    .tp-metric-sub { font-size: 10px; color: #4b5563; margin-top: 3px; display: flex; align-items: center; gap: 3px; }
+    .tp-config-row { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+    .tp-config-box { border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 10px 12px; background: rgba(255,255,255,0.01); }
+    .tp-config-label { font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: #4b5563; margin-bottom: 6px; }
+    .tp-station-list { display: flex; flex-wrap: wrap; gap: 6px; }
+    .tp-station-pill { display: inline-flex; align-items: center; gap: 5px; padding: 5px 9px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.10); background: rgba(255,255,255,0.03); color: #f1f5f9; font-size: 11px; cursor: pointer; }
+    .tp-station-pill input { margin: 0; accent-color: var(--tp-accent); }
+    .tp-field-label { display: block; font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: #4b5563; margin-bottom: 5px; }
+    .tp-input { width: 100%; border: 1px solid rgba(255,255,255,0.10); border-radius: 8px; background: rgba(255,255,255,0.04); color: #f1f5f9; padding: 7px 9px; font-size: 12px; outline: none; font-family: 'Inter',sans-serif; box-sizing: border-box; }
+    .tp-input:focus { border-color: rgba(var(--tp-accent-rgb),0.45); }
+    .tp-banner { border: 1px solid rgba(239,68,68,0.25); background: rgba(239,68,68,0.07); border-radius: 8px; padding: 8px 12px; font-size: 11px; color: #f87171; margin-bottom: 10px; }
+    .tp-log { border-top: 1px solid rgba(255,255,255,0.05); padding-top: 8px; font-size: 11px; line-height: 1.5; }
+    .tp-log-item { padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,0.02); color: #64748b; }
+    .tp-log-item:last-child { border-bottom: none; }
+    .exit-breakdown { margin: 8px 0 4px; font-size: 10px; color: #4b5563; display: flex; flex-wrap: wrap; gap: 12px; }
     /* Shared trade tables */
     .trade-section-title { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #4b5563; margin-bottom: 6px; margin-top: 10px; }
     .trade-table-wrap { overflow-x: auto; margin-bottom: 10px; border: 1px solid rgba(255,255,255,0.05); border-radius: 8px; }
@@ -1159,12 +775,8 @@
     .trade-tooltip { position: relative; display: inline-flex; align-items: center; cursor: help; }
     .trade-tooltip .tooltip-text { visibility: hidden; opacity: 0; background: rgba(15,23,42,.97); border: 1px solid rgba(255,255,255,.1); color: #94a3b8; font-size: 10px; font-weight: 400; text-transform: none; letter-spacing: 0; border-radius: 6px; padding: 6px 10px; position: absolute; z-index: 100; bottom: 120%; left: 50%; transform: translateX(-50%); width: 200px; line-height: 1.5; transition: opacity .15s; pointer-events: none; }
     .trade-tooltip:hover .tooltip-text { visibility: visible; opacity: 1; }
-    .at-log { border-top: 1px solid rgba(255,255,255,0.05); padding-top: 8px; font-size: 11px; line-height: 1.5; }
-    .at-log-item { padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,0.02); color: #64748b; }
-    .at-log-item:last-child { border-bottom: none; }
-    .exit-breakdown { margin: 8px 0 4px; font-size: 10px; color: #4b5563; display: flex; flex-wrap: wrap; gap: 12px; }
-    @media (max-width: 900px) { .at-metric-strip { grid-template-columns: repeat(2,minmax(0,1fr)); } }
-    @media (max-width: 600px) { .at-head { flex-direction: column; } .at-actions { justify-content: flex-start; } }
+    @media (max-width: 900px) { .tp-metric-strip { grid-template-columns: repeat(2,minmax(0,1fr)); } .tp-config-row { flex-direction: column; } }
+    @media (max-width: 600px) { .tp-head { flex-direction: column; } .tp-actions { justify-content: flex-start; } }
 </style>
 {% endblock %}
 
@@ -1211,8 +823,8 @@
         <div class="pm-section-title">
             <i data-lucide="crosshair"></i> Trading
         </div>
-        <div class="pm-autotrader" id="pm-autotrader-panel" style="display:none;"></div>
-        <div class="pt-panel" id="pt-panel" style="display:none;"></div>
+        <div id="pm-autotrader-panel" style="display:none;"></div>
+        <div id="pt-panel" style="display:none;"></div>
         <div class="pm-trading-grid" id="pm-trading-grid"></div>
         <div id="pm-trading-table-wrap"></div>
     </div>
@@ -1590,6 +1202,7 @@
         if (!banner) return;
         banner.textContent = autotraderBannerMessage;
         banner.style.display = autotraderBannerMessage ? 'block' : 'none';
+        banner.className = 'tp-banner';
     }
 
     function buildAutotraderDraftFromStatus(status) {
@@ -1778,42 +1391,31 @@
         return `<span class="${cls}">${n >= 0 ? '+' : ''}$${Math.abs(n).toFixed(2)}</span>`;
     }
 
-    function renderAutoTrader(status, trading) {
-        const panel = document.getElementById('pm-autotrader-panel');
-        if (!panel) return;
-        if (!status) { panel.style.display = 'none'; return; }
+    // ── Shared trading panel renderer ──────────────────────────────────────
+    function _renderTradingPanel(panel, cfg) {
+        const mode = cfg.mode; // 'live' or 'paper'
+        const isLive = mode === 'live';
+        const accent = isLive ? 'green' : 'purple';
+        const running = !!cfg.running;
+        const openPositions = cfg.openPositions || [];
+        const recent = cfg.recentEvents || [];
+        const availableStations = cfg.availableStations || [];
+        const selectedStations = cfg.selectedStations || [];
+        const exits = cfg.exits || {};
 
         panel.style.display = 'block';
-        panel.className = 'at-panel';
+        panel.className = 'tp-panel';
+        panel.setAttribute('data-accent', accent);
 
-        const portfolio = status.portfolio || {};
-        const risk = status.risk || {};
-        const wallet = status.wallet || {};
-        const recent = Array.isArray(status.recent_events) ? status.recent_events.slice(0, 8) : [];
-        const openBets = Array.isArray(portfolio.open_positions) ? portfolio.open_positions : [];
-        const availableStations = Array.isArray(status.available_stations) ? status.available_stations : [];
-        const draft = syncAutotraderDraft(status);
-        const selectedStations = Array.isArray(draft.station_ids) ? draft.station_ids : [];
-        const running = !!status.running;
+        // ── Banner ──
+        const banner = cfg.banner || '';
+        const bannerIdAttr = isLive ? ' id="pm-autotrader-banner"' : '';
+        const bannerHtml = banner
+            ? `<div class="tp-banner"${bannerIdAttr}>${banner}</div>`
+            : (isLive ? `<div${bannerIdAttr} class="tp-banner" style="display:none;"></div>` : '');
 
-        const openRisk = Number(portfolio.open_risk_usd || 0);
-        const totalCap = Number(risk.max_total_exposure_usd || 0);
-        const freeCollateral = Number(portfolio.free_collateral_usd || wallet.free_collateral_usd || 0);
-        const bankrollRef = Number(risk.bankroll_usd || portfolio.bankroll_usd || 0);
-        const pnlToday = Number(portfolio.realized_pnl_today_usd || 0);
-        const openCount = Number(portfolio.open_positions_count || openBets.length || 0);
-        const maxOpen = Number(risk.max_open_positions || 12);
-        const orderMode = String(status.order_mode || risk.order_mode || 'limit_fak').toUpperCase();
-
-        const walletIssue = recent.find(ev => String(ev.error||'').toLowerCase().includes('allowance') || (Array.isArray(ev.reasons) && ev.reasons.some(r => String(r).includes('allowance')||String(r).includes('balance'))));
-        const stopReasonMap = { all_selected_markets_resolved: 'Stopped: all selected markets resolved.', manual_stop: 'Stopped manually.', no_stations_selected: 'No stations selected.', shutdown: 'Stopped by server shutdown.' };
-        const derivedBanner = autotraderBannerMessage
-            || (status.last_stop_reason ? (stopReasonMap[status.last_stop_reason] || status.last_stop_reason) : '')
-            || wallet.error
-            || (walletIssue ? 'Wallet blocked: insufficient balance or allowance.' : '')
-            || (totalCap > 0 && openRisk > totalCap + 0.009 ? `Exposure cap hit ($${openRisk.toFixed(2)} / $${totalCap.toFixed(2)}). New entries blocked.` : '');
-
-        const openRows = openBets.length ? openBets.map(p => {
+        // ── Open positions rows ──
+        const openRows = openPositions.length ? openPositions.map(p => {
             const pnl = Number(p.cash_pnl_usd || p.unrealized_pnl_usd || 0);
             const curPrice = p.current_price != null ? Number(p.current_price).toFixed(3) : (p.current_yes_price != null ? Number(p.current_yes_price).toFixed(3) : '—');
             return `<tr>
@@ -1832,85 +1434,128 @@
             </tr>`;
         }).join('') : `<tr><td colspan="12" style="text-align:center;padding:14px;color:#4b5563;">No open positions</td></tr>`;
 
+        // ── Activity log ──
         const logItems = recent.length ? recent.map(ev => {
             const pnl = ev.persisted?.realized_pnl_usd;
             const pnlStr = pnl !== undefined ? ` pnl ${Number(pnl)>=0?'+':''}$${Number(pnl).toFixed(2)}` : '';
             const fillStr = ev.fill ? ` ${Number(ev.fill.filled_size||0).toFixed(1)}sh@${Number(ev.fill.avg_price||0).toFixed(3)}` : '';
             const rsn = ev.reason ? ` [${ev.reason.replace(/_/g,' ')}]` : '';
-            const stn = ev.station_id ? ` ${ev.station_id}` : '';
+            const pos = ev.station_id ? ` ${ev.station_id}` : (ev.position_key ? ` ${ev.position_key.split('|').slice(-2).join(' ')}` : '');
             const cand = ev.candidate ? ` ${ev.candidate.side} ${ev.candidate.label}` : '';
-            return `<div class="at-log-item"><strong>${ev.event||ev.status||'event'}</strong>${stn}${cand}${fillStr}${rsn}${pnlStr}<span style="float:right;opacity:.45;">${shortTs(ev.ts_utc)}</span></div>`;
-        }).join('') : '<div class="at-log-item" style="opacity:.4;">No runs yet.</div>';
+            return `<div class="tp-log-item"><strong>${ev.event||ev.status||'event'}</strong>${pos}${cand}${fillStr}${rsn}${pnlStr}<span style="float:right;opacity:.45;">${shortTs(ev.ts_utc)}</span></div>`;
+        }).join('') : `<div class="tp-log-item" style="opacity:.4;">${isLive ? 'No runs yet.' : 'No activity yet — press Run once or Start loop.'}</div>`;
 
-        panel.innerHTML = `
-            ${derivedBanner ? `<div class="at-banner" id="pm-autotrader-banner">${derivedBanner}</div>` : `<div id="pm-autotrader-banner" class="at-banner" style="display:none;"></div>`}
-            <div class="at-head">
-                <div>
-                    <div class="at-title-row">
-                        ${running ? '<span class="at-live-dot"></span>' : ''}
-                        <span class="at-title">Live Autotrader</span>
-                        <span class="at-badge ${running ? 'live' : 'stopped'}">${running ? 'LIVE' : 'STOPPED'}</span>
-                    </div>
-                    <div class="at-subinfo">
-                        $${bankrollRef.toFixed(0)} bankroll · Free: $${freeCollateral.toFixed(2)} · ${orderMode}
-                        <span class="at-badge auto-date">📅 AUTO-DATE</span>
-                    </div>
-                </div>
-                <div class="at-actions">
-                    <button class="at-btn" onclick="runAutotraderAction('run-once')" ${running ? 'disabled' : ''}>Run Once</button>
-                    <button class="at-btn primary" onclick="startAutotraderToday()" ${running ? 'disabled' : ''}>▶ Start</button>
-                    <button class="at-btn danger" onclick="stopAutotraderToday()" ${running ? '' : 'disabled'}>■ Stop</button>
-                </div>
-            </div>
-            <div class="at-metric-strip">
-                <div class="at-metric-cell">
-                    <div class="at-metric-label">Open Risk <span class="trade-tooltip">ⓘ<span class="tooltip-text">Max capital held in open positions simultaneously. Bot pauses new bets when this cap is hit.</span></span></div>
-                    <div class="at-metric-value">$${openRisk.toFixed(2)}</div>
-                    <div class="at-metric-sub">of $${totalCap.toFixed(0)} cap</div>
-                </div>
-                <div class="at-metric-cell">
-                    <div class="at-metric-label">Day PnL</div>
-                    <div class="at-metric-value ${pnlToday >= 0 ? 'positive' : 'negative'}">${pnlToday >= 0 ? '+' : ''}$${Math.abs(pnlToday).toFixed(2)}</div>
-                </div>
-                <div class="at-metric-cell">
-                    <div class="at-metric-label">Wallet</div>
-                    <div class="at-metric-value" style="font-size:14px;">${wallet.live_ready ? '✓ Ready' : '✗ Missing'}</div>
-                    <div class="at-metric-sub">free $${freeCollateral.toFixed(2)}</div>
-                </div>
-                <div class="at-metric-cell">
-                    <div class="at-metric-label">Open Positions</div>
-                    <div class="at-metric-value">${openCount}<span style="font-size:13px;color:#4b5563;"> / ${maxOpen}</span></div>
-                </div>
-            </div>
-            <div class="at-config-row">
-                <div class="at-config-box" style="flex:2;min-width:200px;">
-                    <div class="at-config-label">Stations</div>
-                    <div class="at-station-list">
-                        ${availableStations.map(opt => `
-                            <label class="at-station-pill">
-                                <input type="checkbox" class="pm-autotrader-station-check" value="${opt.id}" ${selectedStations.includes(opt.id) ? 'checked' : ''}>
-                                <span>${opt.city_name} (${opt.id})</span>
-                            </label>
-                        `).join('')}
-                    </div>
-                </div>
-                <div class="at-config-box" style="flex:1;min-width:150px;">
-                    <div class="at-config-label">Exposure Cap</div>
+        // ── Exit breakdown pills ──
+        const exitPills = Object.entries(exits).map(([k,v]) => {
+            const cls = k.includes('take_profit') ? 'tp' : k.includes('stop_loss') ? 'sl' : k.includes('timeout') ? 'to' : 'ot';
+            return `<span class="reason-badge ${cls}" style="font-size:10px;">${k.replace(/_/g,' ')} ×${v}</span>`;
+        }).join(' ');
+
+        // ── Station checkboxes ──
+        const stationCheckClass = isLive ? 'pm-autotrader-station-check' : 'pt-station-check';
+        const stationPillsHtml = availableStations.map(opt => `
+            <label class="tp-station-pill">
+                <input type="checkbox" class="${stationCheckClass}" value="${opt.id}" ${selectedStations.includes(opt.id) ? 'checked' : ''}>
+                <span>${opt.city_name} (${opt.id})</span>
+            </label>
+        `).join('');
+
+        // ── Config: risk setup box ──
+        let riskSetupHtml;
+        if (isLive) {
+            riskSetupHtml = `
+                <div class="tp-config-box" style="flex:1;min-width:150px;">
+                    <div class="tp-config-label">Exposure Cap</div>
                     <label>
-                        <span class="at-field-label">Cap ($)</span>
-                        <input id="pm-autotrader-total-cap" class="at-input" type="number" min="0.5" step="0.25" value="${autotraderInputValueNumber('max_total_exposure_usd', risk.max_total_exposure_usd).toFixed(2)}">
+                        <span class="tp-field-label">Cap ($)</span>
+                        <input id="pm-autotrader-total-cap" class="tp-input" type="number" min="0.5" step="0.25" value="${cfg.totalCapInput}">
                     </label>
                     <div style="margin-top:8px;">
-                        <button class="at-btn" onclick="saveAutotraderConfig()" style="width:100%;font-size:10px;">Save Setup</button>
+                        <button class="tp-btn" onclick="saveAutotraderConfig()" style="width:100%;font-size:10px;">Save Setup</button>
+                    </div>
+                </div>`;
+        } else {
+            riskSetupHtml = `
+                <div class="tp-config-box" style="flex:1;min-width:150px;">
+                    <div class="tp-config-label">Setup</div>
+                    <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;">
+                        <label>
+                            <span class="tp-field-label">Exposure cap ($)</span>
+                            <input id="pt-total-cap" class="tp-input" type="number" min="1" step="1" value="${cfg.totalCapInput}">
+                        </label>
+                        <label>
+                            <span class="tp-field-label">Starting bankroll ($)</span>
+                            <input id="pt-bankroll" class="tp-input" type="number" min="1" step="10" value="${cfg.bankrollInput}">
+                        </label>
+                    </div>
+                    <div style="margin-top:8px;font-size:10px;color:#4b5563;line-height:1.45;">Paper fills walk the live L2 orderbook level-by-level. No real orders are sent.</div>
+                </div>`;
+        }
+
+        // ── Buttons ──
+        const buttonsHtml = isLive ? `
+            <button class="tp-btn" onclick="runAutotraderAction('run-once')" ${running ? 'disabled' : ''}>Run Once</button>
+            <button class="tp-btn primary" onclick="startAutotraderToday()" ${running ? 'disabled' : ''}>▶ Start</button>
+            <button class="tp-btn danger" onclick="stopAutotraderToday()" ${running ? '' : 'disabled'}>■ Stop</button>
+        ` : `
+            <button class="tp-btn" onclick="savePapertraderConfig()">Save setup</button>
+            <button class="tp-btn" onclick="runPapertraderAction('run-once')" ${running ? 'disabled' : ''}>Run once</button>
+            <button class="tp-btn primary" onclick="startPapertrader()" ${running ? 'disabled' : ''}>▶ Start</button>
+            <button class="tp-btn danger" onclick="runPapertraderAction('stop')" ${running ? '' : 'disabled'}>■ Stop</button>
+        `;
+
+        // ── History section ID ──
+        const historySectionId = isLive ? 'at-history-section' : 'pt-history-section';
+
+        // ── Assemble ──
+        panel.innerHTML = `
+            ${bannerHtml}
+            <div class="tp-head">
+                <div>
+                    <div class="tp-title-row">
+                        ${running ? '<span class="tp-live-dot"></span>' : ''}
+                        <span class="tp-title">${cfg.title}</span>
+                        <span class="tp-badge ${running ? 'live' : 'stopped'}">${cfg.badgeText}</span>
+                    </div>
+                    <div class="tp-subinfo">
+                        ${cfg.subinfo}
+                        <span class="tp-badge auto-date">📅 AUTO-DATE</span>
                     </div>
                 </div>
-                <div class="at-config-box" style="flex:0 0 auto;min-width:100px;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;">
-                    <div class="at-config-label">Market Date</div>
-                    <span class="at-badge auto-date" style="font-size:11px;padding:4px 10px;">📅 AUTO</span>
-                    <div style="font-size:10px;color:#4b5563;">${status.target_date || 'auto-resolved'}</div>
+                <div class="tp-actions">${buttonsHtml}</div>
+            </div>
+            <div class="tp-metric-strip">
+                <div class="tp-metric-cell">
+                    <div class="tp-metric-label">Open Risk <span class="trade-tooltip">ⓘ<span class="tooltip-text">Max capital held in open positions simultaneously. Bot pauses new bets when this cap is hit.</span></span></div>
+                    <div class="tp-metric-value">$${cfg.openRisk.toFixed(2)}</div>
+                    <div class="tp-metric-sub">of $${cfg.totalCap.toFixed(0)} cap</div>
+                </div>
+                <div class="tp-metric-cell">
+                    <div class="tp-metric-label">Realized PnL</div>
+                    <div class="tp-metric-value ${cfg.realizedPnl >= 0 ? 'positive' : 'negative'}">${cfg.realizedPnl >= 0 ? '+' : ''}$${Math.abs(cfg.realizedPnl).toFixed(2)}</div>
+                </div>
+                <div class="tp-metric-cell">
+                    <div class="tp-metric-label">Today PnL</div>
+                    <div class="tp-metric-value ${cfg.todayPnl >= 0 ? 'positive' : 'negative'}">${cfg.todayPnl >= 0 ? '+' : ''}$${Math.abs(cfg.todayPnl).toFixed(2)}</div>
+                </div>
+                <div class="tp-metric-cell">
+                    <div class="tp-metric-label">Open Positions</div>
+                    <div class="tp-metric-value">${cfg.openCount}<span style="font-size:13px;color:#4b5563;"> / ${cfg.maxOpen}</span></div>
                 </div>
             </div>
-            <div class="trade-section-title">Open Positions (${openBets.length})</div>
+            <div class="tp-config-row">
+                <div class="tp-config-box" style="flex:2;min-width:200px;">
+                    <div class="tp-config-label">Stations</div>
+                    <div class="tp-station-list">${stationPillsHtml}</div>
+                </div>
+                ${riskSetupHtml}
+                <div class="tp-config-box" style="flex:0 0 auto;min-width:100px;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;">
+                    <div class="tp-config-label">Market Date</div>
+                    <span class="tp-badge auto-date" style="font-size:11px;padding:4px 10px;">📅 AUTO</span>
+                    <div style="font-size:10px;color:#4b5563;">${cfg.targetDate || 'auto-resolved'}</div>
+                </div>
+            </div>
+            <div class="trade-section-title">Open Positions (${openPositions.length})</div>
             <div class="trade-table-wrap">
                 <table class="trade-table trade-table--open">
                     <thead><tr>
@@ -1920,10 +1565,65 @@
                     <tbody>${openRows}</tbody>
                 </table>
             </div>
-            <div id="at-history-section"></div>
+            <div id="${historySectionId}"></div>
+            ${exitPills ? `<div class="exit-breakdown"><span style="color:#4b5563;text-transform:uppercase;font-size:9px;letter-spacing:1px;">Exits:</span> ${exitPills}</div>` : ''}
             <div class="trade-section-title">Recent Activity (last 8)</div>
-            <div class="at-log">${logItems}</div>
+            <div class="tp-log">${logItems}</div>
         `;
+    }
+
+    function renderAutoTrader(status, trading) {
+        const panel = document.getElementById('pm-autotrader-panel');
+        if (!panel) return;
+        if (!status) { panel.style.display = 'none'; return; }
+
+        const portfolio = status.portfolio || {};
+        const risk = status.risk || {};
+        const wallet = status.wallet || {};
+        const recent = Array.isArray(status.recent_events) ? status.recent_events.slice(0, 8) : [];
+        const openBets = Array.isArray(portfolio.open_positions) ? portfolio.open_positions : [];
+        const draft = syncAutotraderDraft(status);
+        const running = !!status.running;
+
+        const openRisk = Number(portfolio.open_risk_usd || 0);
+        const totalCap = Number(risk.max_total_exposure_usd || 0);
+        const freeCollateral = Number(portfolio.free_collateral_usd || wallet.free_collateral_usd || 0);
+        const bankrollRef = Number(risk.bankroll_usd || portfolio.bankroll_usd || 0);
+        const pnlToday = Number(portfolio.realized_pnl_today_usd || 0);
+        const realizedPnl = Number(portfolio.realized_pnl_usd || 0);
+        const openCount = Number(portfolio.open_positions_count || openBets.length || 0);
+        const maxOpen = Number(risk.max_open_positions || 12);
+        const orderMode = String(status.order_mode || risk.order_mode || 'limit_fak').toUpperCase();
+
+        const walletIssue = recent.find(ev => String(ev.error||'').toLowerCase().includes('allowance') || (Array.isArray(ev.reasons) && ev.reasons.some(r => String(r).includes('allowance')||String(r).includes('balance'))));
+        const stopReasonMap = { all_selected_markets_resolved: 'Stopped: all selected markets resolved.', manual_stop: 'Stopped manually.', no_stations_selected: 'No stations selected.', shutdown: 'Stopped by server shutdown.' };
+        const banner = autotraderBannerMessage
+            || (status.last_stop_reason ? (stopReasonMap[status.last_stop_reason] || status.last_stop_reason) : '')
+            || wallet.error
+            || (walletIssue ? 'Wallet blocked: insufficient balance or allowance.' : '')
+            || (totalCap > 0 && openRisk > totalCap + 0.009 ? `Exposure cap hit ($${openRisk.toFixed(2)} / $${totalCap.toFixed(2)}). New entries blocked.` : '');
+
+        _renderTradingPanel(panel, {
+            mode: 'live',
+            running,
+            title: 'Live Autotrader',
+            badgeText: running ? 'LIVE' : 'STOPPED',
+            subinfo: `$${bankrollRef.toFixed(0)} bankroll · Free: $${freeCollateral.toFixed(2)} · ${orderMode}`,
+            banner,
+            openRisk,
+            totalCap,
+            realizedPnl,
+            todayPnl: pnlToday,
+            openCount,
+            maxOpen,
+            openPositions: openBets,
+            recentEvents: recent,
+            availableStations: Array.isArray(status.available_stations) ? status.available_stations : [],
+            selectedStations: Array.isArray(draft.station_ids) ? draft.station_ids : [],
+            totalCapInput: autotraderInputValueNumber('max_total_exposure_usd', risk.max_total_exposure_usd).toFixed(2),
+            targetDate: status.target_date,
+            exits: {},
+        });
         bindAutotraderDraftEvents();
         renderAutoTraderHistory();
     }
@@ -2441,196 +2141,44 @@
     }
     window.startPapertrader = startPapertrader;
 
-    function _ptPnlClass(v) {
-        return v > 0 ? 'positive' : v < 0 ? 'negative' : '';
-    }
-    function _ptFmt(v, digits=2, prefix='$') {
-        const n = Number(v || 0);
-        return `${n >= 0 ? prefix : '-'+prefix}${Math.abs(n).toFixed(digits)}`;
-    }
-    function _ptPnlFmt(v) {
-        const n = Number(v || 0);
-        return `${n >= 0 ? '+' : ''}${_ptFmt(n)}`;
-    }
-
     function renderPaperTrader(status) {
         const panel = document.getElementById('pt-panel');
         if (!panel) return;
         if (!status) { panel.style.display = 'none'; return; }
 
-        panel.style.display = 'block';
         document.getElementById('pm-trading-section').style.display = 'block';
 
         const running = !!status.running;
         const draft = syncPapertraderDraft(status);
         const stations = Array.isArray(status.station_ids) ? status.station_ids : [];
-        const available = Array.isArray(status.available_stations) ? status.available_stations : [];
-        const selectedStations = Array.isArray(draft.station_ids) ? draft.station_ids : [];
-        const openPositions = Array.isArray(status.open_positions) ? status.open_positions : [];
-        const recent = Array.isArray(status.recent_events) ? status.recent_events.slice(0, 8) : [];
-        const exits = status.exits_by_reason || {};
-
-        const equity = Number(status.paper_equity_usd || 0);
         const bankroll = Number(status.initial_bankroll_usd || 100);
         const openRisk = Number(status.open_risk_usd || 0);
         const realizedPnl = Number(status.realized_pnl_usd || 0);
-        const unrealizedPnl = Number(status.unrealized_pnl_usd || 0);
-        const totalPnl = realizedPnl + unrealizedPnl;
-        const totalPnlPct = bankroll > 0 ? (totalPnl / bankroll * 100) : 0;
-        const fillRatio = Number(status.fill_ratio || 0);
-        const hitRate = Number(status.hit_rate || 0);
-        const avgSlip = Number(status.avg_slippage_bps || 0);
+        const todayPnl = Number(status.realized_pnl_today_usd || 0);
+        const free = Number(status.paper_equity_usd || 0) - openRisk;
 
-        const headline = running
-            ? `<span class="pt-running-dot"></span>SHADOW running — ${stations.length} station${stations.length===1?'':'s'}`
-            : `SHADOW ready${status.last_stop_reason ? ` — ${status.last_stop_reason.replace(/_/g,' ')}` : ''}`;
-        const subline = running
-            ? `Cycling every ${status.loop_seconds || 60}s. Paper fills walk real L2 orderbook data — no real orders sent.`
-            : `Configure stations, set exposure cap, then press Start. All fills are simulated against live orderbook depth.`;
-
-        const posRows = openPositions.length
-            ? openPositions.map(p => {
-                const pnl = Number(p.unrealized_pnl_usd || 0);
-                const curPrice = p.current_price != null ? Number(p.current_price).toFixed(3) : '—';
-                return `<tr>
-                    <td title="${p.opened_at_utc||''}">${_fmtTime(p.opened_at_utc)}</td>
-                    <td class="td-primary">${p.station_id||'—'}</td>
-                    <td>${p.label||'—'}</td>
-                    <td>${_sideBadge(p.side)}</td>
-                    <td>${_stratBadge(p.strategy)}</td>
-                    <td>${Number(p.entry_price||0).toFixed(3)}</td>
-                    <td>${curPrice}</td>
-                    <td>${Number(p.shares_open||0).toFixed(1)}</td>
-                    <td>$${Number(p.cost_basis_open_usd||0).toFixed(2)}</td>
-                    <td>$${Number(p.current_value_usd||0).toFixed(2)}</td>
-                    <td>${_pnlSpan(pnl)}</td>
-                    <td>${_ageStr(p.opened_at_utc)}</td>
-                </tr>`;
-            }).join('')
-            : `<tr><td colspan="12" style="text-align:center;padding:14px;color:#4b5563;">No open positions</td></tr>`;
-
-        const logItems = recent.length
-            ? recent.map(ev => {
-                const evType = ev.event || ev.status || 'event';
-                const pnl = ev.persisted?.realized_pnl_usd;
-                const pnlStr = pnl !== undefined ? ` pnl ${Number(pnl)>=0?'+':''}$${Number(pnl).toFixed(2)}` : '';
-                const fillStr = ev.fill ? ` ${Number(ev.fill.filled_size||0).toFixed(1)}sh@${Number(ev.fill.avg_price||0).toFixed(3)}` : '';
-                const reason = ev.reason ? ` [${ev.reason.replace(/_/g,' ')}]` : '';
-                const pos = ev.position_key ? ` ${ev.position_key.split('|').slice(-2).join(' ')}` : '';
-                return `<div class="pt-log-item"><strong>${evType}</strong>${pos}${fillStr}${reason}${pnlStr}<span style="float:right;opacity:.45;">${shortTs(ev.ts_utc)}</span></div>`;
-            }).join('')
-            : '<div class="pt-log-item" style="opacity:.5;">No activity yet — press Run once or Start loop.</div>';
-
-        // Exit breakdown pills
-        const exitPills = Object.entries(exits).map(([k,v]) => {
-            const cls = k.includes('take_profit') ? 'tp' : k.includes('stop_loss') ? 'sl' : k.includes('timeout') ? 'to' : 'ot';
-            return `<span class="reason-badge ${cls}" style="font-size:10px;">${k.replace(/_/g,' ')} ×${v}</span>`;
-        }).join(' ');
-
-        panel.innerHTML = `
-            <div class="pt-head">
-                <div>
-                    <div class="pt-label">Paper Trader <span class="pt-shadow-badge">SHADOW</span></div>
-                    <div class="pt-headline">${headline}</div>
-                    <div class="pt-subline">${subline}</div>
-                </div>
-                <div class="pt-actions">
-                    <button class="pt-btn" onclick="savePapertraderConfig()">Save setup</button>
-                    <button class="pt-btn" onclick="runPapertraderAction('run-once')" ${running ? 'disabled' : ''}>Run once</button>
-                    <button class="pt-btn primary" onclick="startPapertrader()" ${running ? 'disabled' : ''}>▶ Start</button>
-                    <button class="pt-btn danger" onclick="runPapertraderAction('stop')" ${running ? '' : 'disabled'}>■ Stop</button>
-                </div>
-            </div>
-
-            <div class="pt-config">
-                <div class="pt-config-box">
-                    <div class="pt-config-label">Stations to shadow-trade</div>
-                    <div class="pt-station-list">
-                        ${available.map(opt => `
-                            <label class="pt-station-pill">
-                                <input type="checkbox" class="pt-station-check" value="${opt.id}" ${selectedStations.includes(opt.id) ? 'checked' : ''}>
-                                <span>${opt.city_name} (${opt.id})</span>
-                            </label>
-                        `).join('')}
-                    </div>
-                </div>
-                <div class="pt-config-box">
-                    <div class="pt-config-label">Setup</div>
-                    <div class="pt-fields" style="grid-template-columns:repeat(2,minmax(0,1fr));">
-                        <label>
-                            <span class="pt-field-label">Exposure cap ($)</span>
-                            <input id="pt-total-cap" class="pt-input" type="number" min="1" step="1" value="${draft.max_total_exposure_usd || 25}">
-                        </label>
-                        <label>
-                            <span class="pt-field-label">Starting bankroll ($)</span>
-                            <input id="pt-bankroll" class="pt-input" type="number" min="1" step="10" value="${draft.initial_bankroll_usd || 100}">
-                        </label>
-                    </div>
-                    <div class="pt-note" style="margin-top:8px;">Paper fills walk the live L2 orderbook level-by-level. No real orders are sent.</div>
-                </div>
-                <div class="pt-config-box" style="text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;">
-                    <div class="pt-config-label">Market Date</div>
-                    <span class="at-badge auto-date" style="font-size:11px;padding:4px 10px;">📅 AUTO</span>
-                    <div style="font-size:10px;color:#4b5563;">${status.target_date || 'auto-resolved'}</div>
-                </div>
-            </div>
-
-            <div class="pt-grid">
-                <div class="pt-cell">
-                    <div class="pt-cell-label">Paper Equity</div>
-                    <div class="pt-cell-value purple">$${equity.toFixed(2)}</div>
-                </div>
-                <div class="pt-cell">
-                    <div class="pt-cell-label">Open Risk <span class="trade-tooltip">ⓘ<span class="tooltip-text">Max capital held in open positions simultaneously. Bot pauses new bets when this cap is hit.</span></span></div>
-                    <div class="pt-cell-value">$${openRisk.toFixed(2)}</div>
-                    <div style="font-size:10px;color:#4b5563;">of $${Number(status.max_total_exposure_usd||25).toFixed(0)} cap</div>
-                </div>
-                <div class="pt-cell">
-                    <div class="pt-cell-label">Realized PnL</div>
-                    <div class="pt-cell-value ${_ptPnlClass(realizedPnl)}">${_ptPnlFmt(realizedPnl)}</div>
-                </div>
-                <div class="pt-cell">
-                    <div class="pt-cell-label">Today PnL</div>
-                    <div class="pt-cell-value ${_ptPnlClass(Number(status.realized_pnl_today_usd||0))}">${_ptPnlFmt(status.realized_pnl_today_usd)}</div>
-                </div>
-                <div class="pt-cell">
-                    <div class="pt-cell-label">Open Positions</div>
-                    <div class="pt-cell-value">${status.open_positions_count||0} / ${Number(status.max_open_positions||12)}</div>
-                </div>
-                <div class="pt-cell">
-                    <div class="pt-cell-label">Fill Rate</div>
-                    <div class="pt-cell-value">${(fillRatio*100).toFixed(0)}%</div>
-                </div>
-                <div class="pt-cell">
-                    <div class="pt-cell-label">Hit Rate</div>
-                    <div class="pt-cell-value">${(hitRate*100).toFixed(0)}%</div>
-                </div>
-                <div class="pt-cell">
-                    <div class="pt-cell-label">Avg Slippage</div>
-                    <div class="pt-cell-value">${avgSlip.toFixed(1)} bps</div>
-                </div>
-            </div>
-
-            <div class="trade-section-title">Open Positions (${openPositions.length})</div>
-            <div class="trade-table-wrap">
-                <table class="trade-table trade-table--open">
-                    <thead><tr>
-                        <th>Opened</th><th>Station</th><th>Market</th><th>Side</th><th>Strategy</th>
-                        <th>Entry</th><th>Current</th><th>Shares</th><th>Cost</th><th>Value</th><th>PnL</th><th>Age</th>
-                    </tr></thead>
-                    <tbody>${posRows}</tbody>
-                </table>
-            </div>
-
-            <div id="pt-history-section"></div>
-
-            ${exitPills ? `<div class="exit-breakdown"><span style="color:#4b5563;text-transform:uppercase;font-size:9px;letter-spacing:1px;">Exits:</span> ${exitPills}</div>` : ''}
-
-            <div class="pt-log">
-                <div class="pt-section-title">Recent activity</div>
-                ${logItems}
-            </div>
-        `;
+        _renderTradingPanel(panel, {
+            mode: 'paper',
+            running,
+            title: 'Paper Trader',
+            badgeText: 'SHADOW',
+            subinfo: `$${bankroll.toFixed(0)} bankroll · Free: $${free.toFixed(2)} · LIMIT_FAK`,
+            banner: '',
+            openRisk,
+            totalCap: Number(status.max_total_exposure_usd || 25),
+            realizedPnl,
+            todayPnl,
+            openCount: Number(status.open_positions_count || 0),
+            maxOpen: Number(status.max_open_positions || 12),
+            openPositions: Array.isArray(status.open_positions) ? status.open_positions : [],
+            recentEvents: Array.isArray(status.recent_events) ? status.recent_events.slice(0, 8) : [],
+            availableStations: Array.isArray(status.available_stations) ? status.available_stations : [],
+            selectedStations: Array.isArray(draft.station_ids) ? draft.station_ids : [],
+            totalCapInput: String(draft.max_total_exposure_usd || 25),
+            bankrollInput: String(draft.initial_bankroll_usd || 100),
+            targetDate: status.target_date,
+            exits: status.exits_by_reason || {},
+        });
         bindPapertraderDraftEvents();
         renderPaperTraderHistory();
     }
