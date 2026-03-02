@@ -53,6 +53,7 @@ from core.hourly_curve import (
     shift_curve_toward_peak,
 )
 from core.autotrader import AutoTrader, load_autotrader_config_from_env
+from core.papertrader import PaperTrader, PaperTraderConfig, load_paper_state, load_papertrader_config
 
 def build_synthetic_hourly_curve_f(
     now_utc: datetime,
@@ -3048,6 +3049,7 @@ async def get_polymarket_dashboard_data(
         "shifts": shifts,
         "trading": trading,
         "autotrader": get_autotrader_status_snapshot(),
+        "papertrader": get_papertrader_status_snapshot(),
         "server_ts": datetime.now().timestamp(),
     }
 
@@ -3169,6 +3171,200 @@ async def stop_autotrader_api():
         "ok": True,
         "status": status,
     }
+
+
+# =============================================================================
+# PAPERTRADER — shadow trading runtime (no real orders)
+# =============================================================================
+
+_PAPERTRADER_RUNTIME_PATH = Path("data/papertrader_runtime.json")
+_papertrader_task: Optional[asyncio.Task] = None
+_papertrader_instance: Optional[PaperTrader] = None
+_papertrader_last_stop_reason: Optional[str] = None
+
+
+class PapertraderRuntimeConfigUpdate(BaseModel):
+    station_ids: Optional[List[str]] = None
+    target_date: Optional[str] = None
+    max_total_exposure_usd: Optional[float] = None
+    initial_bankroll_usd: Optional[float] = None
+
+
+def _load_papertrader_runtime_overrides() -> Dict[str, Any]:
+    if not _PAPERTRADER_RUNTIME_PATH.exists():
+        return {}
+    try:
+        import json
+        payload = json.loads(_PAPERTRADER_RUNTIME_PATH.read_text(encoding="utf-8"))
+        return payload if isinstance(payload, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_papertrader_runtime_overrides(payload: Dict[str, Any]) -> None:
+    _PAPERTRADER_RUNTIME_PATH.parent.mkdir(parents=True, exist_ok=True)
+    import json
+    _PAPERTRADER_RUNTIME_PATH.write_text(json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8")
+
+
+def _build_papertrader_config(current_enabled: Optional[bool] = None) -> PaperTraderConfig:
+    # Start from env-var config (inherits autotrader risk params from env)
+    # so that HELIOS_AUTOTRADER_* env vars propagate into the papertrader.
+    config = load_papertrader_config()
+    overrides = _load_papertrader_runtime_overrides()
+
+    raw_stations = overrides.get("station_ids")
+    if raw_stations:
+        config.station_ids = _sanitize_autotrader_station_ids(raw_stations)
+    else:
+        # Default: use same stations as autotrader if configured
+        at_overrides = _load_autotrader_runtime_overrides()
+        at_stations = at_overrides.get("station_ids") or []
+        if at_stations:
+            config.station_ids = _sanitize_autotrader_station_ids(at_stations)
+
+    target_date = _normalize_autotrader_target_date(overrides.get("target_date"))
+    if target_date:
+        config.target_date = target_date
+    elif config.station_ids:
+        config.target_date = _default_autotrader_target_date(config.station_ids, config.target_day)
+
+    max_total = overrides.get("max_total_exposure_usd")
+    if max_total is not None:
+        try:
+            config.max_total_exposure_usd = max(0.5, float(max_total))
+        except (TypeError, ValueError):
+            pass
+
+    bankroll = overrides.get("initial_bankroll_usd")
+    if bankroll is not None:
+        try:
+            config.initial_bankroll_usd = max(1.0, float(bankroll))
+            config.bankroll_usd = config.initial_bankroll_usd
+        except (TypeError, ValueError):
+            pass
+
+    if current_enabled is not None:
+        config.enabled = bool(current_enabled)
+    return config
+
+
+def get_papertrader_instance(refresh: bool = False) -> PaperTrader:
+    global _papertrader_instance
+    current_enabled = _papertrader_instance.config.enabled if _papertrader_instance else None
+    config = _build_papertrader_config(current_enabled=current_enabled)
+    if refresh or _papertrader_instance is None:
+        _papertrader_instance = PaperTrader(config=config)
+    else:
+        _papertrader_instance.config = config
+    return _papertrader_instance
+
+
+def _papertrader_running() -> bool:
+    return _papertrader_task is not None and not _papertrader_task.done()
+
+
+def get_papertrader_status_snapshot() -> Dict[str, Any]:
+    trader = get_papertrader_instance(refresh=False)
+    snapshot = trader.get_status_snapshot()
+    snapshot["running"] = _papertrader_running()
+    snapshot["available_stations"] = _autotrader_selected_station_options()
+    snapshot["last_stop_reason"] = _papertrader_last_stop_reason
+    return snapshot
+
+
+async def start_papertrader_loop(force_enable: bool = False) -> Dict[str, Any]:
+    global _papertrader_task, _papertrader_last_stop_reason
+    if _papertrader_running():
+        return get_papertrader_status_snapshot()
+    trader = get_papertrader_instance(refresh=True)
+    if force_enable:
+        trader.config.enabled = True
+    if not trader.config.station_ids:
+        raise ValueError("Select at least one station before starting the papertrader")
+
+    _papertrader_last_stop_reason = None
+
+    async def _loop():
+        global _papertrader_last_stop_reason
+        try:
+            await trader.run_loop()
+        except asyncio.CancelledError:
+            _papertrader_last_stop_reason = "manual_stop"
+        except Exception as exc:
+            _papertrader_last_stop_reason = f"error: {exc}"
+
+    _papertrader_task = asyncio.get_event_loop().create_task(_loop())
+    return get_papertrader_status_snapshot()
+
+
+async def stop_papertrader_loop(reason: str = "manual_stop") -> Dict[str, Any]:
+    global _papertrader_task, _papertrader_last_stop_reason
+    trader = get_papertrader_instance(refresh=False)
+    trader.config.enabled = False
+    _papertrader_last_stop_reason = reason
+    if _papertrader_task and not _papertrader_task.done():
+        _papertrader_task.cancel()
+        try:
+            await asyncio.wait_for(_papertrader_task, timeout=5.0)
+        except Exception:
+            pass
+    _papertrader_task = None
+    return get_papertrader_status_snapshot()
+
+
+@app.get("/api/papertrader/status")
+async def get_papertrader_status_api():
+    return {"ok": True, "status": get_papertrader_status_snapshot()}
+
+
+@app.post("/api/papertrader/config")
+async def update_papertrader_config_api(payload: PapertraderRuntimeConfigUpdate):
+    current = _load_papertrader_runtime_overrides()
+
+    if payload.station_ids is not None:
+        current["station_ids"] = _sanitize_autotrader_station_ids(payload.station_ids)
+    if payload.target_date is not None:
+        normalized = _normalize_autotrader_target_date(payload.target_date)
+        if normalized:
+            current["target_date"] = normalized
+        else:
+            current.pop("target_date", None)
+    if payload.max_total_exposure_usd is not None:
+        current["max_total_exposure_usd"] = max(0.5, float(payload.max_total_exposure_usd))
+    if payload.initial_bankroll_usd is not None:
+        current["initial_bankroll_usd"] = max(1.0, float(payload.initial_bankroll_usd))
+
+    _save_papertrader_runtime_overrides(current)
+    get_papertrader_instance(refresh=True)
+    return {"ok": True, "status": get_papertrader_status_snapshot()}
+
+
+@app.post("/api/papertrader/run-once")
+async def run_papertrader_once_api(station_id: Optional[str] = None):
+    if _papertrader_running():
+        return {"ok": False, "error": "Papertrader loop is already running", "status": get_papertrader_status_snapshot()}
+    trader = get_papertrader_instance(refresh=True)
+    trader.config.enabled = True
+    if station_id:
+        normalized = str(station_id or "").upper()
+        if normalized not in STATIONS:
+            return {"ok": False, "error": "Invalid station", "status": get_papertrader_status_snapshot()}
+        trader.config.station_ids = [normalized]
+    results = await trader.run_once()
+    return {"ok": True, "results": results, "status": get_papertrader_status_snapshot()}
+
+
+@app.post("/api/papertrader/start")
+async def start_papertrader_api():
+    status = await start_papertrader_loop(force_enable=True)
+    return {"ok": True, "status": status}
+
+
+@app.post("/api/papertrader/stop")
+async def stop_papertrader_api():
+    status = await stop_papertrader_loop(reason="manual_stop")
+    return {"ok": True, "status": status}
 
 
 async def prediction_loop():

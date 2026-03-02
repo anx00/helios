@@ -834,6 +834,263 @@
         .pm-autotrader-fields { grid-template-columns: 1fr; }
         .pm-agent-grid { grid-template-columns: 1fr; }
     }
+
+    /* ============= PAPERTRADER PANEL ============= */
+    .pt-panel {
+        border: 1px solid rgba(139,92,246,0.2);
+        border-radius: 12px;
+        padding: 14px;
+        background: rgba(139,92,246,0.04);
+        margin-bottom: 14px;
+    }
+    .pt-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 12px;
+    }
+    .pt-label {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 1.2px;
+        color: #8B5CF6;
+        margin-bottom: 4px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .pt-shadow-badge {
+        display: inline-block;
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 1px;
+        padding: 2px 7px;
+        border-radius: 999px;
+        background: rgba(139,92,246,0.18);
+        border: 1px solid rgba(139,92,246,0.35);
+        color: #A78BFA;
+    }
+    .pt-headline {
+        font-size: 20px;
+        font-weight: 800;
+        color: #fff;
+    }
+    .pt-subline {
+        font-size: 12px;
+        color: var(--text-secondary);
+        line-height: 1.5;
+        margin-top: 3px;
+    }
+    .pt-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+    }
+    .pt-btn {
+        border: 1px solid rgba(255,255,255,0.12);
+        background: rgba(255,255,255,0.04);
+        color: #fff;
+        border-radius: 10px;
+        padding: 8px 12px;
+        font-size: 12px;
+        font-weight: 700;
+        cursor: pointer;
+        transition: opacity 0.2s;
+    }
+    .pt-btn:hover { opacity: 0.85; }
+    .pt-btn.primary {
+        border-color: rgba(139,92,246,0.4);
+        background: rgba(139,92,246,0.14);
+        color: #A78BFA;
+    }
+    .pt-btn.danger {
+        border-color: rgba(239,68,68,0.35);
+        background: rgba(239,68,68,0.10);
+        color: #F87171;
+    }
+    .pt-btn:disabled { opacity: 0.40; cursor: default; }
+    /* Config section */
+    .pt-config {
+        display: grid;
+        grid-template-columns: 1.6fr 1fr;
+        gap: 12px;
+        margin-bottom: 12px;
+    }
+    .pt-config-box {
+        border: 1px solid rgba(139,92,246,0.12);
+        border-radius: 10px;
+        padding: 12px;
+        background: rgba(255,255,255,0.01);
+    }
+    .pt-config-label {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: var(--text-secondary);
+        margin-bottom: 8px;
+    }
+    .pt-station-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+    .pt-station-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 7px 10px;
+        border-radius: 999px;
+        border: 1px solid rgba(139,92,246,0.20);
+        background: rgba(139,92,246,0.06);
+        color: #fff;
+        font-size: 12px;
+        cursor: pointer;
+    }
+    .pt-station-pill input { margin: 0; accent-color: #8B5CF6; }
+    .pt-fields {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+    }
+    .pt-field-label {
+        display: block;
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: var(--text-secondary);
+        margin-bottom: 6px;
+    }
+    .pt-input {
+        width: 100%;
+        border: 1px solid rgba(139,92,246,0.18);
+        border-radius: 10px;
+        background: rgba(255,255,255,0.04);
+        color: #fff;
+        padding: 9px 10px;
+        font-size: 13px;
+        outline: none;
+        font-family: 'Inter', sans-serif;
+    }
+    .pt-input:focus { border-color: rgba(139,92,246,0.5); }
+    .pt-note {
+        margin-top: 10px;
+        font-size: 11px;
+        color: var(--text-secondary);
+        line-height: 1.45;
+    }
+    /* Metrics grid */
+    .pt-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+        margin-bottom: 12px;
+    }
+    .pt-cell {
+        border: 1px solid rgba(139,92,246,0.10);
+        border-radius: 10px;
+        padding: 10px 12px;
+        background: rgba(255,255,255,0.01);
+    }
+    .pt-cell-label {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: var(--text-secondary);
+        margin-bottom: 4px;
+    }
+    .pt-cell-value {
+        font-size: 15px;
+        font-weight: 800;
+        color: #fff;
+    }
+    .pt-cell-value.positive { color: #10B981; }
+    .pt-cell-value.negative { color: #F87171; }
+    .pt-cell-value.purple { color: #A78BFA; }
+    /* Positions table */
+    .pt-section-title {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: var(--text-secondary);
+        margin-bottom: 8px;
+    }
+    .pt-table-wrap {
+        overflow-x: auto;
+        margin-bottom: 12px;
+    }
+    .pt-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+    }
+    .pt-table th {
+        text-align: left;
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.8px;
+        color: var(--text-secondary);
+        padding: 6px 10px;
+        border-bottom: 1px solid rgba(255,255,255,0.06);
+        white-space: nowrap;
+    }
+    .pt-table td {
+        padding: 8px 10px;
+        border-bottom: 1px solid rgba(255,255,255,0.04);
+        color: var(--text-secondary);
+        white-space: nowrap;
+    }
+    .pt-table tr:hover td { background: rgba(139,92,246,0.05); }
+    .pt-table .pt-td-label { color: #fff; font-weight: 600; }
+    .pt-table .pt-td-pnl.positive { color: #10B981; font-weight: 700; }
+    .pt-table .pt-td-pnl.negative { color: #F87171; font-weight: 700; }
+    .pt-mode-badge {
+        display: inline-block;
+        font-size: 9px;
+        font-weight: 700;
+        padding: 2px 6px;
+        border-radius: 999px;
+        background: rgba(139,92,246,0.2);
+        color: #A78BFA;
+        border: 1px solid rgba(139,92,246,0.3);
+    }
+    /* Activity log */
+    .pt-log {
+        border-top: 1px solid rgba(139,92,246,0.10);
+        padding-top: 10px;
+        color: var(--text-secondary);
+        font-size: 12px;
+        line-height: 1.45;
+    }
+    .pt-log-item {
+        padding: 4px 0;
+        border-bottom: 1px solid rgba(255,255,255,0.03);
+    }
+    .pt-log-item:last-child { border-bottom: none; }
+    .pt-running-dot {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #8B5CF6;
+        margin-right: 6px;
+        animation: ptpulse 1.5s ease-in-out infinite;
+    }
+    @keyframes ptpulse {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.4; transform: scale(0.8); }
+    }
+    @media (max-width: 900px) {
+        .pt-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .pt-config { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 600px) {
+        .pt-head { flex-direction: column; }
+        .pt-actions { justify-content: flex-start; }
+        .pt-grid { grid-template-columns: 1fr; }
+        .pt-fields { grid-template-columns: 1fr; }
+    }
 </style>
 {% endblock %}
 
@@ -881,6 +1138,7 @@
             <i data-lucide="crosshair"></i> Trading
         </div>
         <div class="pm-autotrader" id="pm-autotrader-panel" style="display:none;"></div>
+        <div class="pt-panel" id="pt-panel" style="display:none;"></div>
         <div class="pm-trading-grid" id="pm-trading-grid"></div>
         <div id="pm-trading-table-wrap"></div>
     </div>
@@ -1137,6 +1395,7 @@
     function renderAll(data) {
         renderOverview(data);
         renderAutoTrader(data.autotrader, data.trading);
+        renderPaperTrader(data.papertrader);
         renderTrading(data.trading);
         renderBrackets(data.brackets);
         renderShifts(data.shifts);
@@ -2082,6 +2341,281 @@
             </div>
         `;
     }
+
+    // ========================
+    // PAPERTRADER UI
+    // ========================
+    let ptDraft = {};
+
+    function syncPapertraderDraft(status) {
+        const existing = ptDraft;
+        if (!existing._synced) {
+            ptDraft = {
+                station_ids: Array.isArray(status?.station_ids) ? [...status.station_ids] : [],
+                target_date: status?.target_date || '',
+                max_total_exposure_usd: status?.max_total_exposure_usd ?? 25,
+                initial_bankroll_usd: status?.initial_bankroll_usd ?? 100,
+                _synced: true,
+            };
+        }
+        return ptDraft;
+    }
+
+    function bindPapertraderDraftEvents() {
+        document.querySelectorAll('.pt-station-check').forEach(chk => {
+            chk.addEventListener('change', () => {
+                ptDraft.station_ids = Array.from(document.querySelectorAll('.pt-station-check:checked')).map(c => c.value);
+            });
+        });
+        const dateEl = document.getElementById('pt-target-date');
+        if (dateEl) dateEl.addEventListener('change', () => { ptDraft.target_date = dateEl.value; });
+        const capEl = document.getElementById('pt-total-cap');
+        if (capEl) capEl.addEventListener('change', () => { ptDraft.max_total_exposure_usd = parseFloat(capEl.value) || 25; });
+        const bankEl = document.getElementById('pt-bankroll');
+        if (bankEl) bankEl.addEventListener('change', () => { ptDraft.initial_bankroll_usd = parseFloat(bankEl.value) || 100; });
+    }
+
+    async function runPapertraderAction(action) {
+        const panel = document.getElementById('pt-panel');
+        try {
+            const resp = await fetch(`/api/papertrader/${action}`, { method: 'POST' });
+            const data = await resp.json();
+            if (data.status) renderPaperTrader(data.status);
+        } catch (e) {
+            console.error('Papertrader action error:', e);
+        }
+    }
+    window.runPapertraderAction = runPapertraderAction;
+
+    async function savePapertraderConfig() {
+        try {
+            const resp = await fetch('/api/papertrader/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    station_ids: ptDraft.station_ids,
+                    target_date: ptDraft.target_date,
+                    max_total_exposure_usd: ptDraft.max_total_exposure_usd,
+                    initial_bankroll_usd: ptDraft.initial_bankroll_usd,
+                }),
+            });
+            const data = await resp.json();
+            if (data.status) renderPaperTrader(data.status);
+        } catch (e) {
+            console.error('Papertrader config save error:', e);
+        }
+    }
+    window.savePapertraderConfig = savePapertraderConfig;
+
+    async function startPapertrader() {
+        await savePapertraderConfig();
+        await runPapertraderAction('start');
+    }
+    window.startPapertrader = startPapertrader;
+
+    function _ptPnlClass(v) {
+        return v > 0 ? 'positive' : v < 0 ? 'negative' : '';
+    }
+    function _ptFmt(v, digits=2, prefix='$') {
+        const n = Number(v || 0);
+        return `${n >= 0 ? prefix : '-'+prefix}${Math.abs(n).toFixed(digits)}`;
+    }
+    function _ptPnlFmt(v) {
+        const n = Number(v || 0);
+        return `${n >= 0 ? '+' : ''}${_ptFmt(n)}`;
+    }
+
+    function renderPaperTrader(status) {
+        const panel = document.getElementById('pt-panel');
+        if (!panel) return;
+        if (!status) { panel.style.display = 'none'; return; }
+
+        panel.style.display = 'block';
+        document.getElementById('pm-trading-section').style.display = 'block';
+
+        const running = !!status.running;
+        const draft = syncPapertraderDraft(status);
+        const stations = Array.isArray(status.station_ids) ? status.station_ids : [];
+        const available = Array.isArray(status.available_stations) ? status.available_stations : [];
+        const selectedStations = Array.isArray(draft.station_ids) ? draft.station_ids : [];
+        const openPositions = Array.isArray(status.open_positions) ? status.open_positions : [];
+        const recent = Array.isArray(status.recent_events) ? status.recent_events.slice(0, 8) : [];
+        const exits = status.exits_by_reason || {};
+
+        const equity = Number(status.paper_equity_usd || 0);
+        const bankroll = Number(status.initial_bankroll_usd || 100);
+        const openRisk = Number(status.open_risk_usd || 0);
+        const realizedPnl = Number(status.realized_pnl_usd || 0);
+        const unrealizedPnl = Number(status.unrealized_pnl_usd || 0);
+        const totalPnl = realizedPnl + unrealizedPnl;
+        const totalPnlPct = bankroll > 0 ? (totalPnl / bankroll * 100) : 0;
+        const fillRatio = Number(status.fill_ratio || 0);
+        const hitRate = Number(status.hit_rate || 0);
+        const avgSlip = Number(status.avg_slippage_bps || 0);
+        const exitReasonsSummary = Object.entries(exits).map(([k,v]) => `${k.replace('_',' ')} ×${v}`).join(' | ') || '—';
+
+        const headline = running
+            ? `<span class="pt-running-dot"></span>SHADOW running — ${stations.length} station${stations.length===1?'':'s'}`
+            : `SHADOW ready${status.last_stop_reason ? ` — ${status.last_stop_reason.replace('_',' ')}` : ''}`;
+        const subline = running
+            ? `Cycling every ${status.loop_seconds || 60}s. Paper fills walk real L2 orderbook data — no real orders sent.`
+            : `Configure stations and market date, then press Start to begin shadow trading. All fills are simulated against live orderbook depth.`;
+
+        // Positions rows
+        const posRows = openPositions.length
+            ? openPositions.map(p => {
+                const pnl = Number(p.unrealized_pnl_usd || 0);
+                const pnlClass = _ptPnlClass(pnl);
+                const ago = shortTs(p.opened_at_utc);
+                return `<tr>
+                    <td class="pt-td-label">${p.station_id || '—'}</td>
+                    <td>${p.label || '—'}</td>
+                    <td>${p.side || '—'}</td>
+                    <td>${(p.strategy || 'terminal').replace('_value','').replace('_reprice','')}</td>
+                    <td>${Number(p.entry_price||0).toFixed(3)}</td>
+                    <td>${Number(p.shares_open||0).toFixed(1)}</td>
+                    <td>${_ptFmt(p.cost_basis_open_usd)}</td>
+                    <td class="pt-td-pnl ${pnlClass}">${_ptPnlFmt(pnl)}</td>
+                    <td style="opacity:.6">${ago}</td>
+                </tr>`;
+            }).join('')
+            : `<tr><td colspan="9" style="text-align:center;opacity:.5;padding:16px;">No open positions</td></tr>`;
+
+        // Recent events log
+        const logItems = recent.length
+            ? recent.map(ev => {
+                const evType = ev.event || ev.status || 'event';
+                const pnl = ev.persisted?.realized_pnl_usd;
+                const pnlStr = pnl !== undefined ? ` | pnl ${Number(pnl)>=0?'+':''}$${Number(pnl).toFixed(2)}` : '';
+                const fillStr = ev.fill ? ` | ${Number(ev.fill.filled_size||0).toFixed(1)}sh @ $${Number(ev.fill.avg_price||0).toFixed(3)}` : '';
+                const slip = ev.fill?.slippage_vs_best ? ` slip ${(Number(ev.fill.slippage_vs_best)*100).toFixed(2)}¢` : '';
+                const reason = ev.reason ? ` [${ev.reason.replace('_',' ')}]` : '';
+                const pos = ev.position_key ? ` | ${ev.position_key.split('|').slice(-2).join(' ')}` : '';
+                return `<div class="pt-log-item">
+                    <strong>${evType}</strong>${pos}${fillStr}${slip}${reason}${pnlStr}
+                    <span style="opacity:.55;"> | ${shortTs(ev.ts_utc)}</span>
+                </div>`;
+            }).join('')
+            : '<div class="pt-log-item" style="opacity:.5;">No activity yet — press Run once or Start loop.</div>';
+
+        panel.innerHTML = `
+            <div class="pt-head">
+                <div>
+                    <div class="pt-label">Paper Trader <span class="pt-shadow-badge">SHADOW</span></div>
+                    <div class="pt-headline">${headline}</div>
+                    <div class="pt-subline">${subline}</div>
+                </div>
+                <div class="pt-actions">
+                    <button class="pt-btn" onclick="savePapertraderConfig()">Save setup</button>
+                    <button class="pt-btn" onclick="runPapertraderAction('run-once')" ${running ? 'disabled' : ''}>Run once</button>
+                    <button class="pt-btn primary" onclick="startPapertrader()" ${running ? 'disabled' : ''}>Start loop</button>
+                    <button class="pt-btn danger" onclick="runPapertraderAction('stop')" ${running ? '' : 'disabled'}>Stop</button>
+                </div>
+            </div>
+
+            <div class="pt-config">
+                <div class="pt-config-box">
+                    <div class="pt-config-label">Stations to shadow-trade</div>
+                    <div class="pt-station-list">
+                        ${available.map(opt => `
+                            <label class="pt-station-pill">
+                                <input type="checkbox" class="pt-station-check" value="${opt.id}" ${selectedStations.includes(opt.id) ? 'checked' : ''}>
+                                <span>${opt.city_name} (${opt.id})</span>
+                            </label>
+                        `).join('')}
+                    </div>
+                </div>
+                <div class="pt-config-box">
+                    <div class="pt-config-label">Market setup</div>
+                    <div class="pt-fields">
+                        <label>
+                            <span class="pt-field-label">Market date</span>
+                            <input id="pt-target-date" class="pt-input" type="date" value="${draft.target_date || ''}">
+                        </label>
+                        <label>
+                            <span class="pt-field-label">Exposure cap ($)</span>
+                            <input id="pt-total-cap" class="pt-input" type="number" min="1" step="1" value="${draft.max_total_exposure_usd || 25}">
+                        </label>
+                        <label>
+                            <span class="pt-field-label">Starting bankroll ($)</span>
+                            <input id="pt-bankroll" class="pt-input" type="number" min="1" step="10" value="${draft.initial_bankroll_usd || 100}">
+                        </label>
+                    </div>
+                    <div class="pt-note">Paper fills walk the live L2 orderbook level-by-level. No real orders are sent. All fills, slippage, and PnL are simulated.</div>
+                </div>
+            </div>
+
+            <div class="pt-grid">
+                <div class="pt-cell">
+                    <div class="pt-cell-label">Paper equity</div>
+                    <div class="pt-cell-value purple">${_ptFmt(equity)}</div>
+                </div>
+                <div class="pt-cell">
+                    <div class="pt-cell-label">Total PnL</div>
+                    <div class="pt-cell-value ${_ptPnlClass(totalPnl)}">${_ptPnlFmt(totalPnl)} <span style="font-size:11px;opacity:.7">(${totalPnlPct>=0?'+':''}${totalPnlPct.toFixed(1)}%)</span></div>
+                </div>
+                <div class="pt-cell">
+                    <div class="pt-cell-label">Realized PnL</div>
+                    <div class="pt-cell-value ${_ptPnlClass(realizedPnl)}">${_ptPnlFmt(realizedPnl)}</div>
+                </div>
+                <div class="pt-cell">
+                    <div class="pt-cell-label">Unrealized PnL</div>
+                    <div class="pt-cell-value ${_ptPnlClass(unrealizedPnl)}">${_ptPnlFmt(unrealizedPnl)}</div>
+                </div>
+                <div class="pt-cell">
+                    <div class="pt-cell-label">Open risk</div>
+                    <div class="pt-cell-value">${_ptFmt(openRisk)} / ${_ptFmt(status.max_total_exposure_usd || 25)}</div>
+                </div>
+                <div class="pt-cell">
+                    <div class="pt-cell-label">Open positions</div>
+                    <div class="pt-cell-value">${status.open_positions_count || 0} open · ${status.closed_positions_count || 0} closed</div>
+                </div>
+                <div class="pt-cell">
+                    <div class="pt-cell-label">Today</div>
+                    <div class="pt-cell-value">${status.trades_today || 0} entries · ${_ptPnlFmt(status.realized_pnl_today_usd)}</div>
+                </div>
+                <div class="pt-cell">
+                    <div class="pt-cell-label">All time</div>
+                    <div class="pt-cell-value">${status.total_entries || 0} in · ${status.total_exits || 0} out</div>
+                </div>
+                <div class="pt-cell">
+                    <div class="pt-cell-label">Fill ratio</div>
+                    <div class="pt-cell-value">${(fillRatio*100).toFixed(0)}% <span style="font-size:11px;opacity:.7">${status.total_fills||0}/${(status.total_fills||0)+(status.total_rejections||0)} orders</span></div>
+                </div>
+                <div class="pt-cell">
+                    <div class="pt-cell-label">Hit rate</div>
+                    <div class="pt-cell-value">${(hitRate*100).toFixed(0)}% <span style="font-size:11px;opacity:.7">winners</span></div>
+                </div>
+                <div class="pt-cell">
+                    <div class="pt-cell-label">Avg slippage</div>
+                    <div class="pt-cell-value">${avgSlip.toFixed(1)} bps</div>
+                </div>
+                <div class="pt-cell">
+                    <div class="pt-cell-label">Exit breakdown</div>
+                    <div class="pt-cell-value" style="font-size:11px;font-weight:600;">${exitReasonsSummary}</div>
+                </div>
+            </div>
+
+            ${openPositions.length > 0 ? `
+            <div class="pt-section-title">Open positions <span style="opacity:.5">(${openPositions.length})</span></div>
+            <div class="pt-table-wrap">
+                <table class="pt-table">
+                    <thead><tr>
+                        <th>Station</th><th>Label</th><th>Side</th><th>Strategy</th>
+                        <th>Entry</th><th>Shares</th><th>Cost</th><th>Unr. PnL</th><th>Age</th>
+                    </tr></thead>
+                    <tbody>${posRows}</tbody>
+                </table>
+            </div>` : ''}
+
+            <div class="pt-log">
+                <div class="pt-section-title">Recent activity</div>
+                ${logItems}
+            </div>
+        `;
+        bindPapertraderDraftEvents();
+    }
+    window.renderPaperTrader = renderPaperTrader;
 
     let diagOpen = false;
     function toggleDiagnostics() {
