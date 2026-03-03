@@ -778,6 +778,9 @@
     .strat-badge.winner { background: rgba(53,212,255,0.14); color: #7de7ff; border: 1px solid rgba(53,212,255,0.28); }
     .strat-badge.legacy { background: rgba(245,158,11,0.14); color: #f8c15d; border: 1px solid rgba(245,158,11,0.28); }
     .strat-badge.fade { background: rgba(244,114,182,0.14); color: #f9a8d4; border: 1px solid rgba(244,114,182,0.28); }
+    .strat-badge.micro { background: rgba(168,85,247,0.14); color: #c084fc; border: 1px solid rgba(168,85,247,0.28); }
+    .pt-lane-expand-btn { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 8px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.10); color: var(--text-secondary); text-decoration: none; font-size: 16px; cursor: pointer; transition: all 0.2s; flex-shrink: 0; }
+    .pt-lane-expand-btn:hover { background: rgba(255,255,255,0.12); color: var(--text-main); }
     .pt-arena-shell { display: grid; gap: 18px; margin-top: 6px; }
     .pt-hero { display: flex; justify-content: space-between; gap: 16px; padding: 20px 22px; border-radius: 24px; border: 1px solid rgba(125,231,255,0.10); background: radial-gradient(circle at top left, rgba(53,212,255,0.14), transparent 34%), linear-gradient(140deg, rgba(8,16,30,0.96), rgba(8,13,24,0.92)); box-shadow: 0 24px 60px rgba(0,0,0,0.28); }
     .pt-hero-copy h3 { margin: 6px 0 8px; font-size: 28px; line-height: 1.05; letter-spacing: -0.03em; }
@@ -1432,6 +1435,7 @@
             terminal_value_legacy: 'legacy',
             tactical_reprice: 'tactical',
             event_fade_qc: 'fade',
+            micro_value_ensemble: 'micro',
             terminal_value: 'legacy',
         };
         const css = {
@@ -1439,6 +1443,7 @@
             terminal_value_legacy: 'legacy',
             tactical_reprice: 'tactical',
             event_fade_qc: 'fade',
+            micro_value_ensemble: 'micro',
             terminal_value: 'legacy',
         };
         const text = labels[value] || value.replace(/_/g, ' ') || 'strategy';
@@ -2714,6 +2719,7 @@
                         <div class="pt-lane-title">${strategy.title || strategy.strategy_id}</div>
                         <div class="pt-lane-subtitle">${strategy.subtitle || ''}</div>
                     </div>
+                    <a href="/strategy/${strategy.strategy_id}" class="pt-lane-expand-btn" title="Ver detalle completo">&#x26F6;</a>
                     <div class="pt-lane-equity ${Number(strategy.realized_pnl_usd || 0) + Number(strategy.unrealized_pnl_usd || 0) >= 0 ? 'pos' : 'neg'}">$${Number(strategy.paper_equity_usd || 0).toFixed(2)}</div>
                 </div>
                 <div class="pt-lane-metric-grid">

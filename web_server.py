@@ -3400,6 +3400,104 @@ async def get_papertrader_history_api():
         return {"ok": False, "error": str(exc), "positions": [], "strategies": {}}
 
 
+@app.get("/api/papertrader/strategy/{strategy_id}/detail")
+async def get_papertrader_strategy_detail_api(strategy_id: str):
+    """Return exhaustive detail for a single papertrader strategy (no truncation)."""
+    import json as _json
+    from core.papertrader import (
+        _normalize_strategy_id, PAPER_STRATEGY_BY_ID, _safe_float, _tail_jsonl,
+    )
+
+    norm_id = _normalize_strategy_id(strategy_id)
+    if norm_id not in PAPER_STRATEGY_BY_ID:
+        return JSONResponse({"ok": False, "error": f"Unknown strategy: {strategy_id}"}, status_code=400)
+
+    trader = get_papertrader_instance(refresh=False)
+    path = Path(trader.config.state_path)
+    if not path.exists():
+        return {"ok": True, "strategy_id": norm_id, "open_positions": [], "closed_positions": [], "events": []}
+
+    try:
+        state = _json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+
+    raw_positions = state.get("positions") or {}
+    open_pos: List[Dict[str, Any]] = []
+    closed_pos: List[Dict[str, Any]] = []
+
+    for pkey, pos in (raw_positions.items() if isinstance(raw_positions, dict) else []):
+        if not isinstance(pos, dict):
+            continue
+        sid = _normalize_strategy_id(pos.get("strategy_id") or pos.get("strategy"))
+        if sid != norm_id:
+            continue
+        p = dict(pos)
+        p["position_key"] = pkey
+        if str(p.get("status", "")).upper() == "OPEN":
+            open_pos.append(p)
+        else:
+            closed_pos.append(p)
+
+    def _sort_key(p):
+        return str(p.get("closed_at_utc") or p.get("last_exit_utc") or p.get("opened_at_utc") or "")
+
+    open_pos.sort(key=lambda p: str(p.get("opened_at_utc") or ""), reverse=True)
+    closed_pos.sort(key=_sort_key, reverse=True)
+
+    # All events from JSONL for this strategy
+    all_events = _tail_jsonl(trader.config.log_path, limit=500)
+    strategy_events = [
+        e for e in all_events
+        if _normalize_strategy_id((e or {}).get("strategy_id")) == norm_id
+    ]
+
+    # Strategy-level state
+    strategy_state = (state.get("strategies") or {}).get(norm_id, {})
+    meta = PAPER_STRATEGY_BY_ID[norm_id]
+
+    # Hit rate
+    winners = sum(1 for p in closed_pos if float(_safe_float(p.get("realized_pnl_usd")) or 0) > 0)
+    hit_rate = round(winners / len(closed_pos), 4) if closed_pos else 0.0
+
+    # Station timezone map
+    station_timezones = {sid: cfg.timezone for sid, cfg in STATIONS.items()}
+
+    return {
+        "ok": True,
+        "strategy_id": norm_id,
+        "title": meta.get("title", norm_id),
+        "subtitle": meta.get("subtitle", ""),
+        "description": meta.get("description", ""),
+        "accent": meta.get("accent", "#35d4ff"),
+        "initial_bankroll_usd": float(_safe_float(strategy_state.get("initial_bankroll_usd")) or trader.config.initial_bankroll_usd),
+        "paper_equity_usd": float(_safe_float(strategy_state.get("paper_equity_usd")) or trader.config.initial_bankroll_usd),
+        "open_risk_usd": float(_safe_float(strategy_state.get("open_risk_usd")) or 0),
+        "realized_pnl_usd": float(_safe_float(strategy_state.get("total_realized_pnl_usd")) or 0),
+        "unrealized_pnl_usd": sum(float(_safe_float(p.get("unrealized_pnl_usd")) or 0) for p in open_pos),
+        "trades_today": int(_safe_float(strategy_state.get("trades_today")) or 0),
+        "hit_rate": hit_rate,
+        "total_fills": int(_safe_float(strategy_state.get("total_fills")) or 0),
+        "total_rejections": int(_safe_float(strategy_state.get("total_rejections")) or 0),
+        "total_entries": int(_safe_float(strategy_state.get("total_entries")) or 0),
+        "total_exits": int(_safe_float(strategy_state.get("total_exits")) or 0),
+        "exits_by_reason": dict(strategy_state.get("exits_by_reason") or {}),
+        "open_positions": open_pos,
+        "closed_positions": closed_pos,
+        "events": strategy_events,
+        "station_timezones": station_timezones,
+    }
+
+
+@app.get("/strategy/{strategy_id}", response_class=HTMLResponse)
+async def strategy_detail_page(request: Request, strategy_id: str):
+    """Full-page detail view for a single papertrader strategy."""
+    return _render_template(request, "strategy_detail.html", {
+        "active_page": "trading",
+        "strategy_id": strategy_id,
+    })
+
+
 @app.get("/api/autotrader/history")
 async def get_autotrader_history_api():
     """Return all autotrader positions (open + closed) sorted by closed_at_utc desc."""

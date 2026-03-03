@@ -1,0 +1,407 @@
+{% extends "base.html" %}
+
+{% block title %}HELIOS - {{ strategy_id }} Detail{% endblock %}
+
+{% block head_extra %}
+<style>
+    .sd-page { max-width: 1100px; margin: 0 auto; padding: 24px 20px; }
+    .sd-loading { text-align: center; color: var(--text-muted); padding: 60px 0; font-size: 14px; }
+    .sd-error { text-align: center; color: #ef4444; padding: 60px 0; }
+
+    /* Header */
+    .sd-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; padding: 20px 22px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.02); }
+    .sd-back-link { color: var(--text-secondary); text-decoration: none; font-size: 12px; letter-spacing: 0.5px; text-transform: uppercase; font-weight: 600; }
+    .sd-back-link:hover { color: var(--text-main); }
+    .sd-title { font-size: 26px; font-family: 'Space Grotesk', sans-serif; font-weight: 700; margin: 8px 0 4px; }
+    .sd-subtitle { color: var(--text-secondary); font-size: 13px; line-height: 1.5; }
+    .sd-header-right { text-align: right; min-width: 140px; }
+    .sd-equity-label { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); font-weight: 700; }
+    .sd-equity-value { font-size: 32px; font-family: 'Space Grotesk', sans-serif; font-weight: 700; margin-top: 4px; }
+
+    /* Metric grid */
+    .sd-metric-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; margin-bottom: 28px; }
+    .sd-metric-card { padding: 14px 16px; border-radius: 14px; background: rgba(255,255,255,0.025); border: 1px solid rgba(255,255,255,0.06); }
+    .sd-metric-card span { font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-muted); font-weight: 700; display: block; margin-bottom: 6px; }
+    .sd-metric-card strong { font-size: 20px; font-family: 'Space Grotesk', sans-serif; font-weight: 700; }
+
+    /* Sections */
+    .sd-section { margin-bottom: 32px; }
+    .sd-section-title { text-transform: uppercase; letter-spacing: 0.14em; font-size: 11px; color: var(--text-muted); font-weight: 700; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+    .sd-empty { color: var(--text-muted); font-size: 13px; padding: 16px 0; }
+
+    /* Position cards */
+    .sd-open-position { padding: 16px 18px; border-radius: 14px; background: rgba(255,255,255,0.025); border: 1px solid rgba(255,255,255,0.06); margin-bottom: 12px; }
+    .sd-pos-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+    .sd-pos-market { font-size: 14px; font-weight: 600; }
+    .sd-pos-pnl { font-size: 16px; font-weight: 700; font-family: 'Space Grotesk', sans-serif; }
+    .sd-pos-meta { color: var(--text-secondary); font-size: 12px; line-height: 1.6; }
+    .sd-pos-time { color: var(--text-muted); font-size: 11px; margin-top: 8px; font-family: 'JetBrains Mono', monospace; }
+    .sd-pos-thesis { color: var(--text-secondary); font-size: 11px; margin-top: 6px; font-style: italic; }
+
+    /* Position bar */
+    .sd-position-bar-wrap { margin: 10px 0 4px; }
+    .sd-position-bar { height: 22px; border-radius: 11px; background: rgba(255,255,255,0.06); overflow: hidden; position: relative; }
+    .sd-position-bar-fill { height: 100%; border-radius: 11px; transition: width 0.4s ease; min-width: 2px; }
+    .sd-position-bar-fill.yes { background: linear-gradient(90deg, rgba(56,189,248,0.7), rgba(56,189,248,0.4)); }
+    .sd-position-bar-fill.no { background: linear-gradient(90deg, rgba(245,158,11,0.7), rgba(245,158,11,0.4)); }
+    .sd-position-bar-label { position: absolute; top: 0; left: 10px; line-height: 22px; font-size: 11px; font-weight: 700; color: rgba(255,255,255,0.9); text-shadow: 0 1px 3px rgba(0,0,0,0.5); font-family: 'JetBrains Mono', monospace; }
+
+    /* Unified timeline */
+    .sd-timeline-row { display: grid; grid-template-columns: 140px 90px 1fr auto; gap: 10px; padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,0.04); align-items: flex-start; font-size: 13px; }
+    .sd-timeline-row:hover { background: rgba(255,255,255,0.02); border-radius: 8px; }
+    .sd-dual-ts { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-muted); white-space: nowrap; line-height: 1.5; }
+    .sd-dual-ts .sd-ts-station { display: block; font-size: 10px; color: var(--text-muted); opacity: 0.7; }
+    .sd-timeline-action { white-space: nowrap; }
+    .sd-timeline-body { min-width: 0; }
+    .sd-timeline-market { font-weight: 600; font-size: 13px; margin-bottom: 2px; }
+    .sd-timeline-detail { color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
+    .sd-timeline-pnl { font-weight: 700; font-family: 'JetBrains Mono', monospace; font-size: 13px; white-space: nowrap; text-align: right; }
+
+    /* Color utilities */
+    .pos { color: #33d08f; }
+    .neg { color: #ff6b6b; }
+
+    /* Badges (copied from main) */
+    .side-badge { display: inline-block; font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 4px; letter-spacing: .5px; }
+    .side-badge.yes { background: rgba(56,189,248,0.15); color: #38bdf8; border: 1px solid rgba(56,189,248,0.25); }
+    .side-badge.no { background: rgba(245,158,11,0.15); color: #f59e0b; border: 1px solid rgba(245,158,11,0.25); }
+    .strat-badge { display: inline-block; font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 4px; letter-spacing: .5px; }
+    .strat-badge.winner { background: rgba(53,212,255,0.14); color: #7de7ff; border: 1px solid rgba(53,212,255,0.28); }
+    .strat-badge.legacy { background: rgba(245,158,11,0.14); color: #f8c15d; border: 1px solid rgba(245,158,11,0.28); }
+    .strat-badge.tactical { background: rgba(245,158,11,0.12); color: #f59e0b; border: 1px solid rgba(245,158,11,0.2); }
+    .strat-badge.fade { background: rgba(244,114,182,0.14); color: #f9a8d4; border: 1px solid rgba(244,114,182,0.28); }
+    .strat-badge.micro { background: rgba(168,85,247,0.14); color: #c084fc; border: 1px solid rgba(168,85,247,0.28); }
+    .strat-badge.terminal { background: rgba(14,165,233,0.12); color: #0ea5e9; border: 1px solid rgba(14,165,233,0.2); }
+    .reason-badge { display: inline-block; font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 4px; }
+    .reason-badge.tp { background: rgba(34,197,94,0.12); color: #22c55e; }
+    .reason-badge.sl { background: rgba(239,68,68,0.12); color: #ef4444; }
+    .reason-badge.to { background: rgba(148,163,184,0.12); color: #94a3b8; }
+    .reason-badge.ot { background: rgba(148,163,184,0.08); color: #64748b; }
+    .trade-action-badge { display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; border-radius: 999px; font-size: 10px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+    .trade-action-badge.buy { background: rgba(56,189,248,0.16); color: #7dd3fc; border: 1px solid rgba(56,189,248,0.28); }
+    .trade-action-badge.sell { background: rgba(34,197,94,0.16); color: #86efac; border: 1px solid rgba(34,197,94,0.28); }
+    .trade-action-badge.reject { background: rgba(239,68,68,0.14); color: #fca5a5; border: 1px solid rgba(239,68,68,0.24); }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+        .sd-header { flex-direction: column; gap: 16px; }
+        .sd-header-right { text-align: left; }
+        .sd-timeline-row { grid-template-columns: 1fr; gap: 4px; }
+        .sd-dual-ts .sd-ts-station { display: inline; }
+        .sd-metric-grid { grid-template-columns: repeat(3, 1fr); }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="sd-page" id="sd-page">
+    <div class="sd-loading">Cargando estrategia...</div>
+</div>
+
+<script>
+(function() {
+    const STRATEGY_ID = "{{ strategy_id }}";
+    let STATION_TZ = {};
+
+    const TZ_SHORT = {
+        'America/New_York': 'NYC',
+        'America/Chicago': 'CHI',
+        'Europe/Paris': 'PAR',
+        'Europe/London': 'LON',
+        'Europe/Istanbul': 'IST',
+        'Europe/Madrid': 'ES',
+    };
+
+    const SPAIN_FMT_FULL = new Intl.DateTimeFormat('es-ES', {
+        timeZone: 'Europe/Madrid', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false
+    });
+    const SPAIN_FMT_TIME = new Intl.DateTimeFormat('es-ES', {
+        timeZone: 'Europe/Madrid', hour: '2-digit', minute: '2-digit', hour12: false
+    });
+
+    function dualTs(utcStr, stationId) {
+        if (!utcStr) return '--';
+        const dt = new Date(String(utcStr));
+        if (isNaN(dt.getTime())) return String(utcStr).slice(0, 16) || '--';
+
+        const now = new Date();
+        const isToday = dt.toLocaleDateString('es-ES', { timeZone: 'Europe/Madrid' }) === now.toLocaleDateString('es-ES', { timeZone: 'Europe/Madrid' });
+        const spainTime = isToday ? SPAIN_FMT_TIME.format(dt) : SPAIN_FMT_FULL.format(dt);
+
+        const stationTz = STATION_TZ[stationId];
+        if (!stationTz || stationTz === 'Europe/Madrid') {
+            return `${spainTime} ES`;
+        }
+
+        const stationFmt = new Intl.DateTimeFormat('en-US', {
+            timeZone: stationTz, hour: '2-digit', minute: '2-digit', hour12: false
+        });
+        const stationTime = stationFmt.format(dt);
+        const stationLabel = TZ_SHORT[stationTz] || stationId || 'UTC';
+
+        if (spainTime === stationTime) return `${spainTime} ES`;
+
+        return `<span>${spainTime} ES</span><span class="sd-ts-station">${stationTime} ${stationLabel}</span>`;
+    }
+
+    // ── Helper functions (from polymarket.html) ──
+    function _sideBadge(side) {
+        const s = String(side || 'YES').toUpperCase();
+        return `<span class="side-badge ${s === 'YES' ? 'yes' : 'no'}">${s}</span>`;
+    }
+    function _stratBadge(strategy) {
+        const value = String(strategy || '').toLowerCase();
+        const labels = { winner_value_core:'winner', terminal_value_legacy:'legacy', tactical_reprice:'tactical', event_fade_qc:'fade', micro_value_ensemble:'micro', terminal_value:'legacy' };
+        const css = { winner_value_core:'winner', terminal_value_legacy:'legacy', tactical_reprice:'tactical', event_fade_qc:'fade', micro_value_ensemble:'micro', terminal_value:'legacy' };
+        const text = labels[value] || value.replace(/_/g,' ') || 'strategy';
+        const cls = css[value] || 'terminal';
+        return `<span class="strat-badge ${cls}">${text}</span>`;
+    }
+    function _reasonBadge(reason) {
+        const r = String(reason || 'unknown');
+        let cls = 'ot';
+        if (r.includes('take_profit')) cls = 'tp';
+        else if (r.includes('stop_loss') || r.includes('stop-loss')) cls = 'sl';
+        else if (r.includes('timeout')) cls = 'to';
+        return `<span class="reason-badge ${cls}">${r.replace(/_/g,' ')}</span>`;
+    }
+    function _fmtSignedUsd(v) {
+        const n = Number(v || 0);
+        return `${n >= 0 ? '+' : '-'}$${Math.abs(n).toFixed(2)}`;
+    }
+    function _fmtContractPrice(value) {
+        const n = Number(value);
+        if (!Number.isFinite(n)) return '--';
+        const cents = Math.round(n * 1000) / 10;
+        const isWhole = Math.abs(cents - Math.round(cents)) < 0.05;
+        return `${cents.toFixed(isWhole ? 0 : 1)}c`;
+    }
+    function _paperEventPosition(ev) {
+        const explicitLabel = String(ev?.label || '').trim();
+        const explicitSide = String(ev?.side || '').trim().toUpperCase();
+        if (explicitLabel && explicitSide) return { label: explicitLabel, side: explicitSide };
+        const rawKey = String(ev?.position_key || '');
+        const baseKey = rawKey.includes('::') ? rawKey.split('::', 2)[1] : rawKey;
+        const parts = baseKey.split('|');
+        return {
+            label: explicitLabel || (parts.length >= 4 ? String(parts[2] || '').trim() : ''),
+            side: explicitSide || (parts.length >= 4 ? String(parts[3] || 'YES').trim().toUpperCase() : 'YES'),
+        };
+    }
+    function _paperEventHeadline(eventName) {
+        const event = String(eventName || '').toLowerCase();
+        if (event === 'entry_fill') return 'Compra';
+        if (event === 'exit_fill') return 'Venta';
+        if (event === 'entry_rejected') return 'Compra fallida';
+        if (event === 'exit_rejected') return 'Venta fallida';
+        return event.replace(/_/g, ' ') || 'Evento';
+    }
+    function _paperActionClass(eventName) {
+        const event = String(eventName || '').toLowerCase();
+        if (event === 'entry_fill') return 'buy';
+        if (event === 'exit_fill') return 'sell';
+        return 'reject';
+    }
+    function _paperActionBadge(eventName) {
+        return `<span class="trade-action-badge ${_paperActionClass(eventName)}">${_paperEventHeadline(eventName)}</span>`;
+    }
+
+    // ── Render functions ──
+
+    function renderOpenPositions(positions) {
+        if (!positions.length) return '<div class="sd-empty">Sin posiciones abiertas</div>';
+        return positions.map(p => {
+            const totalShares = Number(p.shares || 0);
+            const openShares = Number(p.shares_open || totalShares);
+            const fillPct = totalShares > 0 ? (openShares / totalShares) * 100 : 100;
+            const side = String(p.side || 'YES').toUpperCase();
+            const barClass = side === 'YES' ? 'yes' : 'no';
+            const pnl = Number(p.unrealized_pnl_usd || 0);
+            const currentPrice = p.current_price != null ? _fmtContractPrice(p.current_price) : '--';
+            const costBasis = Number(p.cost_basis_open_usd || p.notional_usd || 0);
+            const currentValue = Number(p.current_value_usd || 0);
+
+            return `
+            <div class="sd-open-position">
+                <div class="sd-pos-header">
+                    <div class="sd-pos-market">${p.station_id || '--'} | ${p.label || '--'} ${_sideBadge(side)}</div>
+                    <div class="sd-pos-pnl ${pnl >= 0 ? 'pos' : 'neg'}">${_fmtSignedUsd(pnl)}</div>
+                </div>
+                <div class="sd-pos-meta">Comprado a ${_fmtContractPrice(p.entry_price)} | Ahora ${currentPrice} | Coste $${costBasis.toFixed(2)} | Valor $${currentValue.toFixed(2)}</div>
+                <div class="sd-position-bar-wrap">
+                    <div class="sd-position-bar">
+                        <div class="sd-position-bar-fill ${barClass}" style="width:${fillPct.toFixed(1)}%"></div>
+                        <div class="sd-position-bar-label">${openShares.toFixed(1)} / ${totalShares.toFixed(1)} shares</div>
+                    </div>
+                </div>
+                ${p.thesis ? `<div class="sd-pos-thesis">${p.thesis}</div>` : ''}
+                <div class="sd-pos-time">${dualTs(p.opened_at_utc, p.station_id)}</div>
+            </div>`;
+        }).join('');
+    }
+
+    function renderUnifiedTimeline(events, closedPositions) {
+        const timeline = [];
+
+        // Add events
+        (events || []).forEach(ev => {
+            const eventName = String(ev?.event || '').toLowerCase();
+            if (['entry_fill', 'exit_fill', 'entry_rejected', 'exit_rejected'].includes(eventName)) {
+                timeline.push({ type: 'event', ts: ev.ts_utc || '', data: ev });
+            }
+        });
+
+        // Add closed positions that don't have a corresponding exit_fill event
+        const exitEventSet = new Set(
+            (events || [])
+                .filter(e => e.event === 'exit_fill')
+                .map(e => `${e.station_id}|${e.label}|${e.side}|${String(e.ts_utc || '').slice(0, 16)}`)
+        );
+
+        (closedPositions || []).forEach(pos => {
+            const closeTs = pos.closed_at_utc || pos.last_exit_utc || '';
+            const key = `${pos.station_id}|${pos.label}|${pos.side}|${String(closeTs).slice(0, 16)}`;
+            if (!exitEventSet.has(key)) {
+                timeline.push({ type: 'closed', ts: closeTs, data: pos });
+            }
+        });
+
+        timeline.sort((a, b) => (b.ts || '').localeCompare(a.ts || ''));
+
+        if (!timeline.length) return '<div class="sd-empty">Sin operaciones todavia</div>';
+
+        return timeline.map(entry => {
+            if (entry.type === 'event') return renderTimelineEvent(entry.data);
+            return renderTimelineClosed(entry.data);
+        }).join('');
+    }
+
+    function renderTimelineEvent(ev) {
+        const eventName = String(ev.event || '');
+        const { label, side } = _paperEventPosition(ev);
+        const fillPrice = ev?.fill?.avg_price ?? ev?.fill?.price ?? ev?.order?.limit_price;
+        const size = Number(ev?.fill?.filled_size || ev?.fill?.size || 0);
+        const realized = Number(ev?.persisted?.realized_pnl_usd || 0);
+        const reason = ev?.reason ? String(ev.reason).replace(/_/g, ' ') : '';
+
+        let detail = '';
+        let pnlHtml = '';
+        if (eventName === 'entry_fill') {
+            detail = `Comprado a ${_fmtContractPrice(fillPrice)}${size > 0 ? ` | ${size.toFixed(1)} sh` : ''}`;
+            pnlHtml = '<span style="color:var(--text-muted)">Abierta</span>';
+        } else if (eventName === 'exit_fill') {
+            const entry = ev?.entry_price != null ? _fmtContractPrice(ev.entry_price) : '--';
+            detail = `Entrada ${entry} &rarr; Salida ${_fmtContractPrice(fillPrice)}${size > 0 ? ` | ${size.toFixed(1)} sh` : ''}${reason ? ` | ${_reasonBadge(reason)}` : ''}`;
+            pnlHtml = `<span class="${realized >= 0 ? 'pos' : 'neg'}">${_fmtSignedUsd(realized)}</span>`;
+        } else if (eventName === 'entry_rejected') {
+            detail = `Intento de compra${fillPrice != null ? ` a ${_fmtContractPrice(fillPrice)}` : ''}`;
+            pnlHtml = '<span style="color:var(--text-muted)">Sin fill</span>';
+        } else if (eventName === 'exit_rejected') {
+            detail = `Intento de venta${reason ? ` | ${reason}` : ''}`;
+            pnlHtml = '<span style="color:var(--text-muted)">Sin fill</span>';
+        }
+
+        return `
+        <div class="sd-timeline-row">
+            <div class="sd-dual-ts">${dualTs(ev.ts_utc, ev.station_id)}</div>
+            <div class="sd-timeline-action">${_paperActionBadge(eventName)}</div>
+            <div class="sd-timeline-body">
+                <div class="sd-timeline-market">${ev.station_id || '--'} | ${label || '--'} ${_sideBadge(side)}</div>
+                <div class="sd-timeline-detail">${detail}</div>
+            </div>
+            <div class="sd-timeline-pnl">${pnlHtml}</div>
+        </div>`;
+    }
+
+    function renderTimelineClosed(pos) {
+        const realized = Number(pos.realized_pnl_usd || 0);
+        const fills = Array.isArray(pos.fills) ? pos.fills : [];
+        const exitFill = fills.length ? fills[fills.length - 1] : null;
+        const exitPrice = exitFill?.price ?? exitFill?.avg_price;
+
+        return `
+        <div class="sd-timeline-row">
+            <div class="sd-dual-ts">${dualTs(pos.closed_at_utc || pos.last_exit_utc, pos.station_id)}</div>
+            <div class="sd-timeline-action">${_paperActionBadge('exit_fill')}</div>
+            <div class="sd-timeline-body">
+                <div class="sd-timeline-market">${pos.station_id || '--'} | ${pos.label || '--'} ${_sideBadge(pos.side)}</div>
+                <div class="sd-timeline-detail">Entrada ${_fmtContractPrice(pos.entry_price)}${exitPrice != null ? ` &rarr; Salida ${_fmtContractPrice(exitPrice)}` : ''} | ${Number(pos.shares || 0).toFixed(1)} sh${pos.last_exit_reason ? ` | ${_reasonBadge(pos.last_exit_reason)}` : ''}</div>
+            </div>
+            <div class="sd-timeline-pnl"><span class="${realized >= 0 ? 'pos' : 'neg'}">${_fmtSignedUsd(realized)}</span></div>
+        </div>`;
+    }
+
+    function renderExitsByReason(exits) {
+        if (!exits || !Object.keys(exits).length) return '--';
+        return Object.entries(exits).map(([reason, count]) => `${_reasonBadge(reason)} ${count}`).join(' ');
+    }
+
+    // ── Main render ──
+
+    function renderDetail(d) {
+        const page = document.getElementById('sd-page');
+        const totalPnl = (d.realized_pnl_usd || 0) + (d.unrealized_pnl_usd || 0);
+        const timelineCount = (d.events || []).filter(e => ['entry_fill','exit_fill','entry_rejected','exit_rejected'].includes(e.event)).length + (d.closed_positions || []).length;
+
+        page.innerHTML = `
+            <div class="sd-header" style="border-color: ${d.accent}22;">
+                <div>
+                    <a href="/station/{{ selected_station_id or 'KLGA' }}#pt-panel" class="sd-back-link">&larr; Volver al trading</a>
+                    <div style="margin-top:8px">${_stratBadge(d.strategy_id)}</div>
+                    <h2 class="sd-title" style="color:${d.accent}">${d.title}</h2>
+                    <div class="sd-subtitle">${d.subtitle || ''} &mdash; ${d.description || ''}</div>
+                </div>
+                <div class="sd-header-right">
+                    <div class="sd-equity-label">Equity</div>
+                    <div class="sd-equity-value ${totalPnl >= 0 ? 'pos' : 'neg'}">$${Number(d.paper_equity_usd).toFixed(2)}</div>
+                </div>
+            </div>
+
+            <div class="sd-metric-grid">
+                <div class="sd-metric-card"><span>Inicio</span><strong>$${Number(d.initial_bankroll_usd).toFixed(0)}</strong></div>
+                <div class="sd-metric-card"><span>Riesgo abierto</span><strong>$${Number(d.open_risk_usd).toFixed(2)}</strong></div>
+                <div class="sd-metric-card"><span>PnL cerrado</span><strong class="${d.realized_pnl_usd >= 0 ? 'pos' : 'neg'}">${_fmtSignedUsd(d.realized_pnl_usd)}</strong></div>
+                <div class="sd-metric-card"><span>PnL abierto</span><strong class="${d.unrealized_pnl_usd >= 0 ? 'pos' : 'neg'}">${_fmtSignedUsd(d.unrealized_pnl_usd)}</strong></div>
+                <div class="sd-metric-card"><span>Acierto</span><strong>${(Number(d.hit_rate || 0) * 100).toFixed(0)}%</strong></div>
+                <div class="sd-metric-card"><span>Trades hoy</span><strong>${d.trades_today || 0}</strong></div>
+                <div class="sd-metric-card"><span>Fills</span><strong>${d.total_fills || 0}</strong></div>
+                <div class="sd-metric-card"><span>Rechazos</span><strong>${d.total_rejections || 0}</strong></div>
+                <div class="sd-metric-card"><span>Salidas</span><strong>${renderExitsByReason(d.exits_by_reason)}</strong></div>
+            </div>
+
+            <div class="sd-section">
+                <div class="sd-section-title">Posiciones abiertas (${(d.open_positions || []).length})</div>
+                ${renderOpenPositions(d.open_positions || [])}
+            </div>
+
+            <div class="sd-section">
+                <div class="sd-section-title">Historial de operaciones (${timelineCount})</div>
+                ${renderUnifiedTimeline(d.events, d.closed_positions)}
+            </div>
+        `;
+    }
+
+    // ── Fetch & refresh ──
+
+    async function loadStrategyDetail() {
+        try {
+            const resp = await fetch(`/api/papertrader/strategy/${STRATEGY_ID}/detail`);
+            const data = await resp.json();
+            if (!data.ok) throw new Error(data.error || 'Failed to load strategy');
+            Object.assign(STATION_TZ, data.station_timezones || {});
+            renderDetail(data);
+        } catch (e) {
+            const page = document.getElementById('sd-page');
+            if (page.querySelector('.sd-loading')) {
+                page.innerHTML = `<div class="sd-error">Error cargando estrategia: ${e.message}</div>`;
+            }
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        loadStrategyDetail();
+        setInterval(loadStrategyDetail, 30000);
+    });
+})();
+</script>
+{% endblock %}
