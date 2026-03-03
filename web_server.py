@@ -599,78 +599,225 @@ def parse_physics_breakdown(physics_reason: str) -> list:
             breakdown.append({"raw": p, "label": pretty_label, "original_label": label, "value": value})
     return breakdown
 
-@app.get("/api/prediction/{station_id}")
-async def get_prediction_api(station_id: str, target_day: int = 0):
-    """Get latest prediction + live market data for a station.
-    
-    Args:
-        station_id: Station identifier (e.g., KLGA)
-        target_day: 0 for today (default), 1 for tomorrow
-    """
-    if station_id not in STATIONS:
-        return {"error": "Invalid station"}
-    
-    # Get the proper target date based on station timezone
-    station = STATIONS[station_id]
-    local_now = datetime.now(ZoneInfo(station.timezone))
-    target_date = (local_now + timedelta(days=target_day)).date()
-    target_date_str = target_date.isoformat()
-    
-    # Get prediction for the specific target date
-    from database import get_latest_prediction_for_date
-    pred = get_latest_prediction_for_date(station_id, target_date_str)
-    
-    # Fallback to most recent if no prediction for target date
-    if not pred:
-        pred = get_latest_prediction(station_id)
-        if not pred:
-            return {"error": "No prediction found", "target_date": target_date_str}
-    
-    breakdown = parse_physics_breakdown(pred.get("physics_reason", ""))
-    opp = None
-    try:
-        event_data = await fetch_event_for_station_date(station_id, target_date)
-        if not event_data:
-            event_slug = build_event_slug(station_id, target_date)
-            event_data = await fetch_event_data(event_slug)
-        polymarket_options = []
-        if event_data:
-            markets = event_data.get("markets", [])
-            for market in markets:
-                outcome_prices_raw = market.get("outcomePrices", [])
-                try:
-                    import json
-                    if isinstance(outcome_prices_raw, str):
-                        outcome_prices = json.loads(outcome_prices_raw)
-                    else:
-                        outcome_prices = outcome_prices_raw
-                    if outcome_prices and len(outcome_prices) > 0:
-                        yes_price = float(outcome_prices[0])
-                        outcome_title = market.get("groupItemTitle", "")
-                        polymarket_options.append((outcome_title, yes_price))
-                except:
-                    continue
-            polymarket_options.sort(key=lambda x: x[1], reverse=True)
-            if polymarket_options:
-                opp_data = check_bet_opportunity(pred["final_prediction_f"], polymarket_options, station_id, target_date)
-                if opp_data:
-                    opp = {"type": opp_data.confidence, "diff": opp_data.difference, "market_fav": opp_data.market_favorite, "market_prob": opp_data.market_favorite_prob, "recommendation": opp_data.recommendation, "roi": opp_data.estimated_roi}
-    except Exception as e:
-        print(f"Market fetch error: {e}")
-    
+def _prediction_observed_max_f(station_id: str, target_date_str: str) -> Optional[float]:
+    from database import get_performance_history_by_target_date
+
+    logs = get_performance_history_by_target_date(station_id, target_date_str)
+    observed_max = None
+    for log in logs or []:
+        candidate = None
+        for key in ("cumulative_max_f", "metar_actual"):
+            raw = log.get(key)
+            try:
+                if raw is not None:
+                    candidate = float(raw)
+                    break
+            except (TypeError, ValueError):
+                continue
+        if candidate is None:
+            continue
+        if observed_max is None or candidate > observed_max:
+            observed_max = candidate
+    return observed_max
+
+
+def _prediction_feature_summary(station_id: str) -> Dict[str, Any]:
+    from core.compactor import get_hybrid_reader
+
+    reader = get_hybrid_reader()
+    dates = reader.list_available_dates(station_id)
+    for date_str in dates[:7]:
+        channels = reader.list_channels_for_date(date_str, station_id)
+        if "features" not in channels:
+            continue
+        events = reader.read_channel(date_str, "features", station_id)
+        if not events:
+            continue
+        latest = max(events, key=lambda row: str(row.get("ts_ingest_utc") or ""))
+        data = latest.get("data") if isinstance(latest.get("data"), dict) else {}
+        features = data.get("features") if isinstance(data.get("features"), dict) else {}
+        env = features.get("env") if isinstance(features.get("env"), dict) else {}
+        staleness = data.get("staleness") if isinstance(data.get("staleness"), dict) else {}
+        return {
+            "available": True,
+            "latest_date": date_str,
+            "latest_ts_utc": latest.get("ts_ingest_utc"),
+            "env_key_count": len(env),
+            "env_keys": sorted(str(key) for key in env.keys()),
+            "empty_env": len(env) == 0,
+            "qc_present": features.get("qc") is not None,
+            "staleness_key_count": len(staleness),
+        }
     return {
-        "station_id": station_id, 
-        "target_date": target_date_str,
-        "target_day": target_day,
-        "timestamp": pred["timestamp"], 
-        "prediction_f": pred["final_prediction_f"], 
-        "hrrr_f": pred["hrrr_max_raw_f"], 
-        "raw_deviation_f": pred["current_deviation_f"], 
-        "delta_weight": pred.get("delta_weight", 1.0), 
-        "physics_delta": pred["physics_adjustment_f"], 
-        "component_breakdown": breakdown, 
-        "opportunity": opp
+        "available": False,
+        "latest_date": None,
+        "latest_ts_utc": None,
+        "env_key_count": 0,
+        "env_keys": [],
+        "empty_env": True,
+        "qc_present": False,
+        "staleness_key_count": 0,
     }
+
+
+async def _prediction_pws_history_summary(station_id: str, window_days: int = 14) -> Dict[str, Any]:
+    from core.pws_browser import (
+        build_pws_audit_day_payload,
+        build_pws_browser_payload,
+        build_pws_city_export_summary,
+        list_pws_browser_dates,
+    )
+
+    available_dates = await asyncio.to_thread(list_pws_browser_dates, station_id)
+    if not available_dates:
+        return {
+            "station_id": station_id,
+            "available_dates": [],
+            "selected_dates": [],
+            "summary": {},
+            "stations": [],
+            "window_mode": "none",
+            "window_day_count": 0,
+        }
+
+    selected_desc = available_dates[: max(1, min(int(window_days), len(available_dates)))]
+    selected_dates = sorted(selected_desc)
+
+    async def _build_day_export(date_str: str) -> Dict[str, Any]:
+        browser_task = asyncio.to_thread(build_pws_browser_payload, station_id, date_str)
+        audit_task = asyncio.to_thread(build_pws_audit_day_payload, station_id, date_str)
+        browser, audit = await asyncio.gather(browser_task, audit_task)
+        return {
+            "date": date_str,
+            "browser": browser,
+            "audit": audit,
+        }
+
+    day_exports = await asyncio.gather(*[_build_day_export(date_str) for date_str in selected_dates])
+    summary = await asyncio.to_thread(
+        build_pws_city_export_summary,
+        station_id,
+        day_exports,
+        available_dates=available_dates,
+        selected_dates=selected_dates,
+    )
+    summary["window_mode"] = "all_available" if len(selected_dates) == len(available_dates) else "rolling_window"
+    summary["window_day_count"] = len(selected_dates)
+    return summary
+
+
+@app.get("/api/prediction/{station_id}")
+async def get_prediction_api(
+    station_id: str,
+    target_day: int = 0,
+    target_date: Optional[str] = None,
+    pws_window_days: int = 14,
+):
+    """Probability-oriented prediction payload split into prior, intraday and market layers."""
+    station_id = (station_id or "").upper()
+    if station_id not in STATIONS:
+        return JSONResponse({"error": "Invalid station"}, status_code=400)
+
+    from collector.external_sources_fetcher import fetch_external_sources_snapshot
+    from core.prediction_lab import build_prediction_payload
+    from database import get_latest_prediction_for_date
+
+    target_date_obj, resolved_target_day = _resolve_station_market_date(
+        station_id,
+        target_day=target_day,
+        target_date=target_date,
+    )
+    target_date_str = target_date_obj.isoformat()
+    generated_at = datetime.now(ZoneInfo("UTC"))
+
+    legacy_prediction = get_latest_prediction_for_date(station_id, target_date_str) or get_latest_prediction(station_id)
+    legacy_breakdown = parse_physics_breakdown((legacy_prediction or {}).get("physics_reason", ""))
+    observed_max_f = _prediction_observed_max_f(station_id, target_date_str) if resolved_target_day == 0 else None
+
+    official = None
+    pws_details = []
+    pws_metrics = {}
+    try:
+        from core.world import get_world
+
+        snapshot = get_world().get_snapshot()
+        official = ((snapshot.get("official") or {}).get(station_id)) or None
+        pws_details = ((snapshot.get("pws_details") or {}).get(station_id)) or []
+        pws_metrics = ((snapshot.get("pws_metrics") or {}).get(station_id)) or {}
+    except Exception:
+        official = None
+        pws_details = []
+        pws_metrics = {}
+
+    external_task = fetch_external_sources_snapshot(station_id)
+    market_task = get_polymarket_dashboard_data(
+        station_id,
+        target_day=resolved_target_day,
+        target_date=target_date_str,
+        depth=3,
+    )
+    pws_task = _prediction_pws_history_summary(station_id, window_days=max(1, min(int(pws_window_days), 30)))
+    feature_task = asyncio.to_thread(_prediction_feature_summary, station_id)
+
+    external_result, market_result, pws_result, feature_result = await asyncio.gather(
+        external_task,
+        market_task,
+        pws_task,
+        feature_task,
+        return_exceptions=True,
+    )
+
+    external_sources = external_result if isinstance(external_result, dict) else {
+        "station_id": station_id,
+        "station_name": STATIONS[station_id].name,
+        "timezone": STATIONS[station_id].timezone,
+        "preferred_unit": get_polymarket_temp_unit(station_id),
+        "generated_at_utc": generated_at.isoformat(),
+        "generated_at_local": generated_at.astimezone(ZoneInfo(STATIONS[station_id].timezone)).isoformat(),
+        "sources": [],
+    }
+    market_payload = market_result if isinstance(market_result, dict) else {
+        "error": str(market_result),
+        "station_id": station_id,
+        "target_date": target_date_str,
+    }
+    pws_history_summary = pws_result if isinstance(pws_result, dict) else {
+        "station_id": station_id,
+        "available_dates": [],
+        "selected_dates": [],
+        "summary": {},
+        "stations": [],
+        "window_mode": "error",
+        "window_day_count": 0,
+        "notes": [str(pws_result)],
+    }
+    feature_summary = feature_result if isinstance(feature_result, dict) else {
+        "available": False,
+        "latest_date": None,
+        "latest_ts_utc": None,
+        "env_key_count": 0,
+        "env_keys": [],
+        "empty_env": True,
+        "qc_present": False,
+        "staleness_key_count": 0,
+    }
+
+    return build_prediction_payload(
+        station_id=station_id,
+        target_day=resolved_target_day,
+        target_date=target_date_obj,
+        generated_at=generated_at,
+        external_sources=external_sources,
+        market_payload=market_payload,
+        legacy_prediction=legacy_prediction,
+        legacy_component_breakdown=legacy_breakdown,
+        official=official,
+        pws_details=pws_details,
+        pws_metrics=pws_metrics,
+        pws_history_summary=pws_history_summary,
+        observed_max_f=observed_max_f,
+        feature_summary=feature_summary,
+    )
 
 @app.get("/api/market/{station_id}")
 async def get_market_data(station_id: str, target_day: int = 0):

@@ -1,519 +1,685 @@
 {% extends "base.html" %}
 
-{% block title %}HELIOS - {{ station_id }} Prediction{% endblock %}
+{% block title %}HELIOS - Prediction Lab{% endblock %}
 
 {% block head_extra %}
 <style>
-    .prediction-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 20px;
-    }
-
-    @media (max-width: 1200px) {
-        .prediction-grid {
-            grid-template-columns: 1fr;
-        }
-    }
-
-    .calc-section {
-        background: rgba(255, 255, 255, 0.02);
-        border: 1px solid rgba(255, 255, 255, 0.05);
-        border-radius: 12px;
-        padding: 20px;
-        margin-bottom: 20px;
-    }
-
-    .calc-section-header {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        margin-bottom: 15px;
-        padding-bottom: 10px;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-    }
-
-    .calc-section-header h3 {
-        font-size: 14px;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
-
-    .calc-section-header .icon {
-        font-size: 18px;
-    }
-
-    .calc-row {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 10px 0;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.03);
-    }
-
-    .calc-row:last-child {
-        border-bottom: none;
-    }
-
-    .calc-label {
-        color: var(--text-secondary);
-        font-size: 13px;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-    }
-
-    .calc-value {
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 14px;
-        font-weight: 600;
-    }
-
-    .calc-value.positive {
-        color: #10B981;
-    }
-
-    .calc-value.negative {
-        color: #EF4444;
-    }
-
-    .calc-value.neutral {
-        color: var(--text-main);
-    }
-
-    .calc-value.warning {
-        color: #F59E0B;
-    }
-
-    .final-prediction {
-        background: linear-gradient(135deg, rgba(0, 120, 255, 0.15), rgba(0, 212, 255, 0.05));
-        border: 1px solid rgba(0, 120, 255, 0.3);
-        border-radius: 16px;
-        padding: 30px;
-        text-align: center;
-        margin-bottom: 20px;
-    }
-
-    .final-label {
-        font-size: 12px;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        color: var(--text-secondary);
-        margin-bottom: 10px;
-    }
-
-    .final-value {
-        font-size: 48px;
-        font-weight: 700;
-        font-family: 'Space Grotesk', sans-serif;
-        color: #0078FF;
-    }
-
-    .final-bracket {
-        font-size: 18px;
-        color: var(--text-main);
-        margin-top: 10px;
-    }
-
-    .protection-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        padding: 6px 12px;
-        border-radius: 20px;
-        font-size: 11px;
-        font-weight: 600;
-        margin: 4px;
-    }
-
-    .protection-badge.active {
-        background: rgba(16, 185, 129, 0.15);
-        color: #10B981;
-        border: 1px solid rgba(16, 185, 129, 0.3);
-    }
-
-    .protection-badge.inactive {
-        background: rgba(100, 116, 139, 0.15);
-        color: #64748b;
-        border: 1px solid rgba(100, 116, 139, 0.3);
-    }
-
-    .protection-badge.warning {
-        background: rgba(239, 68, 68, 0.15);
-        color: #f87171;
-        border: 1px solid rgba(239, 68, 68, 0.3);
-        animation: pulse-warning 2s infinite;
-    }
-
-    @keyframes pulse-warning {
-
-        0%,
-        100% {
-            opacity: 1;
-        }
-
-        50% {
-            opacity: 0.7;
-        }
-    }
-
-    .timestamp-bar {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 10px 20px;
-        background: rgba(255, 255, 255, 0.02);
-        border-radius: 8px;
-        margin-bottom: 20px;
-        font-size: 12px;
-        color: var(--text-muted);
-    }
-
-    .live-indicator {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-    }
-
-    .live-dot {
-        width: 8px;
-        height: 8px;
-        background: #10B981;
-        border-radius: 50%;
-        animation: pulse-live 2s infinite;
-    }
-
-    @keyframes pulse-live {
-
-        0%,
-        100% {
-            opacity: 1;
-            transform: scale(1);
-        }
-
-        50% {
-            opacity: 0.5;
-            transform: scale(1.2);
-        }
-    }
-
-    .strategy-note {
-        background: rgba(255, 255, 255, 0.03);
-        border-left: 3px solid var(--accent-blue);
-        padding: 12px 15px;
-        margin-top: 15px;
-        font-size: 12px;
-        color: var(--text-secondary);
-        border-radius: 0 8px 8px 0;
+    .pred-shell { display: flex; flex-direction: column; gap: 18px; }
+    .pred-hero, .pred-panel, .pred-metric, .pred-item, .pred-source, .pred-row, .pred-note { background: rgba(255,255,255,0.026); border: 1px solid rgba(255,255,255,0.065); border-radius: 18px; }
+    .pred-hero { padding: 26px; display: flex; justify-content: space-between; gap: 20px; background: radial-gradient(circle at top right, rgba(20,184,166,0.18), transparent 32%), radial-gradient(circle at bottom left, rgba(245,158,11,0.16), transparent 30%), rgba(255,255,255,0.02); }
+    .pred-kicker, .pred-title-sm, .pred-label, .pred-section-title, .pred-col-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1.15px; color: var(--text-muted); font-weight: 700; }
+    .pred-kicker { color: #5eead4; margin-bottom: 8px; }
+    .pred-title { font-size: 30px; line-height: 1.05; font-family: 'Space Grotesk', sans-serif; font-weight: 700; margin-bottom: 10px; }
+    .pred-copy { color: var(--text-secondary); max-width: 820px; line-height: 1.65; font-size: 14px; }
+    .pred-controls { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+    .pred-chip, .pred-refresh { border-radius: 999px; border: 1px solid rgba(255,255,255,0.11); background: rgba(255,255,255,0.04); color: var(--text-main); font-size: 12px; font-weight: 700; padding: 10px 14px; cursor: pointer; }
+    .pred-chip.active { background: rgba(20,184,166,0.16); color: #ccfbf1; border-color: rgba(20,184,166,0.32); }
+    .pred-refresh { background: rgba(245,158,11,0.12); border-color: rgba(245,158,11,0.28); color: #fde68a; }
+    .pred-refresh:disabled, .pred-chip:disabled { opacity: 0.6; cursor: wait; }
+    .pred-side { min-width: 250px; display: flex; flex-direction: column; align-items: flex-end; gap: 12px; }
+    .pred-meta { display: flex; flex-direction: column; gap: 6px; color: var(--text-secondary); font-size: 12px; text-align: right; }
+    .pred-summary, .pred-charts, .pred-grid, .pred-bottom { display: grid; gap: 16px; }
+    .pred-summary { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .pred-metric { padding: 18px; }
+    .pred-value { font-size: 30px; line-height: 1; margin: 8px 0 10px; font-family: 'Space Grotesk', sans-serif; font-weight: 700; }
+    .pred-meta-copy { color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
+    .pred-panel { padding: 20px; }
+    .pred-panel-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; margin-bottom: 14px; }
+    .pred-panel-title { font-family: 'Space Grotesk', sans-serif; font-size: 22px; font-weight: 700; }
+    .pred-panel-sub { color: var(--text-secondary); font-size: 12px; line-height: 1.55; margin-top: 6px; max-width: 760px; }
+    .pred-badge { border-radius: 999px; padding: 7px 10px; font-size: 11px; font-weight: 700; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.05); white-space: nowrap; }
+    .pred-badge.good { color: #99f6e4; border-color: rgba(20,184,166,0.3); background: rgba(20,184,166,0.12); }
+    .pred-badge.warn { color: #fde68a; border-color: rgba(245,158,11,0.3); background: rgba(245,158,11,0.12); }
+    .pred-badge.bad { color: #fca5a5; border-color: rgba(239,68,68,0.28); background: rgba(239,68,68,0.12); }
+    .pred-badge.muted { color: #cbd5e1; }
+    .pred-inventory { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+    .pred-col { display: flex; flex-direction: column; gap: 10px; min-height: 100%; }
+    .pred-item { padding: 12px 14px; border-radius: 14px; background: rgba(255,255,255,0.03); }
+    .pred-item-title { font-size: 13px; font-weight: 700; margin-bottom: 6px; }
+    .pred-item-copy { color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
+    .pred-col[data-kind="available"] .pred-item { border-color: rgba(20,184,166,0.16); }
+    .pred-col[data-kind="missing"] .pred-item { border-color: rgba(239,68,68,0.16); }
+    .pred-col[data-kind="study"] .pred-item { border-color: rgba(245,158,11,0.16); }
+    .pred-charts { grid-template-columns: 1.15fr 0.95fr; }
+    .pred-grid { grid-template-columns: 1.05fr 0.95fr; }
+    .pred-bottom { grid-template-columns: 1fr 0.8fr; }
+    .pred-chart-wrap { height: 320px; }
+    .pred-source-list, .pred-row-list, .pred-note-list { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+    .pred-source, .pred-row, .pred-note { padding: 14px; border-radius: 14px; background: rgba(255,255,255,0.03); }
+    .pred-source-head, .pred-row-head { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 8px; align-items: center; }
+    .pred-source-name, .pred-row-title { font-size: 14px; font-weight: 700; }
+    .pred-source-meta, .pred-row-copy, .pred-note-copy { color: var(--text-secondary); font-size: 12px; line-height: 1.55; }
+    .pred-source-stats, .pred-split, .pred-row-stats { display: grid; gap: 8px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 10px; }
+    .pred-statbox { background: rgba(255,255,255,0.035); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 10px 11px; }
+    .pred-statbox .pred-label { font-size: 10px; }
+    .pred-statbox .pred-stat { font-size: 16px; font-weight: 700; margin-top: 5px; font-family: 'Space Grotesk', sans-serif; }
+    .pred-statbox .pred-sub { color: var(--text-secondary); font-size: 11px; margin-top: 4px; line-height: 1.4; }
+    .pred-kv { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .pred-empty { border-radius: 16px; border: 1px dashed rgba(255,255,255,0.12); padding: 24px; text-align: center; color: var(--text-secondary); font-size: 13px; line-height: 1.6; }
+    .pred-inline { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+    .pred-pill { border-radius: 999px; padding: 6px 10px; font-size: 11px; font-weight: 700; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.04); }
+    .pred-pill.stable { color: #a7f3d0; border-color: rgba(16,185,129,0.28); background: rgba(16,185,129,0.1); }
+    .pred-pill.delayed_but_useful { color: #fcd34d; border-color: rgba(245,158,11,0.28); background: rgba(245,158,11,0.1); }
+    .pred-pill.noisy { color: #fca5a5; border-color: rgba(239,68,68,0.28); background: rgba(239,68,68,0.1); }
+    .pred-pill.sparse, .pred-pill.mixed, .pred-pill.regime_dependent { color: #cbd5e1; }
+    @media (max-width: 1220px) { .pred-summary, .pred-charts, .pred-grid, .pred-bottom, .pred-inventory { grid-template-columns: 1fr; } }
+    @media (max-width: 880px) {
+        .pred-hero { flex-direction: column; }
+        .pred-side { align-items: flex-start; }
+        .pred-meta { text-align: left; }
+        .pred-source-stats, .pred-split, .pred-row-stats, .pred-kv { grid-template-columns: 1fr; }
+        .pred-chart-wrap { height: 260px; }
     }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="page-header">
-    <h1 class="page-title">
-        <span>🧮</span> {{ station_name }} - Prediction Engine
-    </h1>
-    <div class="breadcrumbs">
-        <a href="/">Home</a>
-        <span>/</span>
-        <a href="/station/{{ station_id }}/analytics">{{ station_id }}</a>
-        <span>/</span>
-        <span>Prediction</span>
+    <div>
+        <h1 class="page-title">Prediction Lab</h1>
+        <div class="breadcrumbs">
+            <a href="/">Home</a><span>/</span><span>Prediction</span><span>/</span><span id="predBreadcrumb">{{ station_id }}</span>
+        </div>
     </div>
 </div>
 
 <div class="page-content">
-    <!-- Timestamp Bar -->
-    <div class="timestamp-bar">
-        <div class="live-indicator">
-            <span class="live-dot"></span>
-            <span>LIVE - Auto-refresh every 10s</span>
-        </div>
-        <div id="last-update">Loading...</div>
-    </div>
-
-    <!-- Final Prediction Hero -->
-    <div class="final-prediction">
-        <div class="final-label">HELIOS v12.0 Prediction</div>
-        <div class="final-value" id="final-pred">--°F</div>
-        <div class="final-bracket" id="final-bracket">Bracket: --</div>
-        <div id="protection-badges" style="margin-top: 15px;">
-            <!-- Filled by JS -->
-        </div>
-    </div>
-
-    <div class="prediction-grid">
-        <!-- Left Column -->
-        <div>
-            <!-- Input Sources -->
-            <div class="calc-section">
-                <div class="calc-section-header">
-                    <span class="icon">📡</span>
-                    <h3>Input Sources</h3>
-                </div>
-                <div class="calc-row">
-                    <span class="calc-label">🌡️ METAR Current</span>
-                    <span class="calc-value neutral" id="metar-current">--</span>
-                </div>
-                <div class="calc-row">
-                    <span class="calc-label">📈 Observed Max Today</span>
-                    <span class="calc-value neutral" id="observed-max">--</span>
-                </div>
-                <div class="calc-row">
-                    <span class="calc-label">📊 HRRR Raw Max</span>
-                    <span class="calc-value neutral" id="hrrr-raw">--</span>
-                </div>
-                <div class="calc-row">
-                    <span class="calc-label">🌐 NBM Value</span>
-                    <span class="calc-value neutral" id="nbm-value">--</span>
-                </div>
-                <div class="calc-row">
-                    <span class="calc-label">✈️ LAMP Value</span>
-                    <span class="calc-value neutral" id="lamp-value">--</span>
+    <div class="pred-shell">
+        <section class="pred-hero">
+            <div>
+                <div class="pred-kicker">Probabilistic weather trading</div>
+                <div class="pred-title" id="predTitle">{{ station_name }} ({{ station_id }})</div>
+                <div class="pred-copy" id="predHeadlineCopy">Split the decision into a prior layer for 1-2 days ahead, a same-day intraday layer powered by METAR + PWS, and a market layer that converts the model into bucket probabilities.</div>
+                <div class="pred-controls">
+                    <button class="pred-chip" data-target-day="0" type="button">Today</button>
+                    <button class="pred-chip" data-target-day="1" type="button">Tomorrow</button>
+                    <button class="pred-chip" data-target-day="2" type="button">+2 days</button>
                 </div>
             </div>
-
-            <!-- Physics & Advection -->
-            <div class="calc-section">
-                <div class="calc-section-header">
-                    <span class="icon">🌬️</span>
-                    <h3>Physics & Advection</h3>
-                </div>
-                <div class="calc-row">
-                    <span class="calc-label">💨 Wind Condition</span>
-                    <span class="calc-value neutral" id="wind-condition">--</span>
-                </div>
-                <div class="calc-row">
-                    <span class="calc-label">🌊 Advection Rate</span>
-                    <span class="calc-value neutral" id="advection-rate">--</span>
-                </div>
-                <div class="calc-row">
-                    <span class="calc-label">🌡️ Upstream Temp</span>
-                    <span class="calc-value neutral" id="upstream-temp">--</span>
-                </div>
-                <div class="calc-row" style="padding-left: 20px; font-size: 11px; color: var(--text-muted);">
-                    <span id="advection-desc">--</span>
+            <div class="pred-side">
+                <button class="pred-refresh" id="predRefresh" type="button">Refresh Lab</button>
+                <div class="pred-meta">
+                    <span id="predGeneratedAt">Waiting for payload</span>
+                    <span id="predPayloadMeta">No data loaded yet</span>
+                    <span id="predTargetMeta">Target day not selected</span>
                 </div>
             </div>
+        </section>
 
-            <!-- Ensemble Calculation -->
-            <div class="calc-section">
-                <div class="calc-section-header">
-                    <span class="icon">⚖️</span>
-                    <h3>Ensemble Calculation</h3>
-                </div>
-                <div class="calc-row">
-                    <span class="calc-label">Base Weighted</span>
-                    <span class="calc-value neutral" id="ensemble-base">--</span>
-                </div>
-                <div class="calc-row">
-                    <span class="calc-label">🛡️ Safety Floor</span>
-                    <span class="calc-value positive" id="ensemble-floor">--</span>
-                </div>
-                <div class="calc-row">
-                    <span class="calc-label">🔒 Safety Ceiling</span>
-                    <span class="calc-value warning" id="ensemble-ceiling">--</span>
-                </div>
-                <div class="calc-row">
-                    <span class="calc-label">📏 Spread</span>
-                    <span class="calc-value neutral" id="ensemble-spread">--</span>
-                </div>
-                <div class="calc-row">
-                    <span class="calc-label">📏 Allowed Spread</span>
-                    <span class="calc-value neutral" id="allowed-spread">--</span>
-                </div>
-                <div class="calc-row">
-                    <span class="calc-label">🎯 Confidence</span>
-                    <span class="calc-value" id="confidence">--</span>
+        <section class="pred-summary" id="predSummary"></section>
+
+        <section class="pred-panel">
+            <div class="pred-panel-head">
+                <div>
+                    <div class="pred-title-sm">Inventory</div>
+                    <div class="pred-panel-title">What we have, what is missing, what still needs study</div>
+                    <div class="pred-panel-sub">This is the contract for the new model. It makes the real data inventory explicit instead of hiding gaps behind a single point forecast.</div>
                 </div>
             </div>
-        </div>
+            <div class="pred-inventory" id="predInventory"></div>
+        </section>
 
-        <!-- Right Column -->
-        <div>
-            <!-- v12.0 Protections -->
-            <div class="calc-section">
-                <div class="calc-section-header">
-                    <span class="icon">🛡️</span>
-                    <h3>v12.0 Protections</h3>
+        <section class="pred-charts">
+            <article class="pred-panel">
+                <div class="pred-panel-head">
+                    <div>
+                        <div class="pred-title-sm">Prior</div>
+                        <div class="pred-panel-title">Target-day forward curves</div>
+                        <div class="pred-panel-sub">This is the 1-2 day layer: provider curves, implied target-day max and current agreement spread.</div>
+                    </div>
+                    <div class="pred-badge muted" id="predPriorBadge">No prior yet</div>
                 </div>
-                <div class="calc-row">
-                    <span class="calc-label">🔒 Sunset Lock</span>
-                    <span class="calc-value" id="sunset-lock">--</span>
-                </div>
-                <div class="calc-row" style="padding-left: 20px; font-size: 11px; color: var(--text-muted);">
-                    <span>Condition: METAR < observed_max - 0.5°F after 14:00</span>
-                            <span id="sunset-condition">--</span>
-                </div>
-                <div class="calc-row">
-                    <span class="calc-label">⚡ Ultimate Squeeze</span>
-                    <span class="calc-value" id="ultimate-squeeze">--</span>
-                </div>
-                <div class="calc-row" style="padding-left: 20px; font-size: 11px; color: var(--text-muted);">
-                    <span>Condition: After 14:30, max spread = 1.2°F</span>
-                </div>
-                <div class="calc-row">
-                    <span class="calc-label">⚠️ Ghost Alert</span>
-                    <span class="calc-value" id="ghost-alert">--</span>
-                </div>
-                <div class="calc-row" style="padding-left: 20px; font-size: 11px; color: var(--text-muted);">
-                    <span>Condition: HELIOS > METAR + 3.0°F after 14:00</span>
-                </div>
-                <div id="ghost-reason" class="strategy-note" style="display: none;"></div>
-            </div>
+                <div class="pred-chart-wrap"><canvas id="predPriorChart"></canvas></div>
+                <div class="pred-source-list" id="predPriorSources"></div>
+            </article>
 
-            <!-- Time Context -->
-            <div class="calc-section">
-                <div class="calc-section-header">
-                    <span class="icon">🕐</span>
-                    <h3>Time Context</h3>
+            <article class="pred-panel">
+                <div class="pred-panel-head">
+                    <div>
+                        <div class="pred-title-sm">Market</div>
+                        <div class="pred-panel-title">Model vs market buckets</div>
+                        <div class="pred-panel-sub">Current model probabilities against live YES prices for the most relevant buckets.</div>
+                    </div>
+                    <div class="pred-badge muted" id="predMarketBadge">No market yet</div>
                 </div>
-                <div class="calc-row">
-                    <span class="calc-label">Station Local Time</span>
-                    <span class="calc-value neutral" id="local-time">--</span>
-                </div>
-                <div class="calc-row">
-                    <span class="calc-label">Local Hour</span>
-                    <span class="calc-value neutral" id="local-hour">--</span>
-                </div>
-                <div class="calc-row">
-                    <span class="calc-label">Local Minute</span>
-                    <span class="calc-value neutral" id="local-minute">--</span>
-                </div>
-            </div>
+                <div class="pred-chart-wrap"><canvas id="predMarketChart"></canvas></div>
+                <div class="pred-row-list" id="predMarketRows"></div>
+            </article>
+        </section>
 
-            <!-- Strategy Note -->
-            <div class="calc-section">
-                <div class="calc-section-header">
-                    <span class="icon">📝</span>
-                    <h3>Strategy</h3>
+        <section class="pred-grid">
+            <article class="pred-panel">
+                <div class="pred-panel-head">
+                    <div>
+                        <div class="pred-title-sm">Intraday</div>
+                        <div class="pred-panel-title">Official + PWS same-day layer</div>
+                        <div class="pred-panel-sub">This block activates only for today. It is where PWS delay, convergence and next-METAR pressure matter.</div>
+                    </div>
+                    <div class="pred-badge muted" id="predIntradayBadge">Inactive</div>
                 </div>
-                <div id="strategy-note" class="strategy-note">
-                    Loading strategy...
+                <div id="predIntraday"></div>
+            </article>
+
+            <article class="pred-panel">
+                <div class="pred-panel-head">
+                    <div>
+                        <div class="pred-title-sm">PWS Research</div>
+                        <div class="pred-panel-title">Historical ranking of city stations</div>
+                        <div class="pred-panel-sub">A live UI summary of the PWS export work: stability, delay patterns and which stations still need more study.</div>
+                    </div>
+                    <div class="pred-badge muted" id="predPwsBadge">No history yet</div>
                 </div>
-            </div>
-        </div>
+                <div id="predPwsHistory"></div>
+            </article>
+        </section>
+
+        <section class="pred-bottom">
+            <article class="pred-panel">
+                <div class="pred-panel-head">
+                    <div>
+                        <div class="pred-title-sm">Backlog</div>
+                        <div class="pred-panel-title">Data work still required</div>
+                        <div class="pred-panel-sub">This is the path from the current refactor to the fuller model you described.</div>
+                    </div>
+                </div>
+                <div class="pred-note-list" id="predBacklog"></div>
+            </article>
+
+            <article class="pred-panel">
+                <div class="pred-panel-head">
+                    <div>
+                        <div class="pred-title-sm">Legacy</div>
+                        <div class="pred-panel-title">Physics reference kept for comparison</div>
+                        <div class="pred-panel-sub">The old point prediction is still visible here so drift and regressions remain obvious.</div>
+                    </div>
+                </div>
+                <div id="predLegacy"></div>
+            </article>
+        </section>
     </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-    const STATION_ID = '{{ station_id }}';
+(() => {
+    const PRIOR_COLORS = ['#14b8a6', '#f59e0b', '#38bdf8', '#fb7185', '#22c55e'];
+    const els = {
+        title: document.getElementById('predTitle'),
+        breadcrumb: document.getElementById('predBreadcrumb'),
+        headline: document.getElementById('predHeadlineCopy'),
+        generatedAt: document.getElementById('predGeneratedAt'),
+        payloadMeta: document.getElementById('predPayloadMeta'),
+        targetMeta: document.getElementById('predTargetMeta'),
+        refresh: document.getElementById('predRefresh'),
+        summary: document.getElementById('predSummary'),
+        inventory: document.getElementById('predInventory'),
+        priorBadge: document.getElementById('predPriorBadge'),
+        marketBadge: document.getElementById('predMarketBadge'),
+        intradayBadge: document.getElementById('predIntradayBadge'),
+        pwsBadge: document.getElementById('predPwsBadge'),
+        priorSources: document.getElementById('predPriorSources'),
+        marketRows: document.getElementById('predMarketRows'),
+        intraday: document.getElementById('predIntraday'),
+        pwsHistory: document.getElementById('predPwsHistory'),
+        backlog: document.getElementById('predBacklog'),
+        legacy: document.getElementById('predLegacy'),
+        priorChart: document.getElementById('predPriorChart'),
+        marketChart: document.getElementById('predMarketChart'),
+        dayButtons: [...document.querySelectorAll('[data-target-day]')],
+    };
 
-    async function loadPredictionData() {
+    let priorChart = null;
+    let marketChart = null;
+    let refreshTimer = null;
+    const state = {
+        stationId: {{ station_id|tojson }},
+        targetDay: 0,
+    };
+
+    function esc(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function fmtStamp(value) {
+        if (!value) return '--';
+        const dt = new Date(value);
+        return Number.isNaN(dt.getTime()) ? value : dt.toLocaleString([], { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+    }
+
+    function fmtNum(value, digits = 1) {
+        return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(digits) : '--';
+    }
+
+    function fmtPct(value, digits = 1) {
+        return typeof value === 'number' && Number.isFinite(value) ? `${(value * 100).toFixed(digits)}%` : '--';
+    }
+
+    function fmtHour(value) {
+        if (!value) return '--';
+        const dt = new Date(value);
+        return Number.isNaN(dt.getTime()) ? value : dt.toLocaleString([], { month: 'short', day: '2-digit', hour: '2-digit' });
+    }
+
+    function horizonLabel(targetDay) {
+        return ({ 0: 'Today', 1: 'Tomorrow', 2: '+2 days' }[targetDay] || `T+${targetDay}`);
+    }
+
+    function currentStationLabel(stationId) {
+        const opt = window.HeliosStationState?.getOption?.(stationId);
+        return opt ? `${opt.city_name || stationId} (${opt.id})` : stationId;
+    }
+
+    function updateDayButtons() {
+        els.dayButtons.forEach((button) => {
+            button.classList.toggle('active', Number(button.dataset.targetDay) === state.targetDay);
+        });
+    }
+
+    function summaryCards(payload) {
+        const prior = payload.prior_model || {};
+        const market = payload.market_model || {};
+        const intraday = payload.intraday_model || {};
+        const pwsHistory = intraday.historical_ranking || {};
+        const bestTrade = market.best_terminal_trade || {};
+        const priorConsensus = prior.consensus_max;
+        const pwsMedian = ((intraday.pws_now || {}).median_market);
+        return [
+            {
+                label: 'Horizon',
+                value: esc(payload.horizon?.label || '--'),
+                meta: esc(payload.target_date || '--'),
+            },
+            {
+                label: 'Prior Consensus',
+                value: `${fmtNum(priorConsensus, 2)} ${esc(payload.market_unit || '')}`,
+                meta: esc(prior.headline || 'No prior layer available.'),
+            },
+            {
+                label: 'Best Edge',
+                value: typeof bestTrade.edge_points === 'number' ? `${fmtNum(bestTrade.edge_points, 1)} pts` : '--',
+                meta: bestTrade.label ? `${esc(bestTrade.label)} ${esc(bestTrade.best_side || '')}` : esc(market.reason || 'No live market setup.'),
+            },
+            {
+                label: 'PWS History',
+                value: typeof pwsMedian === 'number' ? `${fmtNum(pwsMedian, 2)} ${esc(payload.market_unit || '')}` : `${esc(String((pwsHistory.summary || {}).day_count || pwsHistory.window_day_count || 0))} days`,
+                meta: `${esc(String((pwsHistory.summary || {}).unique_station_count || 0))} stations with historical ranking`,
+            },
+        ];
+    }
+
+    function renderSummary(payload) {
+        els.summary.innerHTML = summaryCards(payload).map((card) => `
+            <article class="pred-metric">
+                <div class="pred-label">${esc(card.label)}</div>
+                <div class="pred-value">${card.value}</div>
+                <div class="pred-meta-copy">${esc(card.meta)}</div>
+            </article>
+        `).join('');
+    }
+
+    function renderInventory(payload) {
+        const inventory = payload.data_inventory || {};
+        const columns = [
+            { id: 'available', label: 'Available', rows: inventory.available || [] },
+            { id: 'missing', label: 'Missing', rows: inventory.missing || [] },
+            { id: 'study', label: 'Needs Study', rows: inventory.needs_study || [] },
+        ];
+        els.inventory.innerHTML = columns.map((column) => `
+            <div class="pred-col" data-kind="${esc(column.id)}">
+                <div class="pred-col-title">${esc(column.label)}</div>
+                ${column.rows.length ? column.rows.map((row) => `
+                    <div class="pred-item">
+                        <div class="pred-item-title">${esc(row.title)}</div>
+                        <div class="pred-item-copy">${esc(row.detail)}</div>
+                    </div>
+                `).join('') : '<div class="pred-empty">No items in this column.</div>'}
+            </div>
+        `).join('');
+    }
+
+    function renderPriorChart(payload) {
+        const prior = payload.prior_model || {};
+        const sourceRows = prior.source_rows || [];
+        const labelsSet = new Set();
+        sourceRows.forEach((row) => (row.target_curve || []).forEach((point) => { if (point.timestamp_local) labelsSet.add(point.timestamp_local); }));
+        const sorted = [...labelsSet].sort((a, b) => new Date(a) - new Date(b));
+        if (priorChart) priorChart.destroy();
+        if (!sorted.length) {
+            priorChart = null;
+            els.priorBadge.textContent = 'No target curve';
+            return;
+        }
+        const datasets = sourceRows
+            .filter((row) => (row.target_curve || []).length)
+            .map((row, idx) => {
+                const map = new Map((row.target_curve || []).map((point) => [point.timestamp_local, point.value]));
+                return {
+                    label: row.display_name || row.source,
+                    data: sorted.map((stamp) => map.has(stamp) ? map.get(stamp) : null),
+                    borderColor: PRIOR_COLORS[idx % PRIOR_COLORS.length],
+                    backgroundColor: 'transparent',
+                    tension: 0.28,
+                    spanGaps: true,
+                    pointRadius: 2,
+                    borderWidth: 2,
+                };
+            });
+        priorChart = new Chart(els.priorChart.getContext('2d'), {
+            type: 'line',
+            data: { labels: sorted.map(fmtHour), datasets },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'nearest', intersect: false },
+                plugins: { legend: { labels: { color: '#cbd5e1' } } },
+                scales: {
+                    x: { ticks: { color: '#94a3b8', autoSkip: true, maxRotation: 0 }, grid: { color: 'rgba(148,163,184,0.12)' } },
+                    y: { ticks: { color: '#94a3b8' }, title: { display: true, text: payload.market_unit || '', color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,0.12)' } },
+                },
+            },
+        });
+        els.priorBadge.textContent = prior.confidence ? `Confidence ${fmtPct(prior.confidence, 0)}` : 'Target-day curves';
+        els.priorBadge.className = `pred-badge ${prior.source_count >= 2 ? 'good' : 'warn'}`;
+    }
+
+    function renderPriorSources(payload) {
+        const prior = payload.prior_model || {};
+        const sourceRows = prior.source_rows || [];
+        if (!sourceRows.length) {
+            els.priorSources.innerHTML = '<div class="pred-empty">No provider rows were returned for the selected horizon.</div>';
+            return;
+        }
+        els.priorSources.innerHTML = sourceRows.map((row) => `
+            <div class="pred-source">
+                <div class="pred-source-head">
+                    <div>
+                        <div class="pred-source-name">${esc(row.display_name || row.source)}</div>
+                        <div class="pred-source-meta">${esc(row.status || 'unknown')} | ${esc(String(row.target_hour_count || 0))} target rows</div>
+                    </div>
+                    <div class="pred-badge ${row.target_hour_count ? 'good' : 'warn'}">${row.target_hour_count ? 'In prior' : 'No target day rows'}</div>
+                </div>
+                <div class="pred-source-stats">
+                    <div class="pred-statbox"><div class="pred-label">Target Max</div><div class="pred-stat">${fmtNum(row.target_day_max, 2)} ${esc(payload.market_unit || '')}</div><div class="pred-sub">${esc(fmtStamp(row.target_day_peak_time_local))}</div></div>
+                    <div class="pred-statbox"><div class="pred-label">Realtime</div><div class="pred-stat">${fmtNum(row.realtime, 2)} ${esc(payload.market_unit || '')}</div><div class="pred-sub">${esc(fmtStamp(row.realtime_as_of_local))}</div></div>
+                    <div class="pred-statbox"><div class="pred-label">Today History</div><div class="pred-stat">${fmtNum(row.history_today_max, 2)} ${esc(payload.market_unit || '')}</div><div class="pred-sub">${row.history_confirmed ? 'Confirmed history' : esc(row.history_kind || 'No confirmed history')}</div></div>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    function renderMarketChart(payload) {
+        const market = payload.market_model || {};
+        const comparison = market.comparison || [];
+        if (marketChart) marketChart.destroy();
+        if (!comparison.length) {
+            marketChart = null;
+            els.marketBadge.textContent = market.available ? 'No bucket comparison' : 'No market';
+            els.marketBadge.className = `pred-badge ${market.available ? 'warn' : 'bad'}`;
+            return;
+        }
+        marketChart = new Chart(els.marketChart.getContext('2d'), {
+            type: 'bar',
+            data: {
+                labels: comparison.map((row) => row.label),
+                datasets: [
+                    { label: 'Model YES', data: comparison.map((row) => typeof row.model_yes === 'number' ? row.model_yes * 100 : null), backgroundColor: 'rgba(20,184,166,0.72)', borderRadius: 8 },
+                    { label: 'Market YES', data: comparison.map((row) => typeof row.market_yes === 'number' ? row.market_yes * 100 : null), backgroundColor: 'rgba(245,158,11,0.72)', borderRadius: 8 },
+                ],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                indexAxis: 'y',
+                plugins: { legend: { labels: { color: '#cbd5e1' } } },
+                scales: {
+                    x: { ticks: { color: '#94a3b8', callback: (v) => `${v}%` }, grid: { color: 'rgba(148,163,184,0.12)' } },
+                    y: { ticks: { color: '#cbd5e1' }, grid: { display: false } },
+                },
+            },
+        });
+        const best = market.best_terminal_trade || {};
+        els.marketBadge.textContent = typeof best.edge_points === 'number' ? `Best ${fmtNum(best.edge_points, 1)} pts` : 'Comparison ready';
+        els.marketBadge.className = `pred-badge ${typeof best.edge_points === 'number' && best.edge_points > 0 ? 'good' : 'warn'}`;
+    }
+
+    function renderMarketRows(payload) {
+        const market = payload.market_model || {};
+        if (!market.available) {
+            els.marketRows.innerHTML = `<div class="pred-empty">${esc(market.reason || 'No market data available for this horizon.')}</div>`;
+            return;
+        }
+        const rows = [];
+        if (market.best_terminal_trade) rows.push({ title: 'Best terminal trade', row: market.best_terminal_trade });
+        if (market.best_tactical_trade) rows.push({ title: 'Best tactical trade', row: market.best_tactical_trade });
+        if (!rows.length) {
+            els.marketRows.innerHTML = '<div class="pred-empty">The market loaded, but no trade row stands out yet.</div>';
+            return;
+        }
+        els.marketRows.innerHTML = rows.map((entry) => `
+            <div class="pred-row">
+                <div class="pred-row-head">
+                    <div>
+                        <div class="pred-row-title">${esc(entry.title)}</div>
+                        <div class="pred-row-copy">${esc(market.headline || '')}</div>
+                    </div>
+                    <div class="pred-badge ${typeof entry.row.edge_points === 'number' && entry.row.edge_points > 0 ? 'good' : 'warn'}">${typeof entry.row.edge_points === 'number' ? `${fmtNum(entry.row.edge_points, 1)} pts` : 'No edge'}</div>
+                </div>
+                <div class="pred-row-stats">
+                    <div class="pred-statbox"><div class="pred-label">Bucket</div><div class="pred-stat">${esc(entry.row.label || '--')}</div><div class="pred-sub">${esc(entry.row.best_side || entry.row.tactical_best_side || '--')}</div></div>
+                    <div class="pred-statbox"><div class="pred-label">Entry</div><div class="pred-stat">${fmtNum(entry.row.selected_entry, 3)}</div><div class="pred-sub">fair ${fmtNum(entry.row.selected_fair, 3)}</div></div>
+                    <div class="pred-statbox"><div class="pred-label">Recommendation</div><div class="pred-stat">${esc(entry.row.recommendation || entry.row.tactical_recommendation || '--')}</div><div class="pred-sub">${esc(entry.row.policy_reason || 'Policy not available')}</div></div>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    function renderIntraday(payload) {
+        const intraday = payload.intraday_model || {};
+        if (!intraday.available) {
+            els.intradayBadge.textContent = intraday.reason || 'Inactive';
+            els.intradayBadge.className = 'pred-badge muted';
+            els.intraday.innerHTML = `<div class="pred-empty">${esc(intraday.reason || 'This layer only runs for today.')}</div>`;
+            return;
+        }
+        const official = intraday.official || {};
+        const pwsNow = intraday.pws_now || {};
+        const next = intraday.next_official || {};
+        els.intradayBadge.textContent = next.available ? `Next ${esc(next.direction || 'FLAT')}` : 'Live';
+        els.intradayBadge.className = `pred-badge ${next.available ? 'good' : 'warn'}`;
+        els.intraday.innerHTML = `
+            <div class="pred-kv">
+                <div class="pred-statbox"><div class="pred-label">Official</div><div class="pred-stat">${fmtNum(official.temp_market, 2)} ${esc(payload.market_unit || '')}</div><div class="pred-sub">${esc(fmtStamp(official.obs_time_local))}</div></div>
+                <div class="pred-statbox"><div class="pred-label">Observed Max</div><div class="pred-stat">${fmtNum(intraday.observed_max_market, 2)} ${esc(payload.market_unit || '')}</div><div class="pred-sub">From recorded target-day performance logs.</div></div>
+                <div class="pred-statbox"><div class="pred-label">PWS Median</div><div class="pred-stat">${fmtNum(pwsNow.median_market, 2)} ${esc(payload.market_unit || '')}</div><div class="pred-sub">${esc(String(pwsNow.station_count || 0))} stations, ${esc(String(pwsNow.fresh_station_count || 0))} fresh</div></div>
+                <div class="pred-statbox"><div class="pred-label">PWS Weighted Mean</div><div class="pred-stat">${fmtNum(pwsNow.weighted_mean_market, 2)} ${esc(payload.market_unit || '')}</div><div class="pred-sub">Dispersion ${fmtNum(pwsNow.dispersion_market, 2)} ${esc(payload.market_unit || '')}</div></div>
+                <div class="pred-statbox"><div class="pred-label">Consensus Gap</div><div class="pred-stat">${fmtNum(pwsNow.consensus_gap_vs_official, 2)} ${esc(payload.market_unit || '')}</div><div class="pred-sub">PWS consensus vs official reading.</div></div>
+                <div class="pred-statbox"><div class="pred-label">Next Official</div><div class="pred-stat">${next.available ? `${fmtNum(next.expected_market, 2)} ${esc(payload.market_unit || '')}` : '--'}</div><div class="pred-sub">${next.available ? `${esc(next.direction || 'FLAT')} in ${fmtNum(next.minutes_to_next, 0)} min` : 'No next-METAR projection yet.'}</div></div>
+            </div>
+            <div class="pred-source-list">
+                ${(pwsNow.top_current_stations || []).length ? pwsNow.top_current_stations.map((row) => `
+                    <div class="pred-source">
+                        <div class="pred-source-head">
+                            <div>
+                                <div class="pred-source-name">${esc(row.station_name || row.station_id)}</div>
+                                <div class="pred-source-meta">${esc(row.source || '')} | ${fmtNum(row.distance_km, 1)} km | ${fmtNum(row.age_minutes, 1)} min old</div>
+                            </div>
+                            ${row.classification ? `<div class="pred-pill ${esc(row.classification.code)}">${esc(row.classification.label)}</div>` : ''}
+                        </div>
+                        <div class="pred-source-stats">
+                            <div class="pred-statbox"><div class="pred-label">Reading</div><div class="pred-stat">${fmtNum(row.temp_market, 2)} ${esc(payload.market_unit || '')}</div><div class="pred-sub">${fmtNum(row.temp_c, 2)} C</div></div>
+                            <div class="pred-statbox"><div class="pred-label">Predictive Weight</div><div class="pred-stat">${fmtNum(row.weight_predictive, 3)}</div><div class="pred-sub">Current lane ranking.</div></div>
+                            <div class="pred-statbox"><div class="pred-label">Next-METAR Score</div><div class="pred-stat">${fmtNum(row.next_metar_score, 1)}</div><div class="pred-sub">Historical predictive score.</div></div>
+                        </div>
+                    </div>
+                `).join('') : '<div class="pred-empty">No current PWS station rows are available right now.</div>'}
+            </div>
+        `;
+    }
+
+    function renderPwsHistory(payload) {
+        const history = (payload.intraday_model || {}).historical_ranking || {};
+        const topStations = history.top_stations || [];
+        const summary = history.summary || {};
+        els.pwsBadge.textContent = history.window_day_count ? `${history.window_day_count} days` : 'No history';
+        els.pwsBadge.className = `pred-badge ${history.window_day_count ? 'good' : 'warn'}`;
+        if (!topStations.length) {
+            els.pwsHistory.innerHTML = '<div class="pred-empty">No aggregated PWS history was available for this station.</div>';
+            return;
+        }
+        const topCards = topStations.map((row) => `
+            <div class="pred-row">
+                <div class="pred-row-head">
+                    <div>
+                        <div class="pred-row-title">${esc(row.station_name || row.station_id)}</div>
+                        <div class="pred-row-copy">${esc(row.source || '')} | ${fmtNum(row.distance_km, 1)} km | ${esc(String(row.raw_updates_total || 0))} updates</div>
+                    </div>
+                    <div class="pred-pill ${esc((row.classification || {}).code || 'mixed')}">${esc((row.classification || {}).label || 'Mixed')}</div>
+                </div>
+                <div class="pred-row-stats">
+                    <div class="pred-statbox"><div class="pred-label">Next-METAR Hit</div><div class="pred-stat">${fmtPct(row.next_metar_hit_rate, 0)}</div><div class="pred-sub">${esc(String(row.next_metar_total || 0))} scored windows</div></div>
+                    <div class="pred-statbox"><div class="pred-label">Next-METAR MAE</div><div class="pred-stat">${fmtNum(row.next_metar_mae_c, 2)} C</div><div class="pred-sub">Current MAE ${fmtNum(row.current_metar_mae_c, 2)} C</div></div>
+                    <div class="pred-statbox"><div class="pred-label">Delay Gain</div><div class="pred-stat">${fmtNum(row.delay_gain_c, 2)} C</div><div class="pred-sub">Positive means it improves when scored vs next METAR.</div></div>
+                </div>
+            </div>
+        `).join('');
+        els.pwsHistory.innerHTML = `
+            <div class="pred-kv">
+                <div class="pred-statbox"><div class="pred-label">Window</div><div class="pred-stat">${esc(String(history.window_day_count || 0))} days</div><div class="pred-sub">${esc(history.window_mode || 'rolling_window')}</div></div>
+                <div class="pred-statbox"><div class="pred-label">Unique Stations</div><div class="pred-stat">${esc(String(summary.unique_station_count || 0))}</div><div class="pred-sub">${esc(String(summary.browser_station_count || 0))} browser / ${esc(String(summary.audit_station_count || 0))} audit</div></div>
+                <div class="pred-statbox"><div class="pred-label">Raw Updates</div><div class="pred-stat">${esc(String(summary.raw_updates_total || 0))}</div><div class="pred-sub">${esc(String(summary.audit_row_total || 0))} audit rows</div></div>
+                <div class="pred-statbox"><div class="pred-label">Coverage</div><div class="pred-stat">${esc(String(summary.day_count || history.window_day_count || 0))}</div><div class="pred-sub">Recorded market days in the current live window.</div></div>
+            </div>
+            <div class="pred-row-list">${topCards}</div>
+        `;
+    }
+
+    function renderBacklog(payload) {
+        const rows = payload.research_backlog || [];
+        els.backlog.innerHTML = rows.length ? rows.map((row) => `
+            <div class="pred-note">
+                <div class="pred-source-head">
+                    <div class="pred-source-name">${esc(row.title)}</div>
+                    <div class="pred-badge ${row.priority === 'high' ? 'bad' : 'warn'}">${esc(row.priority || 'medium')}</div>
+                </div>
+                <div class="pred-note-copy">${esc(row.detail)}</div>
+            </div>
+        `).join('') : '<div class="pred-empty">No backlog items were generated.</div>';
+    }
+
+    function renderLegacy(payload) {
+        const legacy = payload.legacy_reference || {};
+        if (!legacy.available) {
+            els.legacy.innerHTML = '<div class="pred-empty">No legacy HELIOS prediction is stored for this target date.</div>';
+            return;
+        }
+        const breakdown = legacy.component_breakdown || [];
+        els.legacy.innerHTML = `
+            <div class="pred-kv">
+                <div class="pred-statbox"><div class="pred-label">Legacy Prediction</div><div class="pred-stat">${fmtNum(legacy.prediction_market, 2)} ${esc(payload.market_unit || '')}</div><div class="pred-sub">${fmtNum(legacy.prediction_f, 2)} F</div></div>
+                <div class="pred-statbox"><div class="pred-label">HRRR Raw</div><div class="pred-stat">${fmtNum(legacy.hrrr_f, 2)} F</div><div class="pred-sub">Legacy model input reference.</div></div>
+                <div class="pred-statbox"><div class="pred-label">Physics Adj</div><div class="pred-stat">${fmtNum(legacy.physics_adjustment_f, 2)} F</div><div class="pred-sub">Delta weight ${fmtNum(legacy.delta_weight, 2)}</div></div>
+                <div class="pred-statbox"><div class="pred-label">Stored At</div><div class="pred-stat">${esc(fmtStamp(legacy.timestamp))}</div><div class="pred-sub">Most recent prediction for this target date.</div></div>
+            </div>
+            <div class="pred-inline">
+                ${breakdown.length ? breakdown.map((item) => `<span class="pred-pill">${esc(item.label || item.raw || '--')}${typeof item.value === 'number' ? ` ${esc(String(item.value))}` : ''}</span>`).join('') : '<span class="pred-pill">No component breakdown</span>'}
+            </div>
+        `;
+    }
+
+    function renderPayload(payload) {
+        const stationId = payload.station_id || state.stationId;
+        state.stationId = stationId;
+        els.title.textContent = currentStationLabel(stationId);
+        els.breadcrumb.textContent = stationId;
+        els.headline.textContent = payload.headline?.summary || 'Prediction lab payload loaded.';
+        els.generatedAt.textContent = `Payload generated ${fmtStamp(payload.generated_at_local)}`;
+        els.payloadMeta.textContent = `${payload.market_unit || '--'} market | ${esc((payload.prior_model || {}).source_count || 0)} prior sources | ${esc((((payload.intraday_model || {}).historical_ranking || {}).summary || {}).unique_station_count || 0)} PWS stations`;
+        els.targetMeta.textContent = `Target ${payload.target_date || '--'} | ${horizonLabel(state.targetDay)}`;
+        renderSummary(payload);
+        renderInventory(payload);
+        renderPriorChart(payload);
+        renderPriorSources(payload);
+        renderMarketChart(payload);
+        renderMarketRows(payload);
+        renderIntraday(payload);
+        renderPwsHistory(payload);
+        renderBacklog(payload);
+        renderLegacy(payload);
+    }
+
+    function setError(message) {
+        const text = String(message || 'Unknown error');
+        els.generatedAt.textContent = 'Payload unavailable';
+        els.payloadMeta.textContent = text;
+        els.targetMeta.textContent = `Target ${horizonLabel(state.targetDay)}`;
+        els.summary.innerHTML = `<article class="pred-metric"><div class="pred-label">Error</div><div class="pred-value">--</div><div class="pred-meta-copy">${esc(text)}</div></article>`;
+        els.inventory.innerHTML = `<div class="pred-empty">${esc(text)}</div>`;
+        els.priorSources.innerHTML = `<div class="pred-empty">${esc(text)}</div>`;
+        els.marketRows.innerHTML = `<div class="pred-empty">${esc(text)}</div>`;
+        els.intraday.innerHTML = `<div class="pred-empty">${esc(text)}</div>`;
+        els.pwsHistory.innerHTML = `<div class="pred-empty">${esc(text)}</div>`;
+        els.backlog.innerHTML = `<div class="pred-empty">${esc(text)}</div>`;
+        els.legacy.innerHTML = `<div class="pred-empty">${esc(text)}</div>`;
+        if (priorChart) { priorChart.destroy(); priorChart = null; }
+        if (marketChart) { marketChart.destroy(); marketChart = null; }
+    }
+
+    async function loadPrediction() {
+        updateDayButtons();
+        els.refresh.disabled = true;
+        els.dayButtons.forEach((button) => { button.disabled = true; });
         try {
-            const resp = await fetch(`/api/v12_debug/${STATION_ID}`);
-            const data = await resp.json();
-
-            if (data.error) {
-                console.error('API Error:', data.error);
-                return;
-            }
-
-            // Update timestamp
-            document.getElementById('last-update').textContent = `Last update: ${data.local_time}`;
-
-            // Inputs
-            document.getElementById('metar-current').textContent = data.inputs.metar_current_f ? data.inputs.metar_current_f.toFixed(1) + '°F' : 'N/A';
-            document.getElementById('observed-max').textContent = data.inputs.observed_max_f ? data.inputs.observed_max_f.toFixed(1) + '°F' : 'N/A';
-            document.getElementById('hrrr-raw').textContent = data.inputs.hrrr_max_f ? data.inputs.hrrr_max_f.toFixed(1) + '°F' : 'N/A';
-            document.getElementById('nbm-value').textContent = data.inputs.nbm_max_f ? data.inputs.nbm_max_f.toFixed(1) + '°F' : 'N/A';
-            document.getElementById('lamp-value').textContent = data.inputs.lamp_max_f ? data.inputs.lamp_max_f.toFixed(1) + '°F' : 'N/A';
-
-            // Physics
-            const phys = data.physics_context;
-            if (phys) {
-                document.getElementById('wind-condition').textContent = `${phys.wind_speed_kt}kt @ ${phys.wind_dir_degrees}°`;
-
-                const advEl = document.getElementById('advection-rate');
-                advEl.textContent = phys.advection_rate_c_h.toFixed(2) + '°C/h';
-                advEl.className = 'calc-value ' + (phys.is_heating ? 'positive' : (phys.is_cooling ? 'negative' : 'neutral'));
-
-                document.getElementById('upstream-temp').textContent = phys.upstream_temp_c ? phys.upstream_temp_c.toFixed(1) + '°C' : 'N/A';
-                document.getElementById('advection-desc').textContent = phys.description;
-            }
-
-            // Ensemble
-            const ens = data.ensemble_result;
-            document.getElementById('ensemble-base').textContent = ens.base_weighted_f.toFixed(1) + '°F';
-            document.getElementById('ensemble-floor').textContent = ens.floor_f.toFixed(1) + '°F';
-            document.getElementById('ensemble-ceiling').textContent = ens.ceiling_f.toFixed(1) + '°F';
-            document.getElementById('ensemble-spread').textContent = ens.spread_f.toFixed(1) + '°F';
-            document.getElementById('allowed-spread').textContent = ens.allowed_spread_f.toFixed(1) + '°F';
-            document.getElementById('confidence').textContent = ens.confidence;
-
-            // Final prediction
-            const finalPred = Math.min(ens.base_weighted_f, ens.ceiling_f);
-            document.getElementById('final-pred').textContent = finalPred.toFixed(1) + '°F';
-
-            // Calculate bracket
-            const low = Math.floor(finalPred);
-            const bracketLow = low % 2 === 1 ? low - 1 : low;
-            document.getElementById('final-bracket').textContent = `Bracket: ${bracketLow}-${bracketLow + 1}°F`;
-
-            // Time context
-            document.getElementById('local-time').textContent = data.local_time;
-            document.getElementById('local-hour').textContent = data.local_hour;
-            document.getElementById('local-minute').textContent = data.local_minute;
-
-            // v12.0 Protections
-            const prot = data.v12_protections;
-
-            // Sunset Lock
-            const sunsetEl = document.getElementById('sunset-lock');
-            sunsetEl.textContent = prot.sunset_lock_active ? '🔒 ACTIVE' : 'Inactive';
-            sunsetEl.className = 'calc-value ' + (prot.sunset_lock_active ? 'warning' : 'neutral');
-            document.getElementById('sunset-condition').textContent = prot.sunset_lock_condition_met ? '✓ Met' : '✗ Not Met';
-
-            // Ultimate Squeeze
-            const squeezeEl = document.getElementById('ultimate-squeeze');
-            squeezeEl.textContent = prot.ultimate_squeeze_active ? '⚡ ACTIVE' : 'Inactive';
-            squeezeEl.className = 'calc-value ' + (prot.ultimate_squeeze_active ? 'warning' : 'neutral');
-
-            // Ghost Alert
-            const ghostEl = document.getElementById('ghost-alert');
-            ghostEl.textContent = prot.ghost_prediction_warning ? '⚠️ WARNING' : 'Clear';
-            ghostEl.className = 'calc-value ' + (prot.ghost_prediction_warning ? 'negative' : 'positive');
-
-            if (prot.ghost_reason) {
-                document.getElementById('ghost-reason').style.display = 'block';
-                document.getElementById('ghost-reason').textContent = prot.ghost_reason;
-            } else {
-                document.getElementById('ghost-reason').style.display = 'none';
-            }
-
-            // Strategy
-            document.getElementById('strategy-note').textContent = ens.strategy_note || 'No strategy notes';
-
-            // Protection badges
-            const badges = document.getElementById('protection-badges');
-            badges.innerHTML = '';
-
-            if (prot.sunset_lock_active) {
-                badges.innerHTML += '<span class="protection-badge active">🔒 Sunset Lock</span>';
-            }
-            if (prot.ultimate_squeeze_active) {
-                badges.innerHTML += '<span class="protection-badge active">⚡ Squeeze 1.2°F</span>';
-            }
-            if (prot.ghost_prediction_warning) {
-                badges.innerHTML += '<span class="protection-badge warning">⚠️ Ghost Alert</span>';
-            }
-            if (!prot.sunset_lock_active && !prot.ultimate_squeeze_active && !prot.ghost_prediction_warning) {
-                badges.innerHTML += '<span class="protection-badge inactive">No Active Protections</span>';
-            }
-
-        } catch (e) {
-            console.error('Error loading prediction data:', e);
+            const stationId = window.HeliosStationState?.get?.() || state.stationId || {{ station_id|tojson }};
+            state.stationId = stationId;
+            const params = new URLSearchParams({ target_day: String(state.targetDay) });
+            const response = await fetch(`/api/prediction/${encodeURIComponent(stationId)}?${params.toString()}`);
+            const payload = await response.json();
+            if (!response.ok || payload?.error) throw new Error(payload?.error || `HTTP ${response.status}`);
+            const url = new URL(window.location.href);
+            url.searchParams.set('target_day', String(state.targetDay));
+            history.replaceState({}, '', url.toString());
+            renderPayload(payload);
+        } catch (error) {
+            setError(error?.message || error);
+        } finally {
+            els.refresh.disabled = false;
+            els.dayButtons.forEach((button) => { button.disabled = false; });
         }
     }
 
-    // Initial load
-    loadPredictionData();
+    function scheduleRefresh() {
+        if (refreshTimer) clearInterval(refreshTimer);
+        refreshTimer = window.setInterval(() => {
+            if (document.visibilityState === 'visible') loadPrediction();
+        }, 60000);
+    }
 
-    // Auto-refresh every 10 seconds
-    setInterval(loadPredictionData, 10000);
+    function initState() {
+        const params = new URLSearchParams(window.location.search);
+        const initialTargetDay = Number(params.get('target_day'));
+        if ([0, 1, 2].includes(initialTargetDay)) state.targetDay = initialTargetDay;
+        updateDayButtons();
+    }
+
+    els.dayButtons.forEach((button) => {
+        button.addEventListener('click', () => {
+            state.targetDay = Number(button.dataset.targetDay || 0);
+            loadPrediction();
+        });
+    });
+    els.refresh.addEventListener('click', loadPrediction);
+    window.addEventListener('helios:stationchange', loadPrediction);
+    document.addEventListener('DOMContentLoaded', () => {
+        initState();
+        loadPrediction();
+        scheduleRefresh();
+    });
+})();
 </script>
 {% endblock %}
