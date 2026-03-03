@@ -1,84 +1,66 @@
 """
-Ensemble Fetcher — Open-Meteo Ensemble API (ECMWF + GFS)
+Ensemble Fetcher - Open-Meteo Ensemble API (ECMWF + GFS).
 
 Fetches individual ensemble member forecasts and computes empirical
 probability distributions over Polymarket temperature buckets.
-
-This is the core "ensemble counting" approach used by profitable
-weather traders: count how many members fall in each bucket to get
-model-implied probabilities, then compare against market prices.
-
-API: https://ensemble-api.open-meteo.com/v1/ensemble
-  - ECMWF IFS (51 members)
-  - GFS Seamless (31 members)
-  - Total: 82 independent forecasts
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import math
 import time
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from datetime import date, datetime, timezone
+from decimal import Decimal, ROUND_HALF_UP
+from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
 import httpx
 
 from config import STATIONS, get_polymarket_temp_unit
+from core.polymarket_labels import normalize_label, parse_label
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-
+DEGREE = "\N{DEGREE SIGN}"
 ENSEMBLE_API_URL = "https://ensemble-api.open-meteo.com/v1/ensemble"
-
-# Models to fetch — each returns separate member arrays
 ENSEMBLE_MODELS = ["ecmwf_ifs025", "gfs_seamless"]
-
-# Cache TTL — ensemble data updates every 6h, 10-min cache is safe
 _CACHE_TTL_SECONDS = 600
 _cache: Dict[str, Dict[str, Any]] = {}
 
-# Polymarket bucket width (°F for US, °C for EU)
-_US_BUCKET_WIDTH = 2  # 2°F wide buckets (e.g., 40-41, 42-43)
-_EU_BUCKET_WIDTH = 1  # 1°C wide buckets
-
-
-# ---------------------------------------------------------------------------
-# Data models
-# ---------------------------------------------------------------------------
 
 @dataclass
 class EnsembleBucketProb:
     """Probability for a single temperature bucket from ensemble counting."""
-    bucket_low: float       # Lower bound (inclusive)
-    bucket_high: float      # Upper bound (inclusive)
-    unit: str               # "F" or "C"
-    probability: float      # Fraction of members in this bucket
-    member_count: int       # Number of members in this bucket
-    total_members: int      # Total ensemble members
+
+    bucket_low: float
+    bucket_high: float
+    unit: str
+    probability: float
+    member_count: int
+    total_members: int
 
     @property
     def label(self) -> str:
-        if self.unit == "F":
-            return f"{int(self.bucket_low)}-{int(self.bucket_high)}°F"
-        return f"{int(self.bucket_low)}-{int(self.bucket_high)}°C"
+        low = int(self.bucket_low)
+        high = int(self.bucket_high)
+        suffix = f"{DEGREE}{self.unit}"
+        if low == high:
+            return f"{low}{suffix}"
+        return f"{low}-{high}{suffix}"
 
 
 @dataclass
 class EnsembleSnapshot:
     """Full ensemble analysis for a station+date."""
+
     station_id: str
-    target_date: str                    # YYYY-MM-DD
-    unit: str                           # "F" or "C"
+    target_date: str
+    unit: str
     generated_utc: str
     total_members: int
-    member_tmax_values: List[float]     # Raw Tmax from each member
+    member_tmax_values: List[float]
     ensemble_mean: float
     ensemble_median: float
     ensemble_std: float
@@ -90,11 +72,29 @@ class EnsembleSnapshot:
     notes: List[str] = field(default_factory=list)
 
     def get_bucket_prob(self, label: str) -> Optional[float]:
-        """Get probability for a bucket by its label."""
-        for bp in self.bucket_probabilities:
-            if bp.label == label:
-                return bp.probability
-        return None
+        """Get probability for a bucket by Polymarket label semantics."""
+        normalized = normalize_label(label)
+        for bucket in self.bucket_probabilities:
+            if normalize_label(bucket.label) == normalized:
+                return bucket.probability
+
+        kind, low, high = parse_label(normalized)
+        rounded_values = _rounded_member_temperatures(self.member_tmax_values, self.unit)
+        if not rounded_values or kind == "unknown":
+            return None
+
+        if kind == "below" and high is not None:
+            count = sum(1 for value in rounded_values if value <= high)
+        elif kind == "above" and low is not None:
+            count = sum(1 for value in rounded_values if value >= low)
+        elif kind == "range" and low is not None and high is not None:
+            count = sum(1 for value in rounded_values if low <= value <= high)
+        elif kind == "single" and low is not None:
+            count = sum(1 for value in rounded_values if value == low)
+        else:
+            return None
+
+        return count / len(rounded_values)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -108,17 +108,17 @@ class EnsembleSnapshot:
             "ensemble_std": round(self.ensemble_std, 2),
             "ensemble_min": round(self.ensemble_min, 2),
             "ensemble_max": round(self.ensemble_max, 2),
-            "member_tmax_values": [round(v, 1) for v in self.member_tmax_values],
+            "member_tmax_values": [round(value, 1) for value in self.member_tmax_values],
             "bucket_probabilities": [
                 {
-                    "label": bp.label,
-                    "bucket_low": bp.bucket_low,
-                    "bucket_high": bp.bucket_high,
-                    "probability": round(bp.probability, 4),
-                    "member_count": bp.member_count,
-                    "total_members": bp.total_members,
+                    "label": bucket.label,
+                    "bucket_low": bucket.bucket_low,
+                    "bucket_high": bucket.bucket_high,
+                    "probability": round(bucket.probability, 4),
+                    "member_count": bucket.member_count,
+                    "total_members": bucket.total_members,
                 }
-                for bp in self.bucket_probabilities
+                for bucket in self.bucket_probabilities
             ],
             "models_used": self.models_used,
             "errors": self.errors,
@@ -126,37 +126,36 @@ class EnsembleSnapshot:
         }
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _c_to_f(c: float) -> float:
-    return (c * 9.0 / 5.0) + 32.0
+def _c_to_f(temp_c: float) -> float:
+    return (temp_c * 9.0 / 5.0) + 32.0
 
 
-def _extract_member_series(hourly: Dict[str, Any], model: str) -> List[List[float]]:
-    """Extract all member temperature series from the API response.
+def _round_half_up_int(value: float) -> int:
+    return int(Decimal(str(value)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
-    Returns list of lists — each inner list is the hourly temps for one member.
-    """
+
+def _rounded_member_temperatures(tmax_values: List[float], unit: str) -> List[int]:
+    if unit == "F":
+        return [_round_half_up_int(_c_to_f(value)) for value in tmax_values]
+    return [_round_half_up_int(value) for value in tmax_values]
+
+
+def _extract_member_series(hourly: Dict[str, Any]) -> List[List[float]]:
+    """Extract all member temperature series from the API response."""
     members: List[List[float]] = []
 
-    # Primary member (control run)
-    key_base = "temperature_2m"
-    if key_base in hourly:
-        series = hourly[key_base]
-        if isinstance(series, list) and series:
-            members.append([v for v in series if v is not None])
+    control_series = hourly.get("temperature_2m")
+    if isinstance(control_series, list) and control_series:
+        members.append([value for value in control_series if value is not None])
 
-    # Numbered members: temperature_2m_member01 ... temperature_2m_memberNN
     idx = 1
     while True:
         key = f"temperature_2m_member{idx:02d}"
         if key not in hourly:
             break
-        series = hourly[key]
+        series = hourly.get(key)
         if isinstance(series, list) and series:
-            members.append([v for v in series if v is not None])
+            members.append([value for value in series if value is not None])
         idx += 1
 
     return members
@@ -168,105 +167,75 @@ def _compute_daily_tmax_per_member(
     target_date: date,
     station_tz: ZoneInfo,
 ) -> List[float]:
-    """For each ensemble member, find the max temperature on target_date.
-
-    The API returns temps in °C. We filter hours that fall on target_date
-    in the station's local timezone, then take the max for each member.
-    """
-    # Find indices that correspond to target_date in local time
+    """For each ensemble member, find the max temperature on target_date."""
     target_indices: List[int] = []
-    for i, ts_str in enumerate(times):
+    for idx, ts_str in enumerate(times):
         try:
-            # Open-Meteo returns ISO timestamps in the requested timezone
             dt = datetime.fromisoformat(ts_str)
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=station_tz)
-            if dt.date() == target_date:
-                target_indices.append(i)
         except Exception:
             continue
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=station_tz)
+        if dt.date() == target_date:
+            target_indices.append(idx)
 
     if not target_indices:
         return []
 
     tmax_values: List[float] = []
     for series in member_series:
-        valid_temps = []
-        for idx in target_indices:
-            if idx < len(series) and series[idx] is not None:
-                valid_temps.append(series[idx])
-        if valid_temps:
-            tmax_values.append(max(valid_temps))
-
+        temps = [series[idx] for idx in target_indices if idx < len(series) and series[idx] is not None]
+        if temps:
+            tmax_values.append(max(temps))
     return tmax_values
 
 
-def _build_bucket_probabilities(
-    tmax_values: List[float],
-    unit: str,
-) -> List[EnsembleBucketProb]:
-    """Count ensemble members in each Polymarket bucket.
-
-    For °F markets: buckets are 2°F wide, aligned to even numbers (40-41, 42-43, ...).
-    For °C markets: buckets are 1°C wide (20, 21, 22, ...).
-    """
-    if not tmax_values:
+def _build_bucket_probabilities(tmax_values: List[float], unit: str) -> List[EnsembleBucketProb]:
+    """Count ensemble members in canonical Polymarket-aligned buckets."""
+    rounded_values = _rounded_member_temperatures(tmax_values, unit)
+    if not rounded_values:
         return []
 
-    total = len(tmax_values)
+    total = len(rounded_values)
 
     if unit == "F":
-        # Convert all to °F
-        values_f = [_c_to_f(v) for v in tmax_values]
-        # Polymarket °F buckets: 2°F wide, even-aligned
-        # Round each value to nearest integer, then assign to bucket
-        rounded = [round(v) for v in values_f]
-        min_val = min(rounded)
-        max_val = max(rounded)
-
-        # Align to even bucket start
+        min_val = min(rounded_values)
+        max_val = max(rounded_values)
         bucket_start = min_val - (min_val % 2)
-        bucket_end = max_val + (2 - max_val % 2) if max_val % 2 != 1 else max_val
+        bucket_end = max_val - (max_val % 2)
 
         buckets: List[EnsembleBucketProb] = []
         low = bucket_start
         while low <= bucket_end:
             high = low + 1
-            count = sum(1 for v in rounded if low <= v <= high)
-            buckets.append(EnsembleBucketProb(
-                bucket_low=low,
-                bucket_high=high,
-                unit="F",
-                probability=count / total,
-                member_count=count,
-                total_members=total,
-            ))
+            count = sum(1 for value in rounded_values if low <= value <= high)
+            buckets.append(
+                EnsembleBucketProb(
+                    bucket_low=low,
+                    bucket_high=high,
+                    unit="F",
+                    probability=count / total,
+                    member_count=count,
+                    total_members=total,
+                )
+            )
             low += 2
-    else:
-        # °C markets: 1°C wide buckets
-        values_c = list(tmax_values)
-        rounded = [round(v) for v in values_c]
-        min_val = min(rounded)
-        max_val = max(rounded)
+        return buckets
 
-        buckets = []
-        for temp in range(min_val, max_val + 1):
-            count = sum(1 for v in rounded if v == temp)
-            buckets.append(EnsembleBucketProb(
-                bucket_low=temp,
-                bucket_high=temp,
-                unit="C",
-                probability=count / total,
-                member_count=count,
-                total_members=total,
-            ))
+    min_val = min(rounded_values)
+    max_val = max(rounded_values)
+    return [
+        EnsembleBucketProb(
+            bucket_low=temp,
+            bucket_high=temp,
+            unit="C",
+            probability=sum(1 for value in rounded_values if value == temp) / total,
+            member_count=sum(1 for value in rounded_values if value == temp),
+            total_members=total,
+        )
+        for temp in range(min_val, max_val + 1)
+    ]
 
-    return buckets
-
-
-# ---------------------------------------------------------------------------
-# Main fetch function
-# ---------------------------------------------------------------------------
 
 async def fetch_ensemble_snapshot(
     station_id: str,
@@ -274,30 +243,18 @@ async def fetch_ensemble_snapshot(
     *,
     models: Optional[List[str]] = None,
 ) -> EnsembleSnapshot:
-    """Fetch ensemble forecasts and compute bucket probabilities.
-
-    Args:
-        station_id: ICAO station code (e.g., "KLGA")
-        target_date: Date to analyze (default: today in station TZ)
-        models: Override ensemble models (default: ECMWF + GFS)
-
-    Returns:
-        EnsembleSnapshot with member Tmax values and bucket probabilities
-    """
+    """Fetch ensemble forecasts and compute bucket probabilities."""
     station = STATIONS.get(station_id)
     if not station:
         raise ValueError(f"Unknown station: {station_id}")
 
     station_tz = ZoneInfo(station.timezone)
     now_utc = datetime.now(timezone.utc)
-
     if target_date is None:
         target_date = now_utc.astimezone(station_tz).date()
 
     unit = get_polymarket_temp_unit(station_id)
     models_to_use = models or list(ENSEMBLE_MODELS)
-
-    # Check cache
     cache_key = f"{station_id}:{target_date.isoformat()}:{','.join(models_to_use)}"
     cached = _cache.get(cache_key)
     if cached and (time.monotonic() - cached["ts"]) < _CACHE_TTL_SECONDS:
@@ -305,7 +262,6 @@ async def fetch_ensemble_snapshot(
         snapshot.notes = [f"Served from cache ({int(time.monotonic() - cached['ts'])}s old)"] + snapshot.notes
         return snapshot
 
-    # Determine forecast_days needed
     days_ahead = (target_date - now_utc.astimezone(station_tz).date()).days
     forecast_days = max(2, days_ahead + 1)
 
@@ -324,49 +280,44 @@ async def fetch_ensemble_snapshot(
                 "timezone": station.timezone,
                 "forecast_days": forecast_days,
             }
-
             try:
-                resp = await client.get(ENSEMBLE_API_URL, params=params)
-                if resp.status_code == 429:
+                response = await client.get(ENSEMBLE_API_URL, params=params)
+                if response.status_code == 429:
                     errors.append(f"{model}: rate limited (HTTP 429)")
                     continue
-                resp.raise_for_status()
-                data = resp.json()
-
+                response.raise_for_status()
+                data = response.json()
                 hourly = data.get("hourly", {})
                 times = hourly.get("time", [])
-                member_series = _extract_member_series(hourly, model)
-
-                tmax_vals = _compute_daily_tmax_per_member(
-                    times, member_series, target_date, station_tz,
-                )
-
-                if tmax_vals:
-                    all_tmax_values.extend(tmax_vals)
+                member_series = _extract_member_series(hourly)
+                tmax_values = _compute_daily_tmax_per_member(times, member_series, target_date, station_tz)
+                if tmax_values:
+                    all_tmax_values.extend(tmax_values)
                     models_fetched.append(model)
-                    notes.append(f"{model}: {len(tmax_vals)} members")
+                    notes.append(f"{model}: {len(tmax_values)} members")
                 else:
                     errors.append(f"{model}: no data for {target_date}")
-
             except httpx.HTTPStatusError as exc:
                 errors.append(f"{model}: HTTP {exc.response.status_code}")
             except Exception as exc:
                 errors.append(f"{model}: {type(exc).__name__}: {exc}")
 
-    # Build snapshot
     if all_tmax_values:
-        sorted_vals = sorted(all_tmax_values)
-        n = len(sorted_vals)
-        median = sorted_vals[n // 2] if n % 2 == 1 else (sorted_vals[n // 2 - 1] + sorted_vals[n // 2]) / 2
-        mean = sum(sorted_vals) / n
-        variance = sum((v - mean) ** 2 for v in sorted_vals) / n
+        sorted_values = sorted(all_tmax_values)
+        count = len(sorted_values)
+        mean = sum(sorted_values) / count
+        if count % 2 == 1:
+            median = sorted_values[count // 2]
+        else:
+            median = (sorted_values[count // 2 - 1] + sorted_values[count // 2]) / 2
+        variance = sum((value - mean) ** 2 for value in sorted_values) / count
         std = math.sqrt(variance)
-
-        bucket_probs = _build_bucket_probabilities(all_tmax_values, unit)
+        bucket_probabilities = _build_bucket_probabilities(all_tmax_values, unit)
     else:
-        mean = median = std = 0.0
-        sorted_vals = []
-        bucket_probs = []
+        mean = 0.0
+        median = 0.0
+        std = 0.0
+        bucket_probabilities = []
         errors.append("No ensemble data available")
 
     snapshot = EnsembleSnapshot(
@@ -381,20 +332,22 @@ async def fetch_ensemble_snapshot(
         ensemble_std=std,
         ensemble_min=min(all_tmax_values) if all_tmax_values else 0.0,
         ensemble_max=max(all_tmax_values) if all_tmax_values else 0.0,
-        bucket_probabilities=bucket_probs,
+        bucket_probabilities=bucket_probabilities,
         models_used=models_fetched,
         errors=errors,
         notes=notes,
     )
 
-    # Cache result
     _cache[cache_key] = {"ts": time.monotonic(), "snapshot": snapshot}
-
     logger.info(
-        "Ensemble %s %s: %d members, mean=%.1f°C, std=%.2f, %d buckets",
-        station_id, target_date, len(all_tmax_values), mean, std, len(bucket_probs),
+        "Ensemble %s %s: %d members, mean=%.1fC, std=%.2f, %d buckets",
+        station_id,
+        target_date,
+        len(all_tmax_values),
+        mean,
+        std,
+        len(bucket_probabilities),
     )
-
     return snapshot
 
 
@@ -405,52 +358,46 @@ async def fetch_ensemble_edge(
     *,
     min_edge_pct: float = 8.0,
 ) -> List[Dict[str, Any]]:
-    """Compare ensemble probabilities against market prices to find edges.
-
-    Args:
-        station_id: ICAO station code
-        market_buckets: List of dicts with keys: label, price (0-1)
-        target_date: Date to analyze
-        min_edge_pct: Minimum edge in percentage points to flag
-
-    Returns:
-        List of dicts with: label, ensemble_prob, market_price, edge_pct, signal
-    """
+    """Compare ensemble probabilities against market prices to find edges."""
     snapshot = await fetch_ensemble_snapshot(station_id, target_date)
     min_edge = min_edge_pct / 100.0
-
     edges: List[Dict[str, Any]] = []
+
     for market in market_buckets:
-        label = market.get("label", "")
+        label = normalize_label(str(market.get("label") or ""))
         price = float(market.get("price", 0))
+        if not label:
+            continue
 
         ensemble_prob = snapshot.get_bucket_prob(label)
         if ensemble_prob is None:
-            # Bucket not covered by ensemble → model says ~0% probability
             if price > min_edge:
-                edges.append({
-                    "label": label,
-                    "ensemble_prob": 0.0,
-                    "market_price": price,
-                    "edge_pct": round(-price * 100, 1),
-                    "signal": "SELL" if price > 0.15 else "SKIP",
-                    "reason": "Ensemble assigns ~0% probability",
-                })
+                edges.append(
+                    {
+                        "label": label,
+                        "ensemble_prob": 0.0,
+                        "market_price": price,
+                        "edge_pct": round(-price * 100, 1),
+                        "signal": "SELL" if price > 0.15 else "SKIP",
+                        "reason": "Ensemble assigns ~0% probability",
+                    }
+                )
             continue
 
         edge = ensemble_prob - price
+        if abs(edge) < min_edge:
+            continue
 
-        if abs(edge) >= min_edge:
-            signal = "BUY_YES" if edge > 0 else "BUY_NO"
-            edges.append({
+        edges.append(
+            {
                 "label": label,
                 "ensemble_prob": round(ensemble_prob, 4),
                 "market_price": round(price, 4),
                 "edge_pct": round(edge * 100, 1),
-                "signal": signal,
+                "signal": "BUY_YES" if edge > 0 else "BUY_NO",
                 "reason": f"Ensemble {ensemble_prob:.1%} vs market {price:.1%}",
-            })
+            }
+        )
 
-    # Sort by absolute edge descending
-    edges.sort(key=lambda x: abs(x["edge_pct"]), reverse=True)
+    edges.sort(key=lambda item: abs(item["edge_pct"]), reverse=True)
     return edges

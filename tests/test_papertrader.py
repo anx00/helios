@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from core.papertrader import (
+    PAPER_STRATEGY_ORDER,
     PaperTrader,
     PaperTraderConfig,
     _default_paper_state,
@@ -96,6 +97,10 @@ def _legacy_position(trader, base_key: str):
     return trader.state["positions"][_legacy_position_key(trader, base_key)]
 
 
+def _aggregate_bankroll(cfg) -> float:
+    return float(cfg.initial_bankroll_usd) * len(PAPER_STRATEGY_ORDER)
+
+
 # ---------------------------------------------------------------------------
 # State persistence
 # ---------------------------------------------------------------------------
@@ -105,8 +110,8 @@ class TestStatePersistence:
     def test_default_state_has_correct_equity(self, tmp_path):
         cfg = _make_config()
         state = _default_paper_state(cfg)
-        assert state["paper_equity_usd"] == 400.0
-        assert state["aggregate_initial_bankroll_usd"] == 400.0
+        assert state["paper_equity_usd"] == _aggregate_bankroll(cfg)
+        assert state["aggregate_initial_bankroll_usd"] == _aggregate_bankroll(cfg)
         assert _legacy_state(state)["paper_equity_usd"] == 100.0
         assert state["positions"] == {}
         assert state["trades_today"] == 0
@@ -119,7 +124,7 @@ class TestStatePersistence:
         state["strategies"]["terminal_value_legacy"]["trades_today"] = 3
         save_paper_state(path, state)
         loaded = load_paper_state(path, cfg)
-        assert loaded["paper_equity_usd"] == 387.5
+        assert loaded["paper_equity_usd"] == _aggregate_bankroll(cfg) - 12.5
         assert _legacy_state(loaded)["paper_equity_usd"] == 87.5
         assert loaded["trades_today"] == 3
 
@@ -127,14 +132,14 @@ class TestStatePersistence:
         cfg = _make_config()
         path = str(tmp_path / "nonexistent.json")
         state = load_paper_state(path, cfg)
-        assert state["paper_equity_usd"] == 400.0
+        assert state["paper_equity_usd"] == _aggregate_bankroll(cfg)
 
     def test_corrupted_file_returns_default(self, tmp_path):
         path = tmp_path / "state.json"
         path.write_text("{{invalid json{{", encoding="utf-8")
         cfg = _make_config()
         state = load_paper_state(str(path), cfg)
-        assert state["paper_equity_usd"] == 400.0
+        assert state["paper_equity_usd"] == _aggregate_bankroll(cfg)
 
 
 # ---------------------------------------------------------------------------
@@ -151,7 +156,7 @@ class TestPersistTrade:
 
         trader._persist_trade(candidate, plan, fill)
 
-        assert trader.state["paper_equity_usd"] == pytest.approx(391.0, abs=0.01)
+        assert trader.state["paper_equity_usd"] == pytest.approx(_aggregate_bankroll(trader.config) - 9.0, abs=0.01)
         assert _legacy_state(trader)["paper_equity_usd"] == pytest.approx(91.0, abs=0.01)
 
     def test_position_created_correctly(self, tmp_path):
@@ -286,7 +291,7 @@ class TestPersistExit:
         trader._persist_exit(candidate.position_key, exit_plan, exit_fill)
 
         # equity should be initial - cost + proceeds = 100 - 17.5 + 21 = 103.5
-        assert trader.state["paper_equity_usd"] == pytest.approx(403.5, abs=0.01)
+        assert trader.state["paper_equity_usd"] == pytest.approx(_aggregate_bankroll(trader.config) + 3.5, abs=0.01)
         assert _legacy_state(trader)["paper_equity_usd"] == pytest.approx(103.5, abs=0.01)
         assert trader.state["total_realized_pnl_usd"] == pytest.approx(3.5, abs=0.01)
         assert _legacy_position(trader, candidate.position_key)["status"] == "CLOSED"
@@ -357,8 +362,8 @@ class TestSessionReset:
         reloaded = load_paper_state(trader.config.state_path, trader.config)
         status = trader.get_status_snapshot()
         assert reloaded["positions"] == {}
-        assert status["paper_equity_usd"] == 400.0
-        assert status["aggregate_initial_bankroll_usd"] == 400.0
+        assert status["paper_equity_usd"] == _aggregate_bankroll(trader.config)
+        assert status["aggregate_initial_bankroll_usd"] == _aggregate_bankroll(trader.config)
         assert status["open_positions_count"] == 0
         assert status["closed_positions_count"] == 0
         assert status["total_entries"] == 0
@@ -400,6 +405,56 @@ class TestRiskLimits:
         atc = trader._atc()
         budget = compute_trade_budget_usd(candidate, atc, trader.state)
         assert budget == 0.0
+
+
+class TestMicroValueEnsemble:
+
+    def test_duplicate_open_position_is_skipped(self, tmp_path):
+        from core.autotrader import _position_key
+        from core.polymarket_labels import normalize_label
+
+        trader = _make_trader(tmp_path)
+        strategy_state = trader._strategy_state("micro_value_ensemble")
+        label = normalize_label("30-31 F")
+        base_key = _position_key("KLGA", "2026-03-05", label, "YES")
+        strategy_state["positions"][base_key] = {
+            "status": "OPEN",
+            "base_position_key": base_key,
+            "position_key": f"micro_value_ensemble::{base_key}",
+        }
+
+        trader._current_ensemble = MagicMock()
+        trader._current_ensemble.bucket_probabilities = [object()]
+        trader._current_ensemble.total_members = 82
+        trader._current_ensemble.get_bucket_prob.return_value = 0.35
+
+        payload = {
+            "station_id": "KLGA",
+            "target_date": "2026-03-05",
+            "target_day": 0,
+            "trading": {
+                "all_terminal_opportunities": [
+                    {
+                        "label": "30-31 F",
+                        "selected_entry": 0.10,
+                        "yes_entry": 0.10,
+                        "no_entry": 0.90,
+                    }
+                ]
+            },
+            "brackets": [
+                {
+                    "name": "30-31 F",
+                    "yes_token_id": "yes_tok",
+                    "no_token_id": "no_tok",
+                }
+            ],
+        }
+
+        candidate, reasons = trader._select_micro_value_candidate(payload, strategy_state)
+
+        assert candidate is None
+        assert reasons == ["no_ensemble_edge_above_threshold"]
 
     def test_daily_loss_limit_blocks_entries(self, tmp_path):
         """When realized losses exceed daily limit, budget = 0."""
@@ -530,9 +585,9 @@ class TestStatusSnapshot:
         trader = _make_trader(tmp_path)
         status = trader.get_status_snapshot()
         assert status["mode"] == "paper_multi_strategy"
-        assert status["paper_equity_usd"] == 400.0
-        assert status["aggregate_initial_bankroll_usd"] == 400.0
-        assert len(status["strategies"]) == 4
+        assert status["paper_equity_usd"] == _aggregate_bankroll(trader.config)
+        assert status["aggregate_initial_bankroll_usd"] == _aggregate_bankroll(trader.config)
+        assert len(status["strategies"]) == len(PAPER_STRATEGY_ORDER)
         assert status["open_positions_count"] == 0
         assert status["fill_ratio"] == 0.0
         assert status["hit_rate"] == 0.0

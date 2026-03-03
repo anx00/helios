@@ -1211,9 +1211,9 @@ class PaperTrader:
                     position_key = _position_key(station_id, target_date, label, "YES")
                     full_key = _strategy_position_key("micro_value_ensemble", position_key)
 
-                    # Check for duplicate position
+                    # Strategy-local positions are stored by base_key, not full_key.
                     positions = strategy_state.get("positions") or {}
-                    if full_key in positions and str((positions[full_key] or {}).get("status") or "OPEN").upper() == "OPEN":
+                    if position_key in positions and str((positions[position_key] or {}).get("status") or "OPEN").upper() == "OPEN":
                         continue
 
                     best_edge = yes_edge
@@ -1261,7 +1261,7 @@ class PaperTrader:
                     full_key = _strategy_position_key("micro_value_ensemble", position_key)
 
                     positions = strategy_state.get("positions") or {}
-                    if full_key in positions and str((positions[full_key] or {}).get("status") or "OPEN").upper() == "OPEN":
+                    if position_key in positions and str((positions[position_key] or {}).get("status") or "OPEN").upper() == "OPEN":
                         continue
 
                     best_edge = no_edge
