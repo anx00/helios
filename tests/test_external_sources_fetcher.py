@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 from zoneinfo import ZoneInfo
 
+import httpx
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -124,6 +125,41 @@ async def test_fetch_accuweather_source_returns_disabled_scaffold(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_fetch_open_meteo_source_returns_friendly_429_error(monkeypatch):
+    fetcher._OPEN_METEO_SOURCE_CACHE.clear()
+
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            self.request = httpx.Request("GET", fetcher.OPEN_METEO_URL)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url, params=None):
+            return httpx.Response(
+                429,
+                request=self.request,
+                headers={"Retry-After": "0"},
+            )
+
+    async def fake_sleep(_delay: float):
+        return None
+
+    monkeypatch.setattr(fetcher.httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(fetcher.asyncio, "sleep", fake_sleep)
+
+    with pytest.raises(RuntimeError) as excinfo:
+        await fetcher.fetch_open_meteo_source("LFPG")
+
+    assert str(excinfo.value) == "Open-Meteo rate limited the request (HTTP 429)."
+    assert "api.open-meteo.com" not in str(excinfo.value)
+    assert "Too Many Requests" not in str(excinfo.value)
+
+
+@pytest.mark.asyncio
 async def test_fetch_external_sources_snapshot_returns_partial_error_source(monkeypatch):
     async def fake_wunderground_source(_station_id: str):
         raise RuntimeError("WU down")
@@ -173,9 +209,60 @@ async def test_fetch_external_sources_snapshot_returns_partial_error_source(monk
     snapshot = await fetcher.fetch_external_sources_snapshot("KLGA")
 
     assert snapshot["station_id"] == "KLGA"
+    assert snapshot["preferred_unit"] == "F"
     assert [source["source"] for source in snapshot["sources"]] == ["wunderground", "open_meteo", "noaa_nws", "accuweather"]
     assert snapshot["sources"][0]["status"] == "error"
     assert snapshot["sources"][0]["errors"] == ["WU down"]
     assert snapshot["sources"][1]["status"] == "ok"
     assert snapshot["sources"][2]["status"] == "ok"
     assert snapshot["sources"][3]["status"] == "disabled"
+
+
+@pytest.mark.asyncio
+async def test_fetch_external_sources_snapshot_uses_station_native_unit(monkeypatch):
+    async def fake_wunderground_source(_station_id: str):
+        return {
+            "source": "wunderground",
+            "display_name": "Wunderground",
+            "status": "ok",
+            "historical_day": {"kind": "observed", "confirmed": True, "published_through_local": None, "max_temp_c": 8.0, "max_temp_f": 46.4, "max_temp_time_local": None, "points": []},
+            "realtime": {"kind": "observed_current", "as_of_local": None, "temp_c": 7.0, "temp_f": 44.6},
+            "forecast_hourly": {"kind": "forecast", "horizon_days": 3, "points": []},
+            "notes": [],
+            "errors": [],
+        }
+
+    async def fake_open_meteo_source(_station_id: str):
+        return {
+            "source": "open_meteo",
+            "display_name": "Open-Meteo",
+            "status": "ok",
+            "historical_day": {"kind": "modeled", "confirmed": False, "published_through_local": None, "max_temp_c": 8.0, "max_temp_f": 46.4, "max_temp_time_local": None, "points": []},
+            "realtime": {"kind": "modeled_current", "as_of_local": None, "temp_c": 7.0, "temp_f": 44.6},
+            "forecast_hourly": {"kind": "forecast", "horizon_days": 3, "points": []},
+            "notes": [],
+            "errors": [],
+        }
+
+    async def fake_accuweather_source(_station_id: str):
+        return {
+            "source": "accuweather",
+            "display_name": "AccuWeather",
+            "status": "disabled",
+            "historical_day": {"kind": None, "confirmed": False, "published_through_local": None, "max_temp_c": None, "max_temp_f": None, "max_temp_time_local": None, "points": []},
+            "realtime": {"kind": None, "as_of_local": None, "temp_c": None, "temp_f": None},
+            "forecast_hourly": {"kind": None, "horizon_days": 3, "points": []},
+            "notes": [],
+            "errors": ["Missing ACCUWEATHER_API_KEY."],
+            "setup": {"requires_env": "ACCUWEATHER_API_KEY"},
+        }
+
+    monkeypatch.setattr(fetcher, "fetch_wunderground_source", fake_wunderground_source)
+    monkeypatch.setattr(fetcher, "fetch_open_meteo_source", fake_open_meteo_source)
+    monkeypatch.setattr(fetcher, "fetch_accuweather_source", fake_accuweather_source)
+
+    snapshot = await fetcher.fetch_external_sources_snapshot("LFPG")
+
+    assert snapshot["station_id"] == "LFPG"
+    assert snapshot["preferred_unit"] == "C"
+    assert [source["source"] for source in snapshot["sources"]] == ["wunderground", "open_meteo", "accuweather"]

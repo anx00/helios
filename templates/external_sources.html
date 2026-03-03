@@ -123,19 +123,24 @@
     let forecastChart = null;
 
     const esc = (v) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-    const fmtTemp = (f, c) => typeof f === 'number' || typeof c === 'number' ? [typeof f === 'number' ? `${f.toFixed(1)} F` : null, typeof c === 'number' ? `${c.toFixed(1)} C` : null].filter(Boolean).join(' / ') : '--';
     const fmtStamp = (v) => { if (!v) return '--'; const d = new Date(v); return Number.isNaN(d.getTime()) ? v : d.toLocaleString([], { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' }); };
     const axisLabel = (v) => { const d = new Date(v); return Number.isNaN(d.getTime()) ? v : d.toLocaleString([], { month: 'short', day: '2-digit', hour: '2-digit' }); };
     const statusLabel = (s) => ({ ok: 'Online', partial: 'Partial', error: 'Error', disabled: 'Disabled' }[s] || s || 'Unknown');
     const stationLabel = (stationId) => { const opt = window.HeliosStationState?.getOption?.(stationId); return opt ? `${opt.city_name || opt.id} (${opt.id})` : stationId; };
+    const preferredUnitFromPayload = (payload, stationId) => String(payload?.preferred_unit || window.HeliosStationState?.getOption?.(stationId)?.market_unit || 'F').toUpperCase();
+    const valueForUnit = (point, unit) => unit === 'C' ? point?.temp_c : point?.temp_f;
+    const fmtTemp = (f, c, unit) => {
+        const value = unit === 'C' ? c : f;
+        return typeof value === 'number' ? `${value.toFixed(1)} ${unit}` : '--';
+    };
 
-    function chartData(sources, key, includeRealtime) {
+    function chartData(sources, key, includeRealtime, unit) {
         const labels = new Set();
         const active = (sources || []).filter((s) => !['disabled', 'error'].includes(s.status));
         active.forEach((s) => {
             const rows = [...((s[key] || {}).points || [])];
-            if (includeRealtime && s.realtime?.as_of_local && typeof s.realtime?.temp_f === 'number') rows.push({ timestamp_local: s.realtime.as_of_local, temp_f: s.realtime.temp_f });
-            rows.forEach((r) => { if (r?.timestamp_local && typeof r?.temp_f === 'number') labels.add(r.timestamp_local); });
+            if (includeRealtime && s.realtime?.as_of_local && typeof valueForUnit(s.realtime, unit) === 'number') rows.push({ timestamp_local: s.realtime.as_of_local, temp_f: s.realtime.temp_f, temp_c: s.realtime.temp_c });
+            rows.forEach((r) => { if (r?.timestamp_local && typeof valueForUnit(r, unit) === 'number') labels.add(r.timestamp_local); });
         });
         const sorted = [...labels].sort((a, b) => new Date(a) - new Date(b));
         return {
@@ -143,21 +148,25 @@
             datasets: active.map((s) => {
                 const map = new Map();
                 const rows = [...((s[key] || {}).points || [])];
-                if (includeRealtime && s.realtime?.as_of_local && typeof s.realtime?.temp_f === 'number') rows.push({ timestamp_local: s.realtime.as_of_local, temp_f: s.realtime.temp_f });
-                rows.forEach((r) => { if (r?.timestamp_local && typeof r?.temp_f === 'number') map.set(r.timestamp_local, r.temp_f); });
+                if (includeRealtime && s.realtime?.as_of_local && typeof valueForUnit(s.realtime, unit) === 'number') rows.push({ timestamp_local: s.realtime.as_of_local, temp_f: s.realtime.temp_f, temp_c: s.realtime.temp_c });
+                rows.forEach((r) => {
+                    const value = valueForUnit(r, unit);
+                    if (r?.timestamp_local && typeof value === 'number') map.set(r.timestamp_local, value);
+                });
                 return { label: s.display_name || s.source, data: sorted.map((t) => map.has(t) ? map.get(t) : null), borderColor: colors[s.source] || '#cbd5e1', backgroundColor: 'transparent', spanGaps: true, pointRadius: 2, tension: 0.28, borderWidth: 2 };
             }),
         };
     }
 
     function renderCharts(payload) {
+        const unit = preferredUnitFromPayload(payload, payload?.station_id);
         if (histChart) histChart.destroy();
         if (forecastChart) forecastChart.destroy();
-        histChart = new Chart(els.hist.getContext('2d'), { type: 'line', data: chartData(payload.sources, 'historical_day', true), options: chartOptions() });
-        forecastChart = new Chart(els.forecast.getContext('2d'), { type: 'line', data: chartData(payload.sources, 'forecast_hourly', false), options: chartOptions() });
+        histChart = new Chart(els.hist.getContext('2d'), { type: 'line', data: chartData(payload.sources, 'historical_day', true, unit), options: chartOptions(unit) });
+        forecastChart = new Chart(els.forecast.getContext('2d'), { type: 'line', data: chartData(payload.sources, 'forecast_hourly', false, unit), options: chartOptions(unit) });
     }
 
-    function chartOptions() {
+    function chartOptions(unit) {
         return {
             responsive: true,
             maintainAspectRatio: false,
@@ -165,27 +174,29 @@
             plugins: { legend: { labels: { color: '#cbd5e1' } } },
             scales: {
                 x: { ticks: { color: '#94a3b8', maxRotation: 0, autoSkip: true, maxTicksLimit: 8 }, grid: { color: 'rgba(148,163,184,0.12)' } },
-                y: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,0.12)' } },
+                y: { title: { display: true, text: unit, color: '#94a3b8' }, ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,0.12)' } },
             },
         };
     }
 
     function renderSummary(payload) {
+        const unit = preferredUnitFromPayload(payload, payload?.station_id);
         const sources = payload.sources || [];
         const active = sources.filter((s) => s.status !== 'disabled');
-        const current = active.map((s) => s.realtime?.temp_f).filter((v) => typeof v === 'number');
-        const observed = active.map((s) => s.historical_day?.max_temp_f).filter((v) => typeof v === 'number');
-        const future = active.flatMap((s) => s.forecast_hourly?.points || []).map((p) => p?.temp_f).filter((v) => typeof v === 'number');
-        const spread = current.length >= 2 ? (Math.max(...current) - Math.min(...current)).toFixed(1) + ' F' : '--';
+        const current = active.map((s) => valueForUnit(s.realtime || {}, unit)).filter((v) => typeof v === 'number');
+        const observed = active.map((s) => unit === 'C' ? s.historical_day?.max_temp_c : s.historical_day?.max_temp_f).filter((v) => typeof v === 'number');
+        const future = active.flatMap((s) => s.forecast_hourly?.points || []).map((p) => valueForUnit(p || {}, unit)).filter((v) => typeof v === 'number');
+        const spread = current.length >= 2 ? (Math.max(...current) - Math.min(...current)).toFixed(1) + ` ${unit}` : '--';
         els.summary.innerHTML = `
             <article class="ext-panel ext-stat"><div class="ext-stat-label">Coverage</div><div class="ext-stat-value">${active.filter((s) => ['ok', 'partial'].includes(s.status)).length}/${sources.length}</div><div class="ext-stat-meta">${active.filter((s) => s.historical_day?.confirmed).length} confirmed-history sources.</div></article>
             <article class="ext-panel ext-stat"><div class="ext-stat-label">Realtime Spread</div><div class="ext-stat-value">${spread}</div><div class="ext-stat-meta">Current disagreement among sources exposing realtime.</div></article>
-            <article class="ext-panel ext-stat"><div class="ext-stat-label">Observed Peak</div><div class="ext-stat-value">${observed.length ? Math.max(...observed).toFixed(1) + ' F' : '--'}</div><div class="ext-stat-meta">Highest daily max exposed in history blocks.</div></article>
-            <article class="ext-panel ext-stat"><div class="ext-stat-label">Forward Peak</div><div class="ext-stat-value">${future.length ? Math.max(...future).toFixed(1) + ' F' : '--'}</div><div class="ext-stat-meta">Maximum hourly forecast over the next 54 hours.</div></article>
+            <article class="ext-panel ext-stat"><div class="ext-stat-label">Observed Peak</div><div class="ext-stat-value">${observed.length ? Math.max(...observed).toFixed(1) + ` ${unit}` : '--'}</div><div class="ext-stat-meta">Highest daily max exposed in history blocks.</div></article>
+            <article class="ext-panel ext-stat"><div class="ext-stat-label">Forward Peak</div><div class="ext-stat-value">${future.length ? Math.max(...future).toFixed(1) + ` ${unit}` : '--'}</div><div class="ext-stat-meta">Maximum hourly forecast over the next 54 hours.</div></article>
         `;
     }
 
     function renderSources(payload) {
+        const unit = preferredUnitFromPayload(payload, payload?.station_id);
         const sources = payload.sources || [];
         if (!sources.length) { els.sources.innerHTML = '<div class="ext-empty">No providers returned data.</div>'; return; }
         els.sources.innerHTML = sources.map((s) => {
@@ -201,8 +212,8 @@
                         <div class="ext-badge ${esc(s.status)}">${esc(statusLabel(s.status))}</div>
                     </div>
                     <div class="ext-source-stats">
-                        <div class="ext-source-stat"><div class="ext-stat-label">Realtime</div><div class="ext-source-value">${esc(fmtTemp(r.temp_f, r.temp_c))}</div><div class="ext-source-meta">As of ${esc(fmtStamp(r.as_of_local))}</div></div>
-                        <div class="ext-source-stat"><div class="ext-stat-label">Day Max</div><div class="ext-source-value">${esc(fmtTemp(h.max_temp_f, h.max_temp_c))}</div><div class="ext-source-meta">${h.confirmed ? 'Confirmed history' : 'Not confirmed'}</div></div>
+                        <div class="ext-source-stat"><div class="ext-stat-label">Realtime</div><div class="ext-source-value">${esc(fmtTemp(r.temp_f, r.temp_c, unit))}</div><div class="ext-source-meta">As of ${esc(fmtStamp(r.as_of_local))}</div></div>
+                        <div class="ext-source-stat"><div class="ext-stat-label">Day Max</div><div class="ext-source-value">${esc(fmtTemp(h.max_temp_f, h.max_temp_c, unit))}</div><div class="ext-source-meta">${h.confirmed ? 'Confirmed history' : 'Not confirmed'}</div></div>
                         <div class="ext-source-stat"><div class="ext-stat-label">Forecast Rows</div><div class="ext-source-value">${esc(String((f.points || []).length))}</div><div class="ext-source-meta">Horizon ${esc(String(f.horizon_days || 3))} days</div></div>
                     </div>
                     <div><div class="ext-section-title">Metadata</div><div class="ext-detail-grid">
@@ -211,7 +222,7 @@
                         <div class="ext-detail"><strong>Current Kind</strong>${esc(r.kind || '--')}</div>
                         <div class="ext-detail"><strong>History Rows</strong>${esc(String((h.points || []).length))}</div>
                     </div></div>
-                    <div><div class="ext-section-title">Next Hours</div>${preview.length ? `<div class="ext-forecast">${preview.map((p) => `<div class="ext-forecast-item"><strong>${esc(fmtStamp(p.timestamp_local))}</strong>${esc(fmtTemp(p.temp_f, p.temp_c))}${p.conditions ? ` | ${esc(p.conditions)}` : ''}</div>`).join('')}</div>` : '<div class="ext-msg note">No forecast rows exposed for this source.</div>'}</div>
+                    <div><div class="ext-section-title">Next Hours</div>${preview.length ? `<div class="ext-forecast">${preview.map((p) => `<div class="ext-forecast-item"><strong>${esc(fmtStamp(p.timestamp_local))}</strong>${esc(fmtTemp(p.temp_f, p.temp_c, unit))}${p.conditions ? ` | ${esc(p.conditions)}` : ''}</div>`).join('')}</div>` : '<div class="ext-msg note">No forecast rows exposed for this source.</div>'}</div>
                     <div><div class="ext-section-title">Notes</div>
                         ${(s.notes || []).map((m) => `<div class="ext-msg note">${esc(m)}</div>`).join('') || '<div class="ext-msg note">No notes.</div>'}
                         ${setup ? `<div class="ext-msg setup">${esc(setup)}</div>` : ''}

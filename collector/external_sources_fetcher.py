@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import re
+import time
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
 import httpx
 
-from config import ACCUWEATHER_API_KEY, ACCUWEATHER_ENABLED, OPEN_METEO_URL, STATIONS
+from config import ACCUWEATHER_API_KEY, ACCUWEATHER_ENABLED, OPEN_METEO_URL, STATIONS, get_polymarket_temp_unit
 from collector.metar_fetcher import fetch_metar, fetch_metar_history
 from collector.wunderground_fetcher import (
     STATION_WU_MAP,
@@ -32,6 +34,9 @@ _NOAA_HEADERS = {
     "User-Agent": "helios/1.0 (weather endpoint; local development)",
     "Accept": "application/geo+json,application/json;q=0.9,*/*;q=0.8",
 }
+
+_OPEN_METEO_CACHE_TTL_SECONDS = 300
+_OPEN_METEO_SOURCE_CACHE: Dict[str, Dict[str, Any]] = {}
 
 
 def _celsius_to_fahrenheit(celsius: float) -> float:
@@ -124,12 +129,43 @@ def _build_disabled_source(
     }
 
 
+def _clone_source_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    return copy.deepcopy(payload)
+
+
+def _get_cached_open_meteo_source(
+    station_id: str,
+    *,
+    max_age_seconds: Optional[float] = None,
+) -> tuple[Optional[Dict[str, Any]], Optional[float]]:
+    entry = _OPEN_METEO_SOURCE_CACHE.get(station_id)
+    if not entry:
+        return None, None
+
+    age_seconds = max(0.0, time.monotonic() - float(entry.get("stored_at") or 0.0))
+    if max_age_seconds is not None and age_seconds > max_age_seconds:
+        return None, age_seconds
+
+    return _clone_source_payload(dict(entry.get("source") or {})), age_seconds
+
+
+def _store_cached_open_meteo_source(station_id: str, source: Dict[str, Any]) -> None:
+    _OPEN_METEO_SOURCE_CACHE[station_id] = {
+        "stored_at": time.monotonic(),
+        "source": _clone_source_payload(source),
+    }
+
+
 def _station_country(station_id: str) -> str:
     return str((STATION_WU_MAP.get(station_id) or {}).get("country") or "").lower()
 
 
 def _station_supports_noaa(station_id: str) -> bool:
     return _station_country(station_id) == "us"
+
+
+def _preferred_unit(station_id: str) -> str:
+    return str(get_polymarket_temp_unit(station_id) or "F").upper()
 
 
 def _build_wu_hourly_url(station_id: str) -> str:
@@ -373,6 +409,18 @@ async def fetch_open_meteo_source(station_id: str) -> Dict[str, Any]:
     station_tz = ZoneInfo(station.timezone)
     now_local = datetime.now(station_tz)
 
+    fresh_cached, fresh_age = _get_cached_open_meteo_source(
+        station_id,
+        max_age_seconds=_OPEN_METEO_CACHE_TTL_SECONDS,
+    )
+    if fresh_cached is not None:
+        fresh_cached.setdefault("notes", [])
+        fresh_cached["notes"] = [
+            f"Open-Meteo snapshot served from cache ({int(fresh_age or 0)}s old) to reduce rate-limit pressure.",
+            *list(fresh_cached.get("notes") or []),
+        ]
+        return fresh_cached
+
     params = {
         "latitude": station.latitude,
         "longitude": station.longitude,
@@ -383,16 +431,56 @@ async def fetch_open_meteo_source(station_id: str) -> Dict[str, Any]:
         "forecast_days": 3,
     }
 
-    async with httpx.AsyncClient(timeout=20.0) as client:
-        response = await client.get(OPEN_METEO_URL, params=params)
-        response.raise_for_status()
-        payload = response.json()
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            last_status_code: Optional[int] = None
+            for attempt in range(3):
+                response = await client.get(OPEN_METEO_URL, params=params)
+                last_status_code = int(response.status_code)
 
-    return _build_open_meteo_source_from_payload(
-        station_id,
-        payload,
-        now_local=now_local,
-    )
+                if response.status_code == 429:
+                    retry_after_raw = response.headers.get("Retry-After")
+                    if attempt < 2:
+                        try:
+                            retry_after = float(retry_after_raw) if retry_after_raw else float(attempt + 1)
+                        except Exception:
+                            retry_after = float(attempt + 1)
+                        await asyncio.sleep(max(0.5, min(retry_after, 3.0)))
+                        continue
+
+                    stale_cached, stale_age = _get_cached_open_meteo_source(station_id)
+                    if stale_cached is not None:
+                        stale_cached.setdefault("notes", [])
+                        stale_cached["notes"] = [
+                            f"Open-Meteo returned HTTP 429; serving cached snapshot ({int(stale_age or 0)}s old).",
+                            *list(stale_cached.get("notes") or []),
+                        ]
+                        return stale_cached
+                    raise RuntimeError("Open-Meteo rate limited the request (HTTP 429).")
+
+                response.raise_for_status()
+                payload = response.json()
+                source = _build_open_meteo_source_from_payload(
+                    station_id,
+                    payload,
+                    now_local=now_local,
+                )
+                _store_cached_open_meteo_source(station_id, source)
+                return source
+
+            raise RuntimeError(f"Open-Meteo unavailable (HTTP {last_status_code or 'unknown'}).")
+    except httpx.HTTPStatusError as exc:
+        raise RuntimeError(f"Open-Meteo unavailable (HTTP {exc.response.status_code}).") from exc
+    except httpx.RequestError as exc:
+        stale_cached, stale_age = _get_cached_open_meteo_source(station_id)
+        if stale_cached is not None:
+            stale_cached.setdefault("notes", [])
+            stale_cached["notes"] = [
+                f"Open-Meteo request failed; serving cached snapshot ({int(stale_age or 0)}s old).",
+                *list(stale_cached.get("notes") or []),
+            ]
+            return stale_cached
+        raise RuntimeError("Open-Meteo request failed.") from exc
 
 
 async def _fetch_noaa_hourly_forecast_periods(station_id: str) -> List[Dict[str, Any]]:
@@ -744,6 +832,7 @@ async def fetch_external_sources_snapshot(station_id: str) -> Dict[str, Any]:
         "station_id": station_id,
         "station_name": station.name,
         "timezone": station.timezone,
+        "preferred_unit": _preferred_unit(station_id),
         "generated_at_utc": generated_at_utc.isoformat(),
         "generated_at_local": generated_at_utc.astimezone(station_tz).isoformat(),
         "sources": sources,

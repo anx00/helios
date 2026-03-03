@@ -3299,6 +3299,19 @@ async def stop_papertrader_loop(reason: str = "manual_stop") -> Dict[str, Any]:
     return get_papertrader_status_snapshot()
 
 
+async def reset_papertrader_session() -> Dict[str, Any]:
+    global _papertrader_last_stop_reason
+    if _papertrader_running():
+        await stop_papertrader_loop(reason="manual_reset")
+    overrides = _load_papertrader_runtime_overrides()
+    overrides["initial_bankroll_usd"] = 100.0
+    _save_papertrader_runtime_overrides(overrides)
+    trader = get_papertrader_instance(refresh=True)
+    trader.reset_session()
+    _papertrader_last_stop_reason = "manual_reset"
+    return get_papertrader_status_snapshot()
+
+
 @app.get("/api/papertrader/status")
 async def get_papertrader_status_api():
     return {"ok": True, "status": get_papertrader_status_snapshot()}
@@ -3346,6 +3359,12 @@ async def start_papertrader_api():
 @app.post("/api/papertrader/stop")
 async def stop_papertrader_api():
     status = await stop_papertrader_loop(reason="manual_stop")
+    return {"ok": True, "status": status}
+
+
+@app.post("/api/papertrader/reset")
+async def reset_papertrader_api():
+    status = await reset_papertrader_session()
     return {"ok": True, "status": status}
 
 
@@ -4289,6 +4308,62 @@ def export_csv_api(station_id: str = DEFAULT_STATION, window: str = "1h", date: 
 def get_history_api():
     """Get 7-day accuracy report."""
     return get_accuracy_report(7)
+
+@app.get("/api/ensemble/{station_id}")
+async def get_ensemble_api(station_id: str, target_date: Optional[str] = None):
+    """Ensemble member forecasts and bucket probabilities (ECMWF + GFS)."""
+    station_id = (station_id or "").upper()
+    if station_id not in STATIONS:
+        return JSONResponse({"error": "Invalid station"}, status_code=400)
+    try:
+        from collector.ensemble_fetcher import fetch_ensemble_snapshot
+        from datetime import date as _date
+
+        td = _date.fromisoformat(target_date) if target_date else None
+        snap = await fetch_ensemble_snapshot(station_id, td)
+        return snap.to_dict()
+    except Exception as e:
+        logger.exception("Ensemble fetch failed (%s): %s", station_id, e)
+        return JSONResponse({"error": str(e), "station_id": station_id}, status_code=500)
+
+
+@app.get("/api/ensemble/edge/{station_id}")
+async def get_ensemble_edge_api(station_id: str, target_date: Optional[str] = None, min_edge: float = 8.0):
+    """Compare ensemble probabilities vs market prices to find edges."""
+    station_id = (station_id or "").upper()
+    if station_id not in STATIONS:
+        return JSONResponse({"error": "Invalid station"}, status_code=400)
+    try:
+        from collector.ensemble_fetcher import fetch_ensemble_edge
+        from datetime import date as _date
+
+        td = _date.fromisoformat(target_date) if target_date else None
+
+        # Get current market buckets with prices
+        pred = get_latest_prediction(station_id)
+        if not pred or "market" not in pred:
+            return JSONResponse({"error": "No market data available", "station_id": station_id}, status_code=404)
+
+        market_data = pred["market"]
+        market_buckets = []
+        for b in market_data.get("buckets", []):
+            label = b.get("label", "")
+            price = float(b.get("best_ask") or b.get("price") or b.get("yes_price") or 0)
+            if label and price > 0:
+                market_buckets.append({"label": label, "price": price})
+
+        edges = await fetch_ensemble_edge(station_id, market_buckets, td, min_edge_pct=min_edge)
+        return {
+            "station_id": station_id,
+            "target_date": td.isoformat() if td else None,
+            "min_edge_pct": min_edge,
+            "market_buckets_count": len(market_buckets),
+            "edges": edges,
+        }
+    except Exception as e:
+        logger.exception("Ensemble edge failed (%s): %s", station_id, e)
+        return JSONResponse({"error": str(e), "station_id": station_id}, status_code=500)
+
 
 @app.get("/api/external_sources/{station_id}")
 @app.get("/api/external-sources/{station_id}")

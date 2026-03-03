@@ -82,6 +82,13 @@ PAPER_STRATEGY_DEFS: Tuple[Dict[str, str], ...] = (
         "description": "Contrarian NO lane that only fades stretched intraday buckets when the next official is supportive.",
         "accent": "#f472b6",
     },
+    {
+        "id": "micro_value_ensemble",
+        "title": "Micro Value",
+        "subtitle": "Ensemble counting $1 bets",
+        "description": "gopfan2-style micro-bets: compares ensemble member probabilities vs market prices, takes $1 positions on 8%+ edge.",
+        "accent": "#a855f7",
+    },
 )
 PAPER_STRATEGY_ORDER: Tuple[str, ...] = tuple(spec["id"] for spec in PAPER_STRATEGY_DEFS)
 PAPER_STRATEGY_BY_ID: Dict[str, Dict[str, str]] = {spec["id"]: spec for spec in PAPER_STRATEGY_DEFS}
@@ -91,6 +98,7 @@ PAPER_STRATEGY_ID_MAP: Dict[str, str] = {
     "winner_value_core": "winner_value_core",
     "tactical_reprice": "tactical_reprice",
     "event_fade_qc": "event_fade_qc",
+    "micro_value_ensemble": "micro_value_ensemble",
 }
 
 
@@ -944,6 +952,12 @@ class PaperTrader:
         self._recent_events.insert(0, record)
         self._recent_events = self._recent_events[:20]
 
+    def _clear_journal(self) -> None:
+        path = Path(self.config.log_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with _LOG_WRITE_LOCK:
+            path.write_text("", encoding="utf-8")
+
     # -- Daily reset --
 
     def _reset_daily_counters_if_needed(self) -> None:
@@ -963,6 +977,16 @@ class PaperTrader:
         if needs_reset:
             self.state["trading_day"] = nyc_today
             self._refresh_state_totals()
+
+    def reset_session(self) -> Dict[str, Any]:
+        """Reset every paper lane back to a clean session."""
+        self.config.enabled = False
+        self.state = _default_paper_state(self.config)
+        self._sync_config_bankroll_with_state()
+        self._recent_events = []
+        self._save_state()
+        self._clear_journal()
+        return dict(self.state)
 
     # -- Signal fetching --
 
@@ -1132,6 +1156,149 @@ class PaperTrader:
             return None, ["event_fade_no_candidate"]
         return self._build_strategy_candidate_from_row(payload, strategy_state, "event_fade_qc", row)
 
+    def _select_micro_value_candidate(
+        self,
+        payload: Dict[str, Any],
+        strategy_state: Dict[str, Any],
+    ) -> Tuple[Optional[AutoTradeCandidate], List[str]]:
+        """Ensemble counting micro-value strategy (gopfan2-style).
+
+        Compares ensemble member probabilities against market prices.
+        Takes the bucket with the highest edge above threshold.
+        Fixed $1 positions, bypassing complex Kelly sizing.
+        """
+        ensemble_snap = getattr(self, "_current_ensemble", None)
+        if not ensemble_snap or not ensemble_snap.bucket_probabilities:
+            return None, ["no_ensemble_data"]
+
+        station_id = str(payload.get("station_id") or "")
+        target_date = str(payload.get("target_date") or "")
+        opportunities = self._terminal_opportunities(payload)
+        if not opportunities:
+            return None, ["no_opportunities"]
+
+        min_edge = 0.08  # 8% minimum edge
+
+        best_candidate = None
+        best_edge = 0.0
+
+        for opp in opportunities:
+            label = normalize_label(str(opp.get("label") or ""))
+            if not label:
+                continue
+
+            # Get ensemble probability for this bucket
+            ensemble_prob = ensemble_snap.get_bucket_prob(label)
+            if ensemble_prob is None:
+                continue
+
+            # Get market price (best ask for YES side)
+            yes_entry = _safe_float(opp.get("selected_entry") or opp.get("yes_entry"))
+            no_entry = _safe_float(opp.get("no_entry"))
+
+            # Determine best side: BUY YES if ensemble > market, or BUY NO if ensemble < market
+            if yes_entry is not None and yes_entry > 0:
+                yes_edge = ensemble_prob - yes_entry
+                if yes_edge > min_edge and yes_edge > best_edge and yes_entry <= 0.40:
+                    # Find bracket for token_id
+                    bracket = None
+                    for row in (payload.get("brackets") or []):
+                        if normalize_label(str(row.get("name") or row.get("bracket") or "")) == label:
+                            bracket = row
+                            break
+
+                    token_id = str((bracket or {}).get("yes_token_id") or "") if bracket else ""
+                    position_key = _position_key(station_id, target_date, label, "YES")
+                    full_key = _strategy_position_key("micro_value_ensemble", position_key)
+
+                    # Check for duplicate position
+                    positions = strategy_state.get("positions") or {}
+                    if full_key in positions and str((positions[full_key] or {}).get("status") or "OPEN").upper() == "OPEN":
+                        continue
+
+                    best_edge = yes_edge
+                    best_candidate = AutoTradeCandidate(
+                        station_id=station_id,
+                        target_date=target_date,
+                        target_day=int(payload.get("target_day") or 0),
+                        label=label,
+                        side="YES",
+                        token_id=token_id,
+                        market_price=yes_entry,
+                        fair_price=ensemble_prob,
+                        edge_points=round(yes_edge * 100, 2),
+                        model_probability=ensemble_prob,
+                        recommendation=f"BUY_YES_ENSEMBLE({ensemble_prob:.0%}vs{yes_entry:.0%})",
+                        policy_reason=f"ensemble_edge_{yes_edge:.0%}",
+                        forecast_winner_label=None,
+                        forecast_edge_points=None,
+                        tactical_alignment="neutral",
+                        why=f"Ensemble {ensemble_prob:.1%} vs market {yes_entry:.1%} = +{yes_edge:.1%} edge",
+                        position_key=full_key,
+                        strategy="micro_value_ensemble",
+                        strategy_score=yes_edge * 100,
+                        signal_confidence=min(1.0, ensemble_snap.total_members / 50.0),
+                        signal_sigma_f=None,
+                        distribution_top_probability=ensemble_prob,
+                        distribution_top_gap=yes_edge,
+                        bucket_rank=None,
+                        opened_next_obs_utc=None,
+                        raw_row=dict(opp),
+                    )
+
+            # Also check NO side: if ensemble says low prob but market is high
+            if no_entry is not None and no_entry > 0:
+                no_edge = (1.0 - ensemble_prob) - no_entry
+                if no_edge > min_edge and no_edge > best_edge and no_entry <= 0.50:
+                    bracket = None
+                    for row in (payload.get("brackets") or []):
+                        if normalize_label(str(row.get("name") or row.get("bracket") or "")) == label:
+                            bracket = row
+                            break
+
+                    token_id = str((bracket or {}).get("no_token_id") or "") if bracket else ""
+                    position_key = _position_key(station_id, target_date, label, "NO")
+                    full_key = _strategy_position_key("micro_value_ensemble", position_key)
+
+                    positions = strategy_state.get("positions") or {}
+                    if full_key in positions and str((positions[full_key] or {}).get("status") or "OPEN").upper() == "OPEN":
+                        continue
+
+                    best_edge = no_edge
+                    best_candidate = AutoTradeCandidate(
+                        station_id=station_id,
+                        target_date=target_date,
+                        target_day=int(payload.get("target_day") or 0),
+                        label=label,
+                        side="NO",
+                        token_id=token_id,
+                        market_price=no_entry,
+                        fair_price=1.0 - ensemble_prob,
+                        edge_points=round(no_edge * 100, 2),
+                        model_probability=1.0 - ensemble_prob,
+                        recommendation=f"BUY_NO_ENSEMBLE({1.0-ensemble_prob:.0%}vs{no_entry:.0%})",
+                        policy_reason=f"ensemble_edge_{no_edge:.0%}",
+                        forecast_winner_label=None,
+                        forecast_edge_points=None,
+                        tactical_alignment="neutral",
+                        why=f"Ensemble NO {1.0-ensemble_prob:.1%} vs market {no_entry:.1%} = +{no_edge:.1%} edge",
+                        position_key=full_key,
+                        strategy="micro_value_ensemble",
+                        strategy_score=no_edge * 100,
+                        signal_confidence=min(1.0, ensemble_snap.total_members / 50.0),
+                        signal_sigma_f=None,
+                        distribution_top_probability=1.0 - ensemble_prob,
+                        distribution_top_gap=no_edge,
+                        bucket_rank=None,
+                        opened_next_obs_utc=None,
+                        raw_row=dict(opp),
+                    )
+
+        if best_candidate is None:
+            return None, ["no_ensemble_edge_above_threshold"]
+
+        return best_candidate, []
+
     def _evaluate_strategy_candidate(
         self,
         strategy_id: str,
@@ -1146,6 +1313,8 @@ class PaperTrader:
             return self._select_tactical_candidate(payload, strategy_state)
         if strategy_id == "event_fade_qc":
             return self._select_event_fade_candidate(payload, strategy_state)
+        if strategy_id == "micro_value_ensemble":
+            return self._select_micro_value_candidate(payload, strategy_state)
         return None, ["unknown_strategy"]
 
     # -- Exit decision (replicated from AutoTrader._evaluate_exit_decision) --
@@ -1305,6 +1474,9 @@ class PaperTrader:
                     "event": "exit_fill",
                     "station_id": station_id,
                     "strategy_id": strategy_id,
+                    "label": label,
+                    "side": side,
+                    "entry_price": float(_safe_float(position.get("entry_price")) or 0.0),
                     "position_key": pkey,
                     "reason": exit_plan.get("reason"),
                     "fill": fill.to_dict(),
@@ -1318,6 +1490,9 @@ class PaperTrader:
                     "event": "exit_rejected",
                     "station_id": station_id,
                     "strategy_id": strategy_id,
+                    "label": label,
+                    "side": side,
+                    "entry_price": float(_safe_float(position.get("entry_price")) or 0.0),
                     "position_key": pkey,
                     "reason": exit_plan.get("reason"),
                     "fill_status": fill.status,
@@ -1528,6 +1703,18 @@ class PaperTrader:
                 self._append_journal({"event": "fetch_error", **result})
                 return result
 
+        # Pre-fetch ensemble data for micro_value_ensemble strategy
+        self._current_ensemble = None
+        if "micro_value_ensemble" in PAPER_STRATEGY_ORDER:
+            try:
+                from collector.ensemble_fetcher import fetch_ensemble_snapshot
+                from datetime import date as _date
+
+                td = _date.fromisoformat(resolved_target_date) if resolved_target_date else None
+                self._current_ensemble = await fetch_ensemble_snapshot(station_id, td)
+            except Exception as exc:
+                logger.debug("Ensemble fetch for %s: %s", station_id, exc)
+
         # Manage exits first
         exit_events = await self._manage_open_positions(station_id, payload)
         strategy_results: List[Dict[str, Any]] = []
@@ -1553,12 +1740,17 @@ class PaperTrader:
                 )
                 continue
 
-            budget_usd = compute_trade_budget_usd(
-                candidate,
-                atc,
-                _normalize_state(strategy_state),
-                available_balance_usd=float(_safe_float(strategy_state.get("paper_equity_usd")) or 0.0),
-            )
+            # Micro value uses fixed $1 budget (gopfan2 style)
+            if strategy_id == "micro_value_ensemble":
+                equity = float(_safe_float(strategy_state.get("paper_equity_usd")) or 0.0)
+                budget_usd = min(1.0, equity * 0.10) if equity > 0 else 1.0
+            else:
+                budget_usd = compute_trade_budget_usd(
+                    candidate,
+                    atc,
+                    _normalize_state(strategy_state),
+                    available_balance_usd=float(_safe_float(strategy_state.get("paper_equity_usd")) or 0.0),
+                )
             if budget_usd < float(self.config.min_trade_usd):
                 strategy_results.append(
                     {
@@ -1597,6 +1789,8 @@ class PaperTrader:
                     "station_id": station_id,
                     "status": "paper_rejected",
                     "reasons": ["no_fill"],
+                    "label": candidate.label,
+                    "side": candidate.side,
                     "candidate": asdict(candidate),
                     "plan": plan,
                     "fill_status": fill.status,
@@ -1629,6 +1823,8 @@ class PaperTrader:
                     "event": "entry_fill",
                     "strategy_id": strategy_id,
                     "station_id": station_id,
+                    "label": candidate.label,
+                    "side": candidate.side,
                     "position_key": candidate.position_key,
                     "signal_snapshot": signal_snap,
                     "book_snapshot": book_snap,

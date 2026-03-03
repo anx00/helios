@@ -326,6 +326,52 @@ class TestDailyReset:
 
 
 # ---------------------------------------------------------------------------
+# Full session reset
+# ---------------------------------------------------------------------------
+
+class TestSessionReset:
+
+    def test_reset_session_clears_all_lanes_and_journal(self, tmp_path):
+        trader = _make_trader(tmp_path)
+        candidate = _make_candidate()
+        entry_fill = _make_filled_fill(size=25.0, price=0.36)
+        entry_plan = {"limit_price": 0.36, "size": 25.0, "notional_usd": 9.0}
+        trader._persist_trade(candidate, entry_plan, entry_fill)
+        trader._append_journal({
+            "event": "entry_fill",
+            "strategy_id": "terminal_value_legacy",
+            "station_id": "KLGA",
+            "position_key": candidate.position_key,
+            "fill": entry_fill.to_dict(),
+        })
+        exit_fill = _make_filled_fill(size=25.0, price=0.41)
+        trader._persist_exit(candidate.position_key, {"reason": "take_profit", "size": 25.0}, exit_fill)
+        trader._record_fill_metrics(exit_fill, strategy_id="terminal_value_legacy")
+        trader._save_state()
+
+        assert trader.state["positions"]
+        assert Path(trader.config.log_path).read_text(encoding="utf-8").strip()
+
+        trader.reset_session()
+
+        reloaded = load_paper_state(trader.config.state_path, trader.config)
+        status = trader.get_status_snapshot()
+        assert reloaded["positions"] == {}
+        assert status["paper_equity_usd"] == 400.0
+        assert status["aggregate_initial_bankroll_usd"] == 400.0
+        assert status["open_positions_count"] == 0
+        assert status["closed_positions_count"] == 0
+        assert status["total_entries"] == 0
+        assert status["total_exits"] == 0
+        assert status["total_fills"] == 0
+        assert status["recent_events"] == []
+        assert Path(trader.config.log_path).read_text(encoding="utf-8") == ""
+        assert all(strategy["paper_equity_usd"] == pytest.approx(100.0, abs=1e-6) for strategy in status["strategies"])
+        assert all(strategy["open_positions_count"] == 0 for strategy in status["strategies"])
+        assert all(strategy["closed_positions_recent"] == [] for strategy in status["strategies"])
+
+
+# ---------------------------------------------------------------------------
 # Risk limits
 # ---------------------------------------------------------------------------
 
