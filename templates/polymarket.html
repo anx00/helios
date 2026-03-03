@@ -1500,6 +1500,7 @@
         if (event === 'exit_fill') return 'Venta';
         if (event === 'entry_rejected') return 'Compra fallida';
         if (event === 'exit_rejected') return 'Venta fallida';
+        if (event === 'price_anomaly') return 'Anomalia precio';
         return event.replace(/_/g, ' ') || 'Evento';
     }
     function _paperActionClass(eventName) {
@@ -1511,6 +1512,16 @@
     }
     function _paperActionBadge(eventName) {
         return `<span class="trade-action-badge ${_paperActionClass(eventName)}">${_paperEventHeadline(eventName)}</span>`;
+    }
+    function _paperReasonText(ev) {
+        const reasons = Array.isArray(ev?.reasons) ? ev.reasons : [];
+        if (reasons.length) {
+            return reasons
+                .map((item) => String(item || '').replace(/_/g, ' ').trim())
+                .filter(Boolean)
+                .join(', ');
+        }
+        return ev?.reason ? String(ev.reason).replace(/_/g, ' ').trim() : '';
     }
     function _paperPnlMeta(value, positiveLabel = 'Ganancia', negativeLabel = 'Perdida', flatLabel = 'PnL') {
         const n = Number(value || 0);
@@ -2356,7 +2367,7 @@
             ptDraft = {
                 station_ids: Array.isArray(status?.station_ids) ? [...status.station_ids] : [],
                 max_total_exposure_usd: Number(status?.max_total_exposure_usd ?? 4),
-                initial_bankroll_usd: 100,
+                initial_bankroll_usd: Number(status?.initial_bankroll_usd ?? 100),
                 _synced: true,
             };
         }
@@ -2375,6 +2386,12 @@
                 ptDraft.max_total_exposure_usd = parseFloat(capEl.value) || 4;
             });
         }
+        const bankEl = document.getElementById('pt-bankroll');
+        if (bankEl) {
+            bankEl.addEventListener('input', () => {
+                ptDraft.initial_bankroll_usd = parseFloat(bankEl.value) || 100;
+            });
+        }
     }
 
     async function savePapertraderConfig() {
@@ -2385,7 +2402,7 @@
                 body: JSON.stringify({
                     station_ids: ptDraft.station_ids,
                     max_total_exposure_usd: ptDraft.max_total_exposure_usd,
-                    initial_bankroll_usd: 100,
+                    initial_bankroll_usd: ptDraft.initial_bankroll_usd,
                 }),
             });
             const data = await resp.json();
@@ -2403,7 +2420,11 @@
     window.startPapertrader = startPapertrader;
 
     async function resetPapertrader() {
-        const confirmed = window.confirm('Reset all 4 paper bots to $100 and clear every trade from tape and history?');
+        const laneCount = Array.isArray(ptStatus?.strategies) ? ptStatus.strategies.length : 0;
+        const bankroll = Number(ptDraft.initial_bankroll_usd || ptStatus?.initial_bankroll_usd || 100).toFixed(0);
+        const laneLabel = laneCount === 1 ? 'paper bot' : 'paper bots';
+        const headline = laneCount ? `Reset all ${laneCount} ${laneLabel} to $${bankroll}` : `Reset every paper lane to $${bankroll}`;
+        const confirmed = window.confirm(`${headline} and clear every trade from tape and history?`);
         if (!confirmed) return;
         _historyCache.pt = [];
         _historyCache.ptByStrategy = {};
@@ -2610,7 +2631,7 @@
             const fillPrice = fillPriceRaw != null ? _fmtContractPrice(fillPriceRaw) : '--';
             const entryPrice = ev?.entry_price != null ? _fmtContractPrice(ev.entry_price) : '--';
             const size = Number(ev?.fill?.filled_size || ev?.fill?.size || ev?.order?.size || 0);
-            const reason = ev?.reason ? String(ev.reason).replace(/_/g, ' ') : '';
+            const reasonText = _paperReasonText(ev);
             const realized = Number(ev?.persisted?.realized_pnl_usd || 0);
             const realizedMeta = _paperPnlMeta(realized);
             let detail = '';
@@ -2620,17 +2641,30 @@
                 detail = `Comprado a ${fillPrice}${size > 0 ? ` | ${size.toFixed(1)} sh` : ''}`;
                 outcome = 'Posicion abierta';
             } else if (eventName === 'exit_fill') {
-                detail = `Comprado a ${entryPrice} | Vendido a ${fillPrice}${size > 0 ? ` | ${size.toFixed(1)} sh` : ''}${reason ? ` | ${reason}` : ''}`;
+                detail = `Comprado a ${entryPrice} | Vendido a ${fillPrice}${size > 0 ? ` | ${size.toFixed(1)} sh` : ''}${reasonText ? ` | ${reasonText}` : ''}`;
                 outcome = realizedMeta.text;
                 outcomeClass = realizedMeta.cls;
             } else if (eventName === 'entry_rejected') {
-                detail = `Intento de compra${fillPrice !== '--' ? ` a ${fillPrice}` : ''}${reason ? ` | ${reason}` : ''}`;
+                detail = `Intento de compra${fillPrice !== '--' ? ` a ${fillPrice}` : ''}${reasonText ? ` | ${reasonText}` : ''}`;
                 outcome = 'Sin fill';
             } else if (eventName === 'exit_rejected') {
-                detail = `Intento de venta${entryPrice !== '--' ? ` desde ${entryPrice}` : ''}${reason ? ` | ${reason}` : ''}`;
+                detail = `Intento de venta${entryPrice !== '--' ? ` desde ${entryPrice}` : ''}${reasonText ? ` | ${reasonText}` : ''}`;
                 outcome = 'Sin fill';
+            } else if (eventName === 'price_anomaly') {
+                const liveAsk = ev?.live_ask != null ? _fmtContractPrice(ev.live_ask) : '--';
+                const fairPrice = ev?.fair_price != null ? _fmtContractPrice(ev.fair_price) : '--';
+                const marketPrice = ev?.market_price != null ? _fmtContractPrice(ev.market_price) : '--';
+                const parts = [
+                    liveAsk !== '--' ? `Ask vivo ${liveAsk}` : '',
+                    fairPrice !== '--' ? `Fair ${fairPrice}` : '',
+                    marketPrice !== '--' ? `Senal ${marketPrice}` : '',
+                    reasonText,
+                ].filter(Boolean);
+                detail = parts.join(' | ') || 'Guardrail de precio NO activado';
+                outcome = ev?.source === 'orderbook_guardrails' ? 'Compra bloqueada' : 'Senal descartada';
+                outcomeClass = 'neg';
             } else {
-                detail = reason || 'Sin detalle';
+                detail = reasonText || 'Sin detalle';
                 outcome = _paperEventHeadline(eventName);
             }
             return `
@@ -2711,6 +2745,14 @@
         const realized = Number(status.realized_pnl_usd || 0);
         const unrealized = Number(status.unrealized_pnl_usd || 0);
         const free = Number(status.free_equity_usd || (aggregateEquity - openRisk));
+        const laneCount = strategies.length || Number(status.strategy_count || 0) || 0;
+        const bankrollPerLane = Number(draft.initial_bankroll_usd || status.initial_bankroll_usd || 100);
+        const heroTitle = laneCount
+            ? `${laneCount} independent strategies, $${bankrollPerLane.toFixed(0)} starting bank each`
+            : `$${bankrollPerLane.toFixed(0)} starting bank per lane`;
+        const bankrollSummary = laneCount
+            ? `${laneCount} lanes x $${bankrollPerLane.toFixed(0)}`
+            : 'Per-lane bankroll';
         const strategyCards = strategies.map((strategy) => `
             <article class="pt-lane-card" style="--lane-accent:${strategy.accent || '#35d4ff'};">
                 <div class="pt-lane-top">
@@ -2735,7 +2777,7 @@
                     ${_paperLanePositionRowsReadableV2(Array.isArray(strategy.open_positions) ? strategy.open_positions : [])}
                 </div>
                 <div class="pt-lane-section">
-                    <div class="pt-lane-section-title">Compras y ventas</div>
+                    <div class="pt-lane-section-title">Actividad reciente</div>
                     ${_paperLaneEventsReadableV2(Array.isArray(strategy.recent_events) ? strategy.recent_events : [])}
                 </div>
                 <div class="pt-lane-section">
@@ -2758,7 +2800,7 @@
                 <section class="pt-hero">
                     <div class="pt-hero-copy">
                         <div class="pt-hero-kicker">${running ? '<span class="pt-live-dot"></span>' : ''}PAPER ARENA</div>
-                        <h3>4 independent strategies, same $100 starting bank</h3>
+                        <h3>${heroTitle}</h3>
                         <p>Each lane trades the same live market feed with its own paper account. No real orders are sent.</p>
                     </div>
                     <div class="pt-hero-actions">
@@ -2772,7 +2814,7 @@
                     <div class="pt-summary-card">
                         <span>Bank inicial</span>
                         <strong>$${aggregateInitial.toFixed(0)}</strong>
-                        <small>4 lanes x $100</small>
+                        <small>${bankrollSummary}</small>
                     </div>
                     <div class="pt-summary-card">
                         <span>Equity total</span>
@@ -2813,16 +2855,16 @@
                                 <span>Exposure cap per lane ($)</span>
                                 <input id="pt-total-cap" class="tp-input" type="number" min="1" step="0.5" value="${Number(draft.max_total_exposure_usd || 4)}">
                             </label>
-                            <div class="pt-runtime-stat">
-                                <span>Starting bank per lane</span>
-                                <strong>$100</strong>
-                            </div>
+                            <label>
+                                <span>Starting bank per lane ($)</span>
+                                <input id="pt-bankroll" class="tp-input" type="number" min="1" step="10" value="${bankrollPerLane.toFixed(0)}">
+                            </label>
                             <div class="pt-runtime-stat">
                                 <span>Execution model</span>
                                 <strong>LIMIT_FAK</strong>
                             </div>
                         </div>
-                        <div class="pt-runtime-note">Setup changes are saved automatically when you press Start. Reset wipes every lane back to $100 and clears the journal.</div>
+                        <div class="pt-runtime-note">Setup changes are saved automatically when you press Start. Reset wipes every lane back to $${bankrollPerLane.toFixed(0)} and clears the journal.</div>
                     </div>
                 </section>
 

@@ -155,6 +155,32 @@ class TestStatePersistence:
         assert state["paper_equity_usd"] == _aggregate_bankroll(cfg)
 
 
+class TestJournalEvents:
+
+    def test_price_anomaly_is_deduped_within_cooldown(self, tmp_path):
+        trader = _make_trader(tmp_path)
+        event = {
+            "event": "price_anomaly",
+            "station_id": "LFPG",
+            "strategy_id": "tactical_reprice",
+            "label": "18C",
+            "side": "NO",
+            "source": "orderbook_guardrails",
+            "reasons": ["no_ask_price_anomaly"],
+            "market_price": 0.28,
+            "fair_price": 0.72,
+            "live_ask": 0.19,
+        }
+
+        trader._append_journal(event)
+        trader._append_journal(event)
+
+        log_lines = Path(trader.config.log_path).read_text(encoding="utf-8").strip().splitlines()
+
+        assert len(log_lines) == 1
+        assert len(trader._recent_events) == 1
+
+
 # ---------------------------------------------------------------------------
 # _persist_trade (entry accounting)
 # ---------------------------------------------------------------------------

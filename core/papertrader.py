@@ -840,6 +840,7 @@ class PaperTrader:
         self.state = load_paper_state(self.config.state_path, self.config)
         self._sync_config_bankroll_with_state()
         self._recent_events: List[Dict[str, Any]] = []
+        self._event_cooldowns: Dict[str, datetime] = {}
 
     def _atc(self) -> AutoTraderConfig:
         """Shortcut: get adapted AutoTraderConfig."""
@@ -935,11 +936,53 @@ class PaperTrader:
         if strategy_id:
             self._refresh_state_totals()
 
+    def _journal_dedupe_key(self, event: Dict[str, Any]) -> Optional[str]:
+        event_name = str((event or {}).get("event") or "").lower()
+        if event_name != "price_anomaly":
+            return None
+        reasons = ",".join(
+            sorted(
+                str(item).strip().lower()
+                for item in ((event or {}).get("reasons") or [])
+                if str(item).strip()
+            )
+        )
+        return "|".join(
+            [
+                event_name,
+                str((event or {}).get("source") or "").strip().lower(),
+                str((event or {}).get("station_id") or "").strip().upper(),
+                _normalize_strategy_id((event or {}).get("strategy_id")),
+                normalize_label(str((event or {}).get("label") or "")),
+                str((event or {}).get("side") or "").strip().upper(),
+                reasons,
+            ]
+        )
+
+    def _should_skip_journal_event(self, event: Dict[str, Any]) -> bool:
+        key = self._journal_dedupe_key(event)
+        if not key:
+            return False
+        now = _utc_now()
+        cutoff = now - timedelta(minutes=10)
+        self._event_cooldowns = {
+            cached_key: seen_at
+            for cached_key, seen_at in self._event_cooldowns.items()
+            if seen_at >= cutoff
+        }
+        last_seen = self._event_cooldowns.get(key)
+        if last_seen is not None and (now - last_seen).total_seconds() < 90.0:
+            return True
+        self._event_cooldowns[key] = now
+        return False
+
     def _append_journal(self, event: Dict[str, Any]) -> None:
         path = Path(self.config.log_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         record = dict(event)
         record.setdefault("ts_utc", _utc_now().isoformat())
+        if self._should_skip_journal_event(record):
+            return
         line = (json.dumps(record, ensure_ascii=True, default=str) + "\n").encode("utf-8")
         flags = os.O_APPEND | os.O_CREAT | os.O_WRONLY
         if hasattr(os, "O_BINARY"):
@@ -985,6 +1028,7 @@ class PaperTrader:
         self.state = _default_paper_state(self.config)
         self._sync_config_bankroll_with_state()
         self._recent_events = []
+        self._event_cooldowns = {}
         self._save_state()
         self._clear_journal()
         return dict(self.state)
