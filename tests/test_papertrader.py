@@ -13,6 +13,7 @@ from core.papertrader import (
     PaperTraderConfig,
     _default_paper_state,
     load_paper_state,
+    load_papertrader_config,
     save_paper_state,
 )
 from market.paper_execution import PaperFill
@@ -104,6 +105,18 @@ def _aggregate_bankroll(cfg) -> float:
 # ---------------------------------------------------------------------------
 # State persistence
 # ---------------------------------------------------------------------------
+
+class TestConfigLoading:
+
+    def test_load_papertrader_config_inherits_autotrader_bankroll(self, monkeypatch):
+        monkeypatch.setenv("HELIOS_AUTOTRADE_BANKROLL_USD", "50")
+        monkeypatch.delenv("HELIOS_PAPERTRADER_BANKROLL_USD", raising=False)
+
+        cfg = load_papertrader_config()
+
+        assert cfg.bankroll_usd == 50.0
+        assert cfg.initial_bankroll_usd == 50.0
+
 
 class TestStatePersistence:
 

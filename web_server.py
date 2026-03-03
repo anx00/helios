@@ -3303,10 +3303,17 @@ async def reset_papertrader_session() -> Dict[str, Any]:
     global _papertrader_last_stop_reason
     if _papertrader_running():
         await stop_papertrader_loop(reason="manual_reset")
+    resolved = _build_papertrader_config()
+    try:
+        initial_bankroll = max(1.0, float(resolved.initial_bankroll_usd))
+    except (TypeError, ValueError):
+        initial_bankroll = 100.0
     overrides = _load_papertrader_runtime_overrides()
-    overrides["initial_bankroll_usd"] = 100.0
+    overrides["initial_bankroll_usd"] = initial_bankroll
     _save_papertrader_runtime_overrides(overrides)
     trader = get_papertrader_instance(refresh=True)
+    trader.config.initial_bankroll_usd = initial_bankroll
+    trader.config.bankroll_usd = initial_bankroll
     trader.reset_session()
     _papertrader_last_stop_reason = "manual_reset"
     return get_papertrader_status_snapshot()

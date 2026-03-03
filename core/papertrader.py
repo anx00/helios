@@ -625,6 +625,7 @@ def load_papertrader_config() -> PaperTraderConfig:
         signal_source=shared.signal_source,
         signal_base_url=shared.signal_base_url,
         loop_seconds=shared.loop_seconds,
+        initial_bankroll_usd=shared.bankroll_usd,
         bankroll_usd=shared.bankroll_usd,
         fractional_kelly=shared.fractional_kelly,
         min_edge_points=shared.min_edge_points,
