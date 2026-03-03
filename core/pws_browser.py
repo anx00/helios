@@ -1531,3 +1531,289 @@ def build_pws_audit_day_payload(station_id: str, date_str: str) -> Dict[str, Any
         "row_count": len(rows),
         "stations": stations,
     }
+
+
+def _parse_export_date(value: Optional[str], field_name: str) -> Optional[date_cls]:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        return date_cls.fromisoformat(raw)
+    except Exception as exc:
+        raise ValueError(f"Invalid {field_name}: {value}") from exc
+
+
+def select_pws_export_dates(
+    available_dates: List[str],
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+) -> List[str]:
+    start_date = _parse_export_date(date_from, "date_from")
+    end_date = _parse_export_date(date_to, "date_to")
+    if start_date is not None and end_date is not None and start_date > end_date:
+        raise ValueError("date_from must be less than or equal to date_to")
+
+    unique_dates: List[str] = []
+    seen: set[str] = set()
+    for raw in available_dates or []:
+        date_str = str(raw or "").strip()
+        if not date_str or date_str in seen:
+            continue
+        seen.add(date_str)
+        unique_dates.append(date_str)
+
+    selected: List[str] = []
+    for date_str in sorted(unique_dates):
+        try:
+            current = date_cls.fromisoformat(date_str)
+        except Exception:
+            continue
+        if start_date is not None and current < start_date:
+            continue
+        if end_date is not None and current > end_date:
+            continue
+        selected.append(date_str)
+    return selected
+
+
+def build_pws_city_export_summary(
+    station_id: str,
+    day_exports: List[Dict[str, Any]],
+    *,
+    available_dates: Optional[List[str]] = None,
+    selected_dates: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    if station_id not in STATIONS:
+        raise ValueError(f"Unknown station_id: {station_id}")
+
+    station_index: Dict[str, Dict[str, Any]] = {}
+    raw_updates_total = 0
+    table_rows_total = 0
+    audit_row_total = 0
+    browser_station_ids: set[str] = set()
+    audit_station_ids: set[str] = set()
+
+    for day_export in day_exports or []:
+        if not isinstance(day_export, dict):
+            continue
+        browser = day_export.get("browser") or {}
+        audit = day_export.get("audit") or {}
+        date_str = str(day_export.get("date") or browser.get("date") or audit.get("date") or "").strip()
+        overview = browser.get("market_overview") or {}
+        raw_updates_total += int(overview.get("raw_updates_total") or 0)
+        table_rows_total += int(overview.get("table_rows_total") or 0)
+        audit_row_total += int(audit.get("row_count") or 0)
+
+        for station in browser.get("pws_stations") or []:
+            if not isinstance(station, dict):
+                continue
+            pws_station_id = str(station.get("station_id") or "").upper()
+            if not pws_station_id:
+                continue
+            browser_station_ids.add(pws_station_id)
+            summary = station.get("summary") or {}
+            learning = station.get("learning_profile") or {}
+            entry = station_index.setdefault(
+                pws_station_id,
+                {
+                    "station_id": pws_station_id,
+                    "station_name": station.get("station_name") or pws_station_id,
+                    "city": station.get("city") or _market_city_name(station_id),
+                    "source": station.get("source"),
+                    "distance_km": _float_or_none(station.get("distance_km")),
+                    "browser_dates": [],
+                    "audit_dates": [],
+                    "raw_updates_total": 0,
+                    "table_rows_total": 0,
+                    "current_metar_matches": 0,
+                    "next_metar_matches": 0,
+                    "next_metar_hits": 0,
+                    "next_metar_total": 0,
+                    "audit_row_count": 0,
+                    "audit_now_count": 0,
+                    "audit_lead_count": 0,
+                    "audit_hits_within_0_5_c": 0,
+                    "audit_hits_within_1_0_c": 0,
+                    "learning_profile": {},
+                    "daily_browser": [],
+                    "daily_audit": [],
+                    "_current_mae_entries": [],
+                    "_next_mae_entries": [],
+                    "_audit_abs_error_entries": [],
+                },
+            )
+            if date_str and date_str not in entry["browser_dates"]:
+                entry["browser_dates"].append(date_str)
+
+            entry["station_name"] = station.get("station_name") or entry["station_name"]
+            entry["source"] = station.get("source") or entry["source"]
+            if entry["distance_km"] is None:
+                entry["distance_km"] = _float_or_none(station.get("distance_km"))
+            if learning:
+                entry["learning_profile"] = learning
+
+            raw_records_count = int(station.get("raw_records_count") or 0)
+            table_records_count = int(station.get("table_records_count") or 0)
+            current_matches = int(summary.get("current_metar_matches") or 0)
+            next_matches = int(summary.get("next_metar_matches") or 0)
+            next_hits = int(summary.get("next_metar_hits") or 0)
+            next_total = int(summary.get("next_metar_total") or 0)
+
+            entry["raw_updates_total"] += raw_records_count
+            entry["table_rows_total"] += table_records_count
+            entry["current_metar_matches"] += current_matches
+            entry["next_metar_matches"] += next_matches
+            entry["next_metar_hits"] += next_hits
+            entry["next_metar_total"] += next_total
+
+            current_mae = _float_or_none(summary.get("current_metar_mae_c"))
+            next_mae = _float_or_none(summary.get("next_metar_mae_c"))
+            if current_mae is not None and current_matches > 0:
+                entry["_current_mae_entries"].append((current_mae, float(current_matches)))
+            if next_mae is not None and next_matches > 0:
+                entry["_next_mae_entries"].append((next_mae, float(next_matches)))
+
+            entry["daily_browser"].append(
+                {
+                    "date": date_str,
+                    "detail_source": browser.get("detail_source"),
+                    "raw_records_count": raw_records_count,
+                    "table_records_count": table_records_count,
+                    "latest_temp_c": _float_or_none(station.get("latest_temp_c")),
+                    "latest_temp_f": _float_or_none(station.get("latest_temp_f")),
+                    "summary": summary,
+                }
+            )
+
+        for station in audit.get("stations") or []:
+            if not isinstance(station, dict):
+                continue
+            pws_station_id = str(station.get("station_id") or "").upper()
+            if not pws_station_id:
+                continue
+            audit_station_ids.add(pws_station_id)
+            audit_rows = [row for row in (station.get("audit_rows") or []) if isinstance(row, dict)]
+            entry = station_index.setdefault(
+                pws_station_id,
+                {
+                    "station_id": pws_station_id,
+                    "station_name": station.get("station_name") or pws_station_id,
+                    "city": _market_city_name(station_id),
+                    "source": station.get("source"),
+                    "distance_km": _float_or_none(station.get("distance_km")),
+                    "browser_dates": [],
+                    "audit_dates": [],
+                    "raw_updates_total": 0,
+                    "table_rows_total": 0,
+                    "current_metar_matches": 0,
+                    "next_metar_matches": 0,
+                    "next_metar_hits": 0,
+                    "next_metar_total": 0,
+                    "audit_row_count": 0,
+                    "audit_now_count": 0,
+                    "audit_lead_count": 0,
+                    "audit_hits_within_0_5_c": 0,
+                    "audit_hits_within_1_0_c": 0,
+                    "learning_profile": station.get("learning_profile") or {},
+                    "daily_browser": [],
+                    "daily_audit": [],
+                    "_current_mae_entries": [],
+                    "_next_mae_entries": [],
+                    "_audit_abs_error_entries": [],
+                },
+            )
+            if date_str and date_str not in entry["audit_dates"]:
+                entry["audit_dates"].append(date_str)
+
+            entry["station_name"] = station.get("station_name") or entry["station_name"]
+            entry["source"] = station.get("source") or entry["source"]
+            if entry["distance_km"] is None:
+                entry["distance_km"] = _float_or_none(station.get("distance_km"))
+            if station.get("learning_profile"):
+                entry["learning_profile"] = station.get("learning_profile") or entry["learning_profile"]
+
+            audit_rows_count = len(audit_rows)
+            audit_now_count = int(station.get("now_count") or 0)
+            audit_lead_count = int(station.get("lead_count") or 0)
+            audit_hits_within_0_5 = sum(1 for row in audit_rows if bool(row.get("hit_within_0_5_c")))
+            audit_hits_within_1_0 = sum(1 for row in audit_rows if bool(row.get("hit_within_1_0_c")))
+
+            entry["audit_row_count"] += audit_rows_count
+            entry["audit_now_count"] += audit_now_count
+            entry["audit_lead_count"] += audit_lead_count
+            entry["audit_hits_within_0_5_c"] += audit_hits_within_0_5
+            entry["audit_hits_within_1_0_c"] += audit_hits_within_1_0
+
+            abs_errors = [
+                _float_or_none(row.get("abs_error_c"))
+                for row in audit_rows
+                if _float_or_none(row.get("abs_error_c")) is not None
+            ]
+            if abs_errors:
+                entry["_audit_abs_error_entries"].append((sum(abs_errors) / len(abs_errors), float(len(abs_errors))))
+
+            entry["daily_audit"].append(
+                {
+                    "date": date_str,
+                    "row_count": audit_rows_count,
+                    "now_count": audit_now_count,
+                    "lead_count": audit_lead_count,
+                    "hit_rate_within_0_5_c": round(audit_hits_within_0_5 / audit_rows_count, 4) if audit_rows_count > 0 else None,
+                    "hit_rate_within_1_0_c": round(audit_hits_within_1_0 / audit_rows_count, 4) if audit_rows_count > 0 else None,
+                }
+            )
+
+    stations: List[Dict[str, Any]] = []
+    for entry in station_index.values():
+        browser_dates = sorted(set(entry.pop("browser_dates", [])))
+        audit_dates = sorted(set(entry.pop("audit_dates", [])))
+        current_mae = _weighted_mean(entry.pop("_current_mae_entries", []))
+        next_mae = _weighted_mean(entry.pop("_next_mae_entries", []))
+        audit_abs_error_mae = _weighted_mean(entry.pop("_audit_abs_error_entries", []))
+        next_total = int(entry.get("next_metar_total") or 0)
+        audit_row_count = int(entry.get("audit_row_count") or 0)
+        stations.append(
+            {
+                **entry,
+                "browser_dates": browser_dates,
+                "audit_dates": audit_dates,
+                "browser_day_count": len(browser_dates),
+                "audit_day_count": len(audit_dates),
+                "current_metar_mae_c": round(float(current_mae), 3) if current_mae is not None else None,
+                "next_metar_mae_c": round(float(next_mae), 3) if next_mae is not None else None,
+                "next_metar_hit_rate": round(float(entry.get("next_metar_hits") or 0) / next_total, 4) if next_total > 0 else None,
+                "audit_abs_error_mae_c": round(float(audit_abs_error_mae), 3) if audit_abs_error_mae is not None else None,
+                "audit_hit_rate_within_0_5_c": round(float(entry.get("audit_hits_within_0_5_c") or 0) / audit_row_count, 4) if audit_row_count > 0 else None,
+                "audit_hit_rate_within_1_0_c": round(float(entry.get("audit_hits_within_1_0_c") or 0) / audit_row_count, 4) if audit_row_count > 0 else None,
+            }
+        )
+
+    stations.sort(
+        key=lambda row: (
+            0 if int(row.get("next_metar_total") or 0) > 0 else 1,
+            -(row.get("next_metar_hit_rate") if row.get("next_metar_hit_rate") is not None else -1.0),
+            row.get("next_metar_mae_c") if row.get("next_metar_mae_c") is not None else 9999.0,
+            -int(row.get("raw_updates_total") or 0),
+            str(row.get("station_id") or ""),
+        )
+    )
+
+    selected = list(selected_dates or [])
+    return {
+        "station_id": station_id,
+        "market_station": _build_market_station_meta(station_id),
+        "available_dates": list(available_dates or []),
+        "selected_dates": selected,
+        "date_from": selected[0] if selected else None,
+        "date_to": selected[-1] if selected else None,
+        "summary": {
+            "day_count": len(day_exports or []),
+            "unique_station_count": len(stations),
+            "browser_station_count": len(browser_station_ids),
+            "audit_station_count": len(audit_station_ids),
+            "raw_updates_total": raw_updates_total,
+            "table_rows_total": table_rows_total,
+            "audit_row_total": audit_row_total,
+        },
+        "stations": stations,
+    }

@@ -4918,6 +4918,85 @@ async def export_pws_day(station_id: str, date: str, format: str = "json"):
     )
 
 
+@app.get("/api/pws/export/city")
+async def export_pws_city(
+    station_id: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    hydrate_metar: bool = True,
+):
+    resolved_station = _normalize_station_id(station_id)
+    if not resolved_station:
+        return JSONResponse(
+            status_code=422,
+            content={"error": f"Invalid station_id: {station_id}"},
+        )
+
+    from core.pws_browser import (
+        build_pws_audit_day_payload,
+        build_pws_browser_payload,
+        build_pws_city_export_summary,
+        list_pws_browser_dates,
+        select_pws_export_dates,
+    )
+
+    available_dates = await asyncio.to_thread(list_pws_browser_dates, resolved_station)
+    try:
+        selected_dates = await asyncio.to_thread(select_pws_export_dates, available_dates, date_from, date_to)
+    except ValueError as exc:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": str(exc),
+                "station_id": resolved_station,
+                "date_from": date_from,
+                "date_to": date_to,
+                "available_dates": available_dates,
+            },
+        )
+
+    day_exports = []
+    for selected_date in selected_dates:
+        try:
+            browser_payload = await asyncio.to_thread(build_pws_browser_payload, resolved_station, selected_date)
+            audit_payload = await asyncio.to_thread(build_pws_audit_day_payload, resolved_station, selected_date)
+        except ValueError as exc:
+            return JSONResponse(
+                status_code=422,
+                content={"error": str(exc), "station_id": resolved_station, "date": selected_date},
+            )
+        except Exception as exc:
+            logger.error("PWS city export failed for %s %s: %s", resolved_station, selected_date, exc)
+            return JSONResponse(
+                status_code=500,
+                content={"error": str(exc), "station_id": resolved_station, "date": selected_date},
+            )
+
+        if hydrate_metar:
+            browser_payload = await _maybe_hydrate_pws_payload_metar_history(resolved_station, selected_date, browser_payload)
+
+        day_exports.append(
+            {
+                "date": selected_date,
+                "browser": browser_payload,
+                "audit": audit_payload,
+            }
+        )
+
+    summary_payload = await asyncio.to_thread(
+        build_pws_city_export_summary,
+        resolved_station,
+        day_exports,
+        available_dates=available_dates,
+        selected_dates=selected_dates,
+    )
+
+    return {
+        **summary_payload,
+        "days": day_exports,
+    }
+
+
 # Phase 3: Nowcast Dashboard - Distribution-based predictions
 # =============================================================================
 # Phase 5: Backtest Endpoints

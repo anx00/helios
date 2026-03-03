@@ -515,6 +515,10 @@
                             <label>&nbsp;</label>
                             <button type="button" id="pws-refresh-btn">Reload day</button>
                         </div>
+                        <div class="pws-control">
+                            <label>&nbsp;</label>
+                            <button type="button" id="pws-export-city-btn">Export full city JSON</button>
+                        </div>
                     </div>
 
                     <div class="pws-badges">
@@ -597,19 +601,34 @@
     let pwsSelectedStationId = null;
     let pwsHistoryChart = null;
     let pwsLoading = false;
+    let pwsExporting = false;
     let pwsTableSortKey = 'station_time';
     let pwsTableSortDir = 'desc';
     let pwsTablePage = 1;
     const PWS_TABLE_PAGE_SIZE = 72;
 
+    function syncPwsToolbarButtons() {
+        const button = document.getElementById('pws-refresh-btn');
+        if (button) {
+            button.disabled = pwsLoading || pwsExporting;
+            button.textContent = pwsLoading ? 'Loading...' : 'Reload day';
+        }
+        const exportButton = document.getElementById('pws-export-city-btn');
+        if (exportButton) {
+            exportButton.disabled = pwsLoading || pwsExporting;
+            exportButton.textContent = pwsExporting ? 'Exporting...' : 'Export full city JSON';
+        }
+    }
+
     function setPwsLoading(isLoading) {
         pwsLoading = Boolean(isLoading);
         document.getElementById('pws-shell').classList.toggle('pws-loading', pwsLoading);
-        const button = document.getElementById('pws-refresh-btn');
-        if (button) {
-            button.disabled = pwsLoading;
-            button.textContent = pwsLoading ? 'Loading...' : 'Reload day';
-        }
+        syncPwsToolbarButtons();
+    }
+
+    function setPwsExporting(isExporting) {
+        pwsExporting = Boolean(isExporting);
+        syncPwsToolbarButtons();
     }
 
     function getCurrentMarketStationId() {
@@ -664,6 +683,43 @@
         const num = Number(value);
         if (!Number.isFinite(num)) return '--';
         return `${(num * 100).toFixed(0)}%`;
+    }
+
+    function getPwsExportFilename(payload, stationId) {
+        const dates = Array.isArray(payload?.selected_dates) ? payload.selected_dates : [];
+        const from = String(payload?.date_from || dates[0] || 'all').trim() || 'all';
+        const to = String(payload?.date_to || dates[dates.length - 1] || from).trim() || from;
+        const suffix = from === to ? from : `${from}_to_${to}`;
+        return `pws_city_${stationId}_${suffix}.json`;
+    }
+
+    async function exportPwsCityJson() {
+        const stationId = getCurrentMarketStationId();
+        const params = new URLSearchParams({ station_id: stationId });
+
+        setPwsExporting(true);
+        try {
+            const response = await fetch(`/api/pws/export/city?${params.toString()}`);
+            const data = await response.json();
+            if (!response.ok || data.error) {
+                throw new Error(data.error || `HTTP ${response.status}`);
+            }
+
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const blobUrl = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = blobUrl;
+            link.download = getPwsExportFilename(data, stationId);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            URL.revokeObjectURL(blobUrl);
+        } catch (error) {
+            console.error('PWS city export failed:', error);
+            window.alert(error.message || 'Failed to export PWS city JSON');
+        } finally {
+            setPwsExporting(false);
+        }
     }
 
     function getTableSortIndicator(key) {
@@ -1446,11 +1502,16 @@
     }
 
     document.addEventListener('DOMContentLoaded', () => {
+        syncPwsToolbarButtons();
         loadPwsBrowserDay();
 
         document.getElementById('pws-refresh-btn').addEventListener('click', () => {
             const value = document.getElementById('pws-date-select').value || null;
             loadPwsBrowserDay(value);
+        });
+
+        document.getElementById('pws-export-city-btn').addEventListener('click', () => {
+            exportPwsCityJson();
         });
 
         document.getElementById('pws-date-select').addEventListener('change', (event) => {

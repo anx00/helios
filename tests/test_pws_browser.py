@@ -1,6 +1,8 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+import pytest
+
 from core import pws_browser
 
 
@@ -408,3 +410,158 @@ def test_prediction_verdict_uses_half_up_rounding(monkeypatch):
     assert verdict["hit"] is True
     assert verdict["pws_settlement"] == 36.0
     assert verdict["next_metar_settlement"] == 36.0
+
+
+def test_select_pws_export_dates_filters_range_and_sorts():
+    selected = pws_browser.select_pws_export_dates(
+        ["2026-02-10", "2026-02-08", "bad-date", "2026-02-09", "2026-02-09"],
+        date_from="2026-02-09",
+        date_to="2026-02-10",
+    )
+
+    assert selected == ["2026-02-09", "2026-02-10"]
+
+
+def test_select_pws_export_dates_rejects_invalid_range():
+    with pytest.raises(ValueError, match="date_from must be less than or equal to date_to"):
+        pws_browser.select_pws_export_dates(
+            ["2026-02-10"],
+            date_from="2026-02-11",
+            date_to="2026-02-10",
+        )
+
+
+def test_build_pws_city_export_summary_aggregates_station_history():
+    day_exports = [
+        {
+            "date": "2026-02-10",
+            "browser": {
+                "date": "2026-02-10",
+                "market_overview": {
+                    "raw_updates_total": 3,
+                    "table_rows_total": 2,
+                },
+                "pws_stations": [
+                    {
+                        "station_id": "KNYC001",
+                        "station_name": "Astoria roof",
+                        "city": "New York",
+                        "source": "WUNDERGROUND",
+                        "distance_km": 1.2,
+                        "raw_records_count": 3,
+                        "table_records_count": 2,
+                        "latest_temp_c": 0.0,
+                        "latest_temp_f": 32.0,
+                        "summary": {
+                            "current_metar_matches": 2,
+                            "next_metar_matches": 2,
+                            "next_metar_hits": 1,
+                            "next_metar_total": 2,
+                            "current_metar_mae_c": 0.2,
+                            "next_metar_mae_c": 0.4,
+                        },
+                        "learning_profile": {
+                            "next_metar_score": 77.0,
+                        },
+                    }
+                ],
+            },
+            "audit": {
+                "row_count": 2,
+                "stations": [
+                    {
+                        "station_id": "KNYC001",
+                        "station_name": "Astoria roof",
+                        "source": "WUNDERGROUND",
+                        "distance_km": 1.2,
+                        "now_count": 1,
+                        "lead_count": 1,
+                        "learning_profile": {"next_metar_score": 77.0},
+                        "audit_rows": [
+                            {
+                                "abs_error_c": 0.4,
+                                "hit_within_0_5_c": True,
+                                "hit_within_1_0_c": True,
+                            },
+                            {
+                                "abs_error_c": 0.8,
+                                "hit_within_0_5_c": False,
+                                "hit_within_1_0_c": True,
+                            },
+                        ],
+                    }
+                ],
+            },
+        },
+        {
+            "date": "2026-02-11",
+            "browser": {
+                "date": "2026-02-11",
+                "market_overview": {
+                    "raw_updates_total": 1,
+                    "table_rows_total": 1,
+                },
+                "pws_stations": [
+                    {
+                        "station_id": "KNYC001",
+                        "station_name": "Astoria roof",
+                        "city": "New York",
+                        "source": "WUNDERGROUND",
+                        "distance_km": 1.2,
+                        "raw_records_count": 1,
+                        "table_records_count": 1,
+                        "latest_temp_c": 0.4,
+                        "latest_temp_f": 32.72,
+                        "summary": {
+                            "current_metar_matches": 1,
+                            "next_metar_matches": 1,
+                            "next_metar_hits": 1,
+                            "next_metar_total": 1,
+                            "current_metar_mae_c": 0.1,
+                            "next_metar_mae_c": 0.3,
+                        },
+                        "learning_profile": {
+                            "next_metar_score": 78.0,
+                        },
+                    }
+                ],
+            },
+            "audit": {
+                "row_count": 0,
+                "stations": [],
+            },
+        },
+    ]
+
+    payload = pws_browser.build_pws_city_export_summary(
+        "KLGA",
+        day_exports,
+        available_dates=["2026-02-11", "2026-02-10"],
+        selected_dates=["2026-02-10", "2026-02-11"],
+    )
+
+    assert payload["summary"] == {
+        "day_count": 2,
+        "unique_station_count": 1,
+        "browser_station_count": 1,
+        "audit_station_count": 1,
+        "raw_updates_total": 4,
+        "table_rows_total": 3,
+        "audit_row_total": 2,
+    }
+
+    station = payload["stations"][0]
+    assert station["station_id"] == "KNYC001"
+    assert station["browser_dates"] == ["2026-02-10", "2026-02-11"]
+    assert station["audit_dates"] == ["2026-02-10"]
+    assert station["raw_updates_total"] == 4
+    assert station["table_rows_total"] == 3
+    assert station["next_metar_hits"] == 2
+    assert station["next_metar_total"] == 3
+    assert station["next_metar_hit_rate"] == 0.6667
+    assert station["current_metar_mae_c"] == 0.167
+    assert station["next_metar_mae_c"] == 0.367
+    assert station["audit_row_count"] == 2
+    assert station["audit_hit_rate_within_0_5_c"] == 0.5
+    assert station["audit_hit_rate_within_1_0_c"] == 1.0
+    assert station["audit_abs_error_mae_c"] == 0.6
