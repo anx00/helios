@@ -164,6 +164,15 @@ def _parse_channel_retention_map(raw: str) -> dict[str, int]:
     return result
 
 
+def _parse_channel_name_set(raw: str) -> set[str]:
+    result: set[str] = set()
+    for chunk in str(raw or "").split(","):
+        item = chunk.strip()
+        if item:
+            result.add(item)
+    return result
+
+
 def _env_bool(name: str, default: bool) -> bool:
     raw = str(os.getenv(name, "")).strip().lower()
     if not raw:
@@ -230,15 +239,15 @@ def _collect_channel_dir_candidates(
     *,
     date_dir: Path,
     file_date,
+    default_retention_days: int,
     cutoff_days_by_channel: dict[str, int],
+    keep_forever_channels: set[str],
     now_utc: datetime,
     reason_prefix: str,
     parquet_root: Optional[Path] = None,
     require_parquet_snapshot: bool = False,
 ) -> List[DeletionCandidate]:
     candidates: List[DeletionCandidate] = []
-    if not cutoff_days_by_channel:
-        return candidates
 
     for child in date_dir.iterdir():
         if not child.is_dir():
@@ -246,9 +255,9 @@ def _collect_channel_dir_candidates(
         channel = _parse_channel_from_dir_name(child.name)
         if not channel:
             continue
-        retention_days = cutoff_days_by_channel.get(channel)
-        if retention_days is None:
+        if channel in keep_forever_channels:
             continue
+        retention_days = cutoff_days_by_channel.get(channel, default_retention_days)
         cutoff_date = (now_utc - timedelta(days=max(1, retention_days))).date()
         if file_date < cutoff_date:
             if require_parquet_snapshot and parquet_root is not None:
@@ -316,13 +325,17 @@ def _collect_candidates(repo_root: Path, retention_days: int) -> List[DeletionCa
     cutoff_date = cutoff_dt.date()
     recordings_retention_days = _retention_days_from_env("HELIOS_RECORDINGS_RETENTION_DAYS", retention_days)
     parquet_retention_days = _retention_days_from_env("HELIOS_PARQUET_RETENTION_DAYS", retention_days)
-    recordings_cutoff_date = (now_utc - timedelta(days=recordings_retention_days)).date()
-    parquet_cutoff_date = (now_utc - timedelta(days=parquet_retention_days)).date()
     recordings_channel_retention = _parse_channel_retention_map(
         os.getenv("HELIOS_RECORDINGS_CHANNEL_RETENTION_DAYS", "")
     )
     parquet_channel_retention = _parse_channel_retention_map(
         os.getenv("HELIOS_PARQUET_CHANNEL_RETENTION_DAYS", "")
+    )
+    recordings_keep_forever_channels = _parse_channel_name_set(
+        os.getenv("HELIOS_RECORDINGS_CHANNEL_KEEP_FOREVER", "")
+    )
+    parquet_keep_forever_channels = _parse_channel_name_set(
+        os.getenv("HELIOS_PARQUET_CHANNEL_KEEP_FOREVER", "")
     )
     require_parquet_for_recordings_delete = _env_bool(
         "HELIOS_HOUSEKEEPING_REQUIRE_PARQUET_FOR_RECORDINGS_DELETE",
@@ -341,27 +354,14 @@ def _collect_candidates(repo_root: Path, retention_days: int) -> List[DeletionCa
     # 2) NDJSON recordings partitioned by date.
     for p in _iter_recordings_date_dirs(recordings_root):
         file_date = _parse_date_from_dir_name(p.name)
-        if file_date and file_date < recordings_cutoff_date:
-            if require_parquet_for_recordings_delete and not _parquet_has_date_snapshot(
-                parquet_root,
-                file_date.isoformat(),
-            ):
-                continue
-            candidates.append(
-                DeletionCandidate(
-                    path=p,
-                    kind="dir",
-                    reason=f"recordings_date<{recordings_cutoff_date.isoformat()}",
-                    size_bytes=_dir_size_bytes(p),
-                )
-            )
-            continue
         if file_date:
             candidates.extend(
                 _collect_channel_dir_candidates(
                     date_dir=p,
                     file_date=file_date,
+                    default_retention_days=recordings_retention_days,
                     cutoff_days_by_channel=recordings_channel_retention,
+                    keep_forever_channels=recordings_keep_forever_channels,
                     now_utc=now_utc,
                     reason_prefix="recordings",
                     parquet_root=parquet_root,
@@ -372,22 +372,14 @@ def _collect_candidates(repo_root: Path, retention_days: int) -> List[DeletionCa
     # 3) Parquet partitions (date dirs may be nested under station=...).
     for p in _iter_parquet_date_dirs(parquet_root):
         file_date = _parse_date_from_dir_name(p.name)
-        if file_date and file_date < parquet_cutoff_date:
-            candidates.append(
-                DeletionCandidate(
-                    path=p,
-                    kind="dir",
-                    reason=f"parquet_date<{parquet_cutoff_date.isoformat()}",
-                    size_bytes=_dir_size_bytes(p),
-                )
-            )
-            continue
         if file_date:
             candidates.extend(
                 _collect_channel_dir_candidates(
                     date_dir=p,
                     file_date=file_date,
+                    default_retention_days=parquet_retention_days,
                     cutoff_days_by_channel=parquet_channel_retention,
+                    keep_forever_channels=parquet_keep_forever_channels,
                     now_utc=now_utc,
                     reason_prefix="parquet",
                 )

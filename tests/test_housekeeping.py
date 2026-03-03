@@ -111,3 +111,59 @@ def test_collect_candidates_keeps_recordings_without_parquet_snapshot(tmp_path, 
     candidates = hk._collect_candidates(repo_root, retention_days=3)
 
     assert all(c.path != date_dir for c in candidates)
+
+
+def test_collect_candidates_keeps_pws_forever_past_global_retention(tmp_path, monkeypatch):
+    hk = _load_housekeeping_module()
+
+    class _FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            current = cls(2026, 2, 20, 12, 0, 0, tzinfo=timezone.utc)
+            if tz is None:
+                return current.replace(tzinfo=None)
+            return current.astimezone(tz)
+
+    repo_root = tmp_path / "repo"
+    recordings_root = repo_root / "data" / "recordings"
+    parquet_root = repo_root / "data" / "parquet" / "station=LFPG"
+
+    old_world_recordings = _write_channel_file(
+        recordings_root,
+        date_str="2026-02-10",
+        channel="world",
+        file_name="events.ndjson",
+    )
+    old_pws_recordings = _write_channel_file(
+        recordings_root,
+        date_str="2026-02-10",
+        channel="pws",
+        file_name="events.ndjson",
+    )
+    old_world_parquet = _write_channel_file(
+        parquet_root,
+        date_str="2026-02-10",
+        channel="world",
+        file_name="part-0000.parquet",
+    )
+    old_pws_parquet = _write_channel_file(
+        parquet_root,
+        date_str="2026-02-10",
+        channel="pws",
+        file_name="part-0000.parquet",
+    )
+
+    monkeypatch.setattr(hk, "datetime", _FrozenDateTime)
+    monkeypatch.setenv("HELIOS_RECORDINGS_RETENTION_DAYS", "3")
+    monkeypatch.setenv("HELIOS_PARQUET_RETENTION_DAYS", "3")
+    monkeypatch.setenv("HELIOS_RECORDINGS_CHANNEL_KEEP_FOREVER", "pws")
+    monkeypatch.setenv("HELIOS_PARQUET_CHANNEL_KEEP_FOREVER", "pws")
+    monkeypatch.setenv("HELIOS_HOUSEKEEPING_REQUIRE_PARQUET_FOR_RECORDINGS_DELETE", "1")
+
+    candidates = hk._collect_candidates(repo_root, retention_days=3)
+    paths = {c.path for c in candidates}
+
+    assert old_world_recordings in paths
+    assert old_world_parquet in paths
+    assert old_pws_recordings not in paths
+    assert old_pws_parquet not in paths

@@ -91,3 +91,33 @@ def test_compactor_reprocesses_partial_date_before_skipping(tmp_path):
     assert (parquet_base / "date=2026-02-01" / "ch=world" / "part-0000.parquet").exists()
     assert (parquet_base / "date=2026-02-01" / "ch=nowcast" / "part-0000.parquet").exists()
     assert not (parquet_base / "date=2026-02-02" / "ch=world" / "part-0000.parquet").exists()
+
+
+def test_compactor_cleanup_old_ndjson_keeps_protected_channels(tmp_path):
+    ndjson_base = tmp_path / "recordings"
+    parquet_base = tmp_path / "parquet"
+    _write_ndjson(
+        ndjson_base,
+        date_str="2000-01-01",
+        channel="pws",
+        events=[{"ts_ingest_utc": "2000-01-01T00:00:00Z", "data": {"temp_c": 10.0}}],
+    )
+    _write_ndjson(
+        ndjson_base,
+        date_str="2000-01-01",
+        channel="world",
+        events=[{"ts_ingest_utc": "2000-01-01T00:00:00Z", "data": {"src": "METAR"}}],
+    )
+
+    compactor = Compactor(
+        str(ndjson_base),
+        str(parquet_base),
+        retention_days=14,
+        keep_forever_channels={"pws"},
+        max_dates_per_run=10,
+    )
+    deleted = compactor.cleanup_old_ndjson()
+
+    assert deleted == 1
+    assert (ndjson_base / "date=2000-01-01" / "ch=pws" / "events.ndjson").exists()
+    assert not (ndjson_base / "date=2000-01-01" / "ch=world").exists()

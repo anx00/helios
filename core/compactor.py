@@ -16,7 +16,7 @@ import os
 import shutil
 from datetime import datetime, date, timedelta
 from pathlib import Path
-from typing import Optional, Dict, List, Any, Generator
+from typing import Optional, Dict, List, Any, Generator, Set
 from zoneinfo import ZoneInfo
 from time import perf_counter
 
@@ -150,6 +150,8 @@ class Compactor:
         parquet_base: str = "data/parquet",
         delete_after_compact: bool = False,
         retention_days: int = 14,
+        channel_retention_days: Optional[Dict[str, int]] = None,
+        keep_forever_channels: Optional[Set[str]] = None,
         batch_size: int = 500,
         max_dates_per_run: int = 1,
     ):
@@ -157,6 +159,12 @@ class Compactor:
         self.parquet_base = Path(parquet_base)
         self.delete_after_compact = delete_after_compact
         self.retention_days = retention_days
+        self.channel_retention_days = {
+            str(channel): max(1, int(days))
+            for channel, days in (channel_retention_days or {}).items()
+            if str(channel)
+        }
+        self.keep_forever_channels = {str(channel) for channel in (keep_forever_channels or set()) if str(channel)}
         self.batch_size = max(1, int(batch_size))
         self.max_dates_per_run = max(1, int(max_dates_per_run))
 
@@ -169,6 +177,14 @@ class Compactor:
         self._bytes_written = 0
 
         logger.info(f"Compactor initialized: {self.ndjson_base} -> {self.parquet_base}")
+
+    def _effective_retention_days(self, channel: str) -> Optional[int]:
+        if channel in self.keep_forever_channels:
+            return None
+        override = self.channel_retention_days.get(channel)
+        if override is not None:
+            return max(1, int(override))
+        return max(1, int(self.retention_days))
 
     def list_ndjson_dates(self) -> List[str]:
         """List all dates with NDJSON data."""
@@ -484,21 +500,38 @@ class Compactor:
 
         Returns number of files deleted.
         """
-        cutoff = (datetime.now(UTC) - timedelta(days=self.retention_days)).date()
         deleted = 0
+        now_utc = datetime.now(UTC)
 
         for date_str in self.list_ndjson_dates():
             try:
                 file_date = datetime.strptime(date_str, "%Y-%m-%d").date()
-                if file_date < cutoff:
-                    date_path = self.ndjson_base / f"date={date_str}"
-                    if date_path.exists():
-                        import shutil
-                        shutil.rmtree(date_path)
-                        deleted += 1
-                        logger.info(f"Deleted old NDJSON: {date_path}")
             except ValueError:
                 continue
+
+            date_path = self.ndjson_base / f"date={date_str}"
+            if not date_path.exists():
+                continue
+
+            for channel in self.list_channels_for_date(date_str):
+                retention_days = self._effective_retention_days(channel)
+                if retention_days is None:
+                    continue
+                cutoff = (now_utc - timedelta(days=retention_days)).date()
+                if file_date >= cutoff:
+                    continue
+                channel_path = date_path / f"ch={channel}"
+                if not channel_path.exists():
+                    continue
+                shutil.rmtree(channel_path, ignore_errors=True)
+                deleted += 1
+                logger.info(f"Deleted old NDJSON channel: {channel_path}")
+
+            try:
+                if date_path.exists() and not any(date_path.iterdir()):
+                    date_path.rmdir()
+            except OSError:
+                pass
 
         return deleted
 
@@ -513,6 +546,8 @@ class Compactor:
             "events_compacted": self._events_compacted,
             "bytes_written": self._bytes_written,
             "retention_days": self.retention_days,
+            "channel_retention_days": dict(self.channel_retention_days),
+            "keep_forever_channels": sorted(self.keep_forever_channels),
             "batch_size": self.batch_size,
             "max_dates_per_run": self.max_dates_per_run,
             "available_dates": self.list_ndjson_dates()
@@ -1175,6 +1210,33 @@ def _env_int(name: str, default: int) -> int:
         return int(default)
 
 
+def _env_channel_retention_map(name: str) -> Dict[str, int]:
+    raw = str(os.getenv(name, "")).strip()
+    out: Dict[str, int] = {}
+    if not raw:
+        return out
+    for chunk in raw.split(","):
+        item = chunk.strip()
+        if not item or ":" not in item:
+            continue
+        channel, days_raw = item.split(":", 1)
+        channel = channel.strip()
+        if not channel:
+            continue
+        try:
+            out[channel] = max(1, int(days_raw.strip()))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def _env_channel_set(name: str) -> Set[str]:
+    raw = str(os.getenv(name, "")).strip()
+    if not raw:
+        return set()
+    return {item.strip() for item in raw.split(",") if item.strip()}
+
+
 def get_compactor(
     ndjson_base: str = "data/recordings",
     parquet_base: str = "data/parquet"
@@ -1186,6 +1248,8 @@ def get_compactor(
             "HELIOS_RECORDINGS_RETENTION_DAYS",
             _env_int("HELIOS_RETENTION_DAYS", 14),
         )
+        channel_retention_days = _env_channel_retention_map("HELIOS_RECORDINGS_CHANNEL_RETENTION_DAYS")
+        keep_forever_channels = _env_channel_set("HELIOS_RECORDINGS_CHANNEL_KEEP_FOREVER")
         delete_after_compact = _env_bool("HELIOS_COMPACTOR_DELETE_AFTER_COMPACT", False)
         batch_size = _env_int("HELIOS_COMPACTOR_BATCH_SIZE", 500)
         max_dates_per_run = _env_int("HELIOS_COMPACTOR_MAX_DATES_PER_RUN", 1)
@@ -1194,6 +1258,8 @@ def get_compactor(
             parquet_base,
             delete_after_compact=delete_after_compact,
             retention_days=retention_days,
+            channel_retention_days=channel_retention_days,
+            keep_forever_channels=keep_forever_channels,
             batch_size=batch_size,
             max_dates_per_run=max_dates_per_run,
         )
