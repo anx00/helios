@@ -3195,6 +3195,11 @@ def _save_papertrader_runtime_overrides(payload: Dict[str, Any]) -> None:
     _PAPERTRADER_RUNTIME_PATH.write_text(json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8")
 
 
+def _papertrader_runtime_bankroll_is_explicit(payload: Optional[Dict[str, Any]]) -> bool:
+    source = str((payload or {}).get("initial_bankroll_source") or "").strip().lower()
+    return source == "runtime"
+
+
 def _build_papertrader_config(current_enabled: Optional[bool] = None) -> PaperTraderConfig:
     # Start from env-var config (inherits autotrader risk params from env)
     # so that HELIOS_AUTOTRADER_* env vars propagate into the papertrader.
@@ -3223,7 +3228,7 @@ def _build_papertrader_config(current_enabled: Optional[bool] = None) -> PaperTr
             pass
 
     bankroll = overrides.get("initial_bankroll_usd")
-    if bankroll is not None:
+    if bankroll is not None and _papertrader_runtime_bankroll_is_explicit(overrides):
         try:
             config.initial_bankroll_usd = max(1.0, float(bankroll))
             config.bankroll_usd = config.initial_bankroll_usd
@@ -3310,6 +3315,8 @@ async def reset_papertrader_session() -> Dict[str, Any]:
         initial_bankroll = 100.0
     overrides = _load_papertrader_runtime_overrides()
     overrides["initial_bankroll_usd"] = initial_bankroll
+    if not _papertrader_runtime_bankroll_is_explicit(overrides):
+        overrides.pop("initial_bankroll_source", None)
     _save_papertrader_runtime_overrides(overrides)
     trader = get_papertrader_instance(refresh=True)
     trader.config.initial_bankroll_usd = initial_bankroll
@@ -3336,6 +3343,7 @@ async def update_papertrader_config_api(payload: PapertraderRuntimeConfigUpdate)
         current["max_total_exposure_usd"] = max(0.5, float(payload.max_total_exposure_usd))
     if payload.initial_bankroll_usd is not None:
         current["initial_bankroll_usd"] = max(1.0, float(payload.initial_bankroll_usd))
+        current["initial_bankroll_source"] = "runtime"
 
     _save_papertrader_runtime_overrides(current)
     get_papertrader_instance(refresh=True)
