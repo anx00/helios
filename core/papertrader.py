@@ -1726,6 +1726,14 @@ class PaperTrader:
             candidate, reasons = self._evaluate_strategy_candidate(strategy_id, payload)
             if not candidate:
                 strategy_results.append({"strategy_id": strategy_id, "status": "skip", "reasons": reasons})
+                if "no_price_anomaly" in reasons:
+                    self._append_journal({
+                        "event": "price_anomaly",
+                        "station_id": station_id,
+                        "strategy_id": strategy_id,
+                        "reasons": reasons,
+                        "source": "candidate_build",
+                    })
                 continue
 
             live_book = self._get_live_book_from_payload(payload, candidate.label, candidate.side)
@@ -1772,6 +1780,19 @@ class PaperTrader:
                         "candidate": asdict(candidate),
                     }
                 )
+                if "no_ask_price_anomaly" in plan_reasons:
+                    self._append_journal({
+                        "event": "price_anomaly",
+                        "station_id": station_id,
+                        "strategy_id": strategy_id,
+                        "label": candidate.label,
+                        "side": candidate.side,
+                        "market_price": candidate.market_price,
+                        "fair_price": candidate.fair_price,
+                        "live_ask": float(_safe_float(live_book.best_ask) or 0),
+                        "reasons": plan_reasons,
+                        "source": "orderbook_guardrails",
+                    })
                 continue
 
             l2 = self._get_l2_from_payload(payload, candidate.label, candidate.side)

@@ -947,6 +947,16 @@ def _build_candidate_from_trade(
     if not label or market_price is None or fair_price is None:
         return None, ["missing_trade_fields"]
 
+    # Cross-check: NO entry price should be near (1 - yes_entry).
+    # If NO entry is < 50% of expected value, the book data is anomalous
+    # (e.g. thin NO book with stale asks at YES-like prices).
+    if side == "NO" and market_price is not None:
+        yes_entry_val = _safe_float(trade_row.get("yes_entry"))
+        if yes_entry_val is not None and yes_entry_val > 0:
+            expected_no = 1.0 - yes_entry_val
+            if expected_no > 0.10 and market_price < expected_no * 0.50:
+                return None, ["no_price_anomaly"]
+
     reasons: List[str] = []
     min_edge_points = float(config.tactical_min_edge_points if tactical else config.min_edge_points)
     if edge_points < min_edge_points:
@@ -1286,6 +1296,11 @@ def apply_orderbook_guardrails(
     ask = _safe_float(book.best_ask)
     if ask is None or ask <= 0:
         return None, ["no_live_ask"]
+
+    # Cross-check: for NO positions, live ask should be reasonable vs fair_price.
+    # If ask < 50% of fair_price, the book is anomalous (thin NO book).
+    if candidate.side == "NO" and candidate.fair_price > 0.10 and ask < candidate.fair_price * 0.50:
+        return None, ["no_ask_price_anomaly"]
 
     reasons: List[str] = []
     if ask > float(config.max_entry_price):
