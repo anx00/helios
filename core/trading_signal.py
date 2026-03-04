@@ -968,6 +968,33 @@ def _repricing_influence(
     )
 
 
+def evaluate_bracket_market(
+    *,
+    station_id: str,
+    target_day: int,
+    target_date: Any,
+    brackets: Sequence[Dict[str, Any]],
+    terminal_model: Optional[Dict[str, Any]],
+    official: Optional[Dict[str, Any]] = None,
+    pws_details: Optional[Sequence[Dict[str, Any]]] = None,
+    pws_metrics: Optional[Dict[str, Any]] = None,
+    reference_utc: Optional[datetime] = None,
+) -> Dict[str, Any]:
+    from core.trading_bracket_market import evaluate_bracket_market_impl
+
+    return evaluate_bracket_market_impl(
+        station_id=station_id,
+        target_day=target_day,
+        target_date=target_date,
+        brackets=brackets,
+        terminal_model=terminal_model,
+        official=official,
+        pws_details=pws_details,
+        pws_metrics=pws_metrics,
+        reference_utc=reference_utc,
+    )
+
+
 def build_trading_signal(
     *,
     station_id: str,
@@ -983,8 +1010,6 @@ def build_trading_signal(
     reference_utc: Optional[datetime] = None,
 ) -> Dict[str, Any]:
     ref_utc = (reference_utc or datetime.now(UTC)).astimezone(UTC)
-    market_unit = _market_unit(station_id)
-    target_date_obj = _coerce_target_date(target_date, ref_utc, station_id, target_day)
     nowcast_payload = _coerce_nowcast_distribution(nowcast_distribution)
     terminal_model = _extract_nowcast_model(
         station_id=station_id,
@@ -992,6 +1017,17 @@ def build_trading_signal(
         nowcast_distribution=nowcast_payload,
         nowcast_state=nowcast_state,
         prediction=prediction,
+    )
+    return evaluate_bracket_market(
+        station_id=station_id,
+        target_day=target_day,
+        target_date=target_date,
+        brackets=brackets,
+        terminal_model=terminal_model,
+        official=official,
+        pws_details=pws_details,
+        pws_metrics=pws_metrics,
+        reference_utc=ref_utc,
     )
 
     if not terminal_model:

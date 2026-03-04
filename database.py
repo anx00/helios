@@ -3,8 +3,9 @@ Helios Weather Lab - Database Module (Physics Engine)
 SQLite database for physics-based weather predictions.
 """
 
+import json
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any, Iterator, List
 from contextlib import contextmanager
 
@@ -177,6 +178,47 @@ CREATE TABLE IF NOT EXISTS telegram_station_subscriptions (
 
 CREATE INDEX IF NOT EXISTS idx_telegram_station_subscriptions_enabled
 ON telegram_station_subscriptions(enabled);
+
+-- Probability Lab: day-ahead forecast source snapshots
+CREATE TABLE IF NOT EXISTS forecast_source_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    captured_at_utc DATETIME NOT NULL,
+    station_id TEXT NOT NULL,
+    target_date TEXT NOT NULL,
+    target_day INTEGER NOT NULL,
+    source TEXT NOT NULL,
+    status TEXT NOT NULL,
+    market_unit TEXT NOT NULL,
+    forecast_high_market REAL,
+    forecast_high_f REAL,
+    forecast_high_c REAL,
+    peak_hour_local INTEGER,
+    provider_updated_local TEXT,
+    notes_json TEXT,
+    meta_json TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_forecast_source_snapshots_station_target
+ON forecast_source_snapshots(station_id, target_date, source, captured_at_utc);
+
+CREATE INDEX IF NOT EXISTS idx_forecast_source_snapshots_target_date
+ON forecast_source_snapshots(target_date, captured_at_utc);
+
+-- Probability Lab: latest resolved calibration state per station
+CREATE TABLE IF NOT EXISTS probability_lab_calibration_state (
+    station_id TEXT PRIMARY KEY,
+    computed_at_utc DATETIME NOT NULL,
+    available INTEGER NOT NULL DEFAULT 0,
+    warming_up INTEGER NOT NULL DEFAULT 1,
+    samples INTEGER NOT NULL DEFAULT 0,
+    mae_market REAL,
+    bias_market REAL,
+    rows_json TEXT,
+    sources_json TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_probability_lab_calibration_state_computed
+ON probability_lab_calibration_state(computed_at_utc);
 
 """
 
@@ -481,6 +523,291 @@ def get_latest_prediction_for_date(station_id: str, target_date: str) -> Optiona
         )
         row = cursor.fetchone()
         return dict(row) if row else None
+
+
+def insert_forecast_source_snapshot(
+    *,
+    station_id: str,
+    target_date: str,
+    target_day: int,
+    source: str,
+    status: str,
+    market_unit: str,
+    forecast_high_market: Optional[float] = None,
+    forecast_high_f: Optional[float] = None,
+    forecast_high_c: Optional[float] = None,
+    peak_hour_local: Optional[int] = None,
+    provider_updated_local: Optional[str] = None,
+    notes: Optional[List[Any]] = None,
+    meta: Optional[Dict[str, Any]] = None,
+    captured_at_utc: Optional[str] = None,
+) -> Optional[int]:
+    """Insert a day-ahead forecast source snapshot unless the latest row is effectively identical."""
+    captured_at = str(captured_at_utc or datetime.now(timezone.utc).isoformat())
+    latest = get_latest_forecast_source_snapshot(station_id, target_date, source)
+
+    def _rounded_tenth(value: Any) -> Optional[float]:
+        try:
+            if value is None:
+                return None
+            return round(float(value), 1)
+        except Exception:
+            return None
+
+    def _parse_iso(value: Any) -> Optional[datetime]:
+        raw = str(value or "").strip()
+        if not raw:
+            return None
+        try:
+            return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except Exception:
+            return None
+
+    if latest:
+        latest_captured = _parse_iso(latest.get("captured_at_utc"))
+        this_captured = _parse_iso(captured_at)
+        if latest_captured and this_captured:
+            age = abs((this_captured - latest_captured).total_seconds())
+            if age <= timedelta(minutes=20).total_seconds():
+                if (
+                    str(latest.get("status") or "") == str(status or "")
+                    and _rounded_tenth(latest.get("forecast_high_market")) == _rounded_tenth(forecast_high_market)
+                    and latest.get("peak_hour_local") == peak_hour_local
+                ):
+                    return None
+
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO forecast_source_snapshots (
+                captured_at_utc,
+                station_id,
+                target_date,
+                target_day,
+                source,
+                status,
+                market_unit,
+                forecast_high_market,
+                forecast_high_f,
+                forecast_high_c,
+                peak_hour_local,
+                provider_updated_local,
+                notes_json,
+                meta_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                captured_at,
+                station_id,
+                target_date,
+                int(target_day),
+                str(source or "").upper(),
+                str(status or ""),
+                str(market_unit or "").upper(),
+                forecast_high_market,
+                forecast_high_f,
+                forecast_high_c,
+                peak_hour_local,
+                provider_updated_local,
+                json.dumps(list(notes or []), ensure_ascii=True),
+                json.dumps(dict(meta or {}), ensure_ascii=True),
+            ),
+        )
+        return cursor.lastrowid
+
+
+def _decode_forecast_source_snapshot(row: sqlite3.Row) -> Dict[str, Any]:
+    payload = dict(row)
+    try:
+        payload["notes"] = json.loads(payload.pop("notes_json") or "[]")
+    except Exception:
+        payload["notes"] = []
+    try:
+        payload["meta"] = json.loads(payload.pop("meta_json") or "{}")
+    except Exception:
+        payload["meta"] = {}
+    return payload
+
+
+def get_latest_forecast_source_snapshot(
+    station_id: str,
+    target_date: str,
+    source: str,
+) -> Optional[Dict[str, Any]]:
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            SELECT *
+            FROM forecast_source_snapshots
+            WHERE station_id = ?
+              AND target_date = ?
+              AND source = ?
+            ORDER BY captured_at_utc DESC, id DESC
+            LIMIT 1
+            """,
+            (station_id, target_date, str(source or "").upper()),
+        )
+        row = cursor.fetchone()
+        return _decode_forecast_source_snapshot(row) if row else None
+
+
+def get_latest_forecast_source_snapshots(
+    station_id: str,
+    target_date: str,
+) -> List[Dict[str, Any]]:
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            SELECT fss.*
+            FROM forecast_source_snapshots AS fss
+            JOIN (
+                SELECT source, MAX(captured_at_utc) AS max_captured_at_utc
+                FROM forecast_source_snapshots
+                WHERE station_id = ?
+                  AND target_date = ?
+                GROUP BY source
+            ) AS latest
+              ON latest.source = fss.source
+             AND latest.max_captured_at_utc = fss.captured_at_utc
+            WHERE fss.station_id = ?
+              AND fss.target_date = ?
+            ORDER BY fss.source ASC, fss.id DESC
+            """,
+            (station_id, target_date, station_id, target_date),
+        )
+        rows = cursor.fetchall()
+        deduped: Dict[str, Dict[str, Any]] = {}
+        for row in rows:
+            payload = _decode_forecast_source_snapshot(row)
+            source = str(payload.get("source") or "").upper()
+            if source and source not in deduped:
+                deduped[source] = payload
+        return list(deduped.values())
+
+
+def get_forecast_source_history(
+    station_id: str,
+    target_date: str,
+    lookback_hours: int = 36,
+) -> List[Dict[str, Any]]:
+    hours = max(1, int(lookback_hours))
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            SELECT *
+            FROM forecast_source_snapshots
+            WHERE station_id = ?
+              AND target_date = ?
+              AND captured_at_utc >= datetime('now', ?)
+            ORDER BY captured_at_utc ASC, source ASC, id ASC
+            """,
+            (station_id, target_date, f"-{hours} hours"),
+        )
+        return [_decode_forecast_source_snapshot(row) for row in cursor.fetchall()]
+
+
+def get_recent_forecast_target_dates(
+    station_id: str,
+    *,
+    before_date: Optional[str] = None,
+    limit: int = 7,
+) -> List[str]:
+    resolved_limit = max(1, int(limit))
+    params: List[Any] = [station_id]
+    where = ["station_id = ?"]
+    if before_date:
+        where.append("target_date < ?")
+        params.append(before_date)
+
+    with get_connection() as conn:
+        cursor = conn.execute(
+            f"""
+            SELECT target_date
+            FROM forecast_source_snapshots
+            WHERE {' AND '.join(where)}
+            GROUP BY target_date
+            ORDER BY target_date DESC
+            LIMIT ?
+            """,
+            (*params, resolved_limit),
+        )
+        return [str(row["target_date"]) for row in cursor.fetchall()]
+
+
+def _decode_probability_lab_calibration_state(row: sqlite3.Row) -> Dict[str, Any]:
+    payload = dict(row)
+    payload["available"] = bool(payload.get("available"))
+    payload["warming_up"] = bool(payload.get("warming_up"))
+    payload["samples"] = int(payload.get("samples") or 0)
+    try:
+        payload["rows"] = json.loads(payload.pop("rows_json") or "[]")
+    except Exception:
+        payload["rows"] = []
+    try:
+        payload["sources"] = json.loads(payload.pop("sources_json") or "{}")
+    except Exception:
+        payload["sources"] = {}
+    return payload
+
+
+def upsert_probability_lab_calibration_state(
+    station_id: str,
+    payload: Dict[str, Any],
+    *,
+    computed_at_utc: Optional[str] = None,
+) -> None:
+    resolved_payload = dict(payload or {})
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO probability_lab_calibration_state (
+                station_id,
+                computed_at_utc,
+                available,
+                warming_up,
+                samples,
+                mae_market,
+                bias_market,
+                rows_json,
+                sources_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(station_id) DO UPDATE SET
+                computed_at_utc = excluded.computed_at_utc,
+                available = excluded.available,
+                warming_up = excluded.warming_up,
+                samples = excluded.samples,
+                mae_market = excluded.mae_market,
+                bias_market = excluded.bias_market,
+                rows_json = excluded.rows_json,
+                sources_json = excluded.sources_json
+            """,
+            (
+                str(station_id or "").upper(),
+                str(computed_at_utc or datetime.now(timezone.utc).isoformat()),
+                1 if resolved_payload.get("available") else 0,
+                1 if resolved_payload.get("warming_up") else 0,
+                int(resolved_payload.get("samples") or 0),
+                resolved_payload.get("mae_market"),
+                resolved_payload.get("bias_market"),
+                json.dumps(list(resolved_payload.get("rows") or []), ensure_ascii=True),
+                json.dumps(dict(resolved_payload.get("sources") or {}), ensure_ascii=True),
+            ),
+        )
+
+
+def get_probability_lab_calibration_state(station_id: str) -> Optional[Dict[str, Any]]:
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            SELECT *
+            FROM probability_lab_calibration_state
+            WHERE station_id = ?
+            LIMIT 1
+            """,
+            (str(station_id or "").upper(),),
+        )
+        row = cursor.fetchone()
+        return _decode_probability_lab_calibration_state(row) if row else None
 
 
 

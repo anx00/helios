@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from core.trading_signal import build_trading_signal
+from core.trading_signal import build_trading_signal, evaluate_bracket_market
 
 
 UTC = ZoneInfo("UTC")
@@ -256,3 +256,47 @@ def test_build_trading_signal_prefers_forecast_winner_when_secondary_yes_lacks_c
     assert signal["best_terminal_trade"]["best_side"] == "YES"
     assert row_70["terminal_policy"]["allowed"] is False
     assert "top_bucket_better_priced" in row_70["terminal_policy"]["reasons"]
+
+
+def test_evaluate_bracket_market_reuses_build_trading_signal_logic_for_day_ahead():
+    brackets = [
+        {"name": "52-53 F", "yes_price": 0.19, "no_price": 0.81},
+        {"name": "54-55 F", "yes_price": 0.26, "no_price": 0.74},
+        {"name": "56-57 F", "yes_price": 0.31, "no_price": 0.69},
+    ]
+    signal = build_trading_signal(
+        station_id="KLGA",
+        target_day=1,
+        target_date="2026-03-01",
+        brackets=brackets,
+        prediction={
+            "final_prediction_f": 55.0,
+            "delta_weight": 0.6,
+            "current_deviation_f": 0.8,
+            "physics_adjustment_f": 0.5,
+        },
+        reference_utc=datetime(2026, 2, 28, 12, 0, tzinfo=UTC),
+    )
+
+    eval_signal = evaluate_bracket_market(
+        station_id="KLGA",
+        target_day=1,
+        target_date="2026-03-01",
+        brackets=brackets,
+        terminal_model={
+            "source": signal["model"]["source"],
+            "mean_market": signal["model"]["mean"],
+            "sigma_market": signal["model"]["sigma"],
+            "confidence": signal["model"]["confidence"],
+            "market_floor": signal["model"]["observed_floor"],
+            "market_ceiling": signal["model"]["ceiling"],
+            "peak_hour": None,
+            "current_hour": None,
+            "hours_to_peak": None,
+        },
+        reference_utc=datetime(2026, 2, 28, 12, 0, tzinfo=UTC),
+    )
+
+    assert eval_signal["best_terminal_trade"]["label"] == signal["best_terminal_trade"]["label"]
+    assert eval_signal["best_terminal_trade"]["best_side"] == signal["best_terminal_trade"]["best_side"]
+    assert eval_signal["model"]["top_label"] == signal["model"]["top_label"]

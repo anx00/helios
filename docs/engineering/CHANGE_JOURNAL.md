@@ -2,6 +2,52 @@
 
 This document tracks the evolution of the HELIOS Weather Lab project.
 
+## 2026-03-04
+
+### Probability Lab Board + day-ahead calibration loop
+**Goal**: ship a global `Probability Lab` surface for Polymarket bracket trading, with day-ahead source fusion, intraday reality/PWS context, and calibration-aware weighting that stays off the board request path.
+
+**Changes**:
+- Added the new global `Probability Lab` product surface:
+  - sidebar entry in `templates/base.html`
+  - HTML route `GET /probability-lab`
+  - APIs:
+    - `GET /api/probability-lab/board`
+    - `GET /api/probability-lab/station/{station_id}`
+- Added SQL persistence for future-source snapshots in `database.py`:
+  - table `forecast_source_snapshots`
+  - latest/history/date helpers
+  - 20-minute dedupe rule
+- Added external-source capture service in `core/forecast_snapshot_service.py`:
+  - Wunderground / Open-Meteo / NBM / LAMP daily normalization
+  - background snapshot loop for `target_day=1/2`
+- Added day-ahead fusion model in `core/probability_model.py`:
+  - weighted source blend in market units
+  - bracket-card/detail payload shaping
+  - actionability filter that suppresses thin tail edges
+- Refactored bracket evaluation reuse out of the trading path so `Probability Lab` and intraday trading share the same market policy logic.
+- Added calibration-aware fusion behavior:
+  - recent resolved-day error summary (MAE / bias / source ranking)
+  - source weight multipliers based on historical source error
+  - confidence multiplier based on overall resolved-day model error
+- Persisted resolved calibration state in SQL so board/detail can read calibration without rebuilding from historical observations on cache expiry.
+- Added a dedicated background calibration prewarm/refresh loop in `web_server.py` so the board uses cache-only calibration state and does not pay cold-start history fetch cost.
+- Upgraded `templates/probability_lab.html` to show:
+  - calibration state on cards
+  - calibration panel in the drawer
+  - source ranking with weight multipliers
+  - day-ahead drift history and intraday reality/PWS context
+- Added focused tests for:
+  - DB helpers
+  - source normalization and snapshots
+  - calibration-aware day-ahead weighting/confidence
+  - station/board APIs
+  - startup wiring for background loops
+
+**Verification**:
+- `pytest tests\test_database_probability_lab.py tests\test_forecast_snapshot_service.py tests\test_probability_model.py tests\test_trading_signal.py tests\test_probability_lab_api.py -q`
+- Result: `18 passed`
+
 ## 2026-02-22
 
 ### New markets added: Chicago, Miami, Dallas

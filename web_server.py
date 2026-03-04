@@ -16,6 +16,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 import asyncio
 import logging
+import time
 from typing import Any, Dict, List, Optional, Tuple
 
 # Silence verbose loggers
@@ -23,6 +24,20 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 logger = logging.getLogger("web_server")
+
+_PROBABILITY_LAB_CALIBRATION_CACHE: Dict[str, Dict[str, Any]] = {}
+_PROBABILITY_LAB_CALIBRATION_TTL_SECONDS = max(
+    300,
+    int(os.getenv("HELIOS_PROBABILITY_LAB_CALIBRATION_TTL_SECONDS", "1800")),
+)
+_PROBABILITY_LAB_CALIBRATION_INTERVAL_SECONDS = max(
+    300,
+    int(os.getenv("HELIOS_PROBABILITY_LAB_CALIBRATION_INTERVAL_SECONDS", "1800")),
+)
+_PROBABILITY_LAB_CALIBRATION_MAX_CONCURRENCY = max(
+    1,
+    int(os.getenv("HELIOS_PROBABILITY_LAB_CALIBRATION_MAX_CONCURRENCY", "3")),
+)
 
 from database import (
     get_accuracy_report,
@@ -45,7 +60,7 @@ from market.polymarket_checker import build_event_slug, fetch_event_data, check_
 from market.discovery import fetch_market_token_ids, fetch_market_token_ids_for_station_date, fetch_event_for_station_date
 from market.polymarket_ws import get_ws_client
 from opportunity import check_bet_opportunity
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from core.hourly_curve import (
     infer_synthetic_peak_hour,
@@ -716,6 +731,7 @@ async def get_market_data(station_id: str, target_day: int = 0):
 async def startup_event():
     """Start background monitoring tasks."""
     from database import init_database
+    from core.forecast_snapshot_service import future_forecast_snapshot_loop
     from core.telegram_bot import build_telegram_bot_from_env
     init_database()
     # Task 0: Immediate PWS fetch (no delay)
@@ -732,7 +748,11 @@ async def startup_event():
     asyncio.create_task(recorder_loop())
     # Task 6: Background compaction / storage hygiene
     asyncio.create_task(compactor_loop())
-    # Task 7: Telegram bot (optional, enabled with TELEGRAM_BOT_TOKEN)
+    # Task 7: Future external-source snapshots for Probability Lab
+    asyncio.create_task(future_forecast_snapshot_loop())
+    # Task 8: Probability Lab calibration prewarm / refresh
+    asyncio.create_task(probability_lab_calibration_loop())
+    # Task 9: Telegram bot (optional, enabled with TELEGRAM_BOT_TOKEN)
     telegram_bot = build_telegram_bot_from_env()
     if telegram_bot:
         asyncio.create_task(telegram_bot.run_forever())
@@ -3080,6 +3100,492 @@ async def get_trading_signal_api(
         "trading": trading,
         "server_ts": payload.get("server_ts"),
     }
+
+
+def _convert_f_to_probability_lab_unit(value_f: Any, market_unit: str) -> Optional[float]:
+    try:
+        if value_f is None:
+            return None
+        number = float(value_f)
+    except Exception:
+        return None
+    if str(market_unit or "F").upper() == "C":
+        return (number - 32.0) * 5.0 / 9.0
+    return number
+
+
+def _convert_c_to_probability_lab_unit(value_c: Any, market_unit: str) -> Optional[float]:
+    try:
+        if value_c is None:
+            return None
+        number = float(value_c)
+    except Exception:
+        return None
+    if str(market_unit or "F").upper() == "C":
+        return number
+    return (number * 9.0 / 5.0) + 32.0
+
+
+def _empty_probability_lab_calibration() -> Dict[str, Any]:
+    return {
+        "available": False,
+        "warming_up": True,
+        "samples": 0,
+        "mae_market": None,
+        "bias_market": None,
+        "rows": [],
+        "sources": {},
+    }
+
+
+def _get_probability_lab_calibration_cache(station_id: str) -> Optional[Dict[str, Any]]:
+    entry = _PROBABILITY_LAB_CALIBRATION_CACHE.get(str(station_id or "").upper())
+    if not isinstance(entry, dict):
+        return None
+    cached_at = float(entry.get("cached_at_monotonic") or 0.0)
+    if cached_at <= 0.0:
+        return None
+    if (time.monotonic() - cached_at) > _PROBABILITY_LAB_CALIBRATION_TTL_SECONDS:
+        return None
+    payload = entry.get("payload")
+    return dict(payload) if isinstance(payload, dict) else None
+
+
+def _set_probability_lab_calibration_cache(station_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    normalized_station_id = str(station_id or "").upper()
+    normalized_payload = dict(payload or {})
+    _PROBABILITY_LAB_CALIBRATION_CACHE[normalized_station_id] = {
+        "cached_at_monotonic": time.monotonic(),
+        "payload": normalized_payload,
+    }
+    return normalized_payload
+
+
+async def _build_probability_lab_calibration(
+    station_id: str,
+    *,
+    max_days: int = 5,
+    use_cache: bool = True,
+    cache_only: bool = False,
+) -> Dict[str, Any]:
+    from collector.wunderground_fetcher import get_observed_max
+    from core.probability_model import build_dayahead_terminal_model
+    from database import (
+        get_latest_forecast_source_snapshots,
+        get_probability_lab_calibration_state,
+        get_recent_forecast_target_dates,
+        upsert_probability_lab_calibration_state,
+    )
+
+    station_id = str(station_id or "").upper()
+    if use_cache:
+        cached = _get_probability_lab_calibration_cache(station_id)
+        if isinstance(cached, dict):
+            return cached
+    persisted = get_probability_lab_calibration_state(station_id)
+    if isinstance(persisted, dict):
+        return _set_probability_lab_calibration_cache(station_id, persisted)
+    if cache_only:
+        return _empty_probability_lab_calibration()
+    station = STATIONS[station_id]
+    market_unit = get_polymarket_temp_unit(station_id)
+    local_today = datetime.now(ZoneInfo(station.timezone)).date()
+    def _optional_float(value: Any) -> Optional[float]:
+        try:
+            if value is None:
+                return None
+            return float(value)
+        except Exception:
+            return None
+    target_dates = get_recent_forecast_target_dates(
+        station_id,
+        before_date=local_today.isoformat(),
+        limit=max_days,
+    )
+    if not target_dates:
+        empty_payload = _empty_probability_lab_calibration()
+        upsert_probability_lab_calibration_state(station_id, empty_payload)
+        return _set_probability_lab_calibration_cache(station_id, empty_payload)
+
+    observed_rows = await asyncio.gather(
+        *[
+            get_observed_max(station_id, target_date=datetime.fromisoformat(target_date_str).date())
+            for target_date_str in target_dates
+        ],
+        return_exceptions=True,
+    )
+
+    rows: List[Dict[str, Any]] = []
+    source_errors: Dict[str, List[float]] = {}
+    model_abs_errors: List[float] = []
+    model_biases: List[float] = []
+
+    for target_date_str, observed in zip(target_dates, observed_rows):
+        if isinstance(observed, Exception) or observed is None:
+            continue
+        observed_market = _convert_f_to_probability_lab_unit(getattr(observed, "high_temp_f", None), market_unit)
+        if observed_market is None:
+            continue
+        snapshots = get_latest_forecast_source_snapshots(station_id, target_date_str)
+        if not snapshots:
+            continue
+        snapshot_target_day = min(
+            [int(row.get("target_day") or 2) for row in snapshots if row.get("target_day") is not None] or [2]
+        )
+        model = build_dayahead_terminal_model(
+            station_id=station_id,
+            target_day=snapshot_target_day,
+            source_snapshots=snapshots,
+        )
+        model_mean = _convert_f_to_probability_lab_unit(None, market_unit)
+        if isinstance(model, dict):
+            model_mean = model.get("mean_market")
+        model_error = None if model_mean is None else float(model_mean) - float(observed_market)
+        if model_error is not None:
+            model_abs_errors.append(abs(model_error))
+            model_biases.append(model_error)
+        row = {
+            "target_date": target_date_str,
+            "observed_market": round(float(observed_market), 3),
+            "observed_f": getattr(observed, "high_temp_f", None),
+            "model_mean_market": round(float(model_mean), 3) if model_mean is not None else None,
+            "model_error_market": round(float(model_error), 3) if model_error is not None else None,
+            "model_abs_error_market": round(abs(float(model_error)), 3) if model_error is not None else None,
+            "verification_status": getattr(observed, "verification_status", None),
+        }
+        for snapshot in snapshots:
+            source = str(snapshot.get("source") or "").upper()
+            forecast_market = _optional_float(snapshot.get("forecast_high_market"))
+            if forecast_market is None:
+                continue
+            err = float(forecast_market) - float(observed_market)
+            source_errors.setdefault(source, []).append(err)
+            row[f"{source.lower()}_error_market"] = round(err, 3)
+        rows.append(row)
+
+    source_summary = {}
+    for source, errors in source_errors.items():
+        if not errors:
+            continue
+        source_summary[source] = {
+            "samples": len(errors),
+            "mae_market": round(sum(abs(err) for err in errors) / len(errors), 3),
+            "bias_market": round(sum(errors) / len(errors), 3),
+        }
+
+    resolved_payload = {
+        "available": bool(rows),
+        "warming_up": not bool(rows),
+        "samples": len(rows),
+        "mae_market": round(sum(model_abs_errors) / len(model_abs_errors), 3) if model_abs_errors else None,
+        "bias_market": round(sum(model_biases) / len(model_biases), 3) if model_biases else None,
+        "rows": rows,
+        "sources": source_summary,
+    }
+    upsert_probability_lab_calibration_state(station_id, resolved_payload)
+    return _set_probability_lab_calibration_cache(station_id, resolved_payload)
+
+
+async def refresh_probability_lab_calibration_cache(
+    *,
+    station_ids: Optional[List[str]] = None,
+    max_days: int = 5,
+    max_concurrency: Optional[int] = None,
+) -> Dict[str, Any]:
+    resolved_station_ids = [
+        str(station_id).upper()
+        for station_id in (station_ids or list(get_active_stations().keys()))
+        if str(station_id).upper() in STATIONS
+    ]
+    semaphore = asyncio.Semaphore(max(1, int(max_concurrency or _PROBABILITY_LAB_CALIBRATION_MAX_CONCURRENCY)))
+    results: List[Dict[str, Any]] = []
+
+    async def _run_station(station_id: str) -> None:
+        async with semaphore:
+            try:
+                payload = await _build_probability_lab_calibration(
+                    station_id,
+                    max_days=max_days,
+                    use_cache=False,
+                    cache_only=False,
+                )
+                results.append({
+                    "station_id": station_id,
+                    "available": bool(payload.get("available")),
+                    "samples": int(payload.get("samples") or 0),
+                })
+            except Exception as exc:
+                logger.warning("Probability Lab calibration refresh failed for %s: %s", station_id, exc)
+                results.append({
+                    "station_id": station_id,
+                    "available": False,
+                    "samples": 0,
+                    "error": str(exc),
+                })
+
+    await asyncio.gather(*[_run_station(station_id) for station_id in resolved_station_ids])
+    return {
+        "station_count": len(resolved_station_ids),
+        "results": results,
+    }
+
+
+async def probability_lab_calibration_loop(
+    *,
+    interval_seconds: Optional[int] = None,
+    max_days: int = 5,
+    max_concurrency: Optional[int] = None,
+) -> None:
+    interval = max(300, int(interval_seconds or _PROBABILITY_LAB_CALIBRATION_INTERVAL_SECONDS))
+    while True:
+        try:
+            await refresh_probability_lab_calibration_cache(
+                max_days=max_days,
+                max_concurrency=max_concurrency or _PROBABILITY_LAB_CALIBRATION_MAX_CONCURRENCY,
+            )
+        except Exception as exc:
+            logger.warning("Probability Lab calibration loop failed: %s", exc)
+        await asyncio.sleep(interval)
+
+
+async def _build_probability_lab_station_payload(
+    station_id: str,
+    *,
+    target_day: int,
+    lookback_hours: int = 36,
+    include_detail: bool = True,
+) -> Dict[str, Any]:
+    from core.forecast_snapshot_service import capture_station_future_snapshots
+    from core.probability_model import (
+        build_dayahead_terminal_model,
+        build_probability_lab_card,
+        build_probability_lab_station_detail,
+        current_reality_bracket,
+    )
+    from core.pws_learning import get_pws_learning_store
+    from core.trading_signal import evaluate_bracket_market
+    from core.world import get_world
+    from database import get_forecast_source_history, get_latest_forecast_source_snapshots
+
+    station_id = str(station_id or "").upper()
+    station = STATIONS[station_id]
+    target_date_obj, resolved_target_day = _resolve_station_market_date(station_id, target_day=target_day)
+    target_date_str = target_date_obj.isoformat()
+    market_unit = get_polymarket_temp_unit(station_id)
+
+    market_payload = await get_polymarket_dashboard_data(
+        station_id,
+        target_day=resolved_target_day,
+        target_date=target_date_str,
+    )
+    if not isinstance(market_payload, dict) or market_payload.get("error"):
+        market_payload = {
+            "station_id": station_id,
+            "target_date": target_date_str,
+            "target_day": resolved_target_day,
+            "event_title": None,
+            "event_slug": None,
+            "total_volume": 0.0,
+            "market_status": {"event_closed": False, "event_active": False, "is_mature": False},
+            "brackets": [],
+        }
+
+    labels = [
+        str(row.get("name") or row.get("bracket") or "").strip()
+        for row in list(market_payload.get("brackets") or [])
+        if isinstance(row, dict) and str(row.get("name") or row.get("bracket") or "").strip()
+    ]
+
+    source_snapshots: List[Dict[str, Any]] = []
+    source_history: List[Dict[str, Any]] = []
+    history_warming_up = False
+    terminal_model = None
+    signal_payload = market_payload.get("trading") if isinstance(market_payload.get("trading"), dict) else None
+    pws_profiles: List[Dict[str, Any]] = []
+    reality: Dict[str, Any] = {}
+    calibration: Dict[str, Any] = {}
+
+    if resolved_target_day == 0:
+        world = get_world()
+        snapshot = world.get_snapshot()
+        official = ((snapshot.get("official") or {}).get(station_id)) or {}
+        daily_max_f = official.get("daily_max_f")
+        cumulative_max_market = _convert_f_to_probability_lab_unit(daily_max_f, market_unit)
+        official_market = _convert_c_to_probability_lab_unit(official.get("temp_c"), market_unit)
+        reality = {
+            "official_temp_market": round(float(official_market), 3) if official_market is not None else None,
+            "official_temp_c": official.get("temp_c"),
+            "official_temp_f": official.get("temp_f"),
+            "official_obs_time_utc": official.get("obs_time_utc"),
+            "cumulative_max_market": round(float(cumulative_max_market), 3) if cumulative_max_market is not None else None,
+            "cumulative_max_f": daily_max_f,
+            "current_reality_bracket": current_reality_bracket(cumulative_max_market, labels),
+            "resolved_winning_bracket": (
+                current_reality_bracket(cumulative_max_market, labels)
+                if ((market_payload.get("market_status") or {}).get("event_closed") or (market_payload.get("market_status") or {}).get("is_mature"))
+                else None
+            ),
+            "next_official": (((signal_payload or {}).get("tactical_context") or {}).get("next_metar")),
+        }
+        try:
+            store = get_pws_learning_store()
+            pws_profiles = store.get_top_profiles(
+                station_id,
+                limit=6,
+                sort_by="next_metar_score",
+                eligible_only=False,
+            )
+        except Exception:
+            pws_profiles = []
+    else:
+        source_snapshots = get_latest_forecast_source_snapshots(station_id, target_date_str)
+        source_history = get_forecast_source_history(station_id, target_date_str, lookback_hours=lookback_hours)
+        if not source_snapshots:
+            live = await capture_station_future_snapshots(
+                station_id,
+                target_days=(resolved_target_day,),
+                persist=True,
+            )
+            source_snapshots = [
+                row for row in list(live.get("snapshots") or [])
+                if str(row.get("target_date")) == target_date_str and int(row.get("target_day") or -1) == resolved_target_day
+            ]
+            source_history = get_forecast_source_history(station_id, target_date_str, lookback_hours=lookback_hours)
+        history_warming_up = len(source_history) == 0
+        calibration = await _build_probability_lab_calibration(
+            station_id,
+            max_days=5,
+            use_cache=True,
+            cache_only=not include_detail,
+        )
+        terminal_model = build_dayahead_terminal_model(
+            station_id=station_id,
+            target_day=resolved_target_day,
+            source_snapshots=source_snapshots,
+            calibration=calibration,
+        )
+        signal_payload = evaluate_bracket_market(
+            station_id=station_id,
+            target_day=resolved_target_day,
+            target_date=target_date_str,
+            brackets=list(market_payload.get("brackets") or []),
+            terminal_model=terminal_model,
+        )
+        if include_detail:
+            if calibration.get("available"):
+                reality = {
+                    **reality,
+                    "calibration_samples": calibration.get("samples"),
+                    "calibration_mae_market": calibration.get("mae_market"),
+                    "calibration_bias_market": calibration.get("bias_market"),
+                }
+            else:
+                reality = {
+                    **reality,
+                    "calibration_state": "warming_up",
+                }
+
+    card = build_probability_lab_card(
+        station_id=station_id,
+        station_name=station.name,
+        target_day=resolved_target_day,
+        target_date=target_date_str,
+        market_payload=market_payload,
+        signal_payload=signal_payload,
+        terminal_model=terminal_model,
+        source_snapshots=source_snapshots,
+        reality=reality,
+        pws_profiles=pws_profiles,
+        calibration=calibration,
+    )
+    detail = None
+    if include_detail:
+        detail = build_probability_lab_station_detail(
+            station_id=station_id,
+            target_day=resolved_target_day,
+            target_date=target_date_str,
+            market_payload=market_payload,
+            signal_payload=signal_payload,
+            terminal_model=terminal_model,
+            source_snapshots=source_snapshots,
+            source_history=source_history,
+            lookback_hours=lookback_hours,
+            reality=reality,
+            pws_profiles=pws_profiles,
+            history_warming_up=history_warming_up,
+            calibration=calibration,
+        )
+    return {
+        "station_id": station_id,
+        "target_day": resolved_target_day,
+        "target_date": target_date_str,
+        "card": card,
+        "detail": detail,
+    }
+
+
+@app.get("/api/probability-lab/board")
+async def get_probability_lab_board_api(target_day: int = 1, actionable_only: int = 0):
+    from core.probability_model import sort_probability_lab_cards
+
+    resolved_target_day = max(0, min(2, int(target_day)))
+    cards: List[Dict[str, Any]] = []
+    for station_id in get_active_stations().keys():
+        try:
+            payload = await _build_probability_lab_station_payload(
+                station_id,
+                target_day=resolved_target_day,
+                lookback_hours=36,
+                include_detail=False,
+            )
+            card = dict(payload.get("card") or {})
+            if actionable_only and not bool((card.get("actionable") or {}).get("available")):
+                continue
+            cards.append(card)
+        except Exception as exc:
+            logger.warning("Probability Lab board station failed for %s day=%s: %s", station_id, resolved_target_day, exc)
+            cards.append({
+                "station_id": station_id,
+                "station_name": getattr(STATIONS.get(station_id), "name", station_id),
+                "target_date": None,
+                "horizon": "INTRADAY" if resolved_target_day == 0 else "DAY_AHEAD",
+                "market": {"event_title": None, "top_label": None, "top_price": None, "volume": 0.0, "status": "ERROR"},
+                "model": {"source": None, "mean": None, "sigma": None, "confidence": None, "top_label": None, "top_probability": None, "source_count": None, "source_spread": None, "notes": [str(exc)]},
+                "actionable": {"available": False, "label": None, "side": None, "recommendation": "BLOCK", "edge_points": None, "entry_price": None, "fair_prob": None, "reason": str(exc)},
+                "source_strip": [],
+                "reality": {},
+                "pws": {},
+                "_sort": {"actionable_rank": 0, "actionable_edge": -999.0, "confidence": -999.0, "volume": -999.0},
+            })
+
+    sorted_cards = sort_probability_lab_cards(cards)
+    for card in sorted_cards:
+        if isinstance(card, dict):
+            card.pop("_sort", None)
+    return {
+        "target_day": resolved_target_day,
+        "target_date_mode": "per_station",
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "cards": sorted_cards,
+    }
+
+
+@app.get("/api/probability-lab/station/{station_id}")
+async def get_probability_lab_station_api(
+    station_id: str,
+    target_day: int = 1,
+    lookback_hours: int = 36,
+):
+    station_id = str(station_id or "").upper()
+    if station_id not in STATIONS:
+        return JSONResponse({"error": "Invalid station"}, status_code=400)
+    payload = await _build_probability_lab_station_payload(
+        station_id,
+        target_day=max(0, min(2, int(target_day))),
+        lookback_hours=max(1, int(lookback_hours)),
+        include_detail=True,
+    )
+    return payload.get("detail") or {}
 
 
 @app.get("/api/autotrader/status")
@@ -5768,6 +6274,14 @@ async def trading_dashboard(request: Request):
     """Trading dashboard - live market data, orderbook and trading policy."""
     return _render_template(request, "polymarket.html", {
         "active_page": "trading"
+    })
+
+
+@app.get("/probability-lab", response_class=HTMLResponse)
+async def probability_lab_dashboard(request: Request):
+    """Global Probability Lab board across stations and horizons."""
+    return _render_template(request, "probability_lab.html", {
+        "active_page": "probability-lab"
     })
 
 
