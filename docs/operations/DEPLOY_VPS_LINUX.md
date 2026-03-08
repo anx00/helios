@@ -46,9 +46,6 @@ pip install -r requirements.txt
 Crear `/opt/helios/.env` con las claves necesarias:
 
 ```env
-# Gemini API (obligatorio)
-GOOGLE_API_KEY=<tu_clave_gemini>
-
 # Synoptic Data API - Personal Weather Stations (obligatorio)
 SYNOPTIC_API_TOKEN=<tu_token_synoptic>
 

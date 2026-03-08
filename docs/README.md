@@ -13,7 +13,6 @@ Objetivo:
 - `docs/weather/`: METAR, PWS, fuentes, nowcast, prediccion y matematicas
 - `docs/market/`: integracion con Polymarket y notas de alta de mercados
 - `docs/trading/`: replay, backtest y notas de ejecucion
-- `docs/ai/`: Atenea
 - `docs/operations/`: despliegue y runbooks operativos
 - `docs/engineering/`: journal cronologico de cambios
 - `docs/legacy/`: documentos antiguos/duplicados que se conservan por contexto
@@ -73,7 +72,6 @@ Objetivo:
 - `docs/WUNDERGROUND_PWS.md` -> `docs/weather/PWS_WUNDERGROUND.md`
 - `docs/TOKEN_ID.md` -> `docs/market/POLYMARKET_TOKEN_IDS.md`
 - `docs/BACKTEST_REPLAY_GUIDE.md` -> `docs/trading/BACKTEST_REPLAY.md`
-- `docs/ATENEA.md` -> `docs/ai/ATENEA.md`
 - `docs/PHASES.md` -> `docs/system/ARCHITECTURE_EVOLUTION.md`
 - `docs/PHASE3.md` -> `docs/weather/NOWCAST_ENGINE_IMPLEMENTATION.md`
 - `docs/PHASE4.md` -> `docs/trading/STORAGE_REPLAY_IMPLEMENTATION.md`

@@ -168,21 +168,6 @@ AUDIT_MINUTE = 0
 DATABASE_PATH = "helios_weather.db"
 
 # ============================================================================
-# GEMINI CONFIGURATION
-# ============================================================================
-
-# Fallback list for Gemini models
-GEMINI_MODELS = [
-    "models/gemini-2.0-flash",
-    "models/gemini-2.0-flash-lite",
-    "models/gemini-2.5-flash",
-    "models/gemini-2.5-flash-lite",
-    "models/gemini-1.5-flash",
-    "models/gemini-2.0-pro-exp",
-    "models/gemini-1.5-pro"
-]
-
-# ============================================================================
 # SKY CONDITION MAPPINGS
 # ============================================================================
 

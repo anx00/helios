@@ -568,6 +568,16 @@ def insert_forecast_source_snapshot(
         this_captured = _parse_iso(captured_at)
         if latest_captured and this_captured:
             age = abs((this_captured - latest_captured).total_seconds())
+            latest_status = str(latest.get("status") or "").lower()
+            next_status = str(status or "").lower()
+            if (
+                age <= timedelta(hours=12).total_seconds()
+                and latest_status in {"ok", "partial"}
+                and next_status == "error"
+                and _rounded_tenth(latest.get("forecast_high_market")) is not None
+                and _rounded_tenth(forecast_high_market) is None
+            ):
+                return None
             if age <= timedelta(minutes=20).total_seconds():
                 if (
                     str(latest.get("status") or "") == str(status or "")

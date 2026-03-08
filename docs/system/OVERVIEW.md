@@ -25,7 +25,6 @@ The project combines:
 - live market data ingestion (Polymarket CLOB WS + local orderbook mirror)
 - replay/backtest infrastructure
 - web dashboards and API endpoints
-- Atenea (AI copilot with evidence-based context)
 
 ## 2. High-level architecture (what runs together)
 
@@ -197,7 +196,6 @@ Common categories:
 - nowcast outputs
 - Polymarket snapshots + orderbook context
 - replay sessions
-- Atenea context endpoints
 
 For Polymarket specifically, the important internal endpoints are documented in:
 - `docs/market/POLYMARKET_INTEGRATION.md`
@@ -209,7 +207,6 @@ For Polymarket specifically, the important internal endpoints are documented in:
 - `docs/weather/*`
 - `docs/market/*`
 - `docs/trading/*`
-- `docs/ai/*`
 - `docs/operations/*`
 
 ### Chronological engineering trace

@@ -3145,7 +3145,7 @@ def _empty_probability_lab_calibration() -> Dict[str, Any]:
 
 def _probability_lab_snapshot_source_names(target_day: int) -> set[str]:
     expected = {"WUNDERGROUND", "OPEN_METEO", "NBM"}
-    if int(target_day) >= 1:
+    if int(target_day) == 1:
         expected.add("LAMP")
     return expected
 
@@ -3493,7 +3493,8 @@ async def _build_probability_lab_station_payload(
                 row for row in list(live.get("snapshots") or [])
                 if str(row.get("target_date")) == target_date_str and int(row.get("target_day") or -1) == resolved_target_day
             ]
-            source_snapshots = live_rows or get_latest_forecast_source_snapshots(station_id, target_date_str)
+            refreshed_rows = get_latest_forecast_source_snapshots(station_id, target_date_str)
+            source_snapshots = refreshed_rows or live_rows
             source_history = get_forecast_source_history(station_id, target_date_str, lookback_hours=lookback_hours)
         history_warming_up = len(source_history) == 0
         calibration = await _build_probability_lab_calibration(
@@ -6081,186 +6082,6 @@ async def get_day_detail(
         )
 
 
-# =============================================================================
-# ATENEA: AI Diagnostic Copilot (Phase Auxiliar)
-# =============================================================================
-
-from core.atenea import (
-    get_atenea_chat,
-    get_evidence_builder,
-    get_intent_router,
-    ScreenContext
-)
-
-
-class AteneaChatRequest(BaseModel):
-    """Request body for Atenea chat."""
-    query: str
-    screen: str = "unknown"
-    station_id: str | None = None
-    mode: str = "LIVE"
-    time_range: dict | None = None
-    selected_token_ids: list | None = None
-
-
-@app.post("/api/atenea/chat")
-async def atenea_chat(request: AteneaChatRequest):
-    """
-    Main Atenea chat endpoint.
-
-    Processes a user question with screen context and returns
-    an evidence-backed response.
-    """
-    try:
-        chat = get_atenea_chat()
-
-        # Build screen context
-        screen_context = {
-            "screen": request.screen,
-            "station_id": request.station_id,
-            "mode": request.mode,
-        }
-        if request.time_range:
-            screen_context["time_range"] = request.time_range
-        if request.selected_token_ids:
-            screen_context["selected_token_ids"] = request.selected_token_ids
-
-        # Inject live state if available
-        try:
-            from core.nowcast_integration import get_nowcast_integration
-            integration = get_nowcast_integration()
-            if integration:
-                snapshot = integration.get_snapshot()
-                chat.set_live_state(
-                    nowcast_state=snapshot.get("distributions", {}),
-                    health_state=snapshot.get("states", {})
-                )
-        except Exception as e:
-            logging.warning(f"Failed to inject nowcast state: {e}")
-
-        # Also try to get world state
-        try:
-            from core.world import get_world
-            world = get_world()
-            world_snapshot = world.get_snapshot()
-            chat.evidence_builder.set_live_state(
-                world_state=world_snapshot
-            )
-        except Exception as e:
-            logging.warning(f"Failed to inject world state: {e}")
-
-        # Process chat
-        response = await chat.chat(request.query, screen_context)
-
-        return {
-            "success": True,
-            "response": response.to_dict()
-        }
-
-    except Exception as e:
-        import traceback
-        return {
-            "success": False,
-            "error": str(e),
-            "traceback": traceback.format_exc()
-        }
-
-
-@app.get("/api/atenea/context/live")
-async def atenea_live_context(station_id: str | None = None):
-    """
-    Get current live context for Atenea.
-
-    Returns the current state of market, world, nowcast, and health.
-    """
-    try:
-        evidence_builder = get_evidence_builder()
-
-        # Try to inject live state
-        try:
-            from core.nowcast_integration import get_nowcast_integration
-            integration = get_nowcast_integration()
-            if integration:
-                snapshot = integration.get_snapshot()
-                evidence_builder.set_live_state(
-                    nowcast_state=snapshot.get("distributions", {})
-                )
-        except Exception as e:
-            logging.warning(f"Failed to inject nowcast state: {e}")
-
-        try:
-            from core.world import get_world
-            world = get_world()
-            evidence_builder.set_live_state(
-                world_state=world.get_snapshot()
-            )
-        except Exception as e:
-            logging.warning(f"Failed to inject world state: {e}")
-
-        evidences = evidence_builder.gather_live_context(station_id)
-
-        return {
-            "success": True,
-            "evidences": [e.to_dict() for e in evidences],
-            "station_id": station_id
-        }
-
-    except Exception as e:
-        return {
-            "success": False,
-            "error": str(e)
-        }
-
-
-@app.get("/api/atenea/intent")
-async def atenea_classify_intent(query: str, screen: str = "unknown"):
-    """
-    Classify a query's intent without generating a response.
-
-    Useful for debugging and understanding how Atenea routes questions.
-    """
-    try:
-        router = get_intent_router()
-        intent = router.classify(query, {"screen": screen})
-        requirements = router.get_evidence_requirements(intent)
-
-        return {
-            "success": True,
-            "intent": intent.to_dict(),
-            "evidence_requirements": requirements
-        }
-
-    except Exception as e:
-        return {
-            "success": False,
-            "error": str(e)
-        }
-
-
-@app.delete("/api/atenea/history")
-async def atenea_clear_history():
-    """Clear Atenea conversation history."""
-    try:
-        chat = get_atenea_chat()
-        chat.clear_history()
-        return {"success": True, "message": "History cleared"}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-
-@app.get("/api/atenea/history")
-async def atenea_get_history():
-    """Get Atenea conversation history."""
-    try:
-        chat = get_atenea_chat()
-        return {
-            "success": True,
-            "history": chat.get_history()
-        }
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-
 # Phase 5: Backtest Dashboard
 @app.get("/backtest", response_class=HTMLResponse)
 async def backtest_dashboard(request: Request):
@@ -6326,15 +6147,6 @@ async def probability_lab_dashboard(request: Request):
     """Probability Lab single-station view tied to the active HELIOS station."""
     return _render_template(request, "probability_lab.html", {
         "active_page": "probability-lab"
-    })
-
-
-# ATENEA: AI Diagnostic Copilot
-@app.get("/atenea", response_class=HTMLResponse)
-async def atenea_dashboard(request: Request):
-    """ATENEA - AI Diagnostic Copilot with evidence-based answers."""
-    return _render_template(request, "atenea.html", {
-        "active_page": "atenea"
     })
 
 

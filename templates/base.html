@@ -553,172 +553,6 @@
             border-radius: 12px;
             backdrop-filter: blur(10px);
         }
-
-        /* ============================================
-           ATENEA FLOATING BUTTON & PANEL
-        ============================================ */
-        .atenea-fab {
-            position: fixed;
-            bottom: 24px;
-            right: 24px;
-            width: 56px;
-            height: 56px;
-            border-radius: 50%;
-            background: linear-gradient(135deg, #8B5CF6, #3B82F6);
-            border: none;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            box-shadow: 0 4px 20px rgba(139, 92, 246, 0.4);
-            z-index: 9999;
-            transition: all 0.3s;
-        }
-
-        .atenea-fab:hover {
-            transform: scale(1.1);
-            box-shadow: 0 6px 30px rgba(139, 92, 246, 0.6);
-        }
-
-        .atenea-fab span {
-            font-size: 24px;
-        }
-
-        /* Quick chat panel (slide-up from FAB) */
-        .atenea-quick-panel {
-            position: fixed;
-            bottom: 90px;
-            right: 24px;
-            width: 380px;
-            max-height: 500px;
-            background: var(--bg-secondary);
-            border: 1px solid rgba(139, 92, 246, 0.3);
-            border-radius: 16px;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
-            z-index: 9998;
-            display: none;
-            flex-direction: column;
-            overflow: hidden;
-        }
-
-        .atenea-quick-panel.open {
-            display: flex;
-            animation: slideUp 0.3s ease;
-        }
-
-        @keyframes slideUp {
-            from {
-                opacity: 0;
-                transform: translateY(20px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        .atenea-panel-header {
-            padding: 16px;
-            background: linear-gradient(135deg, rgba(139, 92, 246, 0.2), rgba(59, 130, 246, 0.2));
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-
-        .atenea-panel-header h3 {
-            font-size: 14px;
-            font-weight: 600;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .atenea-panel-header .expand-btn {
-            background: none;
-            border: none;
-            color: var(--text-secondary);
-            cursor: pointer;
-            padding: 4px;
-        }
-
-        .atenea-panel-header .expand-btn:hover {
-            color: var(--text-main);
-        }
-
-        .atenea-messages {
-            flex: 1;
-            padding: 16px;
-            overflow-y: auto;
-            max-height: 300px;
-        }
-
-        .atenea-message {
-            margin-bottom: 12px;
-            padding: 10px 14px;
-            border-radius: 12px;
-            font-size: 13px;
-            line-height: 1.5;
-        }
-
-        .atenea-message.user {
-            background: rgba(59, 130, 246, 0.2);
-            margin-left: 40px;
-        }
-
-        .atenea-message.assistant {
-            background: rgba(255, 255, 255, 0.05);
-            margin-right: 40px;
-        }
-
-        .atenea-input-area {
-            padding: 12px;
-            border-top: 1px solid rgba(255, 255, 255, 0.1);
-            display: flex;
-            gap: 8px;
-        }
-
-        .atenea-input-area input {
-            flex: 1;
-            background: var(--bg-tertiary);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 8px;
-            padding: 10px 14px;
-            color: var(--text-main);
-            font-size: 13px;
-        }
-
-        .atenea-input-area input:focus {
-            outline: none;
-            border-color: rgba(139, 92, 246, 0.5);
-        }
-
-        .atenea-input-area button {
-            background: linear-gradient(135deg, #8B5CF6, #3B82F6);
-            border: none;
-            border-radius: 8px;
-            padding: 10px 16px;
-            color: white;
-            cursor: pointer;
-            font-weight: 500;
-        }
-
-        .atenea-input-area button:hover {
-            opacity: 0.9;
-        }
-
-        .atenea-input-area button:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-
-        .atenea-context-badge {
-            font-size: 10px;
-            background: rgba(139, 92, 246, 0.3);
-            padding: 2px 8px;
-            border-radius: 10px;
-            color: var(--text-secondary);
-        }
     </style>
     {% block head_extra %}{% endblock %}
 </head>
@@ -727,7 +561,7 @@
     <!-- SIDEBAR -->
     <aside class="sidebar" id="sidebar">
         <div class="sidebar-header">
-            <div class="sidebar-logo">☀️</div>
+            <div class="sidebar-logo">â˜€ï¸</div>
             <span class="sidebar-title">HELIOS</span>
             <span class="sidebar-version">v12.0</span>
             <!-- Toggle Button -->
@@ -784,15 +618,11 @@
                     <i data-lucide="satellite-dish"></i>
                     <span>External Sources</span>
                 </a>
-                <a href="/atenea" class="nav-item {% if active_page == 'atenea' %}active{% endif %}" style="background: linear-gradient(135deg, rgba(139, 92, 246, 0.15), rgba(59, 130, 246, 0.15)); border: 1px solid rgba(139, 92, 246, 0.3);">
-                    <i data-lucide="bot"></i>
-                    <span>🜂 Atenea</span>
-                </a>
             </div>
         </nav>
 
         <div class="sidebar-footer">
-            <span>HELIOS Weather Lab © 2026</span>
+            <span>HELIOS Weather Lab (c) 2026</span>
         </div>
     </aside>
 
@@ -815,33 +645,6 @@
         {% block content %}{% endblock %}
     </div>
 
-    <!-- ATENEA Floating Button & Quick Panel -->
-    {% if active_page != 'atenea' %}
-    <button class="atenea-fab" onclick="toggleAteneaPanel()" title="Ask Atenea">
-        <span>🜂</span>
-    </button>
-
-    <div class="atenea-quick-panel" id="ateneaQuickPanel">
-        <div class="atenea-panel-header">
-            <h3>
-                <span>🜂</span> Atenea
-                <span class="atenea-context-badge" id="ateneaContextBadge">{{ active_page or 'home' }}</span>
-            </h3>
-            <a href="/atenea" class="expand-btn" title="Open full view">
-                <i data-lucide="maximize-2" style="width: 16px; height: 16px;"></i>
-            </a>
-        </div>
-        <div class="atenea-messages" id="ateneaMessages">
-            <div class="atenea-message assistant">
-                Hola! Soy Atenea, tu copiloto de diagnóstico. Puedo ayudarte a entender el estado del mercado, las predicciones, la calidad de datos y más. ¿Qué necesitas saber?
-            </div>
-        </div>
-        <div class="atenea-input-area">
-            <input type="text" id="ateneaInput" placeholder="Pregunta algo..." onkeypress="if(event.key==='Enter')sendAteneaMessage()">
-            <button onclick="sendAteneaMessage()" id="ateneaSendBtn">Enviar</button>
-        </div>
-    </div>
-    {% endif %}
 
     <script>
         // Initialize Lucide icons
@@ -977,117 +780,6 @@
             maybeRedirectStationScopedPage(window.HeliosStationState.get());
         })();
 
-        // ============================================
-        // ATENEA Quick Panel Functions
-        // ============================================
-        function toggleAteneaPanel() {
-            const panel = document.getElementById('ateneaQuickPanel');
-            if (panel) {
-                panel.classList.toggle('open');
-                if (panel.classList.contains('open')) {
-                    document.getElementById('ateneaInput').focus();
-                }
-            }
-        }
-
-        async function sendAteneaMessage() {
-            const input = document.getElementById('ateneaInput');
-            const messagesDiv = document.getElementById('ateneaMessages');
-            const sendBtn = document.getElementById('ateneaSendBtn');
-            const query = input.value.trim();
-
-            if (!query) return;
-
-            // Disable input while processing
-            input.disabled = true;
-            sendBtn.disabled = true;
-
-            // Add user message
-            const userMsg = document.createElement('div');
-            userMsg.className = 'atenea-message user';
-            userMsg.textContent = query;
-            messagesDiv.appendChild(userMsg);
-
-            // Clear input
-            input.value = '';
-
-            // Add loading message
-            const loadingMsg = document.createElement('div');
-            loadingMsg.className = 'atenea-message assistant';
-            loadingMsg.innerHTML = '<em>Analizando...</em>';
-            messagesDiv.appendChild(loadingMsg);
-
-            // Scroll to bottom
-            messagesDiv.scrollTop = messagesDiv.scrollHeight;
-
-            try {
-                // Get current screen context
-                const selectedGlobalStation = window.HeliosStationState?.get?.() || null;
-                const screenContext = {
-                    screen: '{{ active_page or "home" }}',
-                    station_id: '{{ station_id or "" }}' || selectedGlobalStation,
-                    mode: 'LIVE'
-                };
-
-                const response = await fetch('/api/atenea/chat', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        query: query,
-                        ...screenContext
-                    })
-                });
-
-                const data = await response.json();
-
-                // Remove loading message
-                loadingMsg.remove();
-
-                // Add response
-                const assistantMsg = document.createElement('div');
-                assistantMsg.className = 'atenea-message assistant';
-
-                if (data.success && data.response && data.response.message) {
-                    // Format the response with basic markdown
-                    let content = data.response.message.content;
-                    content = content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-                    content = content.replace(/\n/g, '<br>');
-                    assistantMsg.innerHTML = content;
-                } else {
-                    assistantMsg.textContent = data.error || 'Error al procesar la consulta';
-                    assistantMsg.style.color = '#EF4444';
-                }
-
-                messagesDiv.appendChild(assistantMsg);
-
-            } catch (error) {
-                loadingMsg.remove();
-                const errorMsg = document.createElement('div');
-                errorMsg.className = 'atenea-message assistant';
-                errorMsg.textContent = 'Error de conexión: ' + error.message;
-                errorMsg.style.color = '#EF4444';
-                messagesDiv.appendChild(errorMsg);
-            }
-
-            // Re-enable input
-            input.disabled = false;
-            sendBtn.disabled = false;
-            input.focus();
-
-            // Scroll to bottom
-            messagesDiv.scrollTop = messagesDiv.scrollHeight;
-        }
-
-        // Close panel when clicking outside
-        document.addEventListener('click', function(e) {
-            const panel = document.getElementById('ateneaQuickPanel');
-            const fab = document.querySelector('.atenea-fab');
-            if (panel && panel.classList.contains('open')) {
-                if (!panel.contains(e.target) && !fab.contains(e.target)) {
-                    panel.classList.remove('open');
-                }
-            }
-        });
     </script>
     {% block scripts %}{% endblock %}
 </body>

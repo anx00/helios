@@ -283,6 +283,34 @@ async def _capture_source_snapshot(
     station_id = str(station_id or "").upper()
     source_name = str(source or "").upper()
 
+    if source_name == "LAMP" and int(target_day) != 1:
+        snapshot = _build_snapshot_payload(
+            station_id=station_id,
+            source=source_name,
+            target_date=target_date,
+            target_day=target_day,
+            status="omitted",
+            notes=["LAMP only participates in the tomorrow horizon."],
+            meta={"reason": "target_day_not_supported"},
+        )
+        if persist:
+            insert_forecast_source_snapshot(
+                station_id=station_id,
+                target_date=snapshot["target_date"],
+                target_day=snapshot["target_day"],
+                source=snapshot["source"],
+                status=snapshot["status"],
+                market_unit=snapshot["market_unit"],
+                forecast_high_market=snapshot["forecast_high_market"],
+                forecast_high_f=snapshot["forecast_high_f"],
+                forecast_high_c=snapshot["forecast_high_c"],
+                peak_hour_local=snapshot["peak_hour_local"],
+                provider_updated_local=snapshot["provider_updated_local"],
+                notes=snapshot["notes"],
+                meta=snapshot["meta"],
+            )
+        return snapshot
+
     try:
         if source_name == "WUNDERGROUND":
             raw = await fetch_wunderground_max(station_id, target_date=target_date)
@@ -361,22 +389,17 @@ async def capture_station_future_snapshots(
         if target_day < 1:
             continue
         target_date = local_today + timedelta(days=target_day)
-        results = await asyncio.gather(
-            *[
-                _capture_source_snapshot(
+        for source in SUPPORTED_FUTURE_SOURCES:
+            try:
+                result = await _capture_source_snapshot(
                     station_id=station_id,
                     target_date=target_date,
                     target_day=target_day,
                     source=source,
                     persist=persist,
                 )
-                for source in SUPPORTED_FUTURE_SOURCES
-            ],
-            return_exceptions=True,
-        )
-        for result in results:
-            if isinstance(result, Exception):
-                logger.warning("Future snapshot capture failed for %s day=%s: %s", station_id, target_day, result)
+            except Exception as exc:
+                logger.warning("Future snapshot capture failed for %s day=%s source=%s: %s", station_id, target_day, source, exc)
                 continue
             snapshots.append(result)
 

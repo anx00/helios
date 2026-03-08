@@ -43,7 +43,7 @@
   - Configuracion `.env` (6 variables, sin valores reales)
   - Directorios runtime (`logs/`, `data/`)
   - Servicio systemd (auto-start/restart)
-  - Nginx reverse proxy (80 → 8000, SSE + WebSocket)
+  - Nginx reverse proxy (80 â†’ 8000, SSE + WebSocket)
   - AWS Security Group (puertos 22, 80, 443)
   - SSL opcional con Let's Encrypt
 - Files: `requirements.txt`, `docs/DEPLOY.md`
@@ -71,7 +71,7 @@
 
 ## Task: Polymarket en Replay - Datos de mercado en replay
 
-- [x] Añadir `l2_snap` al array de channels en `get_category_summary()` (era el unico canal no mostrado)
+- [x] AÃ±adir `l2_snap` al array de channels en `get_category_summary()` (era el unico canal no mostrado)
 - [x] Tarjeta Polymarket (7a) en category grid de replay (icono candlestick-chart, color naranja)
 - [x] Panel "Market State" full-width con grid de brackets:
   - Nombre bracket, mid price como %, best bid/ask, spread, depth bars
@@ -83,132 +83,18 @@
 
 ---
 
-## Task: Atenea AI Overhaul - De FAQ Bot a Experto HELIOS
 
-**Objetivo**: Transformar Atenea de chatbot FAQ restrictivo a asistente experto en HELIOS, forecasting, trading y Polymarket.
+## Task: Unificar estilos de headers de pÃ¡ginas
 
-### Cambios realizados:
-
-- [x] **System Prompt** (`core/atenea/chat.py`):
-  - Reescrito completamente de "EVIDENCE ONLY" a personalidad de experto
-  - Nuevo rol: meteorologo senior + data scientist + quant trader
-  - Capacidades: analizar condiciones, evaluar predicciones, interpretar mercado, correlacionar datos, dar opiniones
-  - Ejemplos de respuestas expertas incluidos
-  - Elimina restriccion "NO HALLUCINATION" y requisito de citas E1/E2
-
-- [x] **Validacion simplificada** (`_validate_response()`):
-  - Ya no requiere seccion "Evidence" en respuestas
-  - Ya no falla por "claims without evidence"
-  - Solo valida errores de generacion (respuesta vacia, error API)
-
-- [x] **Prompt generation simplificado** (`_generate_response()`):
-  - Elimina instrucciones de citar evidencia
-  - Nuevo prompt: "Provide helpful, expert response... Reason through the data"
-
-- [x] **Recoleccion de evidencia ampliada** (`_gather_evidence()`):
-  - Ahora SIEMPRE recoge TODOS los datos disponibles, no solo los del intent
-  - World + Nowcast + Market (WS) + Health + Polymarket API
-
-- [x] **Nuevo metodo `_get_polymarket_api_evidence()`**:
-  - Obtiene precios YES/NO de Gamma API
-  - Incluye sentiment de crowd_wisdom
-  - Incluye market shifts
-  - Complementa datos de WS orderbook
-
-- [x] **Formato LLM mejorado** (`core/atenea/context.py: to_llm_prompt()`):
-  - Agrupa datos por tipo (WORLD, MARKET, NOWCAST, HEALTH)
-  - Formato mas claro con Markdown headers
-  - Incluye campos importantes de cada evidence (temp_f, tmax_mean, spread, etc.)
-
-- [x] **Preguntas sugeridas** (`templates/atenea.html`):
-  - Header: "Pregunta al experto" (antes: "Suggested Questions")
-  - 5 nuevas preguntas que demuestran capacidades de experto:
-    1. ¿Crees que la prediccion de HELIOS es correcta?
-    2. ¿Que probabilidad real le das al bracket lider?
-    3. Analiza la discrepancia entre HELIOS y Polymarket
-    4. ¿Hay señales de que el mercado sabe algo que HELIOS no?
-    5. ¿Que riesgos ves en la prediccion actual?
-
-- [x] **Mock response mejorado** (para cuando no hay API key):
-  - Muestra resumen organizado por tipo de datos
-  - Iconos para cada categoria (📡 📊 🎯 💚)
-  - Mensaje claro sobre modo demo
-
-### Files modificados:
-- `core/atenea/chat.py` - system prompt, validation, evidence gathering, nuevo metodo
-- `core/atenea/context.py` - formato LLM mejorado
-- `templates/atenea.html` - nuevas preguntas sugeridas
-
----
-
-## Task: Documentación Técnica para Atenea — Conocimiento Profundo de HELIOS
-
-**Objetivo**: Crear documentación técnica completa que Atenea pueda cargar dinámicamente para responder preguntas sobre cómo funciona HELIOS internamente.
-
-### Documentos creados:
-
-- [x] **`docs/HELIOS_ARCHITECTURE.md`** - Visión general del sistema
-  - Arquitectura de dos capas (Base Forecast + Nowcast Adjustment)
-  - Pipeline de datos completo (inputs → WorldState → NowcastEngine → Output)
-  - Diagrama de flujo del sistema
-  - Roles de cada componente principal
-
-- [x] **`docs/HELIOS_MATH.md`** - Matemáticas y fórmulas
-  - Fórmula de Tmax Ajustado: `T_adj = T_base + bias × exp(-h/τ)`
-  - Bias EMA: `bias_new = α×δ + (1-α)×bias_old`
-  - Decay exponencial: `decay(h) = exp(-h/τ)`, τ = 2.0h
-  - CDF Logística y Normal
-  - Probabilidad de bucket: `P(bucket) = CDF(high) - CDF(low)`
-  - Sigma dinámico con penalties
-  - Post-peak cap: `margin = 0.5 + 1.5×(h_sunset/span)`
-  - Confidence calculation
-
-- [x] **`docs/HELIOS_DATA_SOURCES.md`** - Fuentes de datos
-  - METAR: 3-way race protocol, campos, QC
-  - PWS: Algoritmo MAD, drift y support explicados
-  - SST: NDBC buoys, ajuste por brisa marina
-  - AOD: CAMS/OpenAQ, correlación PM2.5 → AOD
-  - Modelos NWP: HRRR, GFS, LAMP, NBM
-  - Health tracking estados
-
-- [x] **`docs/HELIOS_PREDICTIONS.md`** - Sistema de predicciones
-  - Cálculo paso a paso con ejemplo numérico completo
-  - Constraints (floor, post-peak cap)
-  - Bucket probability generation
-  - Estructura de NowcastDistribution
-
-### Integración con Atenea:
-
-- [x] **`core/atenea/evidence.py`** - Nuevo método `get_technical_docs_evidence()`
-  - Detecta keywords técnicos en la pregunta
-  - Carga documentos relevantes como evidencia
-  - Keywords para arquitectura, matemáticas, datos, predicciones
-
-- [x] **`core/atenea/chat.py`** - Modificado `_gather_evidence()`
-  - Ahora recibe `query` como parámetro
-  - Llama a `get_technical_docs_evidence()` automáticamente
-
-### Files creados/modificados:
-- `docs/HELIOS_ARCHITECTURE.md` - CREADO
-- `docs/HELIOS_MATH.md` - CREADO
-- `docs/HELIOS_DATA_SOURCES.md` - CREADO
-- `docs/HELIOS_PREDICTIONS.md` - CREADO
-- `core/atenea/evidence.py` - MODIFICADO (nuevo método)
-- `core/atenea/chat.py` - MODIFICADO (pasa query, llama docs)
-
----
-
-## Task: Unificar estilos de headers de páginas
-
-**Objetivo**: Hacer consistentes los headers de todas las páginas de HELIOS (especialmente /world y /polymarket).
+**Objetivo**: Hacer consistentes los headers de todas las pÃ¡ginas de HELIOS (especialmente /world y /polymarket).
 
 ### Cambios realizados:
 
 - [x] **polymarket.html**: Eliminadas clases CSS custom `.pm-page-header` y `.pm-page-title`
-- [x] **polymarket.html**: Usar clases estándar `.page-header` y `.page-title` de base.html
-- [x] **polymarket.html**: Añadido estilo inline al icono Lucide (24px, accent-blue)
+- [x] **polymarket.html**: Usar clases estÃ¡ndar `.page-header` y `.page-title` de base.html
+- [x] **polymarket.html**: AÃ±adido estilo inline al icono Lucide (24px, accent-blue)
 - [x] **world.html**: Cambiado de `<h1>` a `<div>` para `.page-title`
-- [x] **world.html**: Añadido icono Lucide "globe" con estilo consistente
+- [x] **world.html**: AÃ±adido icono Lucide "globe" con estilo consistente
 
 ### Formato unificado:
 
@@ -234,7 +120,7 @@
 
 ### Cambios realizados:
 
-- [x] **CSS**: Añadido estilos para `select.config-input`:
+- [x] **CSS**: AÃ±adido estilos para `select.config-input`:
   - `appearance: none` para remover estilo nativo
   - Flecha SVG custom con `background-image`
   - Colores de option matching replay (`#1a1f2e`, `#e2e8f0`)
@@ -249,7 +135,7 @@
 
 ## Task: Unificar etiquetas Polymarket en todo HELIOS
 
-**Objetivo**: Usar las mismas etiquetas que Polymarket en nowcast, backtest y labels para que el trading y la evaluación estén alineados.
+**Objetivo**: Usar las mismas etiquetas que Polymarket en nowcast, backtest y labels para que el trading y la evaluaciÃ³n estÃ©n alineados.
 
 ### Plan
 - [x] Crear utilidades compartidas para formatear/normalizar etiquetas Polymarket (rangos, "or below", "or higher").
