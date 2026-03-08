@@ -116,6 +116,74 @@ async def test_build_probability_lab_calibration_uses_persisted_state(monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_probability_lab_intraday_payload_reuses_dashboard_official_context(monkeypatch):
+    async def fake_dashboard_data(station_id, target_day=0, target_date=None, depth=5):
+        return {
+            "station_id": station_id,
+            "target_date": "2026-03-08",
+            "target_day": 0,
+            "event_title": "Highest temperature in Paris on March 8?",
+            "event_slug": "fake",
+            "total_volume": 1000.0,
+            "market_status": {"event_closed": False, "event_active": True, "is_mature": False},
+            "brackets": [
+                {"name": "14°C or below", "yes_price": 0.2},
+                {"name": "15°C", "yes_price": 0.6},
+                {"name": "16°C", "yes_price": 0.2},
+            ],
+            "trading": {
+                "model": {
+                    "source": "NOWCAST",
+                    "mean": 14.4,
+                    "sigma": 0.8,
+                    "confidence": 0.9,
+                    "top_label": "15°C",
+                    "top_label_probability": 0.6,
+                },
+                "best_terminal_trade": {
+                    "label": "15°C",
+                    "best_side": "YES",
+                    "best_edge": 0.05,
+                    "selected_fair": 0.6,
+                    "selected_entry": 0.55,
+                    "recommendation": "LEAN_YES",
+                    "terminal_policy": {"allowed": True, "summary": "ok", "reasons": []},
+                    "policy_reason": "ok",
+                },
+                "all_terminal_opportunities": [],
+                "tactical_context": {"enabled": False},
+            },
+            "intraday_context": {
+                "official": {
+                    "temp_c": 12.0,
+                    "temp_f": 53.6,
+                    "daily_max_f": 57.2,
+                    "obs_time_utc": "2026-03-08T20:00:00Z",
+                },
+            },
+        }
+
+    class _Store:
+        def get_top_profiles(self, station_id, limit=6, sort_by="next_metar_score", eligible_only=False):
+            return []
+
+    class _World:
+        def get_snapshot(self):
+            return {"official": {}}
+
+    monkeypatch.setattr(web_server, "get_polymarket_dashboard_data", fake_dashboard_data)
+    monkeypatch.setattr("core.pws_learning.get_pws_learning_store", lambda: _Store())
+    monkeypatch.setattr("core.world.get_world", lambda: _World())
+
+    payload = await web_server._build_probability_lab_station_payload("LFPG", target_day=0, include_detail=False)
+
+    reality = payload["card"]["reality"]
+    assert reality["official_temp_market"] == pytest.approx(12.0)
+    assert reality["cumulative_max_market"] == pytest.approx(14.0, abs=0.1)
+    assert reality["current_reality_bracket"] == "14°C or below"
+
+
+@pytest.mark.asyncio
 async def test_startup_event_registers_future_snapshot_loop(monkeypatch):
     created = []
 

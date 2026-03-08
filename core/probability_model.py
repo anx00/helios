@@ -468,10 +468,20 @@ def build_probability_lab_station_detail(
     history_warming_up: bool = False,
     calibration: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
+    tactical_context = (signal_payload or {}).get("tactical_context") if isinstance(signal_payload, dict) else None
+    use_tactical = bool(int(target_day) == 0 and isinstance(tactical_context, dict) and tactical_context.get("enabled"))
+
     ladder: List[Dict[str, Any]] = []
     for row in list((signal_payload or {}).get("all_terminal_opportunities") or []):
         if not isinstance(row, dict):
             continue
+        active_selected_side = row.get("tactical_best_side") if use_tactical else row.get("best_side")
+        active_selected_fair = row.get("selected_tactical_fair") if use_tactical else row.get("selected_fair")
+        active_selected_entry = row.get("selected_tactical_entry") if use_tactical else row.get("selected_entry")
+        active_best_edge = row.get("tactical_best_edge") if use_tactical else row.get("best_edge")
+        active_edge_points = row.get("tactical_edge_points") if use_tactical else row.get("edge_points")
+        active_recommendation = row.get("tactical_recommendation") if use_tactical else row.get("recommendation")
+        active_policy_reason = row.get("tactical_policy_reason") if use_tactical else row.get("policy_reason")
         ladder.append({
             "label": row.get("label"),
             "fair_yes": _round_optional(row.get("fair_yes"), 6),
@@ -487,6 +497,13 @@ def build_probability_lab_station_detail(
             "policy_reason": row.get("policy_reason"),
             "tactical_recommendation": row.get("tactical_recommendation"),
             "tactical_policy_reason": row.get("tactical_policy_reason"),
+            "active_selected_side": active_selected_side,
+            "active_selected_fair": _round_optional(active_selected_fair, 6),
+            "active_selected_entry": _round_optional(active_selected_entry, 6),
+            "active_best_edge": _round_optional(active_best_edge, 6),
+            "active_edge_points": _round_optional(active_edge_points, 4),
+            "active_recommendation": active_recommendation,
+            "active_policy_reason": active_policy_reason,
         })
 
     card = build_probability_lab_card(
@@ -517,7 +534,7 @@ def build_probability_lab_station_detail(
         },
         "bracket_ladder": ladder,
         "pws_profiles": list(pws_profiles or []),
-        "tactical": (signal_payload or {}).get("tactical_context") if isinstance(signal_payload, dict) else None,
+        "tactical": tactical_context if isinstance(tactical_context, dict) else None,
         "reality": dict(reality or {}),
         "calibration": _build_calibration_payload(calibration, terminal_model),
     }

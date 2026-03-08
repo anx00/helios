@@ -36,14 +36,6 @@ def evaluate_bracket_market_impl(
         if isinstance(row, dict) and str(row.get("name") or row.get("bracket") or "").strip()
     ]
     ordered_labels = ts.sort_labels(labels)
-    fair_rows = ts._build_fair_probabilities(
-        labels=ordered_labels,
-        mean_market=float(terminal_model["mean_market"]),
-        sigma_market=max(0.15, float(terminal_model["sigma_market"])),
-        market_floor=terminal_model.get("market_floor"),
-        market_ceiling=terminal_model.get("market_ceiling"),
-    )
-    fair_map = {row["label"]: row["fair_prob"] for row in fair_rows}
 
     official_temp_c = None
     official_obs_utc = None
@@ -83,6 +75,24 @@ def evaluate_bracket_market_impl(
             consensus_c=consensus_c,
             reference_utc=ref_utc,
         )
+
+    terminal_model = ts._reconcile_intraday_terminal_model(
+        station_id=station_id,
+        target_day=target_day,
+        terminal_model=terminal_model,
+        official=official,
+        next_projection=next_projection,
+        reference_utc=ref_utc,
+    )
+
+    fair_rows = ts._build_fair_probabilities(
+        labels=ordered_labels,
+        mean_market=float(terminal_model["mean_market"]),
+        sigma_market=max(0.15, float(terminal_model["sigma_market"])),
+        market_floor=terminal_model.get("market_floor"),
+        market_ceiling=terminal_model.get("market_ceiling"),
+    )
+    fair_map = {row["label"]: row["fair_prob"] for row in fair_rows}
 
     tactical_map: Dict[str, float] = {}
     tactical_mean = None

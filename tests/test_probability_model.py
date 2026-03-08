@@ -1,6 +1,10 @@
 import pytest
 
-from core.probability_model import build_dayahead_terminal_model, build_probability_lab_card
+from core.probability_model import (
+    build_dayahead_terminal_model,
+    build_probability_lab_card,
+    build_probability_lab_station_detail,
+)
 
 
 def test_build_dayahead_terminal_model_renormalizes_weights_when_source_missing():
@@ -167,3 +171,76 @@ def test_probability_lab_card_exposes_calibration_summary():
     assert card["model"]["calibration_samples"] == 5
     assert card["model"]["calibration_mae_market"] == pytest.approx(1.2)
     assert card["model"]["calibration_bias_market"] == pytest.approx(-0.3)
+
+
+def test_probability_lab_station_detail_prefers_tactical_fields_for_intraday_ladder():
+    detail = build_probability_lab_station_detail(
+        station_id="LFPG",
+        target_day=0,
+        target_date="2026-03-08",
+        market_payload={"event_title": "Test", "total_volume": 1000.0, "market_status": {}, "brackets": []},
+        signal_payload={
+            "model": {
+                "source": "NOWCAST",
+                "mean": 14.2,
+                "sigma": 0.9,
+                "confidence": 0.88,
+                "top_label": "15°C",
+                "top_label_probability": 0.52,
+            },
+            "best_terminal_trade": {
+                "label": "15°C",
+                "best_side": "YES",
+                "best_edge": 0.02,
+                "selected_fair": 0.52,
+                "selected_entry": 0.50,
+                "recommendation": "WATCH_YES",
+                "terminal_policy": {"allowed": True, "summary": "Terminal view only.", "reasons": []},
+                "policy_reason": "Terminal view only.",
+            },
+            "best_tactical_trade": {
+                "label": "15°C",
+                "tactical_best_side": "NO",
+                "tactical_best_edge": 0.08,
+                "selected_tactical_fair": 0.66,
+                "selected_tactical_entry": 0.58,
+                "tactical_recommendation": "BUY_NO",
+                "tactical_policy": {"allowed": True, "summary": "Tactical repricing says fade 15°C.", "reasons": []},
+                "tactical_policy_reason": "Tactical repricing says fade 15°C.",
+            },
+            "all_terminal_opportunities": [{
+                "label": "15°C",
+                "fair_yes": 0.52,
+                "fair_no": 0.48,
+                "market_yes": 0.50,
+                "market_no": 0.50,
+                "best_side": "YES",
+                "selected_fair": 0.52,
+                "selected_entry": 0.50,
+                "best_edge": 0.02,
+                "edge_points": 2.0,
+                "recommendation": "WATCH_YES",
+                "policy_reason": "Terminal view only.",
+                "tactical_best_side": "NO",
+                "selected_tactical_fair": 0.66,
+                "selected_tactical_entry": 0.58,
+                "tactical_best_edge": 0.08,
+                "tactical_edge_points": 8.0,
+                "tactical_recommendation": "BUY_NO",
+                "tactical_policy_reason": "Tactical repricing says fade 15°C.",
+            }],
+            "tactical_context": {"enabled": True},
+        },
+        terminal_model=None,
+        source_snapshots=[],
+        source_history=[],
+        reality={},
+        pws_profiles=[],
+        calibration=None,
+    )
+
+    row = detail["bracket_ladder"][0]
+    assert row["recommendation"] == "WATCH_YES"
+    assert row["active_recommendation"] == "BUY_NO"
+    assert row["active_selected_side"] == "NO"
+    assert row["active_policy_reason"] == "Tactical repricing says fade 15°C."

@@ -227,6 +227,44 @@ def test_build_trading_signal_blocks_late_upside_chase_after_peak():
     assert signal["best_terminal_trade"]["best_side"] == "NO"
 
 
+def test_build_trading_signal_reconciles_stale_intraday_nowcast_with_fresh_official_max():
+    signal = build_trading_signal(
+        station_id="LFPG",
+        target_day=0,
+        target_date="2026-03-08",
+        brackets=[
+            {"name": "14 C or below", "yes_price": 0.0, "no_price": 1.0, "ws_yes_best_ask": 0.0, "ws_no_best_ask": 1.0},
+            {"name": "15 C", "yes_price": 0.0, "no_price": 1.0, "ws_yes_best_ask": 0.0, "ws_no_best_ask": 1.0},
+            {"name": "16 C", "yes_price": 0.999, "no_price": 0.001, "ws_yes_best_ask": 0.999, "ws_no_best_ask": 0.001},
+            {"name": "17 C", "yes_price": 0.001, "no_price": 0.999, "ws_yes_best_ask": 0.002, "ws_no_best_ask": 0.999},
+        ],
+        nowcast_distribution={
+            "tmax_mean_f": 61.0,
+            "tmax_sigma_f": 1.75,
+            "confidence": 0.95,
+            "t_peak_expected_hour": 14,
+        },
+        nowcast_state={},
+        official={
+            "temp_c": 12.0,
+            "daily_max_f": 53.96,
+            "obs_time_utc": "2026-03-08T20:00:00Z",
+        },
+        reference_utc=datetime(2026, 3, 8, 20, 5, tzinfo=UTC),
+    )
+
+    row_16 = _row_by_prefix(signal["all_terminal_opportunities"], "16")
+
+    assert signal["model"]["source"] == "NOWCAST"
+    assert signal["model"]["ceiling"] == 12
+    assert signal["model"]["mean"] == 12.2
+    assert signal["model"]["top_label"].startswith("14")
+    assert row_16["fair_yes"] == 0.0
+    assert row_16["best_side"] == "NO"
+    assert signal["best_terminal_trade"]["label"].startswith("14")
+    assert signal["best_terminal_trade"]["best_side"] == "YES"
+
+
 def test_build_trading_signal_prefers_forecast_winner_when_secondary_yes_lacks_clear_edge_lead():
     signal = build_trading_signal(
         station_id="KATL",

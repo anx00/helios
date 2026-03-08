@@ -702,6 +702,116 @@ def _extract_nowcast_model(
     }
 
 
+def _reconcile_intraday_terminal_model(
+    *,
+    station_id: str,
+    target_day: int,
+    terminal_model: Optional[Dict[str, Any]],
+    official: Optional[Dict[str, Any]],
+    next_projection: Optional[Dict[str, Any]],
+    reference_utc: Optional[datetime],
+) -> Optional[Dict[str, Any]]:
+    if int(target_day) != 0 or not isinstance(terminal_model, dict):
+        return terminal_model
+
+    model = dict(terminal_model)
+    market_unit = _market_unit(station_id)
+    ref_utc = (reference_utc or datetime.now(UTC)).astimezone(UTC)
+    station_now = ref_utc.astimezone(_market_timezone(station_id))
+
+    official_payload = dict(official or {}) if isinstance(official, dict) else {}
+    official_market = _convert_c_to_market_unit(official_payload.get("temp_c"), market_unit)
+    daily_max_market = _convert_f_to_market_unit(official_payload.get("daily_max_f"), market_unit)
+    official_obs_utc = _parse_iso_utc(official_payload.get("obs_time_utc"))
+
+    official_is_fresh = False
+    if official_obs_utc is not None:
+        official_age_seconds = (ref_utc - official_obs_utc).total_seconds()
+        official_is_fresh = 0.0 <= official_age_seconds <= (3.0 * 3600.0)
+
+    current_hour = _safe_float(model.get("current_hour"))
+    if current_hour is None:
+        current_hour = station_now.hour + (station_now.minute / 60.0)
+        model["current_hour"] = round(float(current_hour), 4)
+
+    peak_hour = _safe_float(model.get("peak_hour"))
+    hours_to_peak = _safe_float(model.get("hours_to_peak"))
+    if hours_to_peak is None and current_hour is not None and peak_hour is not None:
+        hours_to_peak = float(peak_hour) - float(current_hour)
+        model["hours_to_peak"] = round(float(hours_to_peak), 4)
+
+    market_floor = _round_half_up(model.get("market_floor"))
+    floor_candidates = [value for value in (
+        market_floor,
+        _round_half_up(daily_max_market),
+        _round_half_up(official_market),
+    ) if value is not None]
+    if floor_candidates:
+        market_floor = max(floor_candidates)
+        model["market_floor"] = market_floor
+
+    market_ceiling = _round_half_up(model.get("market_ceiling"))
+    market_ceiling_exact = _safe_float(model.get("market_ceiling_exact"))
+    next_direction = str((next_projection or {}).get("direction") or "FLAT").upper()
+    next_delta_market = max(0.0, _safe_float((next_projection or {}).get("delta_market")) or 0.0)
+
+    peak_passed = False
+    if current_hour is not None and peak_hour is not None and current_hour >= peak_hour + 0.5:
+        peak_passed = True
+    elif hours_to_peak is not None and hours_to_peak <= 0.0:
+        peak_passed = True
+    late_day = current_hour is not None and current_hour >= 18.0
+
+    fallback_ceiling_exact = None
+    if official_is_fresh and daily_max_market is not None and (peak_passed or late_day):
+        fallback_ceiling_exact = float(daily_max_market)
+        if official_market is not None:
+            fallback_ceiling_exact = max(fallback_ceiling_exact, float(official_market))
+        if next_direction == "UP":
+            upside_buffer = 0.6 if market_unit == "C" else 1.0
+            fallback_ceiling_exact = max(
+                fallback_ceiling_exact,
+                (float(official_market) if official_market is not None else float(daily_max_market)) + max(upside_buffer, next_delta_market),
+            )
+    elif official_is_fresh and official_market is not None and peak_passed and market_ceiling is None:
+        fallback_ceiling_exact = float(official_market)
+        if next_direction == "UP":
+            upside_buffer = 0.6 if market_unit == "C" else 1.0
+            fallback_ceiling_exact += max(upside_buffer, next_delta_market)
+
+    if fallback_ceiling_exact is not None:
+        fallback_ceiling = _round_half_up(fallback_ceiling_exact)
+        if fallback_ceiling is not None and (market_ceiling is None or fallback_ceiling < market_ceiling):
+            market_ceiling = fallback_ceiling
+            market_ceiling_exact = float(fallback_ceiling_exact)
+
+    if market_floor is not None and market_ceiling is not None and market_floor > market_ceiling:
+        market_ceiling = market_floor
+        market_ceiling_exact = float(market_floor)
+
+    if market_ceiling is not None:
+        model["market_ceiling"] = market_ceiling
+    if market_ceiling_exact is not None:
+        model["market_ceiling_exact"] = round(float(market_ceiling_exact), 4)
+
+    mean_market = _safe_float(model.get("mean_market"))
+    if mean_market is not None:
+        adjusted_mean = float(mean_market)
+        floor_value = float(market_floor) if market_floor is not None else None
+        ceiling_value = (
+            float(market_ceiling_exact)
+            if market_ceiling_exact is not None
+            else (float(market_ceiling) if market_ceiling is not None else None)
+        )
+        if floor_value is not None:
+            adjusted_mean = max(adjusted_mean, floor_value)
+        if ceiling_value is not None:
+            adjusted_mean = min(adjusted_mean, ceiling_value)
+        model["mean_market"] = round(float(adjusted_mean), 4)
+
+    return model
+
+
 def _coerce_target_date(value: Any, reference_utc: datetime, station_id: str, target_day: int) -> date:
     if isinstance(value, date):
         return value

@@ -2986,6 +2986,9 @@ async def get_polymarket_dashboard_data(
     brackets.sort(key=lambda x: x["yes_price"], reverse=True)
 
     trading = None
+    official = None
+    pws_details = []
+    pws_metrics = {}
     try:
         from core.trading_signal import build_trading_signal
         from database import get_latest_prediction, get_latest_prediction_for_date
@@ -2993,9 +2996,6 @@ async def get_polymarket_dashboard_data(
         pred = get_latest_prediction_for_date(station_id, target_date_str) or get_latest_prediction(station_id)
         nowcast_distribution = None
         nowcast_state = None
-        official = None
-        pws_details = []
-        pws_metrics = {}
 
         if resolved_target_day == 0:
             try:
@@ -3060,6 +3060,11 @@ async def get_polymarket_dashboard_data(
         "sentiment": sentiment,
         "shifts": shifts,
         "trading": trading,
+        "intraday_context": {
+            "official": official if isinstance(official, dict) and official else None,
+            "pws_detail_count": len(list(pws_details or [])),
+            "has_pws_metrics": bool(pws_metrics),
+        },
         "autotrader": get_autotrader_status_snapshot(),
         "papertrader": get_papertrader_status_snapshot(),
         "server_ts": datetime.now().timestamp(),
@@ -3408,7 +3413,10 @@ async def _build_probability_lab_station_payload(
     if resolved_target_day == 0:
         world = get_world()
         snapshot = world.get_snapshot()
-        official = ((snapshot.get("official") or {}).get(station_id)) or {}
+        intraday_context = market_payload.get("intraday_context") if isinstance(market_payload.get("intraday_context"), dict) else {}
+        official = intraday_context.get("official") if isinstance(intraday_context.get("official"), dict) else None
+        if not isinstance(official, dict) or not official:
+            official = ((snapshot.get("official") or {}).get(station_id)) or {}
         daily_max_f = official.get("daily_max_f")
         cumulative_max_market = _convert_f_to_probability_lab_unit(daily_max_f, market_unit)
         official_market = _convert_c_to_probability_lab_unit(official.get("temp_c"), market_unit)
