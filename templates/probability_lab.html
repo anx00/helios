@@ -485,6 +485,11 @@
     table-layout: fixed;
 }
 
+.pl-table-wrap {
+    width: 100%;
+    overflow-x: auto;
+}
+
 .pl-table th,
 .pl-table td {
     padding: 12px 10px;
@@ -627,13 +632,13 @@
         </section>
 
         <section class="pl-advanced-shell">
-            <details class="pl-advanced-details" id="plAdvancedDetails">
-                <summary>Advanced view</summary>
+            <details class="pl-advanced-details" id="plAdvancedDetails" open>
+                <summary>Technical detail</summary>
                 <div class="pl-advanced-body">
                     <article class="pl-panel">
-                        <div class="pl-section-label">Advanced summary</div>
+                        <div class="pl-section-label">Technical summary</div>
                         <div class="pl-note" id="plAdvancedSummary">
-                            Raw source drift, full ladder, calibration, and PWS context for the active station.
+                            External-source charts, the full YES/NO ladder, calibration, and PWS context for the active station.
                         </div>
                     </article>
 
@@ -641,7 +646,7 @@
                         <article class="pl-panel">
                             <div class="pl-section-label">Source history</div>
                             <div class="pl-panel-title">Forecast drift by source</div>
-                            <div class="pl-note" id="plHistoryMeta">Open the advanced view to load source history.</div>
+                            <div class="pl-note" id="plHistoryMeta">Loading source history for the active horizon.</div>
                             <div class="pl-chart"><canvas id="plHistoryChart"></canvas></div>
                         </article>
                         <article class="pl-panel">
@@ -655,7 +660,7 @@
 
                     <article class="pl-panel">
                         <div class="pl-section-label">Bracket ladder</div>
-                        <div class="pl-panel-title">Fair value versus market pricing</div>
+                        <div class="pl-panel-title">All bracket probabilities and market pricing</div>
                         <div id="plLadder">
                             <div class="pl-loading">Waiting for bracket details.</div>
                         </div>

@@ -489,8 +489,10 @@
         renderSummaryCard(els.marketCard, "What the market says", "--", "Waiting for the market snapshot.", "");
         renderSummaryCard(els.realityCard, "Current reality", "--", "Waiting for live context.", "");
         els.whyList.innerHTML = "<li>Collecting the latest reasons behind the current recommendation.</li>";
-        els.advancedSummary.textContent = "Raw source drift, full ladder, calibration, and PWS context for the active station.";
-        els.historyMeta.textContent = "Open the advanced view to load source history.";
+        els.advancedSummary.textContent = "External-source charts, the full YES/NO ladder, calibration, and PWS context for the active station.";
+        els.historyMeta.textContent = els.advancedDetails.open
+            ? "Loading source history for the active horizon."
+            : "Open the technical detail to load source history.";
         els.sourceList.innerHTML = '<div class="pl-loading">Waiting for source detail.</div>';
         els.ladder.innerHTML = '<div class="pl-loading">Waiting for bracket details.</div>';
         els.realityDetails.innerHTML = '<div class="pl-loading">Waiting for reality detail.</div>';
@@ -511,7 +513,7 @@
         els.marketCard.innerHTML = '<div class="pl-empty">Market context is unavailable.</div>';
         els.realityCard.innerHTML = '<div class="pl-empty">Reality context is unavailable.</div>';
         els.whyList.innerHTML = "<li>The page could not assemble a usable summary from the current payload.</li>";
-        els.advancedSummary.textContent = "Advanced detail is unavailable until the station payload loads successfully.";
+        els.advancedSummary.textContent = "Technical detail is unavailable until the station payload loads successfully.";
         els.historyMeta.textContent = "History could not be loaded.";
         els.sourceList.innerHTML = `<div class="pl-error">${esc(message)}</div>`;
         els.ladder.innerHTML = '<div class="pl-empty">No ladder is available right now.</div>';
@@ -529,6 +531,7 @@
 
         els.sourceList.innerHTML = rows.map((row) => {
             const status = String(row?.status || "").toLowerCase();
+            const notes = Array.isArray(row?.notes) ? row.notes.filter(Boolean) : [];
             return `
                 <div class="pl-source-card">
                     <div class="pl-source-head">
@@ -538,6 +541,7 @@
                     <div class="pl-note">High ${esc(formatNumber(row?.forecast_high_market, 1))}</div>
                     <div class="pl-note">${row?.peak_hour_local != null ? `Peak near ${esc(formatNumber(Number(row.peak_hour_local), 1))}h local.` : "Peak timing not available."}</div>
                     <div class="pl-note">Updated ${esc(formatStamp(row?.provider_updated_local || row?.captured_at_utc))}</div>
+                    ${notes.length ? `<div class="pl-note">${esc(notes.join(" | "))}</div>` : ""}
                 </div>
             `;
         }).join("");
@@ -551,13 +555,17 @@
         }
 
         els.ladder.innerHTML = `
+            <div class="pl-table-wrap">
             <table class="pl-table">
                 <thead>
                     <tr>
                         <th>Bracket</th>
                         <th>Fair YES</th>
+                        <th>Fair NO</th>
                         <th>Market YES</th>
-                        <th>Selected side</th>
+                        <th>Market NO</th>
+                        <th>Active side</th>
+                        <th>Fair / entry</th>
                         <th>Edge</th>
                         <th>Recommendation</th>
                         <th>Why</th>
@@ -566,17 +574,22 @@
                 <tbody>
                     ${rows.map((row) => {
                         const selectedSide = String(row?.active_selected_side || row?.selected_side || "--").toUpperCase();
+                        const fair = row?.active_selected_fair ?? row?.selected_fair;
                         const entry = row?.active_selected_entry ?? row?.selected_entry;
                         const edgePoints = row?.active_edge_points ?? row?.edge_points;
+                        const bestEdge = row?.active_best_edge ?? row?.best_edge;
                         const recommendation = recommendationText(row?.active_recommendation || row?.recommendation);
                         const why = humanizeReason(row?.active_policy_reason || row?.policy_reason);
                         return `
                             <tr>
                                 <td><strong>${esc(bracketLabel(row?.label))}</strong></td>
                                 <td>${esc(formatPercent(row?.fair_yes, 0))}</td>
+                                <td>${esc(formatPercent(row?.fair_no, 0))}</td>
                                 <td>${esc(formatPercent(row?.market_yes, 0))}</td>
-                                <td>${esc(selectedSide)} @ ${esc(formatPercent(entry, 0))}</td>
-                                <td>${typeof edgePoints === "number" ? `${edgePoints.toFixed(1)} pts` : "--"}</td>
+                                <td>${esc(formatPercent(row?.market_no, 0))}</td>
+                                <td>${esc(selectedSide)}</td>
+                                <td>${esc(formatPercent(fair, 0))} fair | ${esc(formatPercent(entry, 0))} entry</td>
+                                <td>${typeof edgePoints === "number" ? `${edgePoints.toFixed(1)} pts` : "--"}${typeof bestEdge === "number" ? ` | ${formatPercent(bestEdge, 1)} raw` : ""}</td>
                                 <td>${esc(recommendation)}</td>
                                 <td>${esc(why)}</td>
                             </tr>
@@ -584,6 +597,7 @@
                     }).join("")}
                 </tbody>
             </table>
+            </div>
         `;
     }
 
@@ -732,7 +746,7 @@
     function renderHistory(detail) {
         if (!els.advancedDetails.open) {
             destroyChart();
-            els.historyMeta.textContent = "Open the advanced view to load source history.";
+            els.historyMeta.textContent = "Open the technical detail to load source history.";
             return;
         }
 
@@ -823,7 +837,7 @@
         renderRealityDetails(detail);
         renderCalibration(detail);
         renderPws(detail);
-        els.advancedSummary.textContent = `Raw source drift, full ladder, calibration, and PWS context for ${currentStationOption()?.label || detail?.station_id || state.stationId}.`;
+        els.advancedSummary.textContent = `External-source charts, the full YES/NO ladder, calibration, and PWS context for ${currentStationOption()?.label || detail?.station_id || state.stationId}.`;
         renderHistory(detail);
     }
 
