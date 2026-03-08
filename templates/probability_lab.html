@@ -3,79 +3,78 @@
 {% block head_extra %}
 <style>
 :root {
-    --pl-surface: rgba(8, 14, 27, 0.92);
-    --pl-surface-soft: rgba(12, 18, 30, 0.88);
-    --pl-panel: rgba(15, 23, 42, 0.8);
-    --pl-panel-strong: rgba(17, 24, 39, 0.92);
+    --pl-surface: rgba(8, 14, 27, 0.94);
+    --pl-panel: rgba(13, 20, 36, 0.88);
+    --pl-panel-soft: rgba(16, 24, 43, 0.82);
     --pl-border: rgba(148, 163, 184, 0.16);
-    --pl-border-strong: rgba(56, 189, 248, 0.28);
+    --pl-border-strong: rgba(96, 165, 250, 0.28);
     --pl-heading: #f8fbff;
-    --pl-copy: #c3d2e8;
+    --pl-copy: #c7d2e5;
     --pl-muted: #7f94ae;
-    --pl-teal: #2dd4bf;
-    --pl-cyan: #38bdf8;
-    --pl-amber: #fbbf24;
-    --pl-success: #86efac;
-    --pl-blue-soft: #bfdbfe;
-    --pl-danger: #fda4af;
-    --pl-shadow: 0 20px 48px rgba(2, 6, 23, 0.34);
+    --pl-accent: #38bdf8;
+    --pl-accent-soft: rgba(56, 189, 248, 0.14);
+    --pl-positive: #86efac;
+    --pl-positive-bg: rgba(22, 163, 74, 0.16);
+    --pl-negative: #bfdbfe;
+    --pl-negative-bg: rgba(59, 130, 246, 0.16);
+    --pl-neutral: #dbe6f4;
+    --pl-neutral-bg: rgba(148, 163, 184, 0.12);
+    --pl-warn: #fde68a;
+    --pl-warn-bg: rgba(245, 158, 11, 0.14);
+    --pl-shadow: 0 24px 56px rgba(2, 6, 23, 0.36);
 }
 
 .pl-shell {
     display: flex;
     flex-direction: column;
-    gap: 24px;
+    gap: 22px;
     width: 100%;
 }
 
 .pl-hero,
-.pl-card,
 .pl-panel,
-.pl-drawer-panel {
+.pl-summary-card,
+.pl-primary-card,
+.pl-advanced-shell {
     border: 1px solid var(--pl-border);
     border-radius: 24px;
+    background: linear-gradient(180deg, rgba(10, 16, 30, 0.98), rgba(10, 16, 30, 0.9));
+    box-shadow: var(--pl-shadow);
 }
 
 .pl-hero {
     position: relative;
     display: grid;
-    grid-template-columns: minmax(0, 1.3fr) minmax(320px, 0.9fr);
-    gap: 24px;
-    padding: 30px;
+    grid-template-columns: minmax(0, 1.4fr) minmax(260px, 0.8fr);
+    gap: 22px;
+    padding: 28px;
     overflow: hidden;
     background:
-        radial-gradient(circle at 0% 20%, rgba(45, 212, 191, 0.18), transparent 34%),
-        radial-gradient(circle at 100% 0%, rgba(56, 189, 248, 0.18), transparent 30%),
-        linear-gradient(135deg, rgba(7, 12, 24, 0.96), rgba(7, 14, 29, 0.92));
-    box-shadow: var(--pl-shadow);
+        radial-gradient(circle at top left, rgba(56, 189, 248, 0.16), transparent 34%),
+        radial-gradient(circle at right top, rgba(45, 212, 191, 0.12), transparent 26%),
+        linear-gradient(135deg, rgba(7, 12, 24, 0.98), rgba(8, 14, 27, 0.92));
 }
 
 .pl-hero::after {
     content: "";
     position: absolute;
     inset: 0;
-    background: linear-gradient(90deg, rgba(255, 255, 255, 0.02), transparent 48%, rgba(255, 255, 255, 0.03));
+    background: linear-gradient(90deg, rgba(255, 255, 255, 0.02), transparent 42%, rgba(255, 255, 255, 0.03));
     pointer-events: none;
 }
 
-.pl-hero-copy,
-.pl-hero-side,
-.pl-card > *,
+.pl-hero > *,
 .pl-panel > *,
-.pl-stat > * {
-    min-width: 0;
+.pl-summary-card > *,
+.pl-primary-card > * {
     position: relative;
     z-index: 1;
 }
 
-.pl-hero-copy {
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-}
-
 .pl-kicker,
-.pl-label {
+.pl-section-label,
+.pl-mini-label,
+.pl-table th {
     font-size: 11px;
     font-weight: 700;
     letter-spacing: 0.12em;
@@ -87,10 +86,17 @@
     color: #7dd3fc;
 }
 
-.pl-title {
+.pl-hero-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-width: 0;
+}
+
+.pl-hero-title {
     color: var(--pl-heading);
     font-family: "Space Grotesk", sans-serif;
-    font-size: clamp(2rem, 3.2vw, 3.35rem);
+    font-size: clamp(2rem, 3vw, 3.2rem);
     line-height: 1.04;
     letter-spacing: -0.03em;
 }
@@ -107,38 +113,18 @@
 }
 
 .pl-controls,
-.pl-coverage {
+.pl-chip-row,
+.pl-primary-meta {
     display: flex;
     flex-wrap: wrap;
-    gap: 12px;
+    gap: 10px;
     align-items: center;
 }
 
-.pl-coverage {
-    margin-top: 4px;
-}
-
-.pl-strip,
-.pl-detail-list,
-.pl-mini-list {
-    display: grid;
-    gap: 12px;
-}
-
-.pl-strip {
-    grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
-}
-
-.pl-detail-list,
-.pl-mini-list {
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-}
-
 .pl-toggle,
-.pl-search,
-.pl-btn,
 .pl-chip,
-.pl-badge {
+.pl-action-badge,
+.pl-primary-meta-item {
     border-radius: 999px;
     border: 1px solid rgba(148, 163, 184, 0.16);
 }
@@ -146,393 +132,289 @@
 .pl-toggle {
     display: inline-flex;
     padding: 4px;
-    overflow: hidden;
     background: rgba(15, 23, 42, 0.76);
     border-color: rgba(56, 189, 248, 0.14);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
-.pl-toggle button,
-.pl-btn,
-.pl-close,
-.pl-card {
+.pl-toggle button {
     appearance: none;
     -webkit-appearance: none;
-    font: inherit;
-}
-
-.pl-toggle button,
-.pl-btn {
     border: none;
     background: transparent;
     color: var(--pl-copy);
     padding: 10px 16px;
+    border-radius: 999px;
+    cursor: pointer;
+    font: inherit;
     font-size: 12px;
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    cursor: pointer;
     transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease;
 }
 
-.pl-toggle button {
-    border-radius: 999px;
-}
-
-.pl-toggle button:hover,
-.pl-btn:hover,
-.pl-close:hover {
+.pl-toggle button:hover {
     color: var(--pl-heading);
     transform: translateY(-1px);
 }
 
-.pl-toggle button.active,
-.pl-btn.active {
+.pl-toggle button.active {
     color: #ecfeff;
     background: linear-gradient(135deg, rgba(14, 165, 233, 0.26), rgba(16, 185, 129, 0.18));
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
-}
-
-.pl-btn {
-    padding: 11px 16px;
-    background: rgba(15, 23, 42, 0.76);
-}
-
-.pl-search {
-    flex: 1 1 280px;
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-    min-width: min(100%, 260px);
-    padding: 0 14px;
-    background: rgba(15, 23, 42, 0.8);
-}
-
-.pl-search i {
-    color: var(--pl-muted);
-    width: 16px;
-    height: 16px;
-}
-
-.pl-search input {
-    width: 100%;
-    padding: 12px 0;
-    border: none;
-    outline: none;
-    background: transparent;
-    color: var(--pl-heading);
-    font: inherit;
-}
-
-.pl-search input::placeholder {
-    color: var(--pl-muted);
-}
-
-.pl-stats {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 14px;
-    align-self: stretch;
-}
-
-.pl-stat {
-    min-height: 136px;
-    padding: 18px 20px;
-    border-radius: 20px;
-    border: 1px solid var(--pl-border);
-    background: linear-gradient(180deg, rgba(17, 24, 39, 0.8), rgba(12, 18, 30, 0.94));
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
-}
-
-.pl-stat-value,
-.pl-main,
-.pl-metric-value,
-.pl-strip-value,
-.pl-band-value {
-    color: var(--pl-heading);
-    font-family: "Space Grotesk", sans-serif;
-    font-weight: 700;
-}
-
-.pl-stat-value {
-    margin: 10px 0 6px;
-    font-size: clamp(1.75rem, 1.6rem + 1vw, 2.5rem);
-    line-height: 1;
 }
 
 .pl-chip {
     display: inline-flex;
     align-items: center;
     padding: 7px 12px;
+    background: rgba(15, 23, 42, 0.78);
+    color: var(--pl-copy);
     font-size: 11px;
     line-height: 1.1;
-    background: rgba(15, 23, 42, 0.74);
-    color: var(--pl-copy);
 }
 
-.pl-chip.ok {
-    color: var(--pl-success);
-    border-color: rgba(34, 197, 94, 0.28);
-    background: rgba(34, 197, 94, 0.12);
+.pl-chip-row {
+    margin-top: 4px;
 }
 
-.pl-chip.partial,
-.pl-chip.omitted {
-    color: #fcd34d;
-    border-color: rgba(245, 158, 11, 0.28);
-    background: rgba(245, 158, 11, 0.12);
-}
-
-.pl-chip.error {
-    color: var(--pl-danger);
-    border-color: rgba(244, 63, 94, 0.28);
-    background: rgba(244, 63, 94, 0.12);
-}
-
-.pl-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
-    gap: 20px;
-}
-
-.pl-card {
-    width: 100%;
+.pl-station-card {
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 12px;
     padding: 20px;
+    border-radius: 20px;
     border: 1px solid var(--pl-border);
-    cursor: pointer;
-    text-align: left;
-    color: var(--pl-heading);
-    background:
-        radial-gradient(circle at 100% 0%, rgba(45, 212, 191, 0.08), transparent 30%),
-        linear-gradient(180deg, rgba(8, 14, 27, 0.98), rgba(8, 14, 27, 0.92));
-    box-shadow: var(--pl-shadow);
-    transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+    background: linear-gradient(180deg, rgba(16, 24, 43, 0.86), rgba(10, 15, 28, 0.96));
 }
 
-.pl-card:hover {
-    transform: translateY(-4px);
-    border-color: var(--pl-border-strong);
-    box-shadow: 0 28px 54px rgba(2, 6, 23, 0.44);
-}
-
-.pl-row,
-.pl-head,
-.pl-foot {
-    display: flex;
-    justify-content: space-between;
-    gap: 14px;
-}
-
-.pl-head {
-    align-items: flex-start;
-}
-
-.pl-row {
-    align-items: flex-end;
-}
-
-.pl-foot {
-    align-items: flex-start;
-    padding-top: 2px;
-    border-top: 1px solid rgba(148, 163, 184, 0.08);
-}
-
-.pl-station {
+.pl-station-title {
     color: var(--pl-heading);
     font-family: "Space Grotesk", sans-serif;
-    font-size: clamp(1.35rem, 1.15rem + 0.45vw, 1.75rem);
-    font-weight: 700;
+    font-size: 1.45rem;
     line-height: 1.1;
-    letter-spacing: -0.02em;
-    overflow-wrap: anywhere;
 }
 
-.pl-date {
+.pl-station-meta {
+    color: var(--pl-copy);
     font-size: 12px;
-    color: var(--pl-muted);
+    line-height: 1.5;
 }
 
-.pl-badge {
+.pl-primary-card,
+.pl-panel,
+.pl-summary-card,
+.pl-advanced-shell {
+    padding: 22px;
+}
+
+.pl-primary-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.pl-action-title {
+    color: var(--pl-heading);
+    font-family: "Space Grotesk", sans-serif;
+    font-size: clamp(1.7rem, 2.2vw, 2.6rem);
+    line-height: 1.06;
+    letter-spacing: -0.03em;
+}
+
+.pl-action-badge {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    align-self: flex-start;
-    min-height: 42px;
-    max-width: 12.5rem;
+    min-height: 40px;
     padding: 10px 14px;
     font-size: 11px;
     font-weight: 800;
-    line-height: 1.2;
     letter-spacing: 0.12em;
-    text-align: center;
     text-transform: uppercase;
-    white-space: normal;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    white-space: nowrap;
 }
 
-.pl-badge.buy {
-    color: #d1fae5;
-    border-color: rgba(16, 185, 129, 0.34);
-    background: rgba(16, 185, 129, 0.16);
+.pl-action-badge.buy-yes {
+    color: var(--pl-positive);
+    border-color: rgba(34, 197, 94, 0.28);
+    background: var(--pl-positive-bg);
 }
 
-.pl-badge.lean {
-    color: var(--pl-blue-soft);
-    border-color: rgba(59, 130, 246, 0.34);
-    background: rgba(59, 130, 246, 0.16);
+.pl-action-badge.buy-no {
+    color: var(--pl-negative);
+    border-color: rgba(96, 165, 250, 0.28);
+    background: var(--pl-negative-bg);
 }
 
-.pl-badge.watch {
-    color: #fde68a;
-    border-color: rgba(245, 158, 11, 0.32);
-    background: rgba(245, 158, 11, 0.14);
+.pl-action-badge.no-trade {
+    color: var(--pl-neutral);
+    border-color: rgba(148, 163, 184, 0.24);
+    background: var(--pl-neutral-bg);
 }
 
-.pl-badge.block {
-    color: #d8e2ee;
-    border-color: rgba(148, 163, 184, 0.26);
-    background: rgba(148, 163, 184, 0.11);
+.pl-primary-copy {
+    margin-top: 10px;
+    max-width: 78ch;
 }
 
-.pl-main {
-    font-size: clamp(2rem, 1.6rem + 0.75vw, 2.45rem);
-    line-height: 1.02;
-    color: var(--pl-heading);
+.pl-primary-meta {
+    margin-top: 18px;
 }
 
-.pl-right {
-    max-width: 12rem;
-    text-align: right;
-    font-size: 12px;
-    line-height: 1.45;
+.pl-primary-meta-item {
+    padding: 8px 12px;
+    background: rgba(15, 23, 42, 0.74);
     color: var(--pl-copy);
+    font-size: 11px;
 }
 
-.pl-metrics,
-.pl-card-band {
+.pl-summary-grid,
+.pl-advanced-grid,
+.pl-detail-grid,
+.pl-triad-grid {
+    display: grid;
+    gap: 18px;
+}
+
+.pl-summary-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.pl-summary-card {
+    min-width: 0;
+}
+
+.pl-summary-value,
+.pl-detail-value,
+.pl-data-list strong {
+    color: var(--pl-heading);
+    font-family: "Space Grotesk", sans-serif;
+}
+
+.pl-summary-value {
+    margin-top: 6px;
+    font-size: 1.75rem;
+    line-height: 1.08;
+}
+
+.pl-summary-note {
+    margin-top: 10px;
+}
+
+.pl-bullet-list {
     display: grid;
     gap: 12px;
+    list-style: none;
+    margin-top: 14px;
+    padding: 0;
 }
 
-.pl-metrics {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.pl-card-band {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.pl-metric,
-.pl-strip-item,
-.pl-list-item,
-.pl-mini-item,
-.pl-band {
+.pl-bullet-list li {
+    display: grid;
+    grid-template-columns: 18px minmax(0, 1fr);
+    gap: 10px;
+    align-items: flex-start;
     padding: 12px 14px;
     border-radius: 16px;
     border: 1px solid rgba(148, 163, 184, 0.12);
     background: linear-gradient(180deg, rgba(15, 23, 42, 0.78), rgba(12, 18, 30, 0.92));
+    color: var(--pl-copy);
+    font-size: 13px;
+    line-height: 1.55;
 }
 
-.pl-strip-item {
-    min-width: 0;
-}
-
-.pl-metric-value,
-.pl-strip-value,
-.pl-band-value {
+.pl-bullet-list li::before {
+    content: "";
+    width: 8px;
+    height: 8px;
     margin-top: 6px;
-    font-size: 18px;
-    line-height: 1.25;
-    overflow-wrap: anywhere;
+    border-radius: 999px;
+    background: var(--pl-accent);
+    box-shadow: 0 0 0 6px rgba(56, 189, 248, 0.08);
 }
 
 .pl-empty,
-.pl-loading {
-    padding: 30px;
-    border-radius: 20px;
+.pl-loading,
+.pl-error {
+    padding: 22px;
+    border-radius: 18px;
     border: 1px dashed rgba(148, 163, 184, 0.18);
     background: rgba(15, 23, 42, 0.44);
     text-align: center;
     color: var(--pl-copy);
+    font-size: 13px;
+    line-height: 1.6;
 }
 
-.pl-drawer {
-    position: fixed;
-    inset: 0;
-    display: none;
-    align-items: stretch;
-    justify-content: flex-end;
-    background: rgba(2, 6, 23, 0.76);
-    backdrop-filter: blur(8px);
-    z-index: 60;
+.pl-error {
+    color: #fecaca;
+    border-color: rgba(248, 113, 113, 0.24);
 }
 
-.pl-drawer.open {
+.pl-advanced-details {
+    display: block;
+}
+
+.pl-advanced-details summary {
+    list-style: none;
     display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    cursor: pointer;
+    color: var(--pl-heading);
+    font-family: "Space Grotesk", sans-serif;
+    font-size: 1.1rem;
 }
 
-.pl-drawer-panel {
-    width: min(980px, 100vw);
-    height: 100vh;
-    overflow-y: auto;
-    border-radius: 0;
-    border-left: 1px solid rgba(148, 163, 184, 0.14);
-    padding: 28px;
+.pl-advanced-details summary::-webkit-details-marker {
+    display: none;
+}
+
+.pl-advanced-details summary::after {
+    content: "Show";
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 68px;
+    min-height: 32px;
+    padding: 0 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(148, 163, 184, 0.16);
+    background: rgba(15, 23, 42, 0.74);
+    color: var(--pl-copy);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.pl-advanced-details[open] summary::after {
+    content: "Hide";
+}
+
+.pl-advanced-body {
     display: flex;
     flex-direction: column;
-    gap: 16px;
-    color: var(--pl-heading);
-    background:
-        radial-gradient(circle at top right, rgba(14, 165, 233, 0.14), transparent 26%),
-        linear-gradient(180deg, rgba(10, 14, 23, 0.98), rgba(7, 12, 24, 1));
+    gap: 18px;
+    margin-top: 18px;
 }
 
-.pl-drawer-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 16px;
-}
-
-.pl-detail-title {
-    font-size: 28px;
-    margin-bottom: 6px;
-}
-
-.pl-close {
-    width: 40px;
-    height: 40px;
-    border: 1px solid rgba(148, 163, 184, 0.18);
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.06);
-    color: var(--pl-heading);
-    cursor: pointer;
-    font-size: 20px;
-    line-height: 1;
+.pl-advanced-grid {
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
 }
 
 .pl-detail-grid {
-    display: grid;
-    grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
-    gap: 16px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.pl-detail-triad {
-    display: grid;
+.pl-triad-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 16px;
-}
-
-.pl-panel {
-    padding: 20px;
-    background: linear-gradient(180deg, rgba(12, 18, 30, 0.92), rgba(10, 15, 28, 0.96));
 }
 
 .pl-panel-title {
-    margin-top: 4px;
+    margin-top: 6px;
     color: var(--pl-heading);
     font-size: 18px;
     font-family: "Space Grotesk", sans-serif;
@@ -540,8 +422,60 @@
 }
 
 .pl-chart {
-    height: 300px;
+    height: 290px;
     margin-top: 14px;
+}
+
+.pl-card-list,
+.pl-data-list {
+    display: grid;
+    gap: 12px;
+    margin-top: 14px;
+}
+
+.pl-data-list {
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+}
+
+.pl-data-list-item,
+.pl-source-card {
+    padding: 12px 14px;
+    border-radius: 16px;
+    border: 1px solid rgba(148, 163, 184, 0.12);
+    background: linear-gradient(180deg, rgba(15, 23, 42, 0.78), rgba(12, 18, 30, 0.92));
+}
+
+.pl-source-card {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.pl-source-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.pl-source-status {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--pl-muted);
+}
+
+.pl-source-status.ok {
+    color: var(--pl-positive);
+}
+
+.pl-source-status.partial {
+    color: var(--pl-warn);
+}
+
+.pl-source-status.error {
+    color: #fda4af;
 }
 
 .pl-table {
@@ -556,88 +490,32 @@
     padding: 12px 10px;
     border-bottom: 1px solid rgba(148, 163, 184, 0.1);
     text-align: left;
-    font-size: 12px;
     vertical-align: top;
+    font-size: 12px;
     color: var(--pl-copy);
     overflow-wrap: anywhere;
 }
 
-.pl-table th {
-    color: var(--pl-muted);
-    font-size: 10px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-}
-
-.pl-table.compact td,
-.pl-table.compact th {
+.pl-table.compact th,
+.pl-table.compact td {
     padding: 8px 6px;
 }
 
-@media (max-width: 1400px) {
-    .pl-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
+.pl-table td strong {
+    color: var(--pl-heading);
 }
 
-@media (max-width: 1240px) {
-    .pl-hero {
-        grid-template-columns: 1fr;
-    }
-
-    .pl-copy {
-        max-width: none;
-    }
-}
-
-@media (max-width: 960px) {
-    .pl-detail-triad,
+@media (max-width: 1120px) {
+    .pl-hero,
+    .pl-advanced-grid,
+    .pl-summary-grid,
     .pl-detail-grid,
-    .pl-stats,
-    .pl-card-band {
+    .pl-triad-grid {
         grid-template-columns: 1fr;
-    }
-
-    .pl-right {
-        max-width: none;
     }
 }
 
 @media (max-width: 760px) {
-    .pl-grid,
-    .pl-metrics,
-    .pl-strip,
-    .pl-detail-list,
-    .pl-mini-list {
-        grid-template-columns: 1fr;
-    }
-
-    .pl-head,
-    .pl-row,
-    .pl-foot {
-        flex-direction: column;
-        align-items: flex-start;
-    }
-
-    .pl-right {
-        text-align: left;
-    }
-
-    .pl-badge {
-        max-width: none;
-    }
-
-    .pl-search {
-        flex-basis: 100%;
-    }
-
-    .pl-drawer-panel {
-        width: 100vw;
-        padding: 22px 18px;
-    }
-}
-
-@media (max-width: 640px) {
     .page-header,
     .page-content {
         padding-left: 16px;
@@ -645,52 +523,173 @@
     }
 
     .pl-hero,
-    .pl-card,
-    .pl-panel {
+    .pl-panel,
+    .pl-summary-card,
+    .pl-primary-card,
+    .pl-advanced-shell {
         padding: 18px;
         border-radius: 20px;
     }
 
-    .pl-title {
-        font-size: 2rem;
+    .pl-primary-head {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .pl-action-badge {
+        white-space: normal;
     }
 }
 </style>
 {% endblock %}
 {% block content %}
-<div class="page-header"><div><h1 class="page-title">Probability Lab</h1><div class="breadcrumbs"><a href="/">Home</a><span>/</span><span>Probability Lab</span></div></div></div>
-<div class="page-content"><div class="pl-shell">
-<section class="pl-hero">
-<div class="pl-hero-copy">
-<div class="pl-kicker">Polymarket probability surface</div>
-<div class="pl-title">One board for intraday pressure and day-ahead fusion.</div>
-<div class="pl-copy">Compare your model against market brackets, track external-source drift, and surface only trades that clear a real actionability threshold.</div>
-<div class="pl-controls">
-<div class="pl-toggle" id="plToggle"><button type="button" data-day="0">Same day</button><button type="button" data-day="1" class="active">Tomorrow</button><button type="button" data-day="2">Day +2</button></div>
-<button type="button" class="pl-btn" id="plActionable">Actionable only</button>
-<label class="pl-search"><i data-lucide="search"></i><input id="plSearch" type="search" placeholder="Search station or bracket"></label>
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Probability Lab</h1>
+        <div class="breadcrumbs">
+            <a href="/">Home</a>
+            <span>/</span>
+            <span>Probability Lab</span>
+        </div>
+    </div>
 </div>
-<div class="pl-coverage" id="plCoverage"></div>
-</div>
-<div class="pl-hero-side pl-stats" id="plStats"><article class="pl-stat"><div class="pl-label">Board</div><div class="pl-stat-value">--</div><div class="pl-note">Waiting for payload.</div></article><article class="pl-stat"><div class="pl-label">Actionable</div><div class="pl-stat-value">--</div><div class="pl-note">Waiting for payload.</div></article><article class="pl-stat"><div class="pl-label">Top Confidence</div><div class="pl-stat-value">--</div><div class="pl-note">Waiting for payload.</div></article><article class="pl-stat"><div class="pl-label">Generated</div><div class="pl-stat-value">--</div><div class="pl-note">Waiting for payload.</div></article></div>
-</section>
-<section class="pl-grid" id="plGrid"><div class="pl-loading">Loading Probability Lab board...</div></section>
-</div></div>
-<aside class="pl-drawer" id="plDrawer"><div class="pl-drawer-panel">
-<div class="pl-drawer-head"><div><div class="pl-kicker">Station detail</div><div class="pl-title pl-detail-title" id="plDetailTitle">Loading...</div><div class="pl-note" id="plDetailMeta">Preparing detail payload.</div></div><button type="button" class="pl-close" id="plClose">&times;</button></div>
-<div class="pl-detail-grid">
-<article class="pl-panel"><div class="pl-label">Source History</div><div class="pl-panel-title">Forecast drift by source</div><div class="pl-note" id="plHistoryMeta">Waiting for series.</div><div class="pl-chart"><canvas id="plHistoryChart"></canvas></div></article>
-<article class="pl-panel"><div class="pl-label">Source Detail</div><div class="pl-panel-title">Latest normalized snapshots</div><div class="pl-detail-list" id="plSourceList"></div></article>
-</div>
-<article class="pl-panel"><div class="pl-label">Bracket Ladder</div><div class="pl-panel-title">Fair probability vs market pricing</div><div id="plLadder"></div></article>
-<div class="pl-detail-triad">
-<article class="pl-panel"><div class="pl-label">Reality</div><div class="pl-panel-title">Current observed state</div><div class="pl-detail-list" id="plReality"></div></article>
-<article class="pl-panel"><div class="pl-label">Calibration</div><div class="pl-panel-title">Recent resolved error profile</div><div id="plCalibration"></div></article>
-<article class="pl-panel"><div class="pl-label">PWS Profiles</div><div class="pl-panel-title">Top predictive stations</div><div class="pl-detail-list" id="plPws"></div></article>
-</div>
-</div></aside>
-<script>
-(()=>{const state={targetDay:1,actionableOnly:false,search:"",payload:null,chart:null};const els={toggle:document.getElementById("plToggle"),actionable:document.getElementById("plActionable"),search:document.getElementById("plSearch"),coverage:document.getElementById("plCoverage"),stats:document.getElementById("plStats"),grid:document.getElementById("plGrid"),drawer:document.getElementById("plDrawer"),close:document.getElementById("plClose"),detailTitle:document.getElementById("plDetailTitle"),detailMeta:document.getElementById("plDetailMeta"),historyMeta:document.getElementById("plHistoryMeta"),historyChart:document.getElementById("plHistoryChart"),sourceList:document.getElementById("plSourceList"),ladder:document.getElementById("plLadder"),reality:document.getElementById("plReality"),calibration:document.getElementById("plCalibration"),pws:document.getElementById("plPws")};const colors={WUNDERGROUND:"#f59e0b",OPEN_METEO:"#38bdf8",NBM:"#34d399",LAMP:"#f472b6"};const esc=(v)=>String(v??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");const fmt=(v,d=2)=>typeof v==="number"&&Number.isFinite(v)?v.toFixed(d):"--";const fmtSigned=(v,d=2)=>typeof v==="number"&&Number.isFinite(v)?`${v>=0?"+":""}${v.toFixed(d)}`:"--";const pct=(v,d=1)=>typeof v==="number"&&Number.isFinite(v)?`${(v*100).toFixed(d)}%`:"--";const money=(v)=>typeof v==="number"&&Number.isFinite(v)?`$${v.toFixed(2)}`:"--";const stamp=(v)=>{if(!v)return"--";const d=new Date(v);return Number.isNaN(d.getTime())?v:d.toLocaleString([],{month:"short",day:"2-digit",hour:"2-digit",minute:"2-digit"})};const recClass=(v)=>{const s=String(v||"").toUpperCase();if(s.startsWith("BUY"))return"buy";if(s.startsWith("LEAN"))return"lean";if(s.startsWith("WATCH"))return"watch";return"block"};const fetchJSON=async(url)=>{const r=await fetch(url);if(!r.ok)throw new Error(`HTTP ${r.status}`);return r.json()};const listHTML=(rows,empty)=>rows.length?rows.map((row)=>`<div class="pl-list-item"><div class="pl-note"><strong>${esc(row.label)}</strong></div><div class="pl-note">${esc(row.value)}</div></div>`).join(""):`<div class="pl-empty">${esc(empty)}</div>`;const calibrationCardState=(model)=>{if(!model)return{className:"partial",label:"Calibration warmup"};if(model.calibration_active)return{className:"ok",label:"Calibration active"};if(model.calibration_warming_up)return{className:"partial",label:"Calibration warmup"};if(model.calibration_samples)return{className:"",label:"Calibration tracked"};return{className:"omitted",label:"No calibration"}};const renderStats=(cards,generated)=>{const actionable=cards.filter((c)=>c?.actionable?.available).length;const topConfidence=cards.reduce((m,c)=>Math.max(m,Number(c?.model?.confidence||0)),0);const calibrated=cards.filter((c)=>c?.model?.calibration_active).length;els.stats.innerHTML=`<article class="pl-stat"><div class="pl-label">Board</div><div class="pl-stat-value">${cards.length}</div><div class="pl-note">Stations loaded for the selected horizon.</div></article><article class="pl-stat"><div class="pl-label">Actionable</div><div class="pl-stat-value">${actionable}</div><div class="pl-note">${actionable?"BUY and LEAN cards clear the board thresholds.":"No card clears the board thresholds right now."}</div></article><article class="pl-stat"><div class="pl-label">Top Confidence</div><div class="pl-stat-value">${topConfidence?`${(topConfidence*100).toFixed(0)}%`:"--"}</div><div class="pl-note">${calibrated} cards are using calibration-adjusted source weights.</div></article><article class="pl-stat"><div class="pl-label">Generated</div><div class="pl-stat-value">${stamp(generated)}</div><div class="pl-note">Board payload timestamp in your browser locale.</div></article>`};const renderCoverage=(cards)=>{const counts={};cards.forEach((card)=>(card.source_strip||[]).forEach((source)=>{const key=`${source.source||"UNKNOWN"}:${source.status||"unknown"}`;counts[key]=(counts[key]||0)+1}));const items=Object.entries(counts);els.coverage.innerHTML=items.length?items.map(([key,count])=>{const [source,status]=key.split(":");return`<span class="pl-chip ${esc(status)}">${esc(source)} ${esc(status)} | ${count}</span>`}).join(""):'<span class="pl-chip">Intraday mode focuses on reality and PWS instead of future source snapshots.</span>'};const visibleCards=()=>((state.payload?.cards)||[]).filter((card)=>{if(!state.search)return true;const q=state.search.toLowerCase();return[card.station_name,card.station_id,card.market?.top_label,card.model?.top_label,card.actionable?.label].join(" ").toLowerCase().includes(q)});const renderCards=()=>{const cards=visibleCards();if(!cards.length){els.grid.innerHTML='<div class="pl-empty">No cards match the current filters.</div>';return}els.grid.innerHTML=cards.map((card)=>{const calState=calibrationCardState(card.model||{});const calSummary=card.model?.calibration_warming_up?"Recent resolved days are still warming up.":(card.model?.calibration_samples?`MAE ${fmt(card.model.calibration_mae_market,2)} | Bias ${fmtSigned(card.model.calibration_bias_market,2)} | ${card.model.calibration_samples} samples`:"No resolved-day calibration yet.");return`<button type="button" class="pl-card" data-station="${esc(card.station_id)}"><div class="pl-head"><div><div class="pl-label">${esc(card.horizon||"--")}</div><div class="pl-station">${esc(card.station_name||card.station_id)}</div><div class="pl-date">${esc(card.station_id)} | ${esc(card.target_date||"--")}</div></div><span class="pl-badge ${recClass(card.actionable?.recommendation)}">${esc(card.actionable?.available?card.actionable?.recommendation:"No actionable edge")}</span></div><div class="pl-row"><div><div class="pl-label">Model winner</div><div class="pl-main">${esc(card.model?.top_label||"--")}</div></div><div class="pl-right"><div>${esc(card.market?.top_label||"--")} @ ${pct(card.market?.top_price,1)}</div><div>Vol ${money(card.market?.volume)}</div></div></div><div class="pl-metrics"><div class="pl-metric"><div class="pl-label">Mean</div><div class="pl-metric-value">${fmt(card.model?.mean,1)}</div></div><div class="pl-metric"><div class="pl-label">Sigma</div><div class="pl-metric-value">${fmt(card.model?.sigma,2)}</div></div><div class="pl-metric"><div class="pl-label">Confidence</div><div class="pl-metric-value">${pct(card.model?.confidence,0)}</div></div></div><div class="pl-card-band"><div class="pl-band"><div class="pl-label">Actionable edge</div><div class="pl-band-value">${card.actionable?.available?`${esc(card.actionable?.side||"--")} ${esc(card.actionable?.label||"--")}`:"Watchlist only"}</div><div class="pl-note">${card.actionable?.available?`Entry ${pct(card.actionable?.entry_price,1)} vs fair ${pct(card.actionable?.fair_prob,1)}`:esc(card.actionable?.reason||"No actionable edge")}</div></div><div class="pl-band"><div class="pl-label">Calibration</div><div class="pl-band-value"><span class="pl-chip ${esc(calState.className)}">${esc(calState.label)}</span></div><div class="pl-note">${esc(calSummary)}</div></div><div class="pl-band"><div class="pl-label">Reality</div><div class="pl-band-value">${esc(card.reality?.current_reality_bracket||card.reality?.resolved_winning_bracket||"--")}</div><div class="pl-note">${card.reality?.official_temp_market!=null?`Official ${fmt(card.reality.official_temp_market,1)} | Max ${fmt(card.reality.cumulative_max_market,1)}`:"Reality block builds from official observations and resolved days."}</div></div></div><div class="pl-strip">${(card.source_strip||[]).slice(0,4).map((source)=>`<div class="pl-strip-item"><div class="pl-label">${esc(source.source||"--")}</div><div class="pl-strip-value">${fmt(source.forecast_high_market,1)}</div><div class="pl-note">${esc(source.status||"--")}</div></div>`).join("")||'<div class="pl-note">No future-source strip for this horizon.</div>'}</div><div class="pl-foot"><div class="pl-note">${card.reality?.current_reality_bracket?`Reality now: ${esc(card.reality.current_reality_bracket)}`:"Reality block warms up from official + cumulative max."}</div><div class="pl-note">${(card.pws?.top_profiles||[]).length?`${(card.pws.top_profiles||[]).length} PWS profiles ranked`:"No PWS block for this horizon"}</div></div></button>`}).join("");els.grid.querySelectorAll(".pl-card").forEach((button)=>button.addEventListener("click",()=>openDetail(button.getAttribute("data-station"))))};const renderBoard=(payload)=>{state.payload=payload;renderStats(payload.cards||[],payload.generated_at_utc);renderCoverage(payload.cards||[]);renderCards()};const renderHistory=(detail)=>{if(state.chart){state.chart.destroy();state.chart=null}const series=detail?.source_history?.series||[];els.historyMeta.textContent=detail?.source_history?.history_warming_up?"History is warming up. Fresh snapshots exist, but persistence has little lookback yet.":`${series.length} source series over the requested lookback window.`;if(!series.length||typeof Chart==="undefined")return;const stamps=new Set();series.forEach((row)=>(row.points||[]).forEach((point)=>point?.captured_at_utc&&stamps.add(point.captured_at_utc)));const labels=[...stamps].sort((a,b)=>new Date(a)-new Date(b));const datasets=series.map((row)=>{const map=new Map((row.points||[]).map((point)=>[point.captured_at_utc,point.forecast_high_market]));return{label:row.source,data:labels.map((label)=>map.has(label)?map.get(label):null),borderColor:colors[row.source]||"#cbd5e1",backgroundColor:"transparent",tension:.28,spanGaps:true,pointRadius:2,borderWidth:2}});state.chart=new Chart(els.historyChart.getContext("2d"),{type:"line",data:{labels:labels.map(stamp),datasets},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:"nearest",intersect:false},plugins:{legend:{labels:{color:"#cbd5e1"}}},scales:{x:{ticks:{color:"#94a3b8",maxRotation:0,autoSkip:true,maxTicksLimit:8},grid:{color:"rgba(148,163,184,0.12)"}},y:{ticks:{color:"#94a3b8"},grid:{color:"rgba(148,163,184,0.12)"}}}}})};const renderReality=(detail)=>{const rows=Object.entries(detail.reality||{}).filter(([key])=>!String(key).startsWith("calibration_")).map(([key,value])=>({label:key.replace(/_/g," "),value:value==null?"--":String(value)}));els.reality.innerHTML=listHTML(rows,"No reality block available.")};const renderCalibration=(detail)=>{const calibration=detail?.calibration||{};const ranking=calibration.source_ranking||[];const statusChip=calibration.active?'<span class="pl-chip ok">Live weighting</span>':(calibration.warming_up?'<span class="pl-chip partial">Warmup</span>':'<span class="pl-chip">Tracked only</span>');const summary=`<div class="pl-mini-list"><div class="pl-mini-item"><div class="pl-label">Status</div><div class="pl-band-value">${statusChip}</div></div><div class="pl-mini-item"><div class="pl-label">Samples</div><div class="pl-band-value">${esc(String(calibration.samples??0))}</div></div><div class="pl-mini-item"><div class="pl-label">Model MAE</div><div class="pl-band-value">${fmt(calibration.mae_market,2)}</div></div><div class="pl-mini-item"><div class="pl-label">Model Bias</div><div class="pl-band-value">${fmtSigned(calibration.bias_market,2)}</div></div></div><div class="pl-note" style="margin-top:12px;">${calibration.active?`Applied sources: ${esc((calibration.applied_sources||[]).join(", ")||"none")}`:(calibration.warming_up?"Recent resolved days are still warming up. Weights stay near the fixed baseline until enough data exists.":"Calibration is tracked but not currently shifting the live source blend.")}</div>`;const table=ranking.length?`<table class="pl-table compact"><thead><tr><th>Source</th><th>Samples</th><th>MAE</th><th>Bias</th><th>Weight x</th></tr></thead><tbody>${ranking.map((row)=>`<tr><td>${esc(row.source||"--")}</td><td>${esc(String(row.samples??0))}</td><td>${fmt(row.mae_market,2)}</td><td>${fmtSigned(row.bias_market,2)}</td><td>${fmt(row.calibration_multiplier,2)}</td></tr>`).join("")}</tbody></table>`:'<div class="pl-empty" style="margin-top:12px;">No source ranking available yet.</div>';els.calibration.innerHTML=`${summary}${table}`};const renderDetail=(detail)=>{const summary=detail?.summary||{};const calibration=detail?.calibration||{};const calibrationMeta=calibration.active?` | calibrated blend (${(calibration.applied_sources||[]).join(", ")})`:(calibration.warming_up?" | calibration warmup":"");els.detailTitle.textContent=`${summary.station_name||detail.station_id} (${detail.station_id})`;els.detailMeta.textContent=`${summary.horizon||"--"} | ${detail.target_date||"--"} | ${(summary.model||{}).source||"No model"}${calibrationMeta}`;renderHistory(detail);els.sourceList.innerHTML=listHTML((detail.source_detail||[]).map((row)=>({label:`${row.source||"--"} | ${row.status||"--"}`,value:`High ${fmt(row.forecast_high_market,1)} | Peak ${row.peak_hour_local??"--"} | Updated ${stamp(row.provider_updated_local||row.captured_at_utc)}`})),"No source snapshots available for this horizon.");const ladder=detail.bracket_ladder||[];els.ladder.innerHTML=ladder.length?`<table class="pl-table"><thead><tr><th>Bracket</th><th>Fair YES</th><th>Market YES</th><th>Selected</th><th>Edge</th><th>Recommendation</th><th>Reason</th></tr></thead><tbody>${ladder.map((row)=>{const selectedSide=row.active_selected_side||row.selected_side||"--";const selectedEntry=row.active_selected_entry??row.selected_entry;const edgePoints=row.active_edge_points??row.edge_points;const recommendation=row.active_recommendation||row.recommendation||"--";const policyReason=row.active_policy_reason||row.policy_reason||"--";return`<tr><td>${esc(row.label||"--")}</td><td>${pct(row.fair_yes,1)}</td><td>${pct(row.market_yes,1)}</td><td>${esc(selectedSide)} @ ${pct(selectedEntry,1)}</td><td>${typeof edgePoints==="number"?`${edgePoints.toFixed(1)} pts`:"--"}</td><td><span class="pl-badge ${recClass(recommendation)}">${esc(recommendation)}</span></td><td>${esc(policyReason)}</td></tr>`}).join("")}</tbody></table>`:'<div class="pl-empty">No ladder available for this station.</div>';renderReality(detail);renderCalibration(detail);els.pws.innerHTML=listHTML((detail.pws_profiles||[]).map((row)=>({label:`${row.station_id||"--"} | next ${fmt(row.next_metar_score,1)}`,value:`eligible=${row.rank_eligible?"yes":"no"} | weight=${fmt(row.weight||row.learning_weight_predictive,2)} | age=${fmt(row.age_minutes,1)}m`})),state.targetDay===0?"No predictive PWS rows available.":"PWS profiles are only populated for intraday mode.");els.drawer.classList.add("open")};const openDetail=async(stationId)=>{els.drawer.classList.add("open");els.detailTitle.textContent=`Loading ${stationId}...`;els.detailMeta.textContent="Fetching station detail.";els.sourceList.innerHTML='<div class="pl-empty">Loading detail...</div>';els.ladder.innerHTML='<div class="pl-empty">Loading ladder...</div>';els.reality.innerHTML='<div class="pl-empty">Loading reality...</div>';els.calibration.innerHTML='<div class="pl-empty">Loading calibration...</div>';els.pws.innerHTML='<div class="pl-empty">Loading PWS...</div>';try{renderDetail(await fetchJSON(`/api/probability-lab/station/${encodeURIComponent(stationId)}?target_day=${state.targetDay}&lookback_hours=36`))}catch(error){els.detailTitle.textContent=`${stationId} detail failed`;els.detailMeta.textContent="The station payload could not be loaded.";els.calibration.innerHTML=`<div class="pl-empty">Failed to load detail: ${esc(error.message||error)}</div>`}};const loadBoard=async()=>{els.grid.innerHTML='<div class="pl-loading">Refreshing Probability Lab board...</div>';renderBoard(await fetchJSON(`/api/probability-lab/board?target_day=${state.targetDay}&actionable_only=${state.actionableOnly?1:0}`))};els.toggle.querySelectorAll("button").forEach((button)=>button.addEventListener("click",async()=>{els.toggle.querySelectorAll("button").forEach((x)=>x.classList.remove("active"));button.classList.add("active");state.targetDay=Number(button.getAttribute("data-day"));await loadBoard()}));els.actionable.addEventListener("click",async()=>{state.actionableOnly=!state.actionableOnly;els.actionable.classList.toggle("active",state.actionableOnly);await loadBoard()});els.search.addEventListener("input",()=>{state.search=els.search.value||"";renderCards()});els.close.addEventListener("click",()=>els.drawer.classList.remove("open"));els.drawer.addEventListener("click",(event)=>{if(event.target===els.drawer)els.drawer.classList.remove("open")});loadBoard().catch((error)=>{els.grid.innerHTML=`<div class="pl-empty">Failed to load board: ${esc(error.message||error)}</div>`})})();
-</script>
-{% endblock %}
 
+<div class="page-content">
+    <div class="pl-shell" id="plPage" data-initial-station="{{ selected_station_id or default_station_id }}">
+        <section class="pl-hero">
+            <div class="pl-hero-copy">
+                <div class="pl-kicker">Single-station probability view</div>
+                <div class="pl-hero-title">One decision, one station, one clear explanation.</div>
+                <div class="pl-copy">
+                    Probability Lab now follows the active station you selected in HELIOS. It tells you what to do,
+                    why the model thinks that, and what is happening in the market without forcing you through raw
+                    trading internals first.
+                </div>
+                <div class="pl-controls">
+                    <div class="pl-toggle" id="plToggle">
+                        <button type="button" data-day="0">Same day</button>
+                        <button type="button" data-day="1" class="active">Tomorrow</button>
+                        <button type="button" data-day="2">Day +2</button>
+                    </div>
+                </div>
+                <div class="pl-chip-row" id="plContextChips">
+                    <span class="pl-chip">Following the active station selection.</span>
+                </div>
+            </div>
+            <aside class="pl-station-card">
+                <div class="pl-section-label">Active station</div>
+                <div class="pl-station-title" id="plStationTitle">Loading station...</div>
+                <div class="pl-station-meta" id="plStationMeta">Preparing station context.</div>
+                <div class="pl-note" id="plStationContext">Loading the selected horizon.</div>
+            </aside>
+        </section>
+
+        <section class="pl-primary-card">
+            <div class="pl-section-label">What should I do?</div>
+            <div class="pl-primary-head">
+                <div>
+                    <div class="pl-action-title" id="plActionTitle">Loading recommendation...</div>
+                    <div class="pl-copy pl-primary-copy" id="plActionCopy">
+                        Pulling the latest model, market, and reality context for the active station.
+                    </div>
+                </div>
+                <span class="pl-action-badge no-trade" id="plActionBadge">Checking</span>
+            </div>
+            <div class="pl-primary-meta" id="plActionMeta">
+                <span class="pl-primary-meta-item">Waiting for data</span>
+            </div>
+        </section>
+
+        <section class="pl-summary-grid">
+            <article class="pl-summary-card" id="plLikelyCard">
+                <div class="pl-section-label">Most likely outcome</div>
+                <div class="pl-summary-value">--</div>
+                <div class="pl-note pl-summary-note">Waiting for the model.</div>
+            </article>
+            <article class="pl-summary-card" id="plMarketCard">
+                <div class="pl-section-label">What the market says</div>
+                <div class="pl-summary-value">--</div>
+                <div class="pl-note pl-summary-note">Waiting for the market snapshot.</div>
+            </article>
+            <article class="pl-summary-card" id="plRealityCard">
+                <div class="pl-section-label">Current reality</div>
+                <div class="pl-summary-value">--</div>
+                <div class="pl-note pl-summary-note">Waiting for live context.</div>
+            </article>
+        </section>
+
+        <section class="pl-panel">
+            <div class="pl-section-label">Why this view</div>
+            <div class="pl-panel-title">Plain-English context</div>
+            <ul class="pl-bullet-list" id="plWhyList">
+                <li>Collecting the latest reasons behind the current recommendation.</li>
+            </ul>
+        </section>
+
+        <section class="pl-advanced-shell">
+            <details class="pl-advanced-details" id="plAdvancedDetails">
+                <summary>Advanced view</summary>
+                <div class="pl-advanced-body">
+                    <article class="pl-panel">
+                        <div class="pl-section-label">Advanced summary</div>
+                        <div class="pl-note" id="plAdvancedSummary">
+                            Raw source drift, full ladder, calibration, and PWS context for the active station.
+                        </div>
+                    </article>
+
+                    <div class="pl-advanced-grid">
+                        <article class="pl-panel">
+                            <div class="pl-section-label">Source history</div>
+                            <div class="pl-panel-title">Forecast drift by source</div>
+                            <div class="pl-note" id="plHistoryMeta">Open the advanced view to load source history.</div>
+                            <div class="pl-chart"><canvas id="plHistoryChart"></canvas></div>
+                        </article>
+                        <article class="pl-panel">
+                            <div class="pl-section-label">Latest source snapshots</div>
+                            <div class="pl-panel-title">Most recent source inputs</div>
+                            <div class="pl-card-list" id="plSourceList">
+                                <div class="pl-loading">Waiting for source detail.</div>
+                            </div>
+                        </article>
+                    </div>
+
+                    <article class="pl-panel">
+                        <div class="pl-section-label">Bracket ladder</div>
+                        <div class="pl-panel-title">Fair value versus market pricing</div>
+                        <div id="plLadder">
+                            <div class="pl-loading">Waiting for bracket details.</div>
+                        </div>
+                    </article>
+
+                    <div class="pl-triad-grid">
+                        <article class="pl-panel">
+                            <div class="pl-section-label">Reality details</div>
+                            <div class="pl-panel-title">Observed state and timing</div>
+                            <div class="pl-data-list" id="plRealityDetails">
+                                <div class="pl-loading">Waiting for reality detail.</div>
+                            </div>
+                        </article>
+                        <article class="pl-panel">
+                            <div class="pl-section-label">Calibration</div>
+                            <div class="pl-panel-title">How the blend is being adjusted</div>
+                            <div id="plCalibration">
+                                <div class="pl-loading">Waiting for calibration detail.</div>
+                            </div>
+                        </article>
+                        <article class="pl-panel">
+                            <div class="pl-section-label">PWS profiles</div>
+                            <div class="pl-panel-title">Nearby predictive context</div>
+                            <div class="pl-card-list" id="plPws">
+                                <div class="pl-loading">Waiting for PWS detail.</div>
+                            </div>
+                        </article>
+                    </div>
+                </div>
+            </details>
+        </section>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="/static/probability_lab.js"></script>
+{% endblock %}

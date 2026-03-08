@@ -6287,7 +6287,7 @@ async def trading_dashboard(request: Request):
 
 @app.get("/probability-lab", response_class=HTMLResponse)
 async def probability_lab_dashboard(request: Request):
-    """Global Probability Lab board across stations and horizons."""
+    """Probability Lab single-station view tied to the active HELIOS station."""
     return _render_template(request, "probability_lab.html", {
         "active_page": "probability-lab"
     })
