@@ -295,6 +295,17 @@ async def _capture_source_snapshot(
         else:
             raise ValueError(f"Unsupported source: {source_name}")
 
+        if raw is None:
+            if source_name == "NBM":
+                raise RuntimeError("NBM returned no usable data. The Open-Meteo ensemble and NOMADS fallback both failed.")
+            if source_name == "LAMP":
+                raise RuntimeError("LAMP returned no usable data. The Open-Meteo hourly fallback failed for this station.")
+            if source_name == "WUNDERGROUND":
+                raise RuntimeError("Wunderground returned no usable daily-high forecast.")
+            if source_name == "OPEN_METEO":
+                raise RuntimeError("Open-Meteo returned no usable forecast payload.")
+            raise RuntimeError(f"{source_name} returned no usable data.")
+
         snapshot = normalize_source_daily_forecast(
             station_id=station_id,
             source=source_name,

@@ -3143,6 +3143,38 @@ def _empty_probability_lab_calibration() -> Dict[str, Any]:
     }
 
 
+def _probability_lab_snapshot_source_names(target_day: int) -> set[str]:
+    expected = {"WUNDERGROUND", "OPEN_METEO", "NBM"}
+    if int(target_day) >= 1:
+        expected.add("LAMP")
+    return expected
+
+
+def _should_refresh_probability_lab_sources(
+    source_snapshots: Optional[List[Dict[str, Any]]],
+    *,
+    target_day: int,
+) -> bool:
+    rows = [row for row in list(source_snapshots or []) if isinstance(row, dict)]
+    if not rows:
+        return True
+
+    expected_sources = _probability_lab_snapshot_source_names(target_day)
+    seen_sources = {str(row.get("source") or "").upper() for row in rows}
+    if expected_sources - seen_sources:
+        return True
+
+    for row in rows:
+        source = str(row.get("source") or "").upper()
+        status = str(row.get("status") or "").lower()
+        if status == "error":
+            return True
+        if status == "partial" and source in expected_sources:
+            return True
+
+    return False
+
+
 def _get_probability_lab_calibration_cache(station_id: str) -> Optional[Dict[str, Any]]:
     entry = _PROBABILITY_LAB_CALIBRATION_CACHE.get(str(station_id or "").upper())
     if not isinstance(entry, dict):
@@ -3448,16 +3480,20 @@ async def _build_probability_lab_station_payload(
     else:
         source_snapshots = get_latest_forecast_source_snapshots(station_id, target_date_str)
         source_history = get_forecast_source_history(station_id, target_date_str, lookback_hours=lookback_hours)
-        if not source_snapshots:
+        if _should_refresh_probability_lab_sources(
+            source_snapshots,
+            target_day=resolved_target_day,
+        ):
             live = await capture_station_future_snapshots(
                 station_id,
                 target_days=(resolved_target_day,),
                 persist=True,
             )
-            source_snapshots = [
+            live_rows = [
                 row for row in list(live.get("snapshots") or [])
                 if str(row.get("target_date")) == target_date_str and int(row.get("target_day") or -1) == resolved_target_day
             ]
+            source_snapshots = live_rows or get_latest_forecast_source_snapshots(station_id, target_date_str)
             source_history = get_forecast_source_history(station_id, target_date_str, lookback_hours=lookback_hours)
         history_warming_up = len(source_history) == 0
         calibration = await _build_probability_lab_calibration(
