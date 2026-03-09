@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import shutil
 import sys
 
 
@@ -121,3 +122,33 @@ def test_compactor_cleanup_old_ndjson_keeps_protected_channels(tmp_path):
     assert deleted == 1
     assert (ndjson_base / "date=2000-01-01" / "ch=pws" / "events.ndjson").exists()
     assert not (ndjson_base / "date=2000-01-01" / "ch=world").exists()
+
+
+def test_compactor_repairs_missing_station_output_before_marking_date_compacted(tmp_path):
+    ndjson_base = tmp_path / "recordings"
+    parquet_base = tmp_path / "parquet"
+    _write_ndjson(
+        ndjson_base,
+        date_str="2026-02-03",
+        channel="world",
+        events=[
+            {"station_id": "KLGA", "ts_ingest_utc": "2026-02-03T00:00:00Z", "data": {"src": "METAR"}},
+            {"station_id": "KATL", "ts_ingest_utc": "2026-02-03T00:05:00Z", "data": {"src": "METAR"}},
+        ],
+    )
+
+    seed = Compactor(str(ndjson_base), str(parquet_base), batch_size=10, max_dates_per_run=10)
+    seed.compact_channel("2026-02-03", "world")
+
+    missing_station_dir = parquet_base / "station=KATL" / "date=2026-02-03" / "ch=world"
+    shutil.rmtree(missing_station_dir)
+
+    compactor = Compactor(str(ndjson_base), str(parquet_base), batch_size=10, max_dates_per_run=1)
+    assert compactor._is_channel_compacted("2026-02-03", "world") is False
+    assert compactor._is_date_compacted("2026-02-03") is False
+
+    result = compactor.compact_all_pending()
+
+    assert result["compacted_dates"] == ["2026-02-03"]
+    assert (parquet_base / "station=KLGA" / "date=2026-02-03" / "ch=world" / "part-0000.parquet").exists()
+    assert (parquet_base / "station=KATL" / "date=2026-02-03" / "ch=world" / "part-0000.parquet").exists()

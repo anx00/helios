@@ -112,6 +112,182 @@
         cursor: not-allowed;
     }
 
+    .page-content {
+        position: relative;
+    }
+
+    .replay-loading-overlay {
+        position: absolute;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        backdrop-filter: blur(4px);
+        background: rgba(7, 12, 20, 0.42);
+        border-radius: 18px;
+        z-index: 20;
+    }
+
+    .replay-loading-overlay.visible {
+        display: flex;
+    }
+
+    .replay-loading-card {
+        min-width: 260px;
+        padding: 18px 20px;
+        border-radius: 14px;
+        background: rgba(15, 23, 42, 0.92);
+        border: 1px solid rgba(255,255,255,0.08);
+        box-shadow: 0 24px 80px rgba(2, 6, 23, 0.45);
+    }
+
+    .replay-loading-title {
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 1.2px;
+        text-transform: uppercase;
+        color: #7dd3fc;
+        margin-bottom: 8px;
+    }
+
+    .replay-loading-text {
+        font-size: 13px;
+        color: var(--text-secondary);
+        margin-bottom: 12px;
+    }
+
+    .replay-loading-bar {
+        height: 6px;
+        border-radius: 999px;
+        overflow: hidden;
+        background: rgba(255,255,255,0.06);
+    }
+
+    .replay-loading-bar::before {
+        content: "";
+        display: block;
+        width: 42%;
+        height: 100%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, #38bdf8, #22c55e, #38bdf8);
+        background-size: 200% 100%;
+        animation: replay-load-shimmer 1.1s linear infinite;
+    }
+
+    @keyframes replay-load-shimmer {
+        0% { transform: translateX(-100%); background-position: 0% 0%; }
+        100% { transform: translateX(260%); background-position: 100% 0%; }
+    }
+
+    .replay-live-section {
+        background: linear-gradient(145deg, rgba(7, 18, 34, 0.92), rgba(12, 28, 51, 0.92));
+        border: 1px solid rgba(56, 189, 248, 0.14);
+        border-radius: 16px;
+        padding: 18px;
+        margin-bottom: 20px;
+    }
+
+    .replay-live-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 16px;
+    }
+
+    .replay-live-title {
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: 1.4px;
+        text-transform: uppercase;
+        color: #7dd3fc;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .replay-live-subtitle {
+        margin-top: 6px;
+        font-size: 13px;
+        color: var(--text-secondary);
+    }
+
+    .replay-live-meta {
+        text-align: right;
+        font-size: 12px;
+        color: var(--text-muted);
+        min-width: 160px;
+    }
+
+    .replay-live-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 14px;
+        margin-bottom: 16px;
+    }
+
+    .live-stat {
+        background: rgba(255,255,255,0.03);
+        border: 1px solid rgba(255,255,255,0.07);
+        border-radius: 12px;
+        padding: 14px;
+    }
+
+    .live-stat-label {
+        font-size: 11px;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        color: var(--text-muted);
+        margin-bottom: 8px;
+    }
+
+    .live-stat-value {
+        font-size: 24px;
+        font-weight: 700;
+        font-family: 'JetBrains Mono', monospace;
+        color: var(--text-main);
+        margin-bottom: 6px;
+    }
+
+    .live-stat-detail {
+        font-size: 12px;
+        color: var(--text-secondary);
+        min-height: 18px;
+    }
+
+    .live-chart-card {
+        background: rgba(255,255,255,0.03);
+        border: 1px solid rgba(255,255,255,0.07);
+        border-radius: 12px;
+        padding: 16px;
+        margin-bottom: 18px;
+    }
+
+    .live-chart-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 10px;
+    }
+
+    .live-chart-title {
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        color: #7dd3fc;
+    }
+
+    .live-chart-meta {
+        font-size: 11px;
+        color: var(--text-secondary);
+    }
+
+    .live-chart-wrap {
+        height: 240px;
+    }
+
     /* Timeline Container */
     .timeline-container {
         background: var(--bg-secondary);
@@ -951,11 +1127,27 @@
         .category-grid {
             grid-template-columns: repeat(2, 1fr);
         }
+        .replay-live-grid {
+            grid-template-columns: repeat(2, 1fr);
+        }
     }
 
     @media (max-width: 768px) {
         .category-grid {
             grid-template-columns: 1fr;
+        }
+        .replay-live-header {
+            flex-direction: column;
+        }
+        .replay-live-meta {
+            text-align: left;
+            min-width: 0;
+        }
+        .replay-live-grid {
+            grid-template-columns: 1fr;
+        }
+        .live-chart-wrap {
+            height: 220px;
         }
     }
 </style>
@@ -974,26 +1166,92 @@
 </div>
 
 <div class="page-content">
+    <div class="replay-loading-overlay" id="replay-loading-overlay">
+        <div class="replay-loading-card">
+            <div class="replay-loading-title">Preparing Replay</div>
+            <div class="replay-loading-text" id="replay-loading-text">Loading session data...</div>
+            <div class="replay-loading-bar"></div>
+        </div>
+    </div>
+
     <!-- Session Selector -->
     <div class="session-selector">
+        <div class="selector-group">
+            <label class="selector-label">Station</label>
+            <select id="station-select" class="selector-input">
+                {% for opt in station_selector_options %}
+                <option value="{{ opt.id }}">{{ opt.label }}</option>
+                {% endfor %}
+            </select>
+        </div>
         <div class="selector-group">
             <label class="selector-label">Date</label>
             <select id="date-select" class="selector-input">
                 <option value="">Select a date...</option>
             </select>
         </div>
-        <div class="selector-group" style="display:none;">
-            <label class="selector-label">Station</label>
-            <select id="station-select" class="selector-input">
-                <option value="">All stations</option>
-                {% for opt in station_selector_options %}
-                <option value="{{ opt.id }}">{{ opt.label }}</option>
-                {% endfor %}
-            </select>
-        </div>
         <button id="load-btn" class="load-btn" disabled>
-            Load Session
+            Retry Load
         </button>
+    </div>
+
+    <div class="replay-live-section" id="replay-live-section">
+        <div class="replay-live-header">
+            <div>
+                <div class="replay-live-title">
+                    <i data-lucide="satellite-dish" style="width:14px;height:14px;"></i>
+                    Live Mirror
+                </div>
+                <div class="replay-live-subtitle" id="live-subtitle">Current station context for the selected replay station.</div>
+            </div>
+            <div class="replay-live-meta">
+                <div id="live-market-date">Market date --</div>
+                <div id="live-updated-at">Updated --</div>
+            </div>
+        </div>
+
+        <div class="replay-live-grid">
+            <div class="live-stat">
+                <div class="live-stat-label">Latest METAR</div>
+                <div class="live-stat-value" id="live-metar-temp">--</div>
+                <div class="live-stat-detail" id="live-metar-detail">Waiting for live data</div>
+            </div>
+            <div class="live-stat">
+                <div class="live-stat-label">Nowcast Tmax</div>
+                <div class="live-stat-value" id="live-nowcast-temp">--</div>
+                <div class="live-stat-detail" id="live-nowcast-detail">Waiting for live data</div>
+            </div>
+            <div class="live-stat">
+                <div class="live-stat-label">Prediction</div>
+                <div class="live-stat-value" id="live-prediction-temp">--</div>
+                <div class="live-stat-detail" id="live-prediction-detail">Waiting for live data</div>
+            </div>
+            <div class="live-stat">
+                <div class="live-stat-label">Market Leader</div>
+                <div class="live-stat-value" id="live-market-leader">--</div>
+                <div class="live-stat-detail" id="live-market-detail">Waiting for live data</div>
+            </div>
+        </div>
+
+        <div class="live-chart-card">
+            <div class="live-chart-header">
+                <span class="live-chart-title">Live Temperature Curve</span>
+                <span class="live-chart-meta" id="live-chart-meta">--</span>
+            </div>
+            <div class="live-chart-wrap">
+                <canvas id="live-trend-chart"></canvas>
+            </div>
+        </div>
+
+        <div class="market-replay-panel visible" id="live-market-panel">
+            <div class="mr-header">
+                <span class="mr-title"><i data-lucide="candlestick-chart"></i> Live Market State</span>
+                <span class="mr-time" id="live-market-time">--</span>
+            </div>
+            <div class="mr-grid" id="live-market-grid">
+                <div class="mr-empty">Waiting for live market data</div>
+            </div>
+        </div>
     </div>
 
     <!-- Timeline Container -->
@@ -1203,7 +1461,7 @@
     <div class="empty-state" id="empty-state">
         <i data-lucide="database"></i>
         <h3>No Session Loaded</h3>
-        <p>Select a date and click "Load Session" to begin replay.</p>
+        <p>The selected station auto-loads the closest replay day. Use the selector above to switch station or date.</p>
     </div>
 </div>
 {% endblock %}
@@ -1215,6 +1473,7 @@
     let currentSpeed = 1;
     let isPlaying = false;
     let pollInterval = null;
+    let liveInterval = null;
     let isDragging = false;
     let sessionLoadedChannels = new Set();
     let currentReplayDate = '';
@@ -1227,13 +1486,18 @@
     let queuedSeekPercent = null;
     let wasPollingBeforeDrag = false;
     let replayTrendChart = null;
+    let liveTrendChart = null;
     let replayTrendZoomHandlersAttached = false;
     let replayTrendDragState = null;
+    let sessionRequestController = null;
+    let snapshotRequestController = null;
+    let liveRequestController = null;
+    let currentLoadToken = 0;
 
     // Station timezone info (populated from template data)
     const stationTimezones = {
-        {% for sid in active_stations %}
-        '{{ sid }}': '{{ all_stations[sid].timezone }}',
+        {% for sid, tz_name in station_timezones.items() %}
+        '{{ sid }}': '{{ tz_name }}',
         {% endfor %}
     };
     const stationMarketUnits = {
@@ -1482,25 +1746,119 @@
         }
     }
 
-    // Initialize
+    function currentMarketDateForStation(stationId = currentStationId()) {
+        const sid = String(stationId || '').toUpperCase();
+        const tz = stationTimezones[sid] || 'America/New_York';
+        return new Intl.DateTimeFormat('en-CA', {
+            timeZone: tz,
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+        }).format(new Date());
+    }
+
+    function setReplayLoading(active, text = 'Loading session data...') {
+        const overlay = document.getElementById('replay-loading-overlay');
+        const textEl = document.getElementById('replay-loading-text');
+        if (textEl) textEl.textContent = text;
+        if (overlay) overlay.classList.toggle('visible', Boolean(active));
+    }
+
+    function clearReplayRefresh() {
+        if (pollInterval) {
+            clearTimeout(pollInterval);
+            pollInterval = null;
+        }
+    }
+
+    function scheduleReplayRefresh(delayMs = null) {
+        clearReplayRefresh();
+        if (!sessionId) return;
+        const delay = delayMs == null ? (isPlaying ? 400 : 900) : delayMs;
+        pollInterval = setTimeout(() => {
+            pollInterval = null;
+            updateState(false);
+        }, Math.max(0, delay));
+    }
+
+    function clearLiveRefresh() {
+        if (liveInterval) {
+            clearTimeout(liveInterval);
+            liveInterval = null;
+        }
+    }
+
+    function scheduleLiveRefresh(delayMs = 30000) {
+        clearLiveRefresh();
+        liveInterval = setTimeout(() => {
+            liveInterval = null;
+            loadLivePanel();
+        }, Math.max(0, delayMs));
+    }
+
+    function heavyRefreshMsForSpeed(speed) {
+        const s = Number(speed) || 1;
+        return s >= 5 ? 600 : 1000;
+    }
+
+    function applySessionState(data) {
+        if (!data) return;
+        sessionLoadedChannels = new Set(Array.isArray(data.channels_loaded) ? data.channels_loaded : []);
+        currentReplayDate = data.date || currentReplayDate;
+        currentReplayStation = data.station_id || currentReplayStation || currentStationId();
+
+        document.getElementById('stat-total').textContent = data.total_events || 0;
+        document.getElementById('stat-metars').textContent = data.metar_count || 0;
+        document.getElementById('stat-windows').textContent = data.window_count || 0;
+
+        const badge = document.getElementById('status-badge');
+        badge.className = `status-badge ${data.state}`;
+        badge.textContent = String(data.state || 'idle').toUpperCase();
+        isPlaying = data.state === 'playing';
+        updatePlayButton();
+
+        if (data.clock) {
+            const currentTime = data.clock.current_time;
+            if (currentTime) {
+                const tz = formatDualTime(currentTime);
+                document.getElementById('current-time').textContent = `${tz.local} ${localTzLabel}`;
+                document.getElementById('current-date').textContent = `${tz.es} ES | ${tz.date}`;
+            }
+
+            const progress = Number(data.clock.progress_percent || 0);
+            document.getElementById('stat-progress').textContent = `${progress.toFixed(1)}%`;
+            if (!isDragging) {
+                document.getElementById('scrubber-progress').style.width = progress + '%';
+                const previewEl = document.getElementById('scrubber-preview');
+                if (previewEl) {
+                    previewEl.style.width = progress + '%';
+                    previewEl.classList.remove('active');
+                }
+                document.getElementById('scrubber-handle').style.left = progress + '%';
+            }
+        }
+    }
+
     async function init() {
         const stationSelect = document.getElementById('station-select');
         const globalSelected = window.HeliosStationState?.get?.();
         if (
-            isReplayStationFilterVisible() &&
             stationSelect &&
             globalSelected &&
             Array.from(stationSelect.options).some(o => o.value === globalSelected)
         ) {
             stationSelect.value = globalSelected;
+        } else if (stationSelect && stationSelect.options.length > 0) {
+            stationSelect.value = stationSelect.options[0].value;
         }
-        updateReplayFormatters();  // Default formatters
-        await loadAvailableDates();
+        updateReplayFormatters();
         setupEventListeners();
+        await loadLivePanel();
+        await loadAvailableDates({ autoLoad: true });
         lucide.createIcons();
     }
 
-    async function loadAvailableDates() {
+    async function loadAvailableDates({ autoLoad = false } = {}) {
         try {
             const station = getReplayStationFilterValue();
             const params = new URLSearchParams();
@@ -1511,6 +1869,7 @@
 
             const select = document.getElementById('date-select');
             const prev = select.value;
+            const fallbackDate = currentMarketDateForStation(station || currentStationId());
             select.innerHTML = '<option value="">Select a date...</option>';
 
             for (const date of data.dates || []) {
@@ -1519,40 +1878,53 @@
                 opt.textContent = date;
                 select.appendChild(opt);
             }
-            if (prev && Array.from(select.options).some(o => o.value === prev)) {
-                select.value = prev;
-            }
+
+            const nextValue = (
+                (prev && Array.from(select.options).some(o => o.value === prev) && prev)
+                || (Array.from(select.options).some(o => o.value === fallbackDate) && fallbackDate)
+                || (data.dates && data.dates[0])
+                || ''
+            );
+            if (nextValue) select.value = nextValue;
 
             updateLoadButton();
+            if (autoLoad && select.value) {
+                await loadSession({ auto: true });
+            }
         } catch (e) {
             console.error('Failed to load dates:', e);
         }
     }
 
     function setupEventListeners() {
-        document.getElementById('date-select').onchange = updateLoadButton;
+        document.getElementById('date-select').onchange = async () => {
+            updateLoadButton();
+            if (document.getElementById('date-select').value) {
+                await loadSession({ auto: true });
+            }
+        };
         document.getElementById('station-select').onchange = async () => {
             const station = getReplayStationFilterValue();
             if (station) {
                 window.HeliosStationState?.set?.(station, { source: 'replay' });
             }
+            currentReplayStation = station || currentReplayStation;
             updateReplayFormatters();
-            await loadAvailableDates();
+            await loadLivePanel();
+            await loadAvailableDates({ autoLoad: true });
             updateLoadButton();
         };
-        document.getElementById('load-btn').onclick = loadSession;
+        document.getElementById('load-btn').onclick = () => loadSession({ manual: true });
         document.getElementById('btn-play-pause').onclick = togglePlayPause;
         document.getElementById('btn-stop').onclick = stopSession;
         document.getElementById('btn-prev-metar').onclick = () => jump('prev_metar');
         document.getElementById('btn-next-metar').onclick = () => jump('next_metar');
         document.getElementById('btn-next-window').onclick = () => jump('next_window');
 
-        // Speed buttons
         document.querySelectorAll('.speed-btn').forEach(btn => {
             btn.onclick = () => setSpeed(parseInt(btn.dataset.speed));
         });
 
-        // Scrubber drag system
         const scrubber = document.getElementById('scrubber');
         const scrubberHandle = document.getElementById('scrubber-handle');
         const scrubberProgress = document.getElementById('scrubber-progress');
@@ -1579,10 +1951,7 @@
             scrubberProgress.classList.remove('animated');
             document.body.style.userSelect = 'none';
             wasPollingBeforeDrag = !!pollInterval;
-            if (pollInterval) {
-                clearInterval(pollInterval);
-                pollInterval = null;
-            }
+            clearReplayRefresh();
             const pct = getScrubPercent(clientX);
             setPreviewPercent(pct);
             setPreviewActive(true);
@@ -1607,7 +1976,7 @@
             seek(pct).finally(() => {
                 setPreviewActive(false);
                 if (wasPollingBeforeDrag && sessionId) {
-                    adjustPollInterval();
+                    scheduleReplayRefresh(0);
                 }
             });
         }
@@ -1636,26 +2005,39 @@
         document.getElementById('load-btn').disabled = !date;
     }
 
-    async function loadSession() {
+    async function loadSession({ manual = false, auto = false } = {}) {
         const date = document.getElementById('date-select').value;
         const station = getReplayStationFilterValue();
 
         if (!date) return;
 
-        // Set timezone formatters based on selected station
         updateReplayFormatters();
+        currentReplayStation = station || currentStationId();
 
-        document.getElementById('load-btn').disabled = true;
-        document.getElementById('load-btn').textContent = 'Loading...';
+        const myToken = ++currentLoadToken;
+        clearReplayRefresh();
+        if (sessionRequestController) sessionRequestController.abort();
+        if (snapshotRequestController) snapshotRequestController.abort();
+        sessionRequestController = new AbortController();
+        lastHeavyFetchAt = 0;
+        lastHeavyIndex = -1;
+        queuedForceHeavy = false;
+
+        const loadBtn = document.getElementById('load-btn');
+        loadBtn.disabled = true;
+        loadBtn.textContent = 'Loading...';
+        setReplayLoading(true, auto ? 'Switching replay day...' : 'Loading selected replay session...');
 
         try {
-            const params = new URLSearchParams({ date });
+            const params = new URLSearchParams({ date, mode: 'light' });
             if (station) params.append('station_id', station);
 
             const resp = await fetch(`/api/v4/replay/session?${params}`, {
-                method: 'POST'
+                method: 'POST',
+                signal: sessionRequestController.signal,
             });
             const data = await resp.json();
+            if (myToken !== currentLoadToken) return;
 
             if (data.error) {
                 let msg = data.error;
@@ -1671,16 +2053,20 @@
 
             sessionId = data.session_id;
             showSession(data);
-
-            // Start polling for state updates
-            adjustPollInterval();
-
+            await updateState(true);
         } catch (e) {
+            if (e?.name === 'AbortError') return;
             console.error('Failed to load session:', e);
-            alert('Failed to load session');
+            if (manual || auto) {
+                alert('Failed to load session');
+            }
         } finally {
-            document.getElementById('load-btn').disabled = false;
-            document.getElementById('load-btn').textContent = 'Load Session';
+            if (myToken === currentLoadToken) {
+                setReplayLoading(false);
+                loadBtn.disabled = !document.getElementById('date-select').value;
+                loadBtn.textContent = 'Retry Load';
+                sessionRequestController = null;
+            }
         }
     }
 
@@ -1691,33 +2077,8 @@
         document.getElementById('category-grid').style.display = 'grid';
         document.getElementById('event-feed').style.display = 'block';
         currentReplayDate = data.date || '';
-        currentReplayStation = data.station_id || '';
-        sessionLoadedChannels = new Set(Array.isArray(data.channels_loaded) ? data.channels_loaded : []);
-
-        // Update stats
-        document.getElementById('stat-total').textContent = data.total_events || 0;
-        document.getElementById('stat-metars').textContent = data.metar_count || 0;
-        document.getElementById('stat-windows').textContent = data.window_count || 0;
-
-        updateState();
-    }
-
-    function pollIntervalMsForSpeed(speed) {
-        const s = Number(speed) || 1;
-        if (s >= 50) return 260;
-        if (s >= 10) return 250;
-        if (s >= 5) return 280;
-        if (s >= 2) return 320;
-        return 420;
-    }
-
-    function heavyRefreshMsForSpeed(speed) {
-        const s = Number(speed) || 1;
-        if (s >= 50) return 1400;
-        if (s >= 10) return 900;
-        if (s >= 5) return 700;
-        if (s >= 2) return 500;
-        return 260;
+        currentReplayStation = data.station_id || currentStationId();
+        applySessionState(data);
     }
 
     async function updateState(forceHeavy = false) {
@@ -1728,91 +2089,458 @@
         }
 
         updateInFlight = true;
+        const shouldFetchHeavy = Boolean(
+            forceHeavy
+            || lastHeavyFetchAt <= 0
+            || (
+                !isDragging
+                && (
+                    !isPlaying
+                    || (Date.now() - lastHeavyFetchAt) >= heavyRefreshMsForSpeed(currentSpeed)
+                )
+            )
+        );
 
         try {
-            const resp = await fetch(`/api/v4/replay/session/${sessionId}/state`);
-            const data = await resp.json();
-            sessionLoadedChannels = new Set(Array.isArray(data.channels_loaded) ? data.channels_loaded : []);
-            currentReplayDate = data.date || currentReplayDate;
-            currentReplayStation = data.station_id || currentReplayStation;
-
-            // Update status badge
-            const badge = document.getElementById('status-badge');
-            badge.className = `status-badge ${data.state}`;
-            badge.textContent = data.state.toUpperCase();
-
-            isPlaying = data.state === 'playing';
-            updatePlayButton();
-
-            // Update clock with dual timezone (station local + Spain)
-            if (data.clock) {
-                const currentTime = data.clock.current_time;
-                if (currentTime) {
-                    const tz = formatDualTime(currentTime);
-                    document.getElementById('current-time').textContent =
-                        `${tz.local} ${localTzLabel}`;
-                    document.getElementById('current-date').textContent =
-                        `${tz.es} ES | ${tz.date}`;
-                }
-
-                // Update progress (skip visual update during drag)
-                const progress = data.clock.progress_percent || 0;
-                document.getElementById('stat-progress').textContent =
-                    progress.toFixed(1) + '%';
-                if (!isDragging) {
-                    document.getElementById('scrubber-progress').style.width =
-                        progress + '%';
-                    const previewEl = document.getElementById('scrubber-preview');
-                    if (previewEl) {
-                        previewEl.style.width = progress + '%';
-                        previewEl.classList.remove('active');
-                    }
-                    document.getElementById('scrubber-handle').style.left =
-                        progress + '%';
-                }
+            if (snapshotRequestController) snapshotRequestController.abort();
+            snapshotRequestController = new AbortController();
+            const resp = await fetch(
+                `/api/v4/replay/session/${sessionId}/snapshot?heavy=${shouldFetchHeavy ? 1 : 0}&events_n=10&max_points=96&top_n=6&trend_points=320&trend_mode=5min`,
+                { signal: snapshotRequestController.signal }
+            );
+            const payload = await resp.json();
+            if (payload.error) {
+                throw new Error(payload.error);
             }
 
-            const nowMs = Date.now();
-            const currentIndex = Number(data.current_index || 0);
-            const heavyAgeMs = nowMs - lastHeavyFetchAt;
-            const heavyGapIndex = Math.abs(currentIndex - lastHeavyIndex);
-            const heavyByTime = heavyAgeMs >= heavyRefreshMsForSpeed(currentSpeed);
-            const heavyByIndex = lastHeavyIndex < 0 || (isPlaying ? heavyGapIndex >= 40 : heavyGapIndex >= 1);
-            const heavyNeeded = Boolean(
-                forceHeavy || (
-                    !isDragging && (
-                        (isPlaying && (heavyByTime || heavyByIndex)) ||
-                        (!isPlaying && heavyByIndex)
-                    )
-                )
-            );
-            if (!heavyNeeded) {
+            const state = payload.state || {};
+            applySessionState(state);
+
+            if (payload.events) {
+                renderEvents(payload.events);
+            }
+            if (payload.categories) {
+                renderCategories(payload.categories);
+            }
+            if (payload.pws_learning) {
+                renderPwsLearning(payload.pws_learning, payload.categories || null);
+            }
+            if (shouldFetchHeavy) {
+                lastHeavyFetchAt = Date.now();
+                lastHeavyIndex = Number(state.current_index || 0);
+            }
+        } catch (e) {
+            if (e?.name === 'AbortError') {
                 return;
             }
-
-            // Get events, categories and PWS learning in parallel (throttled).
-            const [eventsResp, catResp, pwsLearnResp] = await Promise.all([
-                fetch(`/api/v4/replay/session/${sessionId}/events?n=10`),
-                fetch(`/api/v4/replay/session/${sessionId}/categories`),
-                fetch(`/api/v4/replay/session/${sessionId}/pws_learning?max_points=96&top_n=6&trend_points=320&trend_mode=5min`)
-            ]);
-            const eventsData = await eventsResp.json();
-            const catData = await catResp.json();
-            const pwsLearnData = await pwsLearnResp.json();
-            renderEvents(eventsData);
-            renderCategories(catData);
-            renderPwsLearning(pwsLearnData, catData);
-            lastHeavyFetchAt = nowMs;
-            lastHeavyIndex = currentIndex;
-
-        } catch (e) {
             console.error('State update error:', e);
         } finally {
             updateInFlight = false;
+            snapshotRequestController = null;
             if (queuedForceHeavy) {
                 const runForced = queuedForceHeavy;
                 queuedForceHeavy = false;
                 setTimeout(() => updateState(runForced), 0);
+            } else if (!isDragging && sessionId) {
+                scheduleReplayRefresh();
+            }
+        }
+    }
+
+    function formatLiveTimestamp(isoUtc) {
+        if (!isoUtc) return '--';
+        const tz = formatDualTime(isoUtc);
+        if (!tz || !tz.local) return '--';
+        return `${tz.local} ${localTzLabel} | ${tz.es} ES`;
+    }
+
+    function setLiveStat(valueId, detailId, value, detail) {
+        const valueEl = document.getElementById(valueId);
+        const detailEl = document.getElementById(detailId);
+        if (valueEl) valueEl.textContent = value || '--';
+        if (detailEl) detailEl.textContent = detail || '--';
+    }
+
+    function renderLiveUnavailable(message = 'Live data temporarily unavailable') {
+        document.getElementById('live-subtitle').textContent = message;
+        document.getElementById('live-market-date').textContent = 'Market date --';
+        document.getElementById('live-updated-at').textContent = 'Updated --';
+        setLiveStat('live-metar-temp', 'live-metar-detail', '--', message);
+        setLiveStat('live-nowcast-temp', 'live-nowcast-detail', '--', message);
+        setLiveStat('live-prediction-temp', 'live-prediction-detail', '--', message);
+        setLiveStat('live-market-leader', 'live-market-detail', '--', message);
+        const metaEl = document.getElementById('live-chart-meta');
+        if (metaEl) metaEl.textContent = message;
+        if (liveTrendChart) {
+            liveTrendChart.destroy();
+            liveTrendChart = null;
+        }
+        renderMarketPanel(
+            null,
+            '--',
+            message,
+            currentStationId(),
+            {
+                panelId: 'live-market-panel',
+                gridId: 'live-market-grid',
+                timeId: 'live-market-time',
+            }
+        );
+    }
+
+    function extractLiveMarketLeader(marketState, stationId = currentStationId()) {
+        if (!marketState || typeof marketState !== 'object') return null;
+        const rows = Object.entries(marketState)
+            .filter(([name, row]) => name !== '__meta__' && row && typeof row === 'object')
+            .map(([name, row]) => ({
+                name,
+                label: formatBucketLabelForStation(name, stationId),
+                mid: numericOrNaN(row.mid),
+                bestBid: numericOrNaN(row.best_bid),
+                bestAsk: numericOrNaN(row.best_ask),
+                spread: numericOrNaN(row.spread),
+            }))
+            .filter(row => Number.isFinite(row.mid))
+            .sort((a, b) => b.mid - a.mid);
+        return rows.length ? rows[0] : null;
+    }
+
+    function renderLiveTrend(nowcastData, metarHistoryData, stationId = currentStationId()) {
+        const canvas = document.getElementById('live-trend-chart');
+        const metaEl = document.getElementById('live-chart-meta');
+        if (!canvas) return;
+
+        const base = Array.isArray(nowcastData?.base_hourly_f) ? nowcastData.base_hourly_f : [];
+        const adjusted = Array.isArray(nowcastData?.nowcast_hourly_f) ? nowcastData.nowcast_hourly_f : [];
+        const metarRows = Array.isArray(metarHistoryData?.rows)
+            ? metarHistoryData.rows
+            : (Array.isArray(metarHistoryData?.observations) ? metarHistoryData.observations : []);
+
+        if (!base.length && !adjusted.length && !metarRows.length) {
+            if (metaEl) metaEl.textContent = 'No live hourly curve available.';
+            if (liveTrendChart) {
+                liveTrendChart.destroy();
+                liveTrendChart = null;
+            }
+            return;
+        }
+
+        const unit = tempUnitSymbol(stationId).trim();
+        const toDisplayTemp = (tempF) => convertTempFromF(tempF, stationId);
+        const buildHourlyPoints = (arr) => {
+            const points = [];
+            for (let h = 0; h < 24; h += 1) {
+                const raw = Number(arr[h]);
+                const display = Number.isFinite(raw) ? toDisplayTemp(raw) : null;
+                points.push({ x: h, y: Number.isFinite(display) ? display : null });
+            }
+            return points;
+        };
+
+        const obsMetarPts = [];
+        const obsSpeciPts = [];
+        for (const row of metarRows) {
+            const tempF = numericOrNaN(row?.temp_f_raw);
+            const timeStr = String(row?.obs_time_local || '');
+            const parts = timeStr.split(':');
+            if (parts.length < 2 || !Number.isFinite(tempF)) continue;
+            const hh = parseInt(parts[0], 10);
+            const mm = parseInt(parts[1], 10);
+            const x = hh + (mm / 60.0);
+            const display = toDisplayTemp(tempF);
+            if (!Number.isFinite(x) || !Number.isFinite(display)) continue;
+            const point = {
+                x,
+                y: display,
+                reportType: String(row?.report_type || (row?.is_speci ? 'SPECI' : 'METAR')).toUpperCase(),
+                obsTimeLocal: timeStr,
+            };
+            if (point.reportType === 'SPECI' || Boolean(row?.is_speci)) obsSpeciPts.push(point);
+            else obsMetarPts.push(point);
+        }
+        obsMetarPts.sort((a, b) => a.x - b.x);
+        obsSpeciPts.sort((a, b) => a.x - b.x);
+
+        const datasets = [];
+        if (base.length) {
+            datasets.push({
+                label: `Base (${nowcastData?.base_forecast_source || 'N/A'})`,
+                data: buildHourlyPoints(base),
+                borderColor: 'rgba(56, 189, 248, 0.80)',
+                backgroundColor: 'rgba(56, 189, 248, 0.08)',
+                borderWidth: 1.8,
+                tension: 0.25,
+                pointRadius: 0,
+                spanGaps: true,
+            });
+        }
+        if (adjusted.length) {
+            datasets.push({
+                label: 'Nowcast-adjusted',
+                data: buildHourlyPoints(adjusted),
+                borderColor: 'rgba(34, 197, 94, 0.88)',
+                backgroundColor: 'rgba(34, 197, 94, 0.08)',
+                borderWidth: 2.1,
+                tension: 0.25,
+                pointRadius: 0,
+                spanGaps: true,
+            });
+        }
+        if (obsMetarPts.length) {
+            datasets.push({
+                label: 'NOAA METAR',
+                data: obsMetarPts,
+                borderColor: 'rgba(244, 208, 63, 0.96)',
+                backgroundColor: 'rgba(244, 208, 63, 0.96)',
+                borderWidth: 1.3,
+                tension: 0,
+                pointRadius: 4,
+                pointHoverRadius: 5,
+                pointStyle: 'rectRot',
+                fill: false,
+                spanGaps: false,
+            });
+        }
+        if (obsSpeciPts.length) {
+            datasets.push({
+                label: 'NOAA SPECI',
+                data: obsSpeciPts,
+                borderColor: 'rgba(249, 115, 22, 0.96)',
+                backgroundColor: 'rgba(249, 115, 22, 0.96)',
+                borderWidth: 1.2,
+                tension: 0,
+                pointRadius: 3.5,
+                pointHoverRadius: 5,
+                pointStyle: 'triangle',
+                fill: false,
+                spanGaps: false,
+            });
+        }
+
+        const formatHour = (decimalHour) => {
+            if (!Number.isFinite(decimalHour)) return '--:--';
+            const totalMinutes = Math.max(0, Math.min((23 * 60) + 59, Math.round(decimalHour * 60)));
+            const hh = Math.floor(totalMinutes / 60);
+            const mm = totalMinutes % 60;
+            return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+        };
+
+        if (!liveTrendChart) {
+            liveTrendChart = new Chart(canvas.getContext('2d'), {
+                type: 'line',
+                data: { datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    interaction: {
+                        mode: 'nearest',
+                        axis: 'xy',
+                        intersect: false,
+                    },
+                    plugins: {
+                        legend: {
+                            labels: {
+                                color: '#cbd5e1',
+                                font: { size: 11 },
+                            },
+                        },
+                        tooltip: {
+                            position: 'nearest',
+                            mode: 'nearest',
+                            intersect: false,
+                            callbacks: {
+                                title: (items) => {
+                                    const xVal = Number(items?.[0]?.parsed?.x);
+                                    return Number.isFinite(xVal) ? `Hour ${formatHour(xVal)}` : '';
+                                },
+                                label: (ctx) => {
+                                    const datasetLabel = String(ctx?.dataset?.label || '');
+                                    const xVal = Number(ctx?.parsed?.x);
+                                    const yVal = Number(ctx?.parsed?.y);
+                                    const temp = Number.isFinite(yVal) ? `${yVal.toFixed(1)} ${unit}` : '--';
+                                    if (datasetLabel.includes('NOAA')) {
+                                        const reportType = String(ctx?.raw?.reportType || '').toUpperCase();
+                                        return `${datasetLabel}: ${temp} @ ${formatHour(xVal)}${reportType ? ` [${reportType}]` : ''}`;
+                                    }
+                                    return `${datasetLabel}: ${temp}`;
+                                },
+                            },
+                        },
+                    },
+                    scales: {
+                        x: {
+                            type: 'linear',
+                            min: 0,
+                            max: 23,
+                            ticks: {
+                                stepSize: 2,
+                                color: '#94a3b8',
+                                callback: (v) => `${String(v).padStart(2, '0')}:00`,
+                            },
+                            grid: { color: 'rgba(255,255,255,0.05)' },
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: `Temp (${unit})`,
+                                color: '#94a3b8',
+                            },
+                            ticks: { color: '#94a3b8' },
+                            grid: { color: 'rgba(255,255,255,0.05)' },
+                        },
+                    },
+                },
+            });
+        } else {
+            liveTrendChart.data = { datasets };
+            if (liveTrendChart.options?.scales?.y?.title) {
+                liveTrendChart.options.scales.y.title.text = `Temp (${unit})`;
+            }
+            liveTrendChart.update('none');
+        }
+
+        const bits = [];
+        if (Number.isFinite(Number(nowcastData?.base_tmax_f))) {
+            bits.push(`base ${formatTempFromF(nowcastData.base_tmax_f, 1, stationId)}`);
+        }
+        if (Number.isFinite(Number(nowcastData?.tmax_mean_f))) {
+            bits.push(`nowcast ${formatTempFromF(nowcastData.tmax_mean_f, 1, stationId)}`);
+        }
+        if (obsMetarPts.length || obsSpeciPts.length) {
+            bits.push(`obs ${obsMetarPts.length + obsSpeciPts.length}`);
+        }
+        if (metaEl) metaEl.textContent = bits.length ? bits.join(' | ') : '--';
+    }
+
+    async function loadLivePanel() {
+        const station = getReplayStationFilterValue() || currentStationId();
+        if (!station) return;
+
+        if (liveRequestController) liveRequestController.abort();
+        const controller = new AbortController();
+        liveRequestController = controller;
+
+        try {
+            const resp = await fetch(`/api/v4/replay/live/${station}`, {
+                signal: controller.signal,
+            });
+            const payload = await resp.json();
+            if (payload.error) {
+                throw new Error(payload.error);
+            }
+
+            const latestMetar = payload.latest_metar || null;
+            const nowcast = payload.nowcast || {};
+            const prediction = payload.prediction || {};
+            const marketLeader = extractLiveMarketLeader(payload.market_panel, station);
+            const updatedLabel = formatLiveTimestamp(payload.updated_at_utc);
+            const marketDateEl = document.getElementById('live-market-date');
+            const updatedAtEl = document.getElementById('live-updated-at');
+            const subtitleEl = document.getElementById('live-subtitle');
+
+            if (subtitleEl) {
+                subtitleEl.textContent = `${payload.station_name || station} live context while replay is filtered to ${station}.`;
+            }
+            if (marketDateEl) {
+                marketDateEl.textContent = `Market date ${payload.market_date || '--'} | target ${payload.target_date || '--'}`;
+            }
+            if (updatedAtEl) {
+                updatedAtEl.textContent = `Updated ${updatedLabel}`;
+            }
+
+            if (latestMetar) {
+                const maxText = Number.isFinite(numericOrNaN(latestMetar.running_max_f))
+                    ? ` | max ${formatTempFromF(latestMetar.running_max_f, 1, station)}`
+                    : '';
+                setLiveStat(
+                    'live-metar-temp',
+                    'live-metar-detail',
+                    formatTempFromF(
+                        Number.isFinite(numericOrNaN(latestMetar.temp_f))
+                            ? latestMetar.temp_f
+                            : latestMetar.temp_f_raw,
+                        1,
+                        station
+                    ),
+                    `${String(latestMetar.report_type || (latestMetar.is_speci ? 'SPECI' : 'METAR')).toUpperCase()} @ ${latestMetar.obs_time_local || '--'}${maxText}`
+                );
+            } else {
+                setLiveStat('live-metar-temp', 'live-metar-detail', '--', 'No METAR observations yet for this market day');
+            }
+
+            const nowcastBits = [];
+            if (Number.isFinite(numericOrNaN(nowcast.confidence))) {
+                nowcastBits.push(`conf ${(Number(nowcast.confidence) * 100).toFixed(0)}%`);
+            }
+            if (Number.isFinite(numericOrNaN(nowcast.t_peak_expected_hour))) {
+                nowcastBits.push(`peak ${String(Number(nowcast.t_peak_expected_hour)).padStart(2, '0')}:00`);
+            }
+            if (nowcast.target_date) {
+                nowcastBits.push(`target ${nowcast.target_date}`);
+            }
+            setLiveStat(
+                'live-nowcast-temp',
+                'live-nowcast-detail',
+                formatTempFromF(nowcast.tmax_mean_f, 1, station),
+                nowcastBits.length ? nowcastBits.join(' | ') : 'No live nowcast available'
+            );
+
+            const predictionBits = [];
+            if (Number.isFinite(numericOrNaN(prediction.hrrr_f))) {
+                predictionBits.push(`HRRR ${formatTempFromF(prediction.hrrr_f, 1, station)}`);
+            }
+            if (Number.isFinite(numericOrNaN(prediction.physics_delta))) {
+                predictionBits.push(`physics ${formatSignedDeltaFromF(prediction.physics_delta, 1, station)}`);
+            }
+            if (prediction.timestamp) {
+                predictionBits.push(formatLiveTimestamp(prediction.timestamp));
+            }
+            setLiveStat(
+                'live-prediction-temp',
+                'live-prediction-detail',
+                formatTempFromF(prediction.prediction_f, 1, station),
+                predictionBits.length ? predictionBits.join(' | ') : 'No current prediction available'
+            );
+
+            if (marketLeader) {
+                const leaderBits = [];
+                leaderBits.push(`${(marketLeader.mid * 100).toFixed(1)}%`);
+                if (Number.isFinite(marketLeader.bestBid) && Number.isFinite(marketLeader.bestAsk)) {
+                    leaderBits.push(`${(marketLeader.bestBid * 100).toFixed(1)}c / ${(marketLeader.bestAsk * 100).toFixed(1)}c`);
+                }
+                setLiveStat(
+                    'live-market-leader',
+                    'live-market-detail',
+                    marketLeader.label,
+                    leaderBits.join(' | ')
+                );
+            } else {
+                setLiveStat('live-market-leader', 'live-market-detail', '--', 'No live market leader available');
+            }
+
+            renderLiveTrend(nowcast, payload.metar_history || {}, station);
+            renderMarketPanel(
+                payload.market_panel,
+                updatedLabel,
+                'No live market data for this station',
+                station,
+                {
+                    panelId: 'live-market-panel',
+                    gridId: 'live-market-grid',
+                    timeId: 'live-market-time',
+                }
+            );
+        } catch (e) {
+            if (e?.name === 'AbortError') {
+                return;
+            }
+            console.error('Live panel error:', e);
+            renderLiveUnavailable('Live data temporarily unavailable');
+        } finally {
+            if (liveRequestController === controller) {
+                liveRequestController = null;
+                scheduleLiveRefresh(30000);
             }
         }
     }
@@ -3015,10 +3743,16 @@
         }
     }
 
-    function renderMarketPanel(data, timestamp, emptyReason = 'No market data for this replay segment', stationIdOverride = null) {
-        const panel = document.getElementById('market-replay-panel');
-        const grid = document.getElementById('mr-grid');
-        const timeEl = document.getElementById('mr-time');
+    function renderMarketPanel(
+        data,
+        timestamp,
+        emptyReason = 'No market data for this replay segment',
+        stationIdOverride = null,
+        opts = {}
+    ) {
+        const panel = document.getElementById(opts.panelId || 'market-replay-panel');
+        const grid = document.getElementById(opts.gridId || 'mr-grid');
+        const timeEl = document.getElementById(opts.timeId || 'mr-time');
         const stationId = String(stationIdOverride || currentStationId()).toUpperCase();
 
         if (!panel || !grid || !timeEl) return;
@@ -3132,9 +3866,7 @@
     }
 
     function adjustPollInterval() {
-        if (pollInterval) clearInterval(pollInterval);
-        const interval = pollIntervalMsForSpeed(currentSpeed);
-        pollInterval = setInterval(updateState, interval);
+        scheduleReplayRefresh(0);
     }
 
     async function setSpeed(speed) {
@@ -3215,7 +3947,13 @@
 
     // Cleanup
     window.addEventListener('beforeunload', () => {
-        if (pollInterval) clearInterval(pollInterval);
+        clearReplayRefresh();
+        clearLiveRefresh();
+        if (sessionRequestController) sessionRequestController.abort();
+        if (snapshotRequestController) snapshotRequestController.abort();
+        if (liveRequestController) liveRequestController.abort();
+        if (replayTrendChart) replayTrendChart.destroy();
+        if (liveTrendChart) liveTrendChart.destroy();
     });
 
     document.addEventListener('DOMContentLoaded', () => {
@@ -3227,7 +3965,8 @@
             if (!Array.from(sel.options).some(o => o.value === nextStation)) return;
             sel.value = nextStation;
             updateReplayFormatters();
-            await loadAvailableDates();
+            await loadLivePanel();
+            await loadAvailableDates({ autoLoad: true });
             updateLoadButton();
         });
         init();

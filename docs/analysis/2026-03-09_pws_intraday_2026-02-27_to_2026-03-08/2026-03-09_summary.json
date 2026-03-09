@@ -1,0 +1,52 @@
+{
+  "cycle_summary": {
+    "cycle_count": 2285,
+    "projection_count": 2180,
+    "directional_hit_temp": 0.5068807339449541,
+    "directional_hit_market": 0.35522664199814985,
+    "corr_projection_vs_temp_move": 0.3987258350184467,
+    "corr_projection_vs_market_move": -0.027904031018888997,
+    "avg_repricing_influence": 0.4953831486238532,
+    "tactical_allowed_rate": 0.5412844036697247,
+    "tactical_allowed_temp_precision": 0.411864406779661,
+    "tactical_allowed_market_precision": 0.01452991452991453,
+    "tactical_blocked_temp_precision": 0.619,
+    "tactical_blocked_market_precision": 0.7570564516129032
+  },
+  "duplicate_summary": {
+    "duplicate_key_count": 724,
+    "duplicate_row_excess": 2901,
+    "max_rows_per_key": 13
+  },
+  "recommendations": [
+    {
+      "priority": "high",
+      "area": "repricing_gates",
+      "title": "Tighten tactical repricing gates",
+      "evidence": "Allowed tactical cycles are only converting at 1.5% on market direction while allowed rate is 54.1%."
+    },
+    {
+      "priority": "medium",
+      "area": "analytics_guardrail",
+      "title": "Do not use predictions without explicit dedupe",
+      "evidence": "Found 724 duplicated prediction keys and 2901 excess rows; max rows per key 13."
+    },
+    {
+      "priority": "medium",
+      "area": "warmup_pending",
+      "title": "Inspect pending queue churn and warmup progression in PWS learning",
+      "evidence": "Average pending queue size across markets is 181.2, which is high for a 10-day tactical window."
+    }
+  ],
+  "api_validation": null,
+  "market_velocity_row_count": 16812,
+  "output_files": {
+    "report": "forense\\pws_intraday_2026-02-27_2026-03-08\\report.md",
+    "cycle_metrics": "forense\\pws_intraday_2026-02-27_2026-03-08\\derived\\cycle_metrics.csv",
+    "source_metrics": "forense\\pws_intraday_2026-02-27_2026-03-08\\derived\\source_metrics.csv",
+    "lead_bucket_metrics": "forense\\pws_intraday_2026-02-27_2026-03-08\\derived\\lead_bucket_metrics.csv",
+    "station_metrics": "forense\\pws_intraday_2026-02-27_2026-03-08\\derived\\station_metrics.csv",
+    "pws_station_metrics": "forense\\pws_intraday_2026-02-27_2026-03-08\\derived\\pws_station_metrics.csv",
+    "top_pws_by_market": "forense\\pws_intraday_2026-02-27_2026-03-08\\derived\\top_pws_by_market.csv"
+  }
+}

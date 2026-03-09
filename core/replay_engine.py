@@ -17,6 +17,9 @@ import asyncio
 import logging
 import math
 import re
+from bisect import bisect_left
+from collections import OrderedDict
+from dataclasses import dataclass
 from datetime import datetime, timedelta, date as date_cls, time as time_cls
 from enum import Enum
 from typing import Optional, Dict, List, Callable, Any
@@ -30,6 +33,25 @@ logger = logging.getLogger("replay_engine")
 
 UTC = ZoneInfo("UTC")
 NYC = ZoneInfo("America/New_York")
+REPLAY_DATASET_CACHE_MAX = 4
+REPLAY_DATASET_TTL_CURRENT_DAY_SECONDS = 60.0
+
+
+@dataclass(frozen=True)
+class ReplayPreparedDataset:
+    events: List[Dict[str, Any]]
+    event_timestamps: List[Optional[datetime]]
+    metar_indices: List[int]
+    window_indices: List[int]
+    channels_loaded: List[str]
+    session_start: Optional[datetime]
+    session_end: Optional[datetime]
+    source_dates: List[str]
+    local_day_start_utc: Optional[datetime]
+    local_day_end_utc: Optional[datetime]
+
+
+_DATASET_CACHE: "OrderedDict[tuple[str, str, str], tuple[float, ReplayPreparedDataset]]" = OrderedDict()
 
 
 def _parse_iso_date(value: str) -> Optional[date_cls]:
@@ -117,6 +139,52 @@ def _map_partition_date_to_station_market_dates(
         out.add(cur.isoformat())
         cur += timedelta(days=1)
     return sorted(out)
+
+
+def _normalize_replay_mode(value: Optional[str]) -> str:
+    mode = str(value or "light").strip().lower()
+    return "raw" if mode == "raw" else "light"
+
+
+def _replay_cache_key(date_str: str, station_id: Optional[str], mode: str) -> tuple[str, str, str]:
+    return (str(station_id or "").upper(), str(date_str), _normalize_replay_mode(mode))
+
+
+def _is_current_market_day(date_str: str, station_tz: ZoneInfo) -> bool:
+    target = _parse_iso_date(date_str)
+    if target is None:
+        return False
+    return datetime.now(station_tz).date() == target
+
+
+def _get_cached_dataset(date_str: str, station_id: Optional[str], mode: str, station_tz: ZoneInfo) -> Optional[ReplayPreparedDataset]:
+    key = _replay_cache_key(date_str, station_id, mode)
+    cached = _DATASET_CACHE.get(key)
+    if cached is None:
+        return None
+
+    cached_at, dataset = cached
+    if _is_current_market_day(date_str, station_tz):
+        age_s = (datetime.now(UTC).timestamp() - cached_at)
+        if age_s > REPLAY_DATASET_TTL_CURRENT_DAY_SECONDS:
+            _DATASET_CACHE.pop(key, None)
+            return None
+
+    _DATASET_CACHE.move_to_end(key)
+    return dataset
+
+
+def _store_cached_dataset(date_str: str, station_id: Optional[str], mode: str, dataset: ReplayPreparedDataset) -> None:
+    key = _replay_cache_key(date_str, station_id, mode)
+    _DATASET_CACHE[key] = (datetime.now(UTC).timestamp(), dataset)
+    _DATASET_CACHE.move_to_end(key)
+    while len(_DATASET_CACHE) > REPLAY_DATASET_CACHE_MAX:
+        _DATASET_CACHE.popitem(last=False)
+
+
+def reset_replay_dataset_cache() -> None:
+    """Clear prepared replay datasets. Used by tests and diagnostics."""
+    _DATASET_CACHE.clear()
 
 
 class ReplayState(Enum):
@@ -274,12 +342,14 @@ class ReplaySession:
         session_id: str,
         date_str: str,
         station_id: Optional[str] = None,
-        channels: Optional[List[str]] = None
+        channels: Optional[List[str]] = None,
+        mode: str = "light",
     ):
         self.session_id = session_id
         self.date_str = date_str
         self.station_id = station_id
         self.channels = channels
+        self.mode = _normalize_replay_mode(mode)
         self._station_tz = _resolve_station_timezone(station_id)
         self._date_reference = (
             f"{self._station_tz.key} market date"
@@ -295,9 +365,14 @@ class ReplaySession:
 
         # Data
         self._events: List[Dict] = []
+        self._event_timestamps: List[Optional[datetime]] = []
         self._event_index: int = 0
         self._metar_indices: List[int] = []
         self._window_indices: List[int] = []
+        self._channels_loaded: List[str] = []
+        self._session_start: Optional[datetime] = None
+        self._session_end: Optional[datetime] = None
+        self._searchable_timestamp_count: int = 0
         self._pws_learning_cache_key: Optional[tuple] = None
         self._pws_learning_cache_value: Optional[Dict[str, Any]] = None
 
@@ -309,9 +384,14 @@ class ReplaySession:
         self._reader = get_hybrid_reader()
 
     async def load(self) -> bool:
-        """Load events from Parquet."""
+        """Load events for replay, using the prepared dataset cache when possible."""
         self.state = ReplayState.LOADING
-        logger.info(f"Loading replay session: {self.date_str} / {self.station_id}")
+        logger.info(
+            "Loading replay session: %s / %s / mode=%s",
+            self.date_str,
+            self.station_id,
+            self.mode,
+        )
 
         try:
             local_window_utc: Optional[tuple[datetime, datetime]] = None
@@ -330,114 +410,34 @@ class ReplaySession:
                 self._local_day_start_utc = None
                 self._local_day_end_utc = None
 
-            channels = self.channels
-            # Default channel set optimized for UI/replay latency.
-            # Prefer lower-volume market channel when multiple variants exist.
-            if channels is None and hasattr(self._reader, "list_channels_for_date"):
-                available = set()
-                for source_date in self._source_dates:
-                    available.update(self._reader.list_channels_for_date(source_date, self.station_id))
-                channels = ["world", "pws", "nowcast", "features", "health", "event_window"]
-                if "market" in available:
-                    channels.append("market")
-                elif "l2_snap" in available:
-                    channels.append("l2_snap")
-                elif "l2_snap_1s" in available:
-                    channels.append("l2_snap_1s")
-
-            # Read all events from source partitions, then filter to the requested
-            # station-local market day window.
-            all_events: List[Dict[str, Any]] = []
-            for source_date in self._source_dates:
-                source_events = self._reader.get_events_sorted(
-                    source_date,
-                    self.station_id,
-                    channels,
+            dataset = _get_cached_dataset(
+                self.date_str,
+                self.station_id,
+                self.mode,
+                self._station_tz,
+            )
+            if dataset is None:
+                channels = self.channels or self._resolve_default_channels()
+                dataset = self._build_prepared_dataset(
+                    channels=channels,
+                    local_window_utc=local_window_utc,
                 )
-                if source_events:
-                    all_events.extend(source_events)
+                if dataset is None:
+                    self.state = ReplayState.IDLE
+                    return False
+                _store_cached_dataset(self.date_str, self.station_id, self.mode, dataset)
 
-            if local_window_utc:
-                start_utc, end_utc = local_window_utc
-                filtered_events: List[Dict[str, Any]] = []
-                for ev in all_events:
-                    ev_ts = self._parse_timestamp(ev)
-                    if ev_ts is None:
-                        continue
-                    if start_utc <= ev_ts < end_utc:
-                        filtered_events.append(ev)
-                all_events = filtered_events
-
-            def _sort_key(ev: Dict[str, Any]):
-                ev_ts = self._parse_timestamp(ev)
-                if ev_ts is not None:
-                    return (0, ev_ts)
-                return (1, str(ev.get("ts_ingest_utc", "")))
-
-            all_events.sort(key=_sort_key)
-            self._events = all_events
-
-            if not self._events:
-                # Diagnostic logging
-                try:
-                    available_channels = set()
-                    for source_date in self._source_dates:
-                        available_channels.update(self._reader.list_channels_for_date(source_date))
-                    available_dates = self._reader.list_available_dates(self.station_id)
-                    logger.warning(
-                        f"No events found for date={self.date_str}, station={self.station_id}, "
-                        f"sources={self._source_dates}. "
-                        f"Channels on source dates: {sorted(available_channels)}. "
-                        f"Recent dates for station: {available_dates[:5]}"
-                    )
-                    if not available_channels:
-                        logger.warning(
-                            f"No NDJSON or Parquet data exists for source dates {self._source_dates}. "
-                            f"Is the recorder running?"
-                        )
-                    elif self.station_id:
-                        # Data exists but not for this station
-                        all_events = []
-                        for source_date in self._source_dates:
-                            all_events.extend(
-                                self._reader.get_events_sorted(source_date, None, self.channels)
-                            )
-                        stations_found = set()
-                        for ev in all_events[:200]:
-                            sid = ev.get("station_id") or ev.get("data", {}).get("station_id")
-                            if sid:
-                                stations_found.add(sid)
-                        if stations_found:
-                            logger.warning(
-                                f"Data exists for stations: {stations_found}, "
-                                f"but not for requested station={self.station_id}"
-                            )
-                except Exception as diag_err:
-                    logger.warning(f"Diagnostics failed: {diag_err}")
-                self.state = ReplayState.IDLE
-                return False
-
-            # Build index of special events
-            self._build_indices()
-
-            # Initialize clock from event timestamps
-            first_ts, last_ts = self._find_session_bounds()
-
-            if first_ts and last_ts:
-                self.clock.initialize(first_ts, last_ts)
-            else:
-                logger.warning(
-                    "Replay session loaded without parseable timestamps; "
-                    "clock/progress controls will be limited"
-                )
+            self._apply_prepared_dataset(dataset)
 
             self.state = ReplayState.READY
             self._event_index = 0
 
             logger.info(
-                f"Loaded {len(self._events)} events, "
-                f"{len(self._metar_indices)} METARs, "
-                f"{len(self._window_indices)} windows"
+                "Loaded %s events, %s METARs, %s windows (mode=%s)",
+                len(self._events),
+                len(self._metar_indices),
+                len(self._window_indices),
+                self.mode,
             )
             return True
 
@@ -446,24 +446,190 @@ class ReplaySession:
             self.state = ReplayState.IDLE
             return False
 
+    def _resolve_default_channels(self) -> Optional[List[str]]:
+        channels = self.channels
+        if channels is not None or not hasattr(self._reader, "list_channels_for_date"):
+            return channels
+
+        available = set()
+        for source_date in self._source_dates:
+            available.update(self._reader.list_channels_for_date(source_date, self.station_id))
+        channels = ["world", "pws", "nowcast", "features", "health", "event_window"]
+        if "market" in available:
+            channels.append("market")
+        elif "l2_snap" in available:
+            channels.append("l2_snap")
+        elif "l2_snap_1s" in available:
+            channels.append("l2_snap_1s")
+        return channels
+
+    def _reader_get_events_sorted(
+        self,
+        source_date: str,
+        station_id: Optional[str],
+        channels: Optional[List[str]],
+    ) -> List[Dict[str, Any]]:
+        read_policy = "replay_light" if self.mode == "light" else "raw"
+        try:
+            return self._reader.get_events_sorted(
+                source_date,
+                station_id,
+                channels,
+                read_policy=read_policy,
+            )
+        except TypeError:
+            return self._reader.get_events_sorted(source_date, station_id, channels)
+
+    def _build_prepared_dataset(
+        self,
+        *,
+        channels: Optional[List[str]],
+        local_window_utc: Optional[tuple[datetime, datetime]],
+    ) -> Optional[ReplayPreparedDataset]:
+        all_events: List[Dict[str, Any]] = []
+        all_timestamps: List[Optional[datetime]] = []
+
+        for source_date in self._source_dates:
+            source_events = self._reader_get_events_sorted(
+                source_date,
+                self.station_id,
+                channels,
+            )
+            if not source_events:
+                continue
+            for event in source_events:
+                ts = self._parse_timestamp(event)
+                all_events.append(event)
+                all_timestamps.append(ts)
+
+        if local_window_utc:
+            start_utc, end_utc = local_window_utc
+            filtered_events: List[Dict[str, Any]] = []
+            filtered_timestamps: List[Optional[datetime]] = []
+            for event, ts in zip(all_events, all_timestamps):
+                if ts is None:
+                    continue
+                if start_utc <= ts < end_utc:
+                    filtered_events.append(event)
+                    filtered_timestamps.append(ts)
+            all_events = filtered_events
+            all_timestamps = filtered_timestamps
+
+        if not all_events:
+            self._log_missing_event_diagnostics()
+            return None
+
+        decorated = list(zip(all_events, all_timestamps))
+        decorated.sort(
+            key=lambda item: (
+                0,
+                item[1],
+            ) if item[1] is not None else (
+                1,
+                str(item[0].get("ts_ingest_utc", "")),
+            )
+        )
+        sorted_events = [event for event, _ in decorated]
+        sorted_timestamps = [ts for _, ts in decorated]
+
+        metar_indices: List[int] = []
+        window_indices: List[int] = []
+        channels_loaded = sorted({
+            str(event.get("ch"))
+            for event in sorted_events
+            if isinstance(event, dict) and event.get("ch")
+        })
+        for idx, event in enumerate(sorted_events):
+            ch = event.get("ch", "")
+            data = event.get("data", {})
+            if ch == "world" and data.get("src") == "METAR":
+                metar_indices.append(idx)
+            if ch == "event_window":
+                window_indices.append(idx)
+
+        session_start = next((ts for ts in sorted_timestamps if ts is not None), None)
+        session_end = next((ts for ts in reversed(sorted_timestamps) if ts is not None), None)
+        return ReplayPreparedDataset(
+            events=sorted_events,
+            event_timestamps=sorted_timestamps,
+            metar_indices=metar_indices,
+            window_indices=window_indices,
+            channels_loaded=channels_loaded,
+            session_start=session_start,
+            session_end=session_end,
+            source_dates=list(self._source_dates),
+            local_day_start_utc=self._local_day_start_utc,
+            local_day_end_utc=self._local_day_end_utc,
+        )
+
+    def _apply_prepared_dataset(self, dataset: ReplayPreparedDataset) -> None:
+        self._events = dataset.events
+        self._event_timestamps = dataset.event_timestamps
+        self._metar_indices = dataset.metar_indices
+        self._window_indices = dataset.window_indices
+        self._channels_loaded = dataset.channels_loaded
+        self._source_dates = list(dataset.source_dates)
+        self._local_day_start_utc = dataset.local_day_start_utc
+        self._local_day_end_utc = dataset.local_day_end_utc
+        self._session_start = dataset.session_start
+        self._session_end = dataset.session_end
+        self._searchable_timestamp_count = 0
+        for ts in self._event_timestamps:
+            if ts is None:
+                break
+            self._searchable_timestamp_count += 1
+        self._pws_learning_cache_key = None
+        self._pws_learning_cache_value = None
+
+        if self._session_start and self._session_end:
+            self.clock.initialize(self._session_start, self._session_end)
+        else:
+            logger.warning(
+                "Replay session loaded without parseable timestamps; "
+                "clock/progress controls will be limited"
+            )
+
+    def _log_missing_event_diagnostics(self) -> None:
+        try:
+            available_channels = set()
+            for source_date in self._source_dates:
+                available_channels.update(self._reader.list_channels_for_date(source_date))
+            available_dates = self._reader.list_available_dates(self.station_id)
+            logger.warning(
+                "No events found for date=%s, station=%s, sources=%s. "
+                "Channels on source dates: %s. Recent dates for station: %s",
+                self.date_str,
+                self.station_id,
+                self._source_dates,
+                sorted(available_channels),
+                available_dates[:5],
+            )
+            if not available_channels:
+                logger.warning(
+                    "No NDJSON or Parquet data exists for source dates %s. Is the recorder running?",
+                    self._source_dates,
+                )
+            elif self.station_id:
+                all_events: List[Dict[str, Any]] = []
+                for source_date in self._source_dates:
+                    all_events.extend(self._reader_get_events_sorted(source_date, None, self.channels))
+                stations_found = set()
+                for ev in all_events[:200]:
+                    sid = ev.get("station_id") or ev.get("data", {}).get("station_id")
+                    if sid:
+                        stations_found.add(sid)
+                if stations_found:
+                    logger.warning(
+                        "Data exists for stations: %s, but not for requested station=%s",
+                        stations_found,
+                        self.station_id,
+                    )
+        except Exception as diag_err:
+            logger.warning(f"Diagnostics failed: {diag_err}")
+
     def _find_session_bounds(self) -> tuple[Optional[datetime], Optional[datetime]]:
         """Find first/last parseable timestamps in the loaded event list."""
-        first_ts: Optional[datetime] = None
-        last_ts: Optional[datetime] = None
-
-        for event in self._events:
-            ts = self._parse_timestamp(event)
-            if ts is not None:
-                first_ts = ts
-                break
-
-        for event in reversed(self._events):
-            ts = self._parse_timestamp(event)
-            if ts is not None:
-                last_ts = ts
-                break
-
-        return first_ts, last_ts
+        return self._session_start, self._session_end
 
     def _build_indices(self):
         """Build indices for special events."""
@@ -560,19 +726,30 @@ class ReplaySession:
             self._playback_task = None
 
         self._event_index = 0
-        self.clock.seek(self.clock._session_start)
+        if self._session_start:
+            self.clock.seek(self._session_start)
+
+    def _find_event_index_at_or_after(self, target_time: datetime) -> int:
+        """Return the first event index at/after target_time using prepared timestamps."""
+        if not self._events:
+            return 0
+        if self._searchable_timestamp_count <= 0:
+            return max(0, min(len(self._events) - 1, self._event_index))
+
+        idx = bisect_left(
+            self._event_timestamps,
+            target_time,
+            0,
+            self._searchable_timestamp_count,
+        )
+        if idx >= self._searchable_timestamp_count:
+            return self._searchable_timestamp_count - 1
+        return idx
 
     def seek_time(self, target_time: datetime):
         """Seek to specific time."""
         self.clock.seek(target_time)
-
-        # Find event index at this time
-        target_str = target_time.isoformat()
-        for i, event in enumerate(self._events):
-            ts = event.get("ts_ingest_utc", "")
-            if ts >= target_str:
-                self._event_index = i
-                break
+        self._event_index = self._find_event_index_at_or_after(target_time)
 
     def seek_percent(self, percent: float):
         """Seek to percentage position."""
@@ -588,7 +765,7 @@ class ReplaySession:
         for idx in self._metar_indices:
             if idx > self._event_index:
                 self._event_index = idx
-                event_ts = self._parse_timestamp(self._events[idx])
+                event_ts = self._event_timestamps[idx] if idx < len(self._event_timestamps) else None
                 if event_ts:
                     self.clock.seek(event_ts)
                 return True
@@ -599,7 +776,7 @@ class ReplaySession:
         for idx in reversed(self._metar_indices):
             if idx < self._event_index:
                 self._event_index = idx
-                event_ts = self._parse_timestamp(self._events[idx])
+                event_ts = self._event_timestamps[idx] if idx < len(self._event_timestamps) else None
                 if event_ts:
                     self.clock.seek(event_ts)
                 return True
@@ -610,7 +787,7 @@ class ReplaySession:
         for idx in self._window_indices:
             if idx > self._event_index:
                 self._event_index = idx
-                event_ts = self._parse_timestamp(self._events[idx])
+                event_ts = self._event_timestamps[idx] if idx < len(self._event_timestamps) else None
                 if event_ts:
                     self.clock.seek(event_ts)
                 return True
@@ -630,7 +807,7 @@ class ReplaySession:
 
                 # Check if next event is in the future
                 event = self._events[self._event_index]
-                event_ts = self._parse_timestamp(event)
+                event_ts = self._event_timestamps[self._event_index] if self._event_index < len(self._event_timestamps) else None
 
                 if event_ts:
                     current = self.clock.now()
@@ -652,7 +829,7 @@ class ReplaySession:
                 batch_count = 0
                 while self._event_index < len(self._events) and batch_count < 50:
                     ev = self._events[self._event_index]
-                    ev_ts = self._parse_timestamp(ev)
+                    ev_ts = self._event_timestamps[self._event_index] if self._event_index < len(self._event_timestamps) else None
 
                     if ev_ts and current and ev_ts > current:
                         break  # Next event is in the future
@@ -675,15 +852,11 @@ class ReplaySession:
 
     def get_state(self) -> Dict:
         """Get session state for UI."""
-        channels_loaded = sorted({
-            str(ev.get("ch"))
-            for ev in self._events
-            if isinstance(ev, dict) and ev.get("ch")
-        })
         return {
             "session_id": self.session_id,
             "date": self.date_str,
             "station_id": self.station_id,
+            "mode": self.mode,
             "station_timezone": self._station_tz.key,
             "date_reference": self._date_reference,
             "source_dates": list(self._source_dates),
@@ -694,9 +867,33 @@ class ReplaySession:
             "current_index": self._event_index,
             "metar_count": len(self._metar_indices),
             "window_count": len(self._window_indices),
-            "channels_loaded": channels_loaded,
+            "channels_loaded": list(self._channels_loaded),
             "clock": self.clock.get_state()
         }
+
+    def get_snapshot(
+        self,
+        *,
+        heavy: bool = False,
+        events_n: int = 10,
+        max_points: int = 80,
+        top_n: int = 6,
+        trend_points: int = 240,
+        trend_mode: str = "hourly",
+    ) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {
+            "state": self.get_state(),
+        }
+        if heavy:
+            payload["events"] = self.get_events_around(events_n)
+            payload["categories"] = self.get_category_summary()
+            payload["pws_learning"] = self.get_pws_learning_summary(
+                max_points=max_points,
+                top_n=top_n,
+                trend_points=trend_points,
+                trend_mode=trend_mode,
+            )
+        return payload
 
     def get_category_summary(self) -> Dict:
         """Get latest event and count per channel for category cards."""
@@ -1685,7 +1882,8 @@ class ReplayEngine:
         self,
         date_str: str,
         station_id: Optional[str] = None,
-        channels: Optional[List[str]] = None
+        channels: Optional[List[str]] = None,
+        mode: str = "light",
     ) -> Optional[ReplaySession]:
         """Create and load a new replay session."""
         import uuid
@@ -1695,7 +1893,8 @@ class ReplayEngine:
             session_id=session_id,
             date_str=date_str,
             station_id=station_id,
-            channels=channels
+            channels=channels,
+            mode=mode,
         )
 
         # Set up event routing
@@ -1814,3 +2013,11 @@ def get_replay_engine() -> ReplayEngine:
     if _engine is None:
         _engine = ReplayEngine()
     return _engine
+
+
+def reset_replay_engine_state() -> None:
+    """Reset replay engine singletons and prepared dataset cache. Used by tests."""
+    global _engine
+    _engine = None
+    ReplayEngine._instance = None
+    reset_replay_dataset_cache()

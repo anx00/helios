@@ -23,6 +23,16 @@ from time import perf_counter
 logger = logging.getLogger("compactor")
 
 UTC = ZoneInfo("UTC")
+REPLAY_REQUIRED_CHANNELS = (
+    "world",
+    "pws",
+    "nowcast",
+    "features",
+    "health",
+    "event_window",
+)
+REPLAY_MARKET_CHANNEL_PRIORITY = ("market", "l2_snap", "l2_snap_1s")
+L2_CHANNELS = {"market", "l2_snap", "l2_snap_1s"}
 
 # Try to import pyarrow for Parquet support
 try:
@@ -73,6 +83,36 @@ def flatten_event(event: Dict) -> Dict:
             flat[key] = value
 
     return flat
+
+
+def slim_l2_event_payload(event: Dict) -> Dict:
+    """Drop full bid/ask ladders from stored market payloads for replay-light paths."""
+    if not isinstance(event, dict):
+        return event
+
+    data = event.get("data")
+    if not isinstance(data, dict):
+        return event
+
+    slimmed = False
+    next_data = dict(data)
+    for bucket, payload in list(next_data.items()):
+        if not isinstance(payload, dict):
+            continue
+        if "bids" not in payload and "asks" not in payload:
+            continue
+        compact_payload = dict(payload)
+        compact_payload.pop("bids", None)
+        compact_payload.pop("asks", None)
+        next_data[bucket] = compact_payload
+        slimmed = True
+
+    if not slimmed:
+        return event
+
+    out = dict(event)
+    out["data"] = next_data
+    return out
 
 
 def _value_kind(value: Any) -> str:
@@ -480,15 +520,68 @@ class Compactor:
             "total_events": sum(r["total_events"] for r in results.values())
         }
 
+    def _replay_channels_for_date(self, date_str: str) -> Set[str]:
+        """Return the subset of channels that replay expects for a date."""
+        available = set(self.list_channels_for_date(date_str))
+        if not available:
+            return set()
+
+        required = {ch for ch in REPLAY_REQUIRED_CHANNELS if ch in available}
+        for channel in REPLAY_MARKET_CHANNEL_PRIORITY:
+            if channel in available:
+                required.add(channel)
+                break
+        return required or available
+
+    def _expected_station_outputs(self, date_str: str, channel: str) -> Set[str]:
+        """
+        Return the set of parquet outputs expected for a date/channel.
+
+        Station-aware recordings must produce one parquet subtree per station.
+        Global/system channels without station IDs compact into the date-only path.
+        """
+        event_file = self.get_ndjson_path(date_str, channel)
+        if not event_file.exists():
+            return set()
+
+        expected: Set[str] = set()
+        saw_any = False
+        for event in read_ndjson_file(event_file):
+            saw_any = True
+            station_id = event.get("station_id")
+            if not station_id and isinstance(event.get("data"), dict):
+                station_id = event["data"].get("station_id")
+            if station_id:
+                expected.add(str(station_id).strip().upper())
+
+        if expected:
+            return expected
+        if saw_any:
+            return {"ALL"}
+        return set()
+
     def _is_date_compacted(self, date_str: str) -> bool:
         """Check whether every NDJSON channel for a date has Parquet output."""
         channels = self.list_channels_for_date(date_str)
         if not channels:
             return False
-        return all(self._is_channel_compacted(date_str, channel) for channel in channels)
+        replay_channels = self._replay_channels_for_date(date_str)
+        return all(self._is_channel_compacted(date_str, channel) for channel in replay_channels)
 
     def _is_channel_compacted(self, date_str: str, channel: str) -> bool:
         """Check whether a specific date/channel already has Parquet fragments."""
+        expected_outputs = self._expected_station_outputs(date_str, channel)
+        if expected_outputs:
+            for station_id in expected_outputs:
+                output_dir = (
+                    self.get_parquet_dir(date_str, channel, None)
+                    if station_id == "ALL"
+                    else self.get_parquet_dir(date_str, channel, station_id)
+                )
+                if not (output_dir.exists() and any(output_dir.glob("*.parquet"))):
+                    return False
+            return True
+
         for output_dir in self._iter_channel_parquet_dirs(date_str, channel):
             if output_dir.exists() and any(output_dir.glob("*.parquet")):
                 return True
@@ -682,11 +775,21 @@ class ParquetReader:
 
         return files
 
+    def has_channel_data(
+        self,
+        date_str: str,
+        channel: str,
+        station_id: Optional[str] = None,
+    ) -> bool:
+        """Return True when at least one parquet fragment exists for a selection."""
+        return bool(self._collect_parquet_files(date_str, channel, station_id))
+
     def read_channel(
         self,
         date_str: str,
         channel: str,
-        station_id: Optional[str] = None
+        station_id: Optional[str] = None,
+        slim_l2: bool = False,
     ) -> List[Dict]:
         """Read all events from a channel."""
         global _PARQUET_READ_WARNED
@@ -735,6 +838,12 @@ class ParquetReader:
 
                 if data:
                     event["data"] = data
+
+                if slim_l2 and channel in L2_CHANNELS:
+                    slimmed = slim_l2_event_payload(event)
+                    if slimmed is not event:
+                        event.clear()
+                        event.update(slimmed)
 
             return events
 
@@ -982,7 +1091,8 @@ class HybridReader:
         self,
         date_str: str,
         channel: str,
-        station_id: Optional[str] = None
+        station_id: Optional[str] = None,
+        slim_l2: bool = True,
     ) -> List[Dict]:
         """Read events from NDJSON file, optionally filtering by station."""
         ndjson_path = (
@@ -1057,18 +1167,8 @@ class HybridReader:
 
                     # Drop heavy depth arrays for replay/backtest paths.
                     # Simulator/policy only require best bid/ask + depth, not full ladders.
-                    if channel in l2_channels:
-                        data = event.get("data")
-                        if isinstance(data, dict):
-                            for bucket, payload in list(data.items()):
-                                if not isinstance(payload, dict):
-                                    continue
-                                if "bids" in payload or "asks" in payload:
-                                    slim = dict(payload)
-                                    slim.pop("bids", None)
-                                    slim.pop("asks", None)
-                                    data[bucket] = slim
-                            event["data"] = data
+                    if slim_l2 and channel in l2_channels:
+                        event = slim_l2_event_payload(event)
 
                     # Ensure channel is set.
                     event["ch"] = channel
@@ -1105,22 +1205,47 @@ class HybridReader:
         self,
         date_str: str,
         channel: str,
-        station_id: Optional[str] = None
+        station_id: Optional[str] = None,
+        read_policy: str = "default",
     ) -> List[Dict]:
         """Read channel from NDJSON first, then Parquet."""
+        policy = str(read_policy or "default").strip().lower()
+        slim_l2 = policy != "raw"
+
+        if policy == "replay_light" and self._parquet_reader.has_channel_data(date_str, channel, station_id):
+            events = self._parquet_reader.read_channel(
+                date_str,
+                channel,
+                station_id,
+                slim_l2=slim_l2,
+            )
+            if events:
+                return events
+
         # Try NDJSON first (fresher data)
-        events = self.read_channel_ndjson(date_str, channel, station_id=station_id)
+        events = self.read_channel_ndjson(
+            date_str,
+            channel,
+            station_id=station_id,
+            slim_l2=slim_l2,
+        )
         if events:
             return events
 
         # Fall back to Parquet
-        return self._parquet_reader.read_channel(date_str, channel, station_id)
+        return self._parquet_reader.read_channel(
+            date_str,
+            channel,
+            station_id,
+            slim_l2=slim_l2,
+        )
 
     def read_all_channels(
         self,
         date_str: str,
         station_id: Optional[str] = None,
-        channels: Optional[List[str]] = None
+        channels: Optional[List[str]] = None,
+        read_policy: str = "default",
     ) -> Dict[str, List[Dict]]:
         """
         Read all channels for a date.
@@ -1143,7 +1268,12 @@ class HybridReader:
         for channel in available_channels:
             if channel_filter is not None and channel not in channel_filter:
                 continue
-            events = self.read_channel(date_str, channel, station_id)
+            events = self.read_channel(
+                date_str,
+                channel,
+                station_id,
+                read_policy=read_policy,
+            )
             if events:
                 result[channel] = events
 
@@ -1153,14 +1283,20 @@ class HybridReader:
         self,
         date_str: str,
         station_id: Optional[str] = None,
-        channels: Optional[List[str]] = None
+        channels: Optional[List[str]] = None,
+        read_policy: str = "default",
     ) -> List[Dict]:
         """
         Get all events for a date, sorted by timestamp.
 
         This is the main method for replay.
         """
-        all_data = self.read_all_channels(date_str, station_id, channels=channels)
+        all_data = self.read_all_channels(
+            date_str,
+            station_id,
+            channels=channels,
+            read_policy=read_policy,
+        )
 
         # Flatten to single list
         all_events = []

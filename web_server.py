@@ -2228,13 +2228,122 @@ async def get_replay_channels(date_str: str, station_id: str = None):
     return {"channels": channels}
 
 
+def _replay_market_panel_from_trading_payload(trading_payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    if not isinstance(trading_payload, dict):
+        return None
+    brackets = trading_payload.get("brackets")
+    if not isinstance(brackets, list):
+        return None
+
+    market_state: Dict[str, Any] = {}
+    for row in brackets:
+        if not isinstance(row, dict):
+            continue
+        label = str(row.get("name") or "").strip()
+        if not label:
+            continue
+        mid = row.get("ws_mid")
+        if mid is None:
+            mid = row.get("yes_price")
+        best_bid = row.get("ws_best_bid")
+        best_ask = row.get("ws_best_ask")
+        spread = row.get("ws_spread")
+        if spread is None and best_bid is not None and best_ask is not None:
+            try:
+                spread = float(best_ask) - float(best_bid)
+            except Exception:
+                spread = None
+        market_state[label] = {
+            "mid": mid,
+            "best_bid": best_bid,
+            "best_ask": best_ask,
+            "spread": spread,
+            "bid_depth": row.get("ws_bid_depth"),
+            "ask_depth": row.get("ws_ask_depth"),
+        }
+
+    if not market_state:
+        return None
+    return market_state
+
+
+async def _build_replay_live_payload(station_id: str) -> Dict[str, Any]:
+    resolved_station = _normalize_station_id(station_id)
+    if not resolved_station:
+        return {"error": f"Invalid station_id: {station_id}"}
+
+    station = STATIONS[resolved_station]
+    station_tz = ZoneInfo(station.timezone)
+    current_market_date = datetime.now(station_tz).date().isoformat()
+
+    tasks = [
+        asyncio.create_task(get_prediction_api(resolved_station, target_day=0)),
+        asyncio.create_task(get_nowcast_distribution(resolved_station)),
+        asyncio.create_task(get_nowcast_state(resolved_station)),
+        asyncio.create_task(get_world_metar_history(resolved_station)),
+        asyncio.create_task(get_polymarket_dashboard_data(resolved_station, target_day=0, depth=5)),
+    ]
+    prediction, nowcast, nowcast_state, metar_history, trading_payload = await asyncio.gather(
+        *tasks,
+        return_exceptions=True,
+    )
+
+    def _normalize_result(value: Any) -> Dict[str, Any]:
+        if isinstance(value, Exception):
+            return {"error": str(value)}
+        if isinstance(value, dict):
+            return value
+        return {}
+
+    prediction_payload = _normalize_result(prediction)
+    nowcast_payload = _normalize_result(nowcast)
+    nowcast_state_payload = _normalize_result(nowcast_state)
+    metar_history_payload = _normalize_result(metar_history)
+    trading_result_payload = _normalize_result(trading_payload)
+
+    metar_rows = None
+    if isinstance(metar_history_payload, dict):
+        metar_rows = metar_history_payload.get("rows")
+        if not isinstance(metar_rows, list):
+            metar_rows = metar_history_payload.get("observations")
+    if not isinstance(metar_rows, list):
+        metar_rows = []
+    latest_metar = metar_rows[-1] if metar_rows else None
+
+    target_date = (
+        prediction_payload.get("target_date")
+        or nowcast_payload.get("target_date")
+        or trading_result_payload.get("target_date")
+        or current_market_date
+    )
+
+    return {
+        "station_id": resolved_station,
+        "station_name": station.name,
+        "station_timezone": station.timezone,
+        "market_date": current_market_date,
+        "target_date": target_date,
+        "updated_at_utc": datetime.now(ZoneInfo("UTC")).isoformat(),
+        "prediction": prediction_payload,
+        "nowcast": nowcast_payload,
+        "nowcast_state": nowcast_state_payload,
+        "metar_history": {
+            **metar_history_payload,
+            "rows": metar_rows,
+        } if isinstance(metar_history_payload, dict) else {"rows": metar_rows},
+        "latest_metar": latest_metar,
+        "trading": trading_result_payload,
+        "market_panel": _replay_market_panel_from_trading_payload(trading_result_payload),
+    }
+
+
 @app.post("/api/v4/replay/session")
-async def create_replay_session(date: str, station_id: str = None):
+async def create_replay_session(date: str, station_id: str = None, mode: str = "light"):
     """Create a new replay session."""
     from core.replay_engine import get_replay_engine
     engine = get_replay_engine()
 
-    session = await engine.create_session(date, station_id)
+    session = await engine.create_session(date, station_id, mode=mode)
     if not session:
         channels = await asyncio.to_thread(engine.list_channels_for_date, date, station_id)
         all_channels = (
@@ -2268,6 +2377,34 @@ async def create_replay_session(date: str, station_id: str = None):
     return session.get_state()
 
 
+@app.get("/api/v4/replay/session/{session_id}/snapshot")
+async def get_replay_snapshot(
+    session_id: str,
+    heavy: int = 0,
+    events_n: int = 10,
+    max_points: int = 80,
+    top_n: int = 6,
+    trend_points: int = 240,
+    trend_mode: str = "hourly",
+):
+    """Get consolidated replay session data for the dashboard."""
+    from core.replay_engine import get_replay_engine
+    engine = get_replay_engine()
+
+    session = engine.get_session(session_id)
+    if not session:
+        return {"error": "Session not found"}
+
+    return session.get_snapshot(
+        heavy=bool(int(heavy or 0)),
+        events_n=max(1, int(events_n)),
+        max_points=max(1, int(max_points)),
+        top_n=max(1, int(top_n)),
+        trend_points=max(10, int(trend_points)),
+        trend_mode=trend_mode,
+    )
+
+
 @app.get("/api/v4/replay/session/{session_id}/state")
 async def get_replay_state(session_id: str):
     """Get current state of a replay session."""
@@ -2279,6 +2416,12 @@ async def get_replay_state(session_id: str):
         return {"error": "Session not found"}
 
     return session.get_state()
+
+
+@app.get("/api/v4/replay/live/{station_id}")
+async def get_replay_live(station_id: str):
+    """Get the current live station context for the replay dashboard."""
+    return await _build_replay_live_payload(station_id)
 
 
 @app.get("/api/v4/replay/session/{session_id}/events")
@@ -6119,9 +6262,14 @@ async def replay_dashboard(request: Request):
         sid: get_polymarket_temp_unit(sid)
         for sid in active.keys()
     }
+    station_timezones = {
+        sid: str(getattr(stn, "timezone", "") or "America/New_York")
+        for sid, stn in active.items()
+    }
     return _render_template(request, "replay.html", {
         "active_page": "replay",
         "station_market_units": station_market_units,
+        "station_timezones": station_timezones,
     })
 
 

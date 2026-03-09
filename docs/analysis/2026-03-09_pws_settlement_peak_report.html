@@ -1,0 +1,500 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>PWS settlement and peak-hour report</title>
+  <style>
+    @page { size: A4; margin: 14mm; }
+    body { font-family: "Segoe UI", Arial, sans-serif; color: #0f172a; margin: 0; background: #f8fafc; }
+    h1, h2, h3 { margin: 0 0 8px 0; }
+    h1 { font-size: 28px; line-height: 1.15; }
+    h2 { font-size: 22px; }
+    h3 { font-size: 16px; color: #0f172a; }
+    p, li { font-size: 12px; line-height: 1.45; }
+    .hero { background: linear-gradient(135deg, #082f49, #0f172a 55%, #1d4ed8); color: white; padding: 20px 22px; border-radius: 18px; margin-bottom: 18px; }
+    .hero p { color: rgba(255,255,255,0.88); margin: 10px 0 0 0; max-width: 860px; }
+    .meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 16px; }
+    .meta .item { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); padding: 10px 12px; border-radius: 12px; font-size: 12px; }
+    .section { background: white; border: 1px solid #dbe4ee; border-radius: 16px; padding: 16px 18px; margin-bottom: 16px; }
+    .grid { display: grid; gap: 14px; }
+    .grid.two { grid-template-columns: 1fr 1fr; }
+    .panel { background: #f8fafc; border: 1px solid #dbe4ee; border-radius: 14px; padding: 12px 14px; }
+    .subtle { color: #475569; font-size: 11px; }
+    .badge { display: inline-block; border-radius: 999px; padding: 6px 10px; font-size: 11px; font-weight: 700; letter-spacing: 0.02em; }
+    .badge-green { background: #dcfce7; color: #166534; }
+    .badge-blue { background: #dbeafe; color: #1d4ed8; }
+    .badge-amber { background: #fef3c7; color: #92400e; }
+    .badge-slate { background: #e2e8f0; color: #334155; }
+    .badge-red { background: #fee2e2; color: #b91c1c; }
+    table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 11px; }
+    th, td { padding: 7px 8px; border-bottom: 1px solid #dbe4ee; text-align: left; vertical-align: top; }
+    th { color: #334155; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; }
+    ul { margin: 8px 0 0 18px; padding: 0; }
+    .station-card { background: white; border: 1px solid #dbe4ee; border-radius: 18px; padding: 16px 18px; margin-bottom: 16px; }
+    .station-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 8px; }
+    .station-name { color: #334155; font-weight: 400; font-size: 16px; }
+    .takeaway { margin: 8px 0 14px 0; font-size: 13px; }
+    .callouts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 14px; }
+    .callout { border: 1px solid #dbe4ee; border-radius: 14px; background: #f8fafc; padding: 12px 14px; }
+    .callout h3 { font-size: 14px; }
+    .page-break { page-break-before: always; }
+  </style>
+</head>
+<body>
+  <div class="hero">
+    <h1>PWS, settlement and peak-hour decision report</h1>
+    <p>This report reframes the analysis around the two moments that matter for a weather trade: the previous local day, when brackets can still be mispriced, and the late intraday window close to the official daily high, where PWS can help you move before the crowd.</p>
+    <div class="meta">
+      <div class="item"><strong>Window analyzed</strong><br>2026-02-27 to 2026-03-08</div>
+      <div class="item"><strong>Settlement truth</strong><br>NOAA METAR cumulative max in the logs</div>
+      <div class="item"><strong>Important caveat</strong><br>Logs only retain D-1 to D, so there is no clean D-2 readout in this report</div>
+    </div>
+  </div>
+
+  <section class="section">
+    <h2>Simple reading</h2>
+    <div class="callouts">
+      <div class="callout">
+        <h3>Best peak-hour candidate</h3>
+        <p>KORD, KDAL</p>
+      </div>
+      <div class="callout">
+        <h3>Best day-ahead candidate</h3>
+        <p>KLGA, EGLC, KMIA, LFPG, LTAC</p>
+      </div>
+      <div class="callout">
+        <h3>Use as confirmation</h3>
+        <p>None</p>
+      </div>
+    </div>
+    <p><strong>Main conclusion:</strong> there is no universal PWS edge across all markets close to the peak. The strongest late tactical candidates in this sample are KORD and, with less evidence, KDAL. Several other markets look more interesting one day before than in the intraday chase: KLGA, EGLC, KMIA, LFPG and LTAC all show previous-day windows where the final winner is visible at a still-manageable probability.</p>
+  </section>
+
+  <section class="section">
+    <h2>What was measured</h2>
+    <ul>
+      <li><strong>Day-ahead:</strong> previous local day only, split into four windows. The report checks whether the final official winner was already top1 or top3, and at what probability.</li>
+      <li><strong>Peak-hour:</strong> only setups where the final official winning bracket was still open. The PWS proxy is defined as <strong>max(current official max, next official expected by the PWS consensus)</strong>.</li>
+      <li><strong>Best PWS station:</strong> taken from the historical audit rows by lowest MAE and strongest hit rate, with a minimum row threshold when available.</li>
+    </ul>
+  </section>
+
+  <section class="section">
+    <h2>Overall window summary</h2>
+    <div class="grid two">
+      <div class="panel">
+        <h3>Previous-day visibility of the final winner</h3>
+        <table>
+          <thead><tr><th>Window</th><th>Samples</th><th>Winner top1</th><th>Winner top3</th><th>Winner avg probability</th></tr></thead>
+          <tbody><tr><td>D-1 00-06</td><td>32934</td><td>20.4%</td><td>45.0%</td><td>29.2%</td></tr><tr><td>D-1 06-12</td><td>30781</td><td>25.3%</td><td>48.1%</td><td>31.2%</td></tr><tr><td>D-1 12-18</td><td>32051</td><td>27.6%</td><td>48.4%</td><td>35.1%</td></tr><tr><td>D-1 18-24</td><td>33713</td><td>29.1%</td><td>57.0%</td><td>38.1%</td></tr></tbody>
+        </table>
+      </div>
+      <div class="panel">
+        <h3>Minutes before the official peak</h3>
+        <table>
+          <thead><tr><th>Window</th><th>Open setups</th><th>PWS proxy hit</th><th>Market top1 hit</th><th>PWS edge</th></tr></thead>
+          <tbody><tr><td>120-60m before peak</td><td>52</td><td>21.2%</td><td>48.1%</td><td>-26.9%</td></tr><tr><td>60-30m before peak</td><td>17</td><td>29.4%</td><td>52.9%</td><td>-23.5%</td></tr><tr><td>30-15m before peak</td><td>19</td><td>21.1%</td><td>47.4%</td><td>-26.3%</td></tr><tr><td>15-5m before peak</td><td>12</td><td>50.0%</td><td>58.3%</td><td>-8.3%</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>Station scoreboard</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Market</th>
+          <th>Use</th>
+          <th>Best day-ahead window</th>
+          <th>Best peak block</th>
+          <th>Best lead bucket</th>
+          <th>Best PWS</th>
+        </tr>
+      </thead>
+      <tbody><tr><td><strong>KORD</strong><div class='subtle'>Chicago O&#x27;Hare International</div></td><td><span class="badge badge-green">Peak-hour candidate</span></td><td>D-1 00-06<div class='subtle'>Top3 48.3% | Winner prob 21.8%</div></td><td>11-13 local<div class='subtle'>PWS 22.2% vs market 0.0%</div></td><td>05-15<div class='subtle'>MAE 0.511C</div></td><td>KILBENSE15<div class='subtle'>Bensenville</div></td></tr><tr><td><strong>KLGA</strong><div class='subtle'>New York LaGuardia</div></td><td><span class="badge badge-blue">Day-ahead value candidate</span></td><td>D-1 18-24<div class='subtle'>Top3 47.1% | Winner prob 25.8%</div></td><td>15-17 local<div class='subtle'>PWS 33.3% vs market 16.7%</div></td><td>15-30<div class='subtle'>MAE 1.118C</div></td><td>KLGA<div class='subtle'>New York, La Guardia Airport</div></td></tr><tr><td><strong>EGLC</strong><div class='subtle'>London City Airport</div></td><td><span class="badge badge-blue">Day-ahead value candidate</span></td><td>D-1 00-06<div class='subtle'>Top3 61.6% | Winner prob 27.6%</div></td><td>11-13 local<div class='subtle'>PWS 0.0% vs market 35.7%</div></td><td>15-30<div class='subtle'>MAE 0.588C</div></td><td>IWOODF28<div class='subtle'>Woodford Green</div></td></tr><tr><td><strong>KMIA</strong><div class='subtle'>Miami International</div></td><td><span class="badge badge-blue">Day-ahead value candidate</span></td><td>D-1 00-06<div class='subtle'>Top3 77.0% | Winner prob 23.0%</div></td><td>13-15 local<div class='subtle'>PWS 0.0% vs market 40.0%</div></td><td>30-45<div class='subtle'>MAE 0.730C</div></td><td>KFLMIAMI1010<div class='subtle'>Westchester</div></td></tr><tr><td><strong>KDAL</strong><div class='subtle'>Dallas Love Field</div></td><td><span class="badge badge-green">Peak-hour candidate</span></td><td>D-1 00-06<div class='subtle'>Top3 29.5% | Winner prob 67.2%</div></td><td>13-15 local<div class='subtle'>PWS 20.0% vs market 0.0%</div></td><td>15-30<div class='subtle'>MAE 0.765C</div></td><td>KTXDALLA1236<div class='subtle'>Bluffview</div></td></tr><tr><td><strong>KATL</strong><div class='subtle'>Hartsfield-Jackson Atlanta</div></td><td><span class="badge badge-slate">Selective only</span></td><td>D-1 18-24<div class='subtle'>Top3 36.8% | Winner prob 38.6%</div></td><td>11-13 local<div class='subtle'>PWS 5.6% vs market 0.0%</div></td><td>05-15<div class='subtle'>MAE 1.381C</div></td><td>KATL<div class='subtle'>Atlanta, Hartsfield - Jackson Atlanta International Airport</div></td></tr><tr><td><strong>LFPG</strong><div class='subtle'>Paris Charles de Gaulle</div></td><td><span class="badge badge-blue">Day-ahead value candidate</span></td><td>D-1 00-06<div class='subtle'>Top3 49.5% | Winner prob 21.7%</div></td><td>13-15 local<div class='subtle'>PWS 57.1% vs market 61.9%</div></td><td>30-45<div class='subtle'>MAE 0.955C</div></td><td>ISAINT685<div class='subtle'>Saint-Cloud</div></td></tr><tr><td><strong>LTAC</strong><div class='subtle'>Ankara Esenboga Airport</div></td><td><span class="badge badge-blue">Day-ahead value candidate</span></td><td>D-1 00-06<div class='subtle'>Top3 37.6% | Winner prob 25.0%</div></td><td>13-15 local<div class='subtle'>PWS 11.1% vs market 55.6%</div></td><td>15-30<div class='subtle'>MAE 3.270C</div></td><td>IYIILC4<div class='subtle'>Yığılca</div></td></tr></tbody>
+    </table>
+  </section>
+
+  
+            <section class="station-card ">
+              <div class="station-header">
+                <div>
+                  <h2>KORD <span class="station-name">Chicago O&#x27;Hare International</span></h2>
+                  <div class="subtle">America/Chicago</div>
+                </div>
+                <div><span class="badge badge-green">Peak-hour candidate</span></div>
+              </div>
+              <p class="takeaway">Best tactical candidate in this sample. PWS improves the late bracket call more than the market in at least one robust local block.</p>
+              <div class="grid two">
+                <div class="panel">
+                  <h3>Best moments</h3>
+                  <ul>
+                    <li><strong>Day-ahead:</strong> D-1 00-06 | final winner in top3 48.3% | average winner price 21.8%</li>
+                    <li><strong>Peak-hour:</strong> 11-13 local | PWS proxy 22.2% vs market top1 0.0% | edge 22.2%</li>
+                    <li><strong>Lead window:</strong> 05-15 | MAE 0.511C | hit@1.0C 79.1%</li>
+                    <li><strong>Best single PWS:</strong> KILBENSE15 (WUNDERGROUND) | MAE 0.360C | hit@1.0C 91.3%</li>
+                  </ul>
+                </div>
+                <div class="panel">
+                  <h3>Context</h3>
+                  <ul>
+                    <li><strong>WU minus official max:</strong> 3.10F on average across the window.</li>
+                    <li><strong>Use this market as:</strong> Peak-hour candidate.</li>
+                    <li><strong>Interpretation:</strong> day-ahead numbers tell you how visible the final winner already was on the previous day; peak-hour numbers tell you whether a PWS-based next-step proxy beats the market close to the official daily high.</li>
+                  </ul>
+                </div>
+              </div>
+              <div class="grid two">
+                <div class="panel">
+                  <h3>Lead buckets by station</h3>
+                  <table>
+                    <thead><tr><th>Lead bucket</th><th>Rows</th><th>MAE</th><th>Hit @1.0C</th></tr></thead>
+                    <tbody><tr><td>05-15</td><td>1533</td><td>0.511C</td><td>79.1%</td></tr><tr><td>15-30</td><td>7005</td><td>0.654C</td><td>71.5%</td></tr><tr><td>30-45</td><td>239</td><td>0.875C</td><td>59.0%</td></tr></tbody>
+                  </table>
+                </div>
+                <div class="panel">
+                  <h3>Top PWS stations</h3>
+                  <table>
+                    <thead><tr><th>PWS</th><th>Source</th><th>Name</th><th>Rows</th><th>MAE</th><th>Hit @1.0C</th></tr></thead>
+                    <tbody><tr><td>KILBENSE15</td><td>WUNDERGROUND</td><td>Bensenville</td><td>286</td><td>0.360C</td><td>91.3%</td></tr><tr><td>KILWOODD12</td><td>WUNDERGROUND</td><td>Wood Dale</td><td>280</td><td>0.365C</td><td>91.8%</td></tr><tr><td>KILWOODD9</td><td>WUNDERGROUND</td><td>Wood Dale</td><td>284</td><td>0.377C</td><td>88.0%</td></tr></tbody>
+                  </table>
+                </div>
+              </div>
+            </section>
+            
+            <section class="station-card page-break">
+              <div class="station-header">
+                <div>
+                  <h2>KLGA <span class="station-name">New York LaGuardia</span></h2>
+                  <div class="subtle">America/New_York</div>
+                </div>
+                <div><span class="badge badge-blue">Day-ahead value candidate</span></div>
+              </div>
+              <p class="takeaway">More interesting one day before than near the peak. The final winner often appears on the board at a still-manageable probability.</p>
+              <div class="grid two">
+                <div class="panel">
+                  <h3>Best moments</h3>
+                  <ul>
+                    <li><strong>Day-ahead:</strong> D-1 18-24 | final winner in top3 47.1% | average winner price 25.8%</li>
+                    <li><strong>Peak-hour:</strong> 15-17 local | PWS proxy 33.3% vs market top1 16.7% | edge 16.7%</li>
+                    <li><strong>Lead window:</strong> 15-30 | MAE 1.118C | hit@1.0C 50.4%</li>
+                    <li><strong>Best single PWS:</strong> KLGA (SYNOPTIC) | MAE 0.427C | hit@1.0C 95.4%</li>
+                  </ul>
+                </div>
+                <div class="panel">
+                  <h3>Context</h3>
+                  <ul>
+                    <li><strong>WU minus official max:</strong> 5.74F on average across the window.</li>
+                    <li><strong>Use this market as:</strong> Day-ahead value candidate.</li>
+                    <li><strong>Interpretation:</strong> day-ahead numbers tell you how visible the final winner already was on the previous day; peak-hour numbers tell you whether a PWS-based next-step proxy beats the market close to the official daily high.</li>
+                  </ul>
+                </div>
+              </div>
+              <div class="grid two">
+                <div class="panel">
+                  <h3>Lead buckets by station</h3>
+                  <table>
+                    <thead><tr><th>Lead bucket</th><th>Rows</th><th>MAE</th><th>Hit @1.0C</th></tr></thead>
+                    <tbody><tr><td>05-15</td><td>1026</td><td>1.150C</td><td>50.7%</td></tr><tr><td>15-30</td><td>7110</td><td>1.118C</td><td>50.4%</td></tr><tr><td>30-45</td><td>296</td><td>1.227C</td><td>44.3%</td></tr></tbody>
+                  </table>
+                </div>
+                <div class="panel">
+                  <h3>Top PWS stations</h3>
+                  <table>
+                    <thead><tr><th>PWS</th><th>Source</th><th>Name</th><th>Rows</th><th>MAE</th><th>Hit @1.0C</th></tr></thead>
+                    <tbody><tr><td>KLGA</td><td>SYNOPTIC</td><td>New York, La Guardia Airport</td><td>238</td><td>0.427C</td><td>95.4%</td></tr><tr><td>KNJJERSE149</td><td>WUNDERGROUND</td><td>Jersey City</td><td>20</td><td>0.483C</td><td>80.0%</td></tr><tr><td>KNYNEWYO2032</td><td>WUNDERGROUND</td><td>Washington Heights</td><td>54</td><td>0.495C</td><td>83.3%</td></tr></tbody>
+                  </table>
+                </div>
+              </div>
+            </section>
+            
+            <section class="station-card page-break">
+              <div class="station-header">
+                <div>
+                  <h2>EGLC <span class="station-name">London City Airport</span></h2>
+                  <div class="subtle">Europe/London</div>
+                </div>
+                <div><span class="badge badge-blue">Day-ahead value candidate</span></div>
+              </div>
+              <p class="takeaway">More interesting one day before than near the peak. The final winner often appears on the board at a still-manageable probability.</p>
+              <div class="grid two">
+                <div class="panel">
+                  <h3>Best moments</h3>
+                  <ul>
+                    <li><strong>Day-ahead:</strong> D-1 00-06 | final winner in top3 61.6% | average winner price 27.6%</li>
+                    <li><strong>Peak-hour:</strong> 11-13 local | PWS proxy 0.0% vs market top1 35.7% | edge -35.7%</li>
+                    <li><strong>Lead window:</strong> 15-30 | MAE 0.588C | hit@1.0C 86.0%</li>
+                    <li><strong>Best single PWS:</strong> IWOODF28 (WUNDERGROUND) | MAE 0.374C | hit@1.0C 98.3%</li>
+                  </ul>
+                </div>
+                <div class="panel">
+                  <h3>Context</h3>
+                  <ul>
+                    <li><strong>WU minus official max:</strong> 3.24F on average across the window.</li>
+                    <li><strong>Use this market as:</strong> Day-ahead value candidate.</li>
+                    <li><strong>Interpretation:</strong> day-ahead numbers tell you how visible the final winner already was on the previous day; peak-hour numbers tell you whether a PWS-based next-step proxy beats the market close to the official daily high.</li>
+                  </ul>
+                </div>
+              </div>
+              <div class="grid two">
+                <div class="panel">
+                  <h3>Lead buckets by station</h3>
+                  <table>
+                    <thead><tr><th>Lead bucket</th><th>Rows</th><th>MAE</th><th>Hit @1.0C</th></tr></thead>
+                    <tbody><tr><td>05-15</td><td>345</td><td>0.667C</td><td>81.4%</td></tr><tr><td>15-30</td><td>7948</td><td>0.588C</td><td>86.0%</td></tr><tr><td>30-45</td><td>76</td><td>0.760C</td><td>80.3%</td></tr></tbody>
+                  </table>
+                </div>
+                <div class="panel">
+                  <h3>Top PWS stations</h3>
+                  <table>
+                    <thead><tr><th>PWS</th><th>Source</th><th>Name</th><th>Rows</th><th>MAE</th><th>Hit @1.0C</th></tr></thead>
+                    <tbody><tr><td>IWOODF28</td><td>WUNDERGROUND</td><td>Woodford Green</td><td>60</td><td>0.374C</td><td>98.3%</td></tr><tr><td>ILONDO812</td><td>WUNDERGROUND</td><td>Camberwell</td><td>98</td><td>0.389C</td><td>100.0%</td></tr><tr><td>IDARTF38</td><td>WUNDERGROUND</td><td>Dartford</td><td>36</td><td>0.395C</td><td>97.2%</td></tr></tbody>
+                  </table>
+                </div>
+              </div>
+            </section>
+            
+            <section class="station-card page-break">
+              <div class="station-header">
+                <div>
+                  <h2>KMIA <span class="station-name">Miami International</span></h2>
+                  <div class="subtle">America/New_York</div>
+                </div>
+                <div><span class="badge badge-blue">Day-ahead value candidate</span></div>
+              </div>
+              <p class="takeaway">More interesting one day before than near the peak. The final winner often appears on the board at a still-manageable probability.</p>
+              <div class="grid two">
+                <div class="panel">
+                  <h3>Best moments</h3>
+                  <ul>
+                    <li><strong>Day-ahead:</strong> D-1 00-06 | final winner in top3 77.0% | average winner price 23.0%</li>
+                    <li><strong>Peak-hour:</strong> 13-15 local | PWS proxy 0.0% vs market top1 40.0% | edge -40.0%</li>
+                    <li><strong>Lead window:</strong> 30-45 | MAE 0.730C | hit@1.0C 75.6%</li>
+                    <li><strong>Best single PWS:</strong> KFLMIAMI1010 (WUNDERGROUND) | MAE 0.430C | hit@1.0C 85.7%</li>
+                  </ul>
+                </div>
+                <div class="panel">
+                  <h3>Context</h3>
+                  <ul>
+                    <li><strong>WU minus official max:</strong> 1.42F on average across the window.</li>
+                    <li><strong>Use this market as:</strong> Day-ahead value candidate.</li>
+                    <li><strong>Interpretation:</strong> day-ahead numbers tell you how visible the final winner already was on the previous day; peak-hour numbers tell you whether a PWS-based next-step proxy beats the market close to the official daily high.</li>
+                  </ul>
+                </div>
+              </div>
+              <div class="grid two">
+                <div class="panel">
+                  <h3>Lead buckets by station</h3>
+                  <table>
+                    <thead><tr><th>Lead bucket</th><th>Rows</th><th>MAE</th><th>Hit @1.0C</th></tr></thead>
+                    <tbody><tr><td>05-15</td><td>542</td><td>0.945C</td><td>65.3%</td></tr><tr><td>15-30</td><td>5234</td><td>0.746C</td><td>70.2%</td></tr><tr><td>30-45</td><td>332</td><td>0.730C</td><td>75.6%</td></tr></tbody>
+                  </table>
+                </div>
+                <div class="panel">
+                  <h3>Top PWS stations</h3>
+                  <table>
+                    <thead><tr><th>PWS</th><th>Source</th><th>Name</th><th>Rows</th><th>MAE</th><th>Hit @1.0C</th></tr></thead>
+                    <tbody><tr><td>KFLMIAMI1010</td><td>WUNDERGROUND</td><td>Westchester</td><td>217</td><td>0.430C</td><td>85.7%</td></tr><tr><td>KMIA</td><td>SYNOPTIC</td><td>Miami, Miami International Airport</td><td>214</td><td>0.444C</td><td>93.0%</td></tr><tr><td>SSLAK</td><td>SYNOPTIC</td><td>SBA 20</td><td>90</td><td>0.489C</td><td>90.0%</td></tr></tbody>
+                  </table>
+                </div>
+              </div>
+            </section>
+            
+            <section class="station-card page-break">
+              <div class="station-header">
+                <div>
+                  <h2>KDAL <span class="station-name">Dallas Love Field</span></h2>
+                  <div class="subtle">America/Chicago</div>
+                </div>
+                <div><span class="badge badge-green">Peak-hour candidate</span></div>
+              </div>
+              <p class="takeaway">Best tactical candidate in this sample. PWS improves the late bracket call more than the market in at least one robust local block.</p>
+              <div class="grid two">
+                <div class="panel">
+                  <h3>Best moments</h3>
+                  <ul>
+                    <li><strong>Day-ahead:</strong> D-1 00-06 | final winner in top3 29.5% | average winner price 67.2%</li>
+                    <li><strong>Peak-hour:</strong> 13-15 local | PWS proxy 20.0% vs market top1 0.0% | edge 20.0%</li>
+                    <li><strong>Lead window:</strong> 15-30 | MAE 0.765C | hit@1.0C 68.8%</li>
+                    <li><strong>Best single PWS:</strong> KTXDALLA1236 (WUNDERGROUND) | MAE 0.463C | hit@1.0C 85.1%</li>
+                  </ul>
+                </div>
+                <div class="panel">
+                  <h3>Context</h3>
+                  <ul>
+                    <li><strong>WU minus official max:</strong> 1.32F on average across the window.</li>
+                    <li><strong>Use this market as:</strong> Peak-hour candidate.</li>
+                    <li><strong>Interpretation:</strong> day-ahead numbers tell you how visible the final winner already was on the previous day; peak-hour numbers tell you whether a PWS-based next-step proxy beats the market close to the official daily high.</li>
+                  </ul>
+                </div>
+              </div>
+              <div class="grid two">
+                <div class="panel">
+                  <h3>Lead buckets by station</h3>
+                  <table>
+                    <thead><tr><th>Lead bucket</th><th>Rows</th><th>MAE</th><th>Hit @1.0C</th></tr></thead>
+                    <tbody><tr><td>05-15</td><td>758</td><td>0.864C</td><td>69.3%</td></tr><tr><td>15-30</td><td>5765</td><td>0.765C</td><td>68.8%</td></tr><tr><td>30-45</td><td>373</td><td>0.956C</td><td>61.9%</td></tr></tbody>
+                  </table>
+                </div>
+                <div class="panel">
+                  <h3>Top PWS stations</h3>
+                  <table>
+                    <thead><tr><th>PWS</th><th>Source</th><th>Name</th><th>Rows</th><th>MAE</th><th>Hit @1.0C</th></tr></thead>
+                    <tbody><tr><td>KTXDALLA1236</td><td>WUNDERGROUND</td><td>Bluffview</td><td>222</td><td>0.463C</td><td>85.1%</td></tr><tr><td>KDAL</td><td>SYNOPTIC</td><td>Dallas Love Field</td><td>215</td><td>0.506C</td><td>91.6%</td></tr><tr><td>KTXDALLA1247</td><td>WUNDERGROUND</td><td>Oak Lawn Heights</td><td>213</td><td>0.582C</td><td>79.3%</td></tr></tbody>
+                  </table>
+                </div>
+              </div>
+            </section>
+            
+            <section class="station-card page-break">
+              <div class="station-header">
+                <div>
+                  <h2>KATL <span class="station-name">Hartsfield-Jackson Atlanta</span></h2>
+                  <div class="subtle">America/New_York</div>
+                </div>
+                <div><span class="badge badge-slate">Selective only</span></div>
+              </div>
+              <p class="takeaway">There are usable pockets, but the edge is narrow and the timing matters a lot.</p>
+              <div class="grid two">
+                <div class="panel">
+                  <h3>Best moments</h3>
+                  <ul>
+                    <li><strong>Day-ahead:</strong> D-1 18-24 | final winner in top3 36.8% | average winner price 38.6%</li>
+                    <li><strong>Peak-hour:</strong> 11-13 local | PWS proxy 5.6% vs market top1 0.0% | edge 5.6%</li>
+                    <li><strong>Lead window:</strong> 05-15 | MAE 1.381C | hit@1.0C 48.2%</li>
+                    <li><strong>Best single PWS:</strong> KATL (SYNOPTIC) | MAE 0.619C | hit@1.0C 83.4%</li>
+                  </ul>
+                </div>
+                <div class="panel">
+                  <h3>Context</h3>
+                  <ul>
+                    <li><strong>WU minus official max:</strong> 1.17F on average across the window.</li>
+                    <li><strong>Use this market as:</strong> Selective only.</li>
+                    <li><strong>Interpretation:</strong> day-ahead numbers tell you how visible the final winner already was on the previous day; peak-hour numbers tell you whether a PWS-based next-step proxy beats the market close to the official daily high.</li>
+                  </ul>
+                </div>
+              </div>
+              <div class="grid two">
+                <div class="panel">
+                  <h3>Lead buckets by station</h3>
+                  <table>
+                    <thead><tr><th>Lead bucket</th><th>Rows</th><th>MAE</th><th>Hit @1.0C</th></tr></thead>
+                    <tbody><tr><td>05-15</td><td>790</td><td>1.381C</td><td>48.2%</td></tr><tr><td>15-30</td><td>6425</td><td>1.400C</td><td>48.6%</td></tr><tr><td>30-45</td><td>322</td><td>1.493C</td><td>45.0%</td></tr></tbody>
+                  </table>
+                </div>
+                <div class="panel">
+                  <h3>Top PWS stations</h3>
+                  <table>
+                    <thead><tr><th>PWS</th><th>Source</th><th>Name</th><th>Rows</th><th>MAE</th><th>Hit @1.0C</th></tr></thead>
+                    <tbody><tr><td>KATL</td><td>SYNOPTIC</td><td>Atlanta, Hartsfield - Jackson Atlanta International Airport</td><td>229</td><td>0.619C</td><td>83.4%</td></tr><tr><td>GA312</td><td>SYNOPTIC</td><td>I285-00110-CCW-01</td><td>249</td><td>0.807C</td><td>73.9%</td></tr><tr><td>KGAATLAN815</td><td>WUNDERGROUND</td><td>Midtown</td><td>44</td><td>0.824C</td><td>54.5%</td></tr></tbody>
+                  </table>
+                </div>
+              </div>
+            </section>
+            
+            <section class="station-card page-break">
+              <div class="station-header">
+                <div>
+                  <h2>LFPG <span class="station-name">Paris Charles de Gaulle</span></h2>
+                  <div class="subtle">Europe/Paris</div>
+                </div>
+                <div><span class="badge badge-blue">Day-ahead value candidate</span></div>
+              </div>
+              <p class="takeaway">More interesting one day before than near the peak. The final winner often appears on the board at a still-manageable probability.</p>
+              <div class="grid two">
+                <div class="panel">
+                  <h3>Best moments</h3>
+                  <ul>
+                    <li><strong>Day-ahead:</strong> D-1 00-06 | final winner in top3 49.5% | average winner price 21.7%</li>
+                    <li><strong>Peak-hour:</strong> 13-15 local | PWS proxy 57.1% vs market top1 61.9% | edge -4.8%</li>
+                    <li><strong>Lead window:</strong> 30-45 | MAE 0.955C | hit@1.0C 62.9%</li>
+                    <li><strong>Best single PWS:</strong> ISAINT685 (WUNDERGROUND) | MAE 0.488C | hit@1.0C 95.7%</li>
+                  </ul>
+                </div>
+                <div class="panel">
+                  <h3>Context</h3>
+                  <ul>
+                    <li><strong>WU minus official max:</strong> 1.08F on average across the window.</li>
+                    <li><strong>Use this market as:</strong> Day-ahead value candidate.</li>
+                    <li><strong>Interpretation:</strong> day-ahead numbers tell you how visible the final winner already was on the previous day; peak-hour numbers tell you whether a PWS-based next-step proxy beats the market close to the official daily high.</li>
+                  </ul>
+                </div>
+              </div>
+              <div class="grid two">
+                <div class="panel">
+                  <h3>Lead buckets by station</h3>
+                  <table>
+                    <thead><tr><th>Lead bucket</th><th>Rows</th><th>MAE</th><th>Hit @1.0C</th></tr></thead>
+                    <tbody><tr><td>05-15</td><td>163</td><td>1.399C</td><td>45.4%</td></tr><tr><td>15-30</td><td>7402</td><td>1.166C</td><td>54.7%</td></tr><tr><td>30-45</td><td>97</td><td>0.955C</td><td>62.9%</td></tr></tbody>
+                  </table>
+                </div>
+                <div class="panel">
+                  <h3>Top PWS stations</h3>
+                  <table>
+                    <thead><tr><th>PWS</th><th>Source</th><th>Name</th><th>Rows</th><th>MAE</th><th>Hit @1.0C</th></tr></thead>
+                    <tbody><tr><td>ISAINT685</td><td>WUNDERGROUND</td><td>Saint-Cloud</td><td>23</td><td>0.488C</td><td>95.7%</td></tr><tr><td>IMARLY80</td><td>WUNDERGROUND</td><td>Marly-le-Roi</td><td>21</td><td>0.577C</td><td>81.0%</td></tr><tr><td>ICHOIS7</td><td>WUNDERGROUND</td><td>Gondoles Sud Iii</td><td>21</td><td>0.598C</td><td>76.2%</td></tr></tbody>
+                  </table>
+                </div>
+              </div>
+            </section>
+            
+            <section class="station-card page-break">
+              <div class="station-header">
+                <div>
+                  <h2>LTAC <span class="station-name">Ankara Esenboga Airport</span></h2>
+                  <div class="subtle">Europe/Istanbul</div>
+                </div>
+                <div><span class="badge badge-blue">Day-ahead value candidate</span></div>
+              </div>
+              <p class="takeaway">More interesting one day before than near the peak. The final winner often appears on the board at a still-manageable probability.</p>
+              <div class="grid two">
+                <div class="panel">
+                  <h3>Best moments</h3>
+                  <ul>
+                    <li><strong>Day-ahead:</strong> D-1 00-06 | final winner in top3 37.6% | average winner price 25.0%</li>
+                    <li><strong>Peak-hour:</strong> 13-15 local | PWS proxy 11.1% vs market top1 55.6% | edge -44.4%</li>
+                    <li><strong>Lead window:</strong> 15-30 | MAE 3.270C | hit@1.0C 15.8%</li>
+                    <li><strong>Best single PWS:</strong> IYIILC4 (WUNDERGROUND) | MAE 1.949C | hit@1.0C 35.2%</li>
+                  </ul>
+                </div>
+                <div class="panel">
+                  <h3>Context</h3>
+                  <ul>
+                    <li><strong>WU minus official max:</strong> 0.90F on average across the window.</li>
+                    <li><strong>Use this market as:</strong> Day-ahead value candidate.</li>
+                    <li><strong>Interpretation:</strong> day-ahead numbers tell you how visible the final winner already was on the previous day; peak-hour numbers tell you whether a PWS-based next-step proxy beats the market close to the official daily high.</li>
+                  </ul>
+                </div>
+              </div>
+              <div class="grid two">
+                <div class="panel">
+                  <h3>Lead buckets by station</h3>
+                  <table>
+                    <thead><tr><th>Lead bucket</th><th>Rows</th><th>MAE</th><th>Hit @1.0C</th></tr></thead>
+                    <tbody><tr><td>05-15</td><td>28</td><td>3.575C</td><td>28.6%</td></tr><tr><td>15-30</td><td>1660</td><td>3.270C</td><td>15.8%</td></tr><tr><td>30-45</td><td>66</td><td>4.970C</td><td>1.5%</td></tr></tbody>
+                  </table>
+                </div>
+                <div class="panel">
+                  <h3>Top PWS stations</h3>
+                  <table>
+                    <thead><tr><th>PWS</th><th>Source</th><th>Name</th><th>Rows</th><th>MAE</th><th>Hit @1.0C</th></tr></thead>
+                    <tbody><tr><td>IYIILC4</td><td>WUNDERGROUND</td><td>Yığılca</td><td>88</td><td>1.949C</td><td>35.2%</td></tr><tr><td>ITASOV1</td><td>WUNDERGROUND</td><td>Tasova</td><td>50</td><td>2.027C</td><td>28.0%</td></tr><tr><td>IANKAR28</td><td>WUNDERGROUND</td><td>Ankara</td><td>280</td><td>2.187C</td><td>35.4%</td></tr></tbody>
+                  </table>
+                </div>
+              </div>
+            </section>
+            
+
+  <section class="section page-break">
+    <h2>Practical takeaways</h2>
+    <ul>
+      <li><strong>KORD</strong> is the cleanest tactical market in this sample. It combines the best raw PWS quality with the best robust peak-hour edge.</li>
+      <li><strong>KDAL</strong> also shows a usable late pocket, but the evidence is thinner and should be treated as more selective than KORD.</li>
+      <li><strong>KMIA</strong>, <strong>KLGA</strong> and <strong>EGLC</strong> are more convincing as previous-day markets than as late PWS-chase markets. The final winner is often visible early enough, but the late proxy does not consistently beat the board.</li>
+      <li><strong>LFPG</strong> and <strong>LTAC</strong> should be treated as previous-day only at most. The report does not show a reliable late intraday edge there.</li>
+    </ul>
+    <p class="subtle">Generated on 2026-03-09. If you want to extend the same report to a wider date window, rerun the script against a larger forensic export.</p>
+  </section>
+</body>
+</html>

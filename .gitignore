@@ -66,3 +66,6 @@ data/parquet/
 
 # Forense
 forense/
+
+# exports
+local_exports/

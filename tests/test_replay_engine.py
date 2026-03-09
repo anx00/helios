@@ -2,6 +2,8 @@ import asyncio
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+import pytest
+
 
 UTC = ZoneInfo("UTC")
 
@@ -10,7 +12,7 @@ class _StubReader:
     def __init__(self, events):
         self._events = events
 
-    def get_events_sorted(self, date_str, station_id=None, channels=None):
+    def get_events_sorted(self, date_str, station_id=None, channels=None, read_policy=None):
         return list(self._events)
 
 
@@ -18,7 +20,7 @@ class _DateAwareStubReader:
     def __init__(self, by_date):
         self._by_date = by_date
 
-    def get_events_sorted(self, date_str, station_id=None, channels=None):
+    def get_events_sorted(self, date_str, station_id=None, channels=None, read_policy=None):
         events = list(self._by_date.get(date_str, []))
         if channels is not None:
             allowed = set(channels)
@@ -37,9 +39,11 @@ class _ChannelAwareStubReader:
         self._events = events
         self._available_channels = list(available_channels)
         self.last_channels = None
+        self.last_read_policy = None
 
-    def get_events_sorted(self, date_str, station_id=None, channels=None):
+    def get_events_sorted(self, date_str, station_id=None, channels=None, read_policy=None):
         self.last_channels = list(channels) if channels is not None else None
+        self.last_read_policy = read_policy
         allowed = set(channels) if channels is not None else None
         events = list(self._events)
         if allowed is not None:
@@ -56,6 +60,42 @@ class _TimestampLike:
 
     def to_pydatetime(self):
         return self._dt
+
+
+class _CountingReader:
+    def __init__(self, events, available_channels):
+        self._events = list(events)
+        self._available_channels = list(available_channels)
+        self.calls = []
+
+    def get_events_sorted(self, date_str, station_id=None, channels=None, read_policy=None):
+        self.calls.append(
+            {
+                "date_str": date_str,
+                "station_id": station_id,
+                "channels": list(channels) if channels is not None else None,
+                "read_policy": read_policy,
+            }
+        )
+        events = list(self._events)
+        if channels is not None:
+            allowed = set(channels)
+            events = [e for e in events if e.get("ch") in allowed]
+        if station_id:
+            events = [e for e in events if e.get("station_id") in (None, station_id)]
+        return events
+
+    def list_channels_for_date(self, date_str, station_id=None):
+        return list(self._available_channels)
+
+
+@pytest.fixture(autouse=True)
+def _reset_replay_singletons():
+    from core.replay_engine import reset_replay_engine_state
+
+    reset_replay_engine_state()
+    yield
+    reset_replay_engine_state()
 
 
 def test_replay_load_initializes_clock_with_datetime_timestamps():
@@ -654,3 +694,80 @@ def test_replay_load_filters_to_station_local_market_day():
     state = session.get_state()
     assert state["date_reference"] == "Europe/London market date"
     assert state["source_dates"] == ["2026-02-17", "2026-02-18"]
+
+
+def test_replay_state_and_snapshot_expose_mode_and_heavy_blocks():
+    from core.replay_engine import ReplaySession
+
+    start = datetime(2026, 2, 6, 12, 0, 0, tzinfo=UTC)
+    events = [
+        {"ch": "world", "ts_ingest_utc": start, "ts_nyc": "2026-02-05 19:00:00", "data": {"src": "METAR", "temp_f": 50.0}},
+        {"ch": "pws", "ts_ingest_utc": start + timedelta(minutes=5), "ts_nyc": "2026-02-05 19:05:00", "data": {"median_f": 51.0, "support": 1, "weighted_support": 1.0}},
+    ]
+
+    session = ReplaySession("s7", "2026-02-06", "KLGA", mode="raw")
+    session._reader = _StubReader(events)
+
+    ok = asyncio.run(session.load())
+    assert ok
+    session.seek_percent(100)
+
+    state = session.get_state()
+    assert state["mode"] == "raw"
+
+    light = session.get_snapshot(heavy=False)
+    assert list(light.keys()) == ["state"]
+
+    heavy = session.get_snapshot(heavy=True)
+    assert heavy["state"]["mode"] == "raw"
+    assert "events" in heavy
+    assert "categories" in heavy
+    assert "pws_learning" in heavy
+
+
+def test_replay_raw_mode_uses_raw_read_policy():
+    from core.replay_engine import ReplaySession
+
+    start = datetime(2026, 2, 6, 12, 0, 0, tzinfo=UTC)
+    reader = _ChannelAwareStubReader(
+        [
+            {"ch": "world", "station_id": "KLGA", "ts_ingest_utc": start, "data": {"src": "METAR"}},
+            {"ch": "l2_snap", "station_id": "KLGA", "ts_ingest_utc": start + timedelta(seconds=1), "data": {"40-41F": {"mid": 0.55, "bids": [[0.5, 1]], "asks": [[0.6, 1]]}}},
+        ],
+        available_channels=["world", "pws", "nowcast", "features", "health", "event_window", "l2_snap"],
+    )
+
+    session = ReplaySession("s8", "2026-02-06", "KLGA", mode="raw")
+    session._reader = reader
+
+    ok = asyncio.run(session.load())
+    assert ok
+    assert reader.last_read_policy == "raw"
+    assert session.get_state()["mode"] == "raw"
+
+
+def test_replay_engine_reuses_prepared_dataset_cache_for_same_station_date_and_mode(monkeypatch):
+    from core import replay_engine
+
+    replay_engine.reset_replay_engine_state()
+    start = datetime(2026, 2, 6, 12, 0, 0, tzinfo=UTC)
+    reader = _CountingReader(
+        [
+            {"ch": "world", "station_id": "KLGA", "ts_ingest_utc": start, "data": {"src": "METAR"}},
+            {"ch": "market", "station_id": "KLGA", "ts_ingest_utc": start + timedelta(seconds=1), "data": {"40-41F": {"mid": 0.55}}},
+        ],
+        available_channels=["world", "pws", "nowcast", "features", "health", "event_window", "market"],
+    )
+    monkeypatch.setattr(replay_engine, "get_hybrid_reader", lambda: reader)
+
+    engine = replay_engine.get_replay_engine()
+    session1 = asyncio.run(engine.create_session("2026-02-06", "KLGA", mode="light"))
+    session2 = asyncio.run(engine.create_session("2026-02-06", "KLGA", mode="light"))
+
+    assert session1 is not None
+    assert session2 is not None
+    assert len(reader.calls) == 1
+    assert reader.calls[0]["read_policy"] == "replay_light"
+    assert session2.get_state()["mode"] == "light"
+
+    replay_engine.reset_replay_engine_state()
