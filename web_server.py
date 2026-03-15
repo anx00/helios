@@ -4,12 +4,14 @@ from __future__ import annotations
 from dotenv import load_dotenv
 load_dotenv()
 
+import copy
 import os
 import re
 import csv
 from io import StringIO
 from pathlib import Path
 from fastapi import FastAPI, Request, Response
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -38,6 +40,8 @@ _PROBABILITY_LAB_CALIBRATION_MAX_CONCURRENCY = max(
     1,
     int(os.getenv("HELIOS_PROBABILITY_LAB_CALIBRATION_MAX_CONCURRENCY", "3")),
 )
+_HOT_API_CACHE: Dict[str, Dict[str, Any]] = {}
+_HOT_API_INFLIGHT: Dict[str, asyncio.Task] = {}
 
 from database import (
     get_accuracy_report,
@@ -296,6 +300,7 @@ def _render_template(
     return response
 
 app = FastAPI(title="Helios Weather Interface")
+app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=5)
 
 # Mount static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -307,6 +312,58 @@ _AUTOTRADER_RUNTIME_PATH = Path("data/autotrader_runtime.json")
 _autotrader_task: Optional[asyncio.Task] = None
 _autotrader_instance: Optional[AutoTrader] = None
 _autotrader_last_stop_reason: Optional[str] = None
+
+
+def _env_positive_float(name: str, default: float, *, minimum: float) -> float:
+    raw = os.getenv(name)
+    try:
+        value = float(raw) if raw is not None else float(default)
+    except Exception:
+        value = float(default)
+    return max(float(minimum), value)
+
+
+_HOT_API_CACHE_TTL_SECONDS = _env_positive_float(
+    "HELIOS_HOT_API_CACHE_TTL_SECONDS",
+    3.0,
+    minimum=0.5,
+)
+
+
+def _clone_hot_api_payload(payload: Any) -> Any:
+    return copy.deepcopy(payload)
+
+
+async def _get_or_build_hot_api_payload(
+    cache_key: str,
+    builder,
+    *,
+    ttl_seconds: Optional[float] = None,
+):
+    ttl = float(ttl_seconds or _HOT_API_CACHE_TTL_SECONDS)
+    cached = _HOT_API_CACHE.get(cache_key)
+    if cached:
+        age_seconds = time.monotonic() - float(cached.get("stored_at") or 0.0)
+        if age_seconds <= ttl:
+            return _clone_hot_api_payload(cached.get("payload"))
+
+    inflight = _HOT_API_INFLIGHT.get(cache_key)
+    if inflight is not None:
+        return _clone_hot_api_payload(await asyncio.shield(inflight))
+
+    task = asyncio.create_task(builder())
+    _HOT_API_INFLIGHT[cache_key] = task
+
+    try:
+        payload = await asyncio.shield(task)
+        _HOT_API_CACHE[cache_key] = {
+            "stored_at": time.monotonic(),
+            "payload": _clone_hot_api_payload(payload),
+        }
+        return _clone_hot_api_payload(payload)
+    finally:
+        if _HOT_API_INFLIGHT.get(cache_key) is task:
+            _HOT_API_INFLIGHT.pop(cache_key, None)
 
 
 def _sanitize_autotrader_station_ids(values: Optional[List[str]]) -> List[str]:
@@ -695,37 +752,57 @@ async def get_market_data(station_id: str, target_day: int = 0):
         station_id: Station identifier
         target_day: 0 for today (default), 1 for tomorrow
     """
-    if station_id not in STATIONS: return {"error": "Invalid station"}
-    station = STATIONS[station_id]
-    local_now = datetime.now(ZoneInfo(station.timezone))
-    target_date = (local_now + timedelta(days=target_day)).date()
-    event_data = await fetch_event_for_station_date(station_id, target_date)
-    if not event_data:
-        event_slug = build_event_slug(station_id, target_date)
-        event_data = await fetch_event_data(event_slug)
+    if station_id not in STATIONS:
+        return {"error": "Invalid station"}
+
+    cache_key = f"market:{station_id}:{int(target_day)}"
+
+    async def _build_payload():
+        station = STATIONS[station_id]
+        local_now = datetime.now(ZoneInfo(station.timezone))
+        target_date = (local_now + timedelta(days=target_day)).date()
+        event_data = await fetch_event_for_station_date(station_id, target_date)
         if not event_data:
-            return {"error": "Market not found", "slug": event_slug, "target_date": target_date.isoformat()}
-    else:
-        event_slug = build_event_slug(station_id, target_date)
-    event_title = event_data.get("title", "Unknown Event")
-    markets = event_data.get("markets", [])
-    total_volume = 0.0
-    outcomes = []
-    import json
-    for market in markets:
-        outcome_title = market.get("groupItemTitle", "Unknown")
-        try: volume = float(market.get("volume", "0"))
-        except: volume = 0.0
-        total_volume += volume
-        outcome_prices_raw = market.get("outcomePrices", [])
-        try:
-            if isinstance(outcome_prices_raw, str): outcome_prices = json.loads(outcome_prices_raw)
-            else: outcome_prices = outcome_prices_raw
-            yes_price = float(outcome_prices[0]) if outcome_prices else 0.0
-        except: yes_price = 0.0
-        outcomes.append({"title": outcome_title, "probability": yes_price, "volume": volume})
-    outcomes.sort(key=lambda x: x["probability"], reverse=True)
-    return {"station_id": station_id, "target_date": target_date.isoformat(), "target_day": target_day, "event_title": event_title, "event_slug": event_slug, "total_volume": total_volume, "outcomes": outcomes}
+            event_slug = build_event_slug(station_id, target_date)
+            event_data = await fetch_event_data(event_slug)
+            if not event_data:
+                return {"error": "Market not found", "slug": event_slug, "target_date": target_date.isoformat()}
+        else:
+            event_slug = build_event_slug(station_id, target_date)
+        event_title = event_data.get("title", "Unknown Event")
+        markets = event_data.get("markets", [])
+        total_volume = 0.0
+        outcomes = []
+        import json
+        for market in markets:
+            outcome_title = market.get("groupItemTitle", "Unknown")
+            try:
+                volume = float(market.get("volume", "0"))
+            except Exception:
+                volume = 0.0
+            total_volume += volume
+            outcome_prices_raw = market.get("outcomePrices", [])
+            try:
+                if isinstance(outcome_prices_raw, str):
+                    outcome_prices = json.loads(outcome_prices_raw)
+                else:
+                    outcome_prices = outcome_prices_raw
+                yes_price = float(outcome_prices[0]) if outcome_prices else 0.0
+            except Exception:
+                yes_price = 0.0
+            outcomes.append({"title": outcome_title, "probability": yes_price, "volume": volume})
+        outcomes.sort(key=lambda x: x["probability"], reverse=True)
+        return {
+            "station_id": station_id,
+            "target_date": target_date.isoformat(),
+            "target_day": target_day,
+            "event_title": event_title,
+            "event_slug": event_slug,
+            "total_volume": total_volume,
+            "outcomes": outcomes,
+        }
+
+    return await _get_or_build_hot_api_payload(cache_key, _build_payload)
 
 @app.on_event("startup")
 async def startup_event():
@@ -2970,6 +3047,26 @@ async def get_realtime_market(station_id: str, depth: int = 10):
 
 @app.get("/api/polymarket/{station_id}")
 async def get_polymarket_dashboard_data(
+    station_id: str,
+    target_day: int = 0,
+    target_date: Optional[str] = None,
+    depth: int = 5,
+):
+    """Unified Polymarket endpoint: Gamma API prices + WS orderbook + crowd wisdom + maturity."""
+    cache_key = f"polymarket:{station_id}:{int(target_day)}:{target_date or ''}:{int(depth)}"
+
+    async def _build_payload():
+        return await _build_polymarket_dashboard_data(
+            station_id,
+            target_day=target_day,
+            target_date=target_date,
+            depth=depth,
+        )
+
+    return await _get_or_build_hot_api_payload(cache_key, _build_payload)
+
+
+async def _build_polymarket_dashboard_data(
     station_id: str,
     target_day: int = 0,
     target_date: Optional[str] = None,

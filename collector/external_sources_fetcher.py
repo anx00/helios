@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import json
+import os
 import re
 import time
 from datetime import date, datetime, timedelta, timezone
@@ -37,6 +38,29 @@ _NOAA_HEADERS = {
 
 _OPEN_METEO_CACHE_TTL_SECONDS = 300
 _OPEN_METEO_SOURCE_CACHE: Dict[str, Dict[str, Any]] = {}
+_EXTERNAL_SOURCES_SNAPSHOT_CACHE: Dict[str, Dict[str, Any]] = {}
+_EXTERNAL_SOURCES_SNAPSHOT_INFLIGHT: Dict[str, asyncio.Task] = {}
+
+
+def _env_positive_float(name: str, default: float, *, minimum: float) -> float:
+    raw = os.getenv(name)
+    try:
+        value = float(raw) if raw is not None else float(default)
+    except Exception:
+        value = float(default)
+    return max(float(minimum), value)
+
+
+_EXTERNAL_SOURCES_SNAPSHOT_CACHE_TTL_SECONDS = _env_positive_float(
+    "HELIOS_EXTERNAL_SOURCES_SNAPSHOT_CACHE_TTL_SECONDS",
+    120.0,
+    minimum=15.0,
+)
+_EXTERNAL_SOURCES_SOURCE_TIMEOUT_SECONDS = _env_positive_float(
+    "HELIOS_EXTERNAL_SOURCES_SOURCE_TIMEOUT_SECONDS",
+    6.0,
+    minimum=1.0,
+)
 
 
 def _celsius_to_fahrenheit(celsius: float) -> float:
@@ -133,6 +157,10 @@ def _clone_source_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     return copy.deepcopy(payload)
 
 
+def _clone_snapshot_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    return copy.deepcopy(payload)
+
+
 def _get_cached_open_meteo_source(
     station_id: str,
     *,
@@ -154,6 +182,44 @@ def _store_cached_open_meteo_source(station_id: str, source: Dict[str, Any]) -> 
         "stored_at": time.monotonic(),
         "source": _clone_source_payload(source),
     }
+
+
+def _get_cached_external_sources_snapshot(
+    station_id: str,
+    *,
+    max_age_seconds: Optional[float] = None,
+) -> tuple[Optional[Dict[str, Any]], Optional[float]]:
+    entry = _EXTERNAL_SOURCES_SNAPSHOT_CACHE.get(station_id)
+    if not entry:
+        return None, None
+
+    age_seconds = max(0.0, time.monotonic() - float(entry.get("stored_at") or 0.0))
+    if max_age_seconds is not None and age_seconds > max_age_seconds:
+        return None, age_seconds
+
+    return _clone_snapshot_payload(dict(entry.get("snapshot") or {})), age_seconds
+
+
+def _store_cached_external_sources_snapshot(station_id: str, snapshot: Dict[str, Any]) -> None:
+    _EXTERNAL_SOURCES_SNAPSHOT_CACHE[station_id] = {
+        "stored_at": time.monotonic(),
+        "snapshot": _clone_snapshot_payload(snapshot),
+    }
+
+
+def _annotate_snapshot_cache_state(
+    snapshot: Dict[str, Any],
+    *,
+    cache_hit: bool,
+    age_seconds: Optional[float] = None,
+) -> Dict[str, Any]:
+    annotated = _clone_snapshot_payload(snapshot)
+    annotated["cache"] = {
+        "hit": bool(cache_hit),
+        "age_seconds": int(age_seconds or 0),
+        "ttl_seconds": int(_EXTERNAL_SOURCES_SNAPSHOT_CACHE_TTL_SECONDS),
+    }
+    return annotated
 
 
 def _station_country(station_id: str) -> str:
@@ -797,7 +863,23 @@ def _build_error_source(source: str, display_name: str, error: Exception) -> Dic
     }
 
 
-async def fetch_external_sources_snapshot(station_id: str) -> Dict[str, Any]:
+async def _run_source_snapshot_task(
+    source_name: str,
+    display_name: str,
+    coro: Any,
+) -> Dict[str, Any]:
+    try:
+        return await asyncio.wait_for(
+            coro,
+            timeout=_EXTERNAL_SOURCES_SOURCE_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError as exc:
+        raise RuntimeError(
+            f"{display_name} timed out after {_EXTERNAL_SOURCES_SOURCE_TIMEOUT_SECONDS:.1f}s."
+        ) from exc
+
+
+async def _build_external_sources_snapshot(station_id: str) -> Dict[str, Any]:
     station_id = str(station_id or "").strip().upper()
     station = STATIONS.get(station_id)
     if not station:
@@ -813,11 +895,19 @@ async def fetch_external_sources_snapshot(station_id: str) -> Dict[str, Any]:
 
     task_specs: List[tuple[str, str, Any]] = []
     if wu_task is not None:
-        task_specs.append(("wunderground", "Wunderground", wu_task))
-    task_specs.append(("open_meteo", "Open-Meteo", om_task))
+        task_specs.append(
+            ("wunderground", "Wunderground", _run_source_snapshot_task("wunderground", "Wunderground", wu_task))
+        )
+    task_specs.append(
+        ("open_meteo", "Open-Meteo", _run_source_snapshot_task("open_meteo", "Open-Meteo", om_task))
+    )
     if noaa_task is not None:
-        task_specs.append(("noaa_nws", "NOAA/NWS", noaa_task))
-    task_specs.append(("accuweather", "AccuWeather", accuweather_task))
+        task_specs.append(
+            ("noaa_nws", "NOAA/NWS", _run_source_snapshot_task("noaa_nws", "NOAA/NWS", noaa_task))
+        )
+    task_specs.append(
+        ("accuweather", "AccuWeather", _run_source_snapshot_task("accuweather", "AccuWeather", accuweather_task))
+    )
 
     results = await asyncio.gather(*(spec[2] for spec in task_specs), return_exceptions=True)
 
@@ -837,3 +927,37 @@ async def fetch_external_sources_snapshot(station_id: str) -> Dict[str, Any]:
         "generated_at_local": generated_at_utc.astimezone(station_tz).isoformat(),
         "sources": sources,
     }
+
+
+async def fetch_external_sources_snapshot(station_id: str) -> Dict[str, Any]:
+    station_id = str(station_id or "").strip().upper()
+    station = STATIONS.get(station_id)
+    if not station:
+        raise ValueError(f"Invalid station: {station_id}")
+
+    cached_snapshot, cache_age = _get_cached_external_sources_snapshot(
+        station_id,
+        max_age_seconds=_EXTERNAL_SOURCES_SNAPSHOT_CACHE_TTL_SECONDS,
+    )
+    if cached_snapshot is not None:
+        return _annotate_snapshot_cache_state(
+            cached_snapshot,
+            cache_hit=True,
+            age_seconds=cache_age,
+        )
+
+    inflight_task = _EXTERNAL_SOURCES_SNAPSHOT_INFLIGHT.get(station_id)
+    if inflight_task is not None:
+        snapshot = await asyncio.shield(inflight_task)
+        return _annotate_snapshot_cache_state(snapshot, cache_hit=True, age_seconds=0.0)
+
+    task = asyncio.create_task(_build_external_sources_snapshot(station_id))
+    _EXTERNAL_SOURCES_SNAPSHOT_INFLIGHT[station_id] = task
+
+    try:
+        snapshot = await asyncio.shield(task)
+        _store_cached_external_sources_snapshot(station_id, snapshot)
+        return _annotate_snapshot_cache_state(snapshot, cache_hit=False, age_seconds=0.0)
+    finally:
+        if _EXTERNAL_SOURCES_SNAPSHOT_INFLIGHT.get(station_id) is task:
+            _EXTERNAL_SOURCES_SNAPSHOT_INFLIGHT.pop(station_id, None)

@@ -266,3 +266,76 @@ async def test_fetch_external_sources_snapshot_uses_station_native_unit(monkeypa
     assert snapshot["station_id"] == "LFPG"
     assert snapshot["preferred_unit"] == "C"
     assert [source["source"] for source in snapshot["sources"]] == ["wunderground", "open_meteo", "accuweather"]
+
+
+@pytest.mark.asyncio
+async def test_fetch_external_sources_snapshot_reuses_short_cache(monkeypatch):
+    fetcher._EXTERNAL_SOURCES_SNAPSHOT_CACHE.clear()
+    fetcher._EXTERNAL_SOURCES_SNAPSHOT_INFLIGHT.clear()
+
+    calls = {"wu": 0, "om": 0, "noaa": 0, "accu": 0}
+
+    async def fake_wunderground_source(_station_id: str):
+        calls["wu"] += 1
+        return {
+            "source": "wunderground",
+            "display_name": "Wunderground",
+            "status": "ok",
+            "historical_day": {"kind": "observed", "confirmed": True, "published_through_local": None, "max_temp_c": None, "max_temp_f": None, "max_temp_time_local": None, "points": []},
+            "realtime": {"kind": "observed_current", "as_of_local": None, "temp_c": 1.0, "temp_f": 33.8},
+            "forecast_hourly": {"kind": "forecast", "horizon_days": 3, "points": []},
+            "notes": [],
+            "errors": [],
+        }
+
+    async def fake_open_meteo_source(_station_id: str):
+        calls["om"] += 1
+        return {
+            "source": "open_meteo",
+            "display_name": "Open-Meteo",
+            "status": "ok",
+            "historical_day": {"kind": "modeled", "confirmed": False, "published_through_local": None, "max_temp_c": None, "max_temp_f": None, "max_temp_time_local": None, "points": []},
+            "realtime": {"kind": "modeled_current", "as_of_local": None, "temp_c": 1.0, "temp_f": 33.8},
+            "forecast_hourly": {"kind": "forecast", "horizon_days": 3, "points": []},
+            "notes": [],
+            "errors": [],
+        }
+
+    async def fake_noaa_source(_station_id: str):
+        calls["noaa"] += 1
+        return {
+            "source": "noaa_nws",
+            "display_name": "NOAA/NWS",
+            "status": "ok",
+            "historical_day": {"kind": "observed", "confirmed": True, "published_through_local": None, "max_temp_c": None, "max_temp_f": None, "max_temp_time_local": None, "points": []},
+            "realtime": {"kind": "observed_current", "as_of_local": None, "temp_c": 1.0, "temp_f": 33.8},
+            "forecast_hourly": {"kind": "forecast", "horizon_days": 3, "points": []},
+            "notes": [],
+            "errors": [],
+        }
+
+    async def fake_accuweather_source(_station_id: str):
+        calls["accu"] += 1
+        return {
+            "source": "accuweather",
+            "display_name": "AccuWeather",
+            "status": "disabled",
+            "historical_day": {"kind": None, "confirmed": False, "published_through_local": None, "max_temp_c": None, "max_temp_f": None, "max_temp_time_local": None, "points": []},
+            "realtime": {"kind": None, "as_of_local": None, "temp_c": None, "temp_f": None},
+            "forecast_hourly": {"kind": None, "horizon_days": 3, "points": []},
+            "notes": [],
+            "errors": [],
+            "setup": {},
+        }
+
+    monkeypatch.setattr(fetcher, "fetch_wunderground_source", fake_wunderground_source)
+    monkeypatch.setattr(fetcher, "fetch_open_meteo_source", fake_open_meteo_source)
+    monkeypatch.setattr(fetcher, "fetch_noaa_source", fake_noaa_source)
+    monkeypatch.setattr(fetcher, "fetch_accuweather_source", fake_accuweather_source)
+
+    first = await fetcher.fetch_external_sources_snapshot("KLGA")
+    second = await fetcher.fetch_external_sources_snapshot("KLGA")
+
+    assert first["station_id"] == "KLGA"
+    assert second["cache"]["hit"] is True
+    assert calls == {"wu": 1, "om": 1, "noaa": 1, "accu": 1}
