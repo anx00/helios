@@ -129,7 +129,7 @@
     <div class="home-grid">
         {% for sid in active_stations %}
         {% set stn = all_stations[sid] %}
-        <a href="/station/{{ sid }}/analytics" class="station-card">
+        <a href="/station/{{ sid }}" class="station-card">
             <div class="station-card-header">
                 <span class="station-flag">{% if stn.timezone.startswith('Europe') %}🇬🇧{% else %}🇺🇸{% endif %}</span>
                 <div class="station-info">

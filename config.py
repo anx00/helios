@@ -114,7 +114,7 @@ STATIONS: Dict[str, StationConfig] = {
         longitude=2.5340,
         timezone="Europe/Paris",
         characteristics="Northern France airport - oceanic/continental transitions and low-cloud variability",
-        enabled=True,
+        enabled=False,
     ),
     "EGLC": StationConfig(
         icao_id="EGLC",
@@ -123,7 +123,7 @@ STATIONS: Dict[str, StationConfig] = {
         longitude=0.0495,
         timezone="Europe/London",
         characteristics="Urban riverside - Thames river effect, Docklands urban heat",
-        enabled=True,
+        enabled=False,
     ),
     "LTAC": StationConfig(
         icao_id="LTAC",
@@ -132,7 +132,7 @@ STATIONS: Dict[str, StationConfig] = {
         longitude=32.9951,
         timezone="Europe/Istanbul",
         characteristics="Continental plateau - strong diurnal range, dry inland advection",
-        enabled=True,
+        enabled=False,
     ),
 }
 
