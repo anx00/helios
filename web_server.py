@@ -690,11 +690,11 @@ async def get_prediction_api(station_id: str, target_day: int = 0):
     
     # Get prediction for the specific target date
     from database import get_latest_prediction_for_date
-    pred = get_latest_prediction_for_date(station_id, target_date_str)
+    pred = await asyncio.to_thread(get_latest_prediction_for_date, station_id, target_date_str)
     
     # Fallback to most recent if no prediction for target date
     if not pred:
-        pred = get_latest_prediction(station_id)
+        pred = await asyncio.to_thread(get_latest_prediction, station_id)
         if not pred:
             return {"error": "No prediction found", "target_date": target_date_str}
     
@@ -2498,7 +2498,12 @@ async def get_replay_state(session_id: str):
 @app.get("/api/v4/replay/live/{station_id}")
 async def get_replay_live(station_id: str):
     """Get the current live station context for the replay dashboard."""
-    return await _build_replay_live_payload(station_id)
+    cache_key = f"replay_live:{str(station_id or '').upper()}"
+    return await _get_or_build_hot_api_payload(
+        cache_key,
+        lambda: _build_replay_live_payload(station_id),
+        ttl_seconds=8.0,
+    )
 
 
 @app.get("/api/v4/replay/session/{session_id}/events")
@@ -2830,11 +2835,7 @@ async def refresh_world_metar(station_id: str):
         return {"error": str(exc), "station_id": station_id}
 
 
-@app.get("/api/v2/world/metar_history/{station_id}")
-async def get_world_metar_history(station_id: str):
-    """Return today's METAR observations (NYC settlement day) from NOAA."""
-    if station_id not in STATIONS:
-        return {"error": "Invalid station"}
+async def _build_world_metar_history_payload(station_id: str) -> Dict[str, Any]:
     from collector.metar_fetcher import fetch_metar_history
     from core.judge import JudgeAlignment
     from zoneinfo import ZoneInfo
@@ -2880,6 +2881,22 @@ async def get_world_metar_history(station_id: str):
         r["running_max_f"] = running_max
 
     return {"station_id": station_id, "date": today.isoformat(), "observations": rows}
+
+
+@app.get("/api/v2/world/metar_history/{station_id}")
+async def get_world_metar_history(station_id: str):
+    """Return today's METAR observations (NYC settlement day) from NOAA."""
+    if station_id not in STATIONS:
+        return {"error": "Invalid station"}
+
+    station = STATIONS[station_id]
+    today_key = datetime.now(ZoneInfo(station.timezone)).date().isoformat()
+    cache_key = f"world_metar_history:{station_id}:{today_key}"
+    return await _get_or_build_hot_api_payload(
+        cache_key,
+        lambda: _build_world_metar_history_payload(station_id),
+        ttl_seconds=20.0,
+    )
 
 
 @app.get("/api/v2/world/stream")
@@ -2934,36 +2951,38 @@ async def get_realtime_data(station_id: str):
     """
     if station_id not in STATIONS:
         return {"error": "Invalid station"}
-    
-    from collector.metar_fetcher import fetch_metar
-    
-    try:
-        current = await fetch_metar(station_id)
-        
-        if not current:
-            return {"error": "No METAR data available", "station_id": station_id}
-        
-        racing = current.racing_results or {}
-        
-        return {
-            "station_id": station_id,
-            "noaa": current.temp_f,
-            "noaa_low_f": current.temp_f_low,
-            "noaa_high_f": current.temp_f_high,
-            "settlement_low_f": current.settlement_f_low,
-            "settlement_high_f": current.settlement_f_high,
-            "has_t_group": current.has_t_group,
-            "json_api": racing.get("NOAA_JSON_API"),
-            "tds_xml": racing.get("AWC_TDS_XML"),
-            "tgftp_txt": racing.get("NOAA_TG_FTP_TXT"),
-            "report_type": getattr(current, "report_type", "METAR"),
-            "is_speci": bool(getattr(current, "is_speci", False)),
-            "racing_report_types": getattr(current, "racing_report_types", None),
-            "observation_time": current.observation_time.isoformat() if current.observation_time else None,
-            "timestamp": datetime.now(ZoneInfo("UTC")).isoformat()
-        }
-    except Exception as e:
-        return {"error": str(e), "station_id": station_id}
+    cache_key = f"realtime:{station_id}"
+
+    async def _build_payload() -> Dict[str, Any]:
+        from collector.metar_fetcher import fetch_metar
+
+        try:
+            current = await fetch_metar(station_id)
+            if not current:
+                return {"error": "No METAR data available", "station_id": station_id}
+
+            racing = current.racing_results or {}
+            return {
+                "station_id": station_id,
+                "noaa": current.temp_f,
+                "noaa_low_f": current.temp_f_low,
+                "noaa_high_f": current.temp_f_high,
+                "settlement_low_f": current.settlement_f_low,
+                "settlement_high_f": current.settlement_f_high,
+                "has_t_group": current.has_t_group,
+                "json_api": racing.get("NOAA_JSON_API"),
+                "tds_xml": racing.get("AWC_TDS_XML"),
+                "tgftp_txt": racing.get("NOAA_TG_FTP_TXT"),
+                "report_type": getattr(current, "report_type", "METAR"),
+                "is_speci": bool(getattr(current, "is_speci", False)),
+                "racing_report_types": getattr(current, "racing_report_types", None),
+                "observation_time": current.observation_time.isoformat() if current.observation_time else None,
+                "timestamp": datetime.now(ZoneInfo("UTC")).isoformat(),
+            }
+        except Exception as e:
+            return {"error": str(e), "station_id": station_id}
+
+    return await _get_or_build_hot_api_payload(cache_key, _build_payload, ttl_seconds=2.0)
 
 @app.get("/api/realtime/market/{station_id}")
 async def get_realtime_market(station_id: str, depth: int = 10):
@@ -2971,78 +2990,77 @@ async def get_realtime_market(station_id: str, depth: int = 10):
     Get ultra-low latency market data from local memory mirror.
     Includes SEARA-grade observability metrics.
     """
-    try:
-        if station_id not in STATIONS:
-            return {"error": "Invalid station"}
-            
-        client = await get_ws_client()
-        # Allow reading even if disconnected, to see stale state (debug)
-        # But alert if not connected
-             
-        data = []
+    if station_id not in STATIONS:
+        return {"error": "Invalid station"}
 
-        if not client.state or not hasattr(client.state, 'orderbooks'):
-             return {"error": "Client state not initialized"}
+    cache_key = f"realtime_market:{station_id}:{int(depth)}"
 
-        current_ts = datetime.now().timestamp()
+    async def _build_payload() -> Dict[str, Any]:
+        try:
+            client = await get_ws_client()
+            data = []
 
-        for token_id, book in client.state.orderbooks.items():
-            raw_info = client.market_info.get(token_id, "Unknown|Unknown")
-            m_station, m_bracket, m_outcome = _parse_market_info(raw_info)
+            if not client.state or not hasattr(client.state, 'orderbooks'):
+                return {"error": "Client state not initialized"}
 
-            # Filter by station
-            if m_station != station_id:
-                continue
+            current_ts = datetime.now().timestamp()
 
-            if depth and depth > 0:
-                snap = book.get_l2_snapshot(top_n=depth)
-            else:
-                snap = book.get_snapshot()  # O(1) cached snapshot
-            snap["bracket"] = m_bracket
-            snap["outcome"] = m_outcome
-            data.append(snap)
+            for token_id, book in client.state.orderbooks.items():
+                raw_info = client.market_info.get(token_id, "Unknown|Unknown")
+                m_station, m_bracket, m_outcome = _parse_market_info(raw_info)
 
-        # If empty, try a quick on-demand subscription refresh for this station
-        if not data:
-            try:
-                from market.polymarket_checker import get_target_date
-                station = STATIONS[station_id]
-                now = datetime.now(ZoneInfo(station.timezone))
-                target_date = await get_target_date(station_id, now)
-                logger = logging.getLogger("ws_loop")
-                tokens = await _resolve_station_tokens(station_id, target_date, now, logger)
-                if tokens:
-                    await client.subscribe_to_markets([t[0] for t in tokens])
-                    for tid, bracket, outcome in tokens:
-                        client.set_market_info(tid, f"{station_id}|{bracket}|{outcome}")
-                    # Rebuild view after warm-up subscription
-                    for token_id, book in client.state.orderbooks.items():
-                        raw_info = client.market_info.get(token_id, "Unknown|Unknown")
-                        m_station, m_bracket, m_outcome = _parse_market_info(raw_info)
-                        if m_station != station_id:
-                            continue
-                        if depth and depth > 0:
-                            snap = book.get_l2_snapshot(top_n=depth)
-                        else:
-                            snap = book.get_snapshot()
-                        snap["bracket"] = m_bracket
-                        snap["outcome"] = m_outcome
-                        data.append(snap)
-            except Exception:
-                pass
+                if m_station != station_id:
+                    continue
 
-        return {
-            "station_id": station_id,
-            "status": "connected" if client.is_connected else "disconnected",
-            "server_ts": current_ts,
-            "metrics": client.state.metrics,
-            "count": len(data),
-            "markets": data
-        }
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return {"error": str(e), "traceback": traceback.format_exc()}
+                if depth and depth > 0:
+                    snap = book.get_l2_snapshot(top_n=depth)
+                else:
+                    snap = book.get_snapshot()
+                snap["bracket"] = m_bracket
+                snap["outcome"] = m_outcome
+                data.append(snap)
+
+            if not data:
+                try:
+                    from market.polymarket_checker import get_target_date
+                    station = STATIONS[station_id]
+                    now = datetime.now(ZoneInfo(station.timezone))
+                    target_date = await get_target_date(station_id, now)
+                    logger = logging.getLogger("ws_loop")
+                    tokens = await _resolve_station_tokens(station_id, target_date, now, logger)
+                    if tokens:
+                        await client.subscribe_to_markets([t[0] for t in tokens])
+                        for tid, bracket, outcome in tokens:
+                            client.set_market_info(tid, f"{station_id}|{bracket}|{outcome}")
+                        for token_id, book in client.state.orderbooks.items():
+                            raw_info = client.market_info.get(token_id, "Unknown|Unknown")
+                            m_station, m_bracket, m_outcome = _parse_market_info(raw_info)
+                            if m_station != station_id:
+                                continue
+                            if depth and depth > 0:
+                                snap = book.get_l2_snapshot(top_n=depth)
+                            else:
+                                snap = book.get_snapshot()
+                            snap["bracket"] = m_bracket
+                            snap["outcome"] = m_outcome
+                            data.append(snap)
+                except Exception:
+                    pass
+
+            return {
+                "station_id": station_id,
+                "status": "connected" if client.is_connected else "disconnected",
+                "server_ts": current_ts,
+                "metrics": client.state.metrics,
+                "count": len(data),
+                "markets": data,
+            }
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return {"error": str(e), "traceback": traceback.format_exc()}
+
+    return await _get_or_build_hot_api_payload(cache_key, _build_payload, ttl_seconds=1.5)
 
 
 @app.get("/api/polymarket/{station_id}")
@@ -3233,7 +3251,9 @@ async def _build_polymarket_dashboard_data(
         from core.trading_signal import build_trading_signal
         from database import get_latest_prediction, get_latest_prediction_for_date
 
-        pred = get_latest_prediction_for_date(station_id, target_date_str) or get_latest_prediction(station_id)
+        pred = await asyncio.to_thread(get_latest_prediction_for_date, station_id, target_date_str)
+        if not pred:
+            pred = await asyncio.to_thread(get_latest_prediction, station_id)
         nowcast_distribution = None
         nowcast_state = None
 
@@ -4408,6 +4428,134 @@ async def refresh_station(station_id: str):
         return {"success": False, "error": str(e)}
 
 
+async def _build_v12_debug_payload(station_id: str) -> Dict[str, Any]:
+    from collector.metar_fetcher import fetch_metar
+    from collector.nbm_fetcher import fetch_nbm
+    from collector.lamp_fetcher import fetch_lamp
+    from synthesizer.ensemble import calculate_ensemble_v11
+    from database import get_latest_prediction_for_date, get_performance_history_by_target_date
+    from synthesizer.advection import calculate_advection
+    from collector.advection_fetcher import fetch_upstream_weather
+
+    station = STATIONS[station_id]
+    tz = ZoneInfo(station.timezone)
+    now_local = datetime.now(tz)
+    today_str = now_local.date().isoformat()
+
+    current = await fetch_metar(station_id)
+    metar_current = current.temp_f if current else None
+
+    advection_report = None
+    wind_speed_kmh = 0.0
+    upstream_temp_c = None
+    upstream_task = None
+
+    if current and current.temp_c is not None:
+        wspd_kt = current.wind_speed_kt or 0
+        wind_speed_kmh = wspd_kt * 1.852
+        wind_dir = current.wind_dir_degrees or 0
+        upstream_task = fetch_upstream_weather(
+            base_lat=station.latitude,
+            base_lon=station.longitude,
+            wind_dir_degrees=wind_dir,
+        )
+
+    logs_task = asyncio.to_thread(get_performance_history_by_target_date, station_id, today_str)
+    pred_task = asyncio.to_thread(get_latest_prediction_for_date, station_id, today_str)
+    nbm_task = fetch_nbm(station_id, now_local.date())
+    lamp_task = fetch_lamp(station_id)
+
+    tasks = [logs_task, pred_task, nbm_task, lamp_task]
+    if upstream_task is not None:
+        tasks.append(upstream_task)
+
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    logs = results[0] if not isinstance(results[0], Exception) else []
+    pred = results[1] if not isinstance(results[1], Exception) else None
+    nbm_data = results[2] if not isinstance(results[2], Exception) else None
+    lamp_data = results[3] if not isinstance(results[3], Exception) else None
+    upstream_data = results[4] if upstream_task is not None and len(results) > 4 and not isinstance(results[4], Exception) else None
+
+    if current and current.temp_c is not None and upstream_data:
+        advection_report = calculate_advection(
+            current_temp_c=current.temp_c,
+            upstream_data=upstream_data,
+            local_wind_kmh=wind_speed_kmh,
+        )
+        upstream_temp_c = upstream_data.temperature_c
+
+    observed_max = None
+    if logs:
+        temps = [
+            l.get("cumulative_max_f") or l.get("metar_actual")
+            for l in logs
+            if l.get("cumulative_max_f") or l.get("metar_actual")
+        ]
+        if temps:
+            observed_max = max([t for t in temps if t])
+
+    hrrr_val = pred.get("hrrr_max_raw_f") if pred else 55.0
+    result = calculate_ensemble_v11(
+        hrrr_max_f=hrrr_val,
+        nbm_max_f=nbm_data.max_temp_f if nbm_data else None,
+        lamp_max_f=lamp_data.max_temp_f if lamp_data else None,
+        lamp_confidence=lamp_data.confidence if lamp_data else 0.5,
+        metar_actual_f=metar_current,
+        local_hour=now_local.hour,
+        local_minute=now_local.minute,
+        observed_max_f=observed_max,
+        wu_forecast_high=pred.get("wu_forecast_high") if pred else None,
+    )
+
+    return {
+        "station_id": station_id,
+        "local_time": now_local.strftime("%Y-%m-%d %H:%M:%S %Z"),
+        "local_hour": now_local.hour,
+        "local_minute": now_local.minute,
+        "physics_context": {
+            "wind_speed_kt": current.wind_speed_kt if current else 0,
+            "wind_dir_degrees": current.wind_dir_degrees if current else 0,
+            "wind_trend": current.wind_trend if current else "N/A",
+            "metar_report_type": getattr(current, "report_type", "METAR") if current else None,
+            "metar_is_speci": bool(getattr(current, "is_speci", False)) if current else False,
+            "advection_rate_c_h": advection_report.rate_c_per_hour if advection_report else 0.0,
+            "upstream_temp_c": upstream_temp_c,
+            "description": advection_report.description if advection_report else "No data",
+            "is_heating": (advection_report.rate_c_per_hour > 0.1) if advection_report else False,
+            "is_cooling": (advection_report.rate_c_per_hour < -0.1) if advection_report else False,
+        },
+        "inputs": {
+            "metar_current_f": metar_current,
+            "metar_report_type": getattr(current, "report_type", "METAR") if current else None,
+            "metar_is_speci": bool(getattr(current, "is_speci", False)) if current else False,
+            "observed_max_f": observed_max,
+            "hrrr_max_f": hrrr_val,
+            "nbm_max_f": nbm_data.max_temp_f if nbm_data else None,
+            "lamp_max_f": lamp_data.max_temp_f if lamp_data else None,
+        },
+        "v12_protections": {
+            "sunset_lock_active": result.sunset_lock_active,
+            "sunset_lock_threshold": "METAR < observed_max - 0.5Â°F",
+            "sunset_lock_condition_met": (observed_max - metar_current) > 0.5 if observed_max and metar_current else False,
+            "ultimate_squeeze_active": result.ultimate_squeeze_active,
+            "ultimate_squeeze_threshold": "After 14:30 NYC, max spread = 1.2Â°F",
+            "ghost_prediction_warning": result.ghost_prediction_warning,
+            "ghost_reason": result.ghost_reason,
+            "ghost_threshold": "HELIOS > METAR + 3.0Â°F after 14:00",
+        },
+        "ensemble_result": {
+            "base_weighted_f": result.base_weighted_f,
+            "floor_f": result.helios_floor_f,
+            "ceiling_f": result.helios_ceiling_f,
+            "spread_f": result.ensemble_spread_f,
+            "allowed_spread_f": result.allowed_spread_f,
+            "confidence": result.confidence_level,
+            "strategy_note": result.strategy_note,
+            "observed_max_used_f": result.observed_max_used_f,
+        },
+    }
+
+
 @app.get("/api/v12_debug/{station_id}")
 async def get_v12_debug(station_id: str):
     """
@@ -4416,6 +4564,11 @@ async def get_v12_debug(station_id: str):
     """
     if station_id not in STATIONS:
         return {"error": "Invalid station"}
+    return await _get_or_build_hot_api_payload(
+        f"v12_debug:{station_id}",
+        lambda: _build_v12_debug_payload(station_id),
+        ttl_seconds=12.0,
+    )
     
     from collector.metar_fetcher import fetch_metar
     from collector.nbm_fetcher import fetch_nbm
@@ -4553,20 +4706,15 @@ async def get_v12_debug(station_id: str):
     }
 
 
-@app.get("/api/analytics")
-def get_analytics_api(station_id: str = DEFAULT_STATION, date: str = None):
-    """Get performance data for the dashboard, filtered by TARGET DATE."""
+def _build_analytics_payload(station_id: str, target_date: str) -> Dict[str, Any]:
+    """Build performance data for the dashboard, filtered by TARGET DATE."""
     from database import get_performance_history_by_target_date
     from zoneinfo import ZoneInfo
-    if date: target_date = date
-    else:
-        nyc_tz = ZoneInfo("America/New_York")
-        target_date = datetime.now(nyc_tz).date().isoformat()
+
     logs = get_performance_history_by_target_date(station_id, target_date)
     
     # Filter logs to only include data starting from 00:00 of the target_date
     # This prevents the chart from showing data from the previous day
-    start_of_day = datetime.fromisoformat(target_date)
     filtered_logs = []
     for log in logs:
         ts = datetime.fromisoformat(log["timestamp"])
@@ -5070,6 +5218,19 @@ def get_analytics_api(station_id: str = DEFAULT_STATION, date: str = None):
         "market_resolution": market_resolution_data
     }
 
+
+@app.get("/api/analytics")
+async def get_analytics_api(station_id: str = DEFAULT_STATION, date: str = None):
+    """Get performance data for the dashboard, filtered by TARGET DATE."""
+    nyc_tz = ZoneInfo("America/New_York")
+    target_date = date or datetime.now(nyc_tz).date().isoformat()
+    cache_key = f"analytics:{station_id}:{target_date}"
+
+    async def _build_payload() -> Dict[str, Any]:
+        return await asyncio.to_thread(_build_analytics_payload, station_id, target_date)
+
+    return await _get_or_build_hot_api_payload(cache_key, _build_payload, ttl_seconds=5.0)
+
 # v6.1: CSV Export API for full data analysis
 from fastapi.responses import StreamingResponse
 import io, csv
@@ -5244,7 +5405,7 @@ async def get_ensemble_edge_api(station_id: str, target_date: Optional[str] = No
         td = _date.fromisoformat(target_date) if target_date else None
 
         # Get current market buckets with prices
-        pred = get_latest_prediction(station_id)
+        pred = await asyncio.to_thread(get_latest_prediction, station_id)
         if not pred or "market" not in pred:
             return JSONResponse({"error": "No market data available", "station_id": station_id}, status_code=404)
 
@@ -5296,7 +5457,7 @@ async def get_observed_max_api(station_id: str):
         from collector.wunderground_fetcher import get_observed_max
         obs = await get_observed_max(station_id)
         if not obs: return {"error": "No observation data available"}
-        pred = get_latest_prediction(station_id)
+        pred = await asyncio.to_thread(get_latest_prediction, station_id)
         prediction_f = pred["final_prediction_f"] if pred else None
         diff_f = round(prediction_f - obs.high_temp_f, 1) if prediction_f and obs.high_temp_f else None
         

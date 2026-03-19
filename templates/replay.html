@@ -1492,6 +1492,8 @@
     let sessionRequestController = null;
     let snapshotRequestController = null;
     let liveRequestController = null;
+    let datesRequestController = null;
+    let datesLoadToken = 0;
     let currentLoadToken = 0;
 
     // Station timezone info (populated from template data)
@@ -1773,10 +1775,11 @@
 
     function scheduleReplayRefresh(delayMs = null) {
         clearReplayRefresh();
-        if (!sessionId) return;
+        if (!sessionId || document.hidden) return;
         const delay = delayMs == null ? (isPlaying ? 400 : 900) : delayMs;
         pollInterval = setTimeout(() => {
             pollInterval = null;
+            if (document.hidden) return;
             updateState(false);
         }, Math.max(0, delay));
     }
@@ -1790,8 +1793,10 @@
 
     function scheduleLiveRefresh(delayMs = 30000) {
         clearLiveRefresh();
+        if (document.hidden) return;
         liveInterval = setTimeout(() => {
             liveInterval = null;
+            if (document.hidden) return;
             loadLivePanel();
         }, Math.max(0, delayMs));
     }
@@ -1859,13 +1864,19 @@
     }
 
     async function loadAvailableDates({ autoLoad = false } = {}) {
+        const myToken = ++datesLoadToken;
+        if (datesRequestController) datesRequestController.abort();
+        datesRequestController = new AbortController();
         try {
             const station = getReplayStationFilterValue();
             const params = new URLSearchParams();
             if (station) params.append('station_id', station);
             const qs = params.toString();
-            const resp = await fetch(`/api/v4/replay/dates${qs ? `?${qs}` : ''}`);
+            const resp = await fetch(`/api/v4/replay/dates${qs ? `?${qs}` : ''}`, {
+                signal: datesRequestController.signal,
+            });
             const data = await resp.json();
+            if (myToken !== datesLoadToken) return;
 
             const select = document.getElementById('date-select');
             const prev = select.value;
@@ -1892,7 +1903,12 @@
                 await loadSession({ auto: true });
             }
         } catch (e) {
+            if (e?.name === 'AbortError') return;
             console.error('Failed to load dates:', e);
+        } finally {
+            if (datesRequestController && myToken === datesLoadToken) {
+                datesRequestController = null;
+            }
         }
     }
 
@@ -2416,6 +2432,7 @@
     async function loadLivePanel() {
         const station = getReplayStationFilterValue() || currentStationId();
         if (!station) return;
+        if (document.hidden) return;
 
         if (liveRequestController) liveRequestController.abort();
         const controller = new AbortController();
@@ -3952,6 +3969,7 @@
         if (sessionRequestController) sessionRequestController.abort();
         if (snapshotRequestController) snapshotRequestController.abort();
         if (liveRequestController) liveRequestController.abort();
+        if (datesRequestController) datesRequestController.abort();
         if (replayTrendChart) replayTrendChart.destroy();
         if (liveTrendChart) liveTrendChart.destroy();
     });
@@ -3968,6 +3986,14 @@
             await loadLivePanel();
             await loadAvailableDates({ autoLoad: true });
             updateLoadButton();
+        });
+
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) return;
+            if (sessionId) {
+                scheduleReplayRefresh(0);
+            }
+            loadLivePanel();
         });
         init();
     });

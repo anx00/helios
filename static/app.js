@@ -145,6 +145,7 @@ async function init() {
 
     // Refresh every 5 minutes
     setInterval(() => {
+        if (document.hidden) return;
         STATIONS.forEach(id => {
             fetchPrediction(id);
             fetchMarketData(id);

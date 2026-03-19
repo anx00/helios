@@ -402,11 +402,22 @@
 {% block scripts %}
 <script>
     const STATION_ID = '{{ station_id }}';
+    let predictionRequestSeq = 0;
+    let predictionAbortController = null;
 
     async function loadPredictionData() {
+        const requestSeq = ++predictionRequestSeq;
+        if (predictionAbortController) {
+            predictionAbortController.abort();
+        }
+        const controller = new AbortController();
+        predictionAbortController = controller;
+
         try {
-            const resp = await fetch(`/api/v12_debug/${STATION_ID}`);
+            const resp = await fetch(`/api/v12_debug/${STATION_ID}`, { signal: controller.signal });
+            if (requestSeq !== predictionRequestSeq) return;
             const data = await resp.json();
+            if (requestSeq !== predictionRequestSeq) return;
 
             if (data.error) {
                 console.error('API Error:', data.error);
@@ -506,7 +517,14 @@
             }
 
         } catch (e) {
+            if (e && e.name === 'AbortError') {
+                return;
+            }
             console.error('Error loading prediction data:', e);
+        } finally {
+            if (predictionAbortController === controller && requestSeq === predictionRequestSeq) {
+                predictionAbortController = null;
+            }
         }
     }
 
@@ -514,6 +532,16 @@
     loadPredictionData();
 
     // Auto-refresh every 10 seconds
-    setInterval(loadPredictionData, 10000);
+    setInterval(() => {
+        if (!document.hidden) {
+            loadPredictionData();
+        }
+    }, 10000);
+
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) {
+            loadPredictionData();
+        }
+    });
 </script>
 {% endblock %}

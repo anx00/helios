@@ -606,7 +606,9 @@
             updateClock();
             setInterval(updateClock, 1000);
             loadData();
-            setInterval(loadData, 5000); // Auto refresh
+            setInterval(() => {
+                if (!document.hidden) loadData();
+            }, 5000); // Auto refresh
         });
     </script>
 </body>

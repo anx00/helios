@@ -1075,6 +1075,10 @@
     let metarObsTimeUtc = null;  // Store obs time for live age calculation
     let initialSseSnapshotReceived = false;
     let initialSnapshotFallbackTimer = null;
+    let snapshotFetchSeq = 0;
+    let snapshotAbortController = null;
+    let historyFetchSeq = 0;
+    let historyAbortController = null;
     let currentStation = (window.HeliosStationState && window.HeliosStationState.get())
         ? window.HeliosStationState.get()
         : 'KLGA';  // Default station
@@ -1406,6 +1410,9 @@
         const normalized = window.HeliosStationState?.normalize?.(stationId) || String(stationId || '').toUpperCase();
         currentStation = normalized;
 
+        if (snapshotAbortController) snapshotAbortController.abort();
+        if (historyAbortController) historyAbortController.abort();
+
         // Update buttons
         document.querySelectorAll('.station-btn').forEach(btn => {
             btn.classList.toggle('active', btn.dataset.stationId === currentStation);
@@ -1513,9 +1520,20 @@
 
     // === Fallback polling ===
     async function fetchSnapshot() {
+        const requestSeq = ++snapshotFetchSeq;
+        if (snapshotAbortController) {
+            snapshotAbortController.abort();
+        }
+        const controller = new AbortController();
+        snapshotAbortController = controller;
         try {
-            const resp = await fetch('/api/v2/world/snapshot', { cache: 'no-store' });
+            const resp = await fetch('/api/v2/world/snapshot', {
+                cache: 'no-store',
+                signal: controller.signal,
+            });
+            if (requestSeq !== snapshotFetchSeq) return;
             const raw = await resp.text();
+            if (requestSeq !== snapshotFetchSeq) return;
 
             // Skip re-render if data hasn't changed
             const hash = raw.length + ':' + raw.substring(0, 200);
@@ -1526,7 +1544,14 @@
             lastSnapshot = data;
             renderAll(data);
         } catch(err) {
+            if (err && err.name === 'AbortError') {
+                return;
+            }
             console.error('Snapshot fetch error:', err);
+        } finally {
+            if (snapshotAbortController === controller && requestSeq === snapshotFetchSeq) {
+                snapshotAbortController = null;
+            }
         }
     }
 
@@ -3191,9 +3216,20 @@
 
     async function fetchMetarHistory() {
         if (!currentStation) return;
+        const requestSeq = ++historyFetchSeq;
+        if (historyAbortController) {
+            historyAbortController.abort();
+        }
+        const controller = new AbortController();
+        historyAbortController = controller;
         try {
-            const resp = await fetch(`/api/v2/world/metar_history/${currentStation}`, { cache: 'no-store' });
+            const resp = await fetch(`/api/v2/world/metar_history/${currentStation}`, {
+                cache: 'no-store',
+                signal: controller.signal,
+            });
+            if (requestSeq !== historyFetchSeq) return;
             const data = await resp.json();
+            if (requestSeq !== historyFetchSeq) return;
             if (data.error) {
                 document.getElementById('metar-history-content').innerHTML =
                     `<p style="color:#EF4444; font-size:13px;">${data.error}</p>`;
@@ -3202,7 +3238,14 @@
             lastHistoryStation = currentStation;
             renderMetarHistory(data);
         } catch (err) {
+            if (err && err.name === 'AbortError') {
+                return;
+            }
             console.error('METAR history fetch error:', err);
+        } finally {
+            if (historyAbortController === controller && requestSeq === historyFetchSeq) {
+                historyAbortController = null;
+            }
         }
     }
 
@@ -3309,17 +3352,21 @@
         fetchMetarHistory();
         // Refresh METAR history every 60s
         setInterval(() => {
-            if (currentStation !== lastHistoryStation) fetchMetarHistory();
+            if (!document.hidden && currentStation !== lastHistoryStation) fetchMetarHistory();
         }, 5000);  // Check station change every 5s
-        setInterval(fetchMetarHistory, 60000);  // Full refresh every 60s
+        setInterval(() => {
+            if (!document.hidden) fetchMetarHistory();
+        }, 60000);  // Full refresh every 60s
 
         // Polling fallback: 15s when SSE active, 3s when disconnected
         setInterval(() => {
-            if (sseConnected) return;  // SSE handles updates, skip poll
+            if (document.hidden || sseConnected) return;  // SSE handles updates, skip poll
             fetchSnapshot();
         }, 3000);
         // Slow backup poll even when SSE is active (catch stale state)
-        setInterval(fetchSnapshot, 15000);
+        setInterval(() => {
+            if (!document.hidden) fetchSnapshot();
+        }, 15000);
 
         // Live age ticker - update every second
         setInterval(updateMetarLiveAge, 1000);

@@ -383,24 +383,56 @@
 
     // ── Fetch & refresh ──
 
+    let strategyDetailRequestSeq = 0;
+    let strategyDetailAbortController = null;
+
     async function loadStrategyDetail() {
+        const requestSeq = ++strategyDetailRequestSeq;
+        if (strategyDetailAbortController) {
+            strategyDetailAbortController.abort();
+        }
+
+        const controller = new AbortController();
+        strategyDetailAbortController = controller;
+
         try {
-            const resp = await fetch(`/api/papertrader/strategy/${STRATEGY_ID}/detail`);
+            const resp = await fetch(`/api/papertrader/strategy/${STRATEGY_ID}/detail`, { signal: controller.signal });
+            if (requestSeq !== strategyDetailRequestSeq) return;
             const data = await resp.json();
+            if (requestSeq !== strategyDetailRequestSeq) return;
             if (!data.ok) throw new Error(data.error || 'Failed to load strategy');
             Object.assign(STATION_TZ, data.station_timezones || {});
             renderDetail(data);
         } catch (e) {
+            if (e.name === 'AbortError') return;
             const page = document.getElementById('sd-page');
             if (page.querySelector('.sd-loading')) {
                 page.innerHTML = `<div class="sd-error">Error cargando estrategia: ${e.message}</div>`;
+            }
+        } finally {
+            if (strategyDetailAbortController === controller && requestSeq === strategyDetailRequestSeq) {
+                strategyDetailAbortController = null;
             }
         }
     }
 
     document.addEventListener('DOMContentLoaded', () => {
         loadStrategyDetail();
-        setInterval(loadStrategyDetail, 30000);
+        setInterval(() => {
+            if (!document.hidden) loadStrategyDetail();
+        }, 30000);
+
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                if (strategyDetailAbortController) strategyDetailAbortController.abort();
+                return;
+            }
+            loadStrategyDetail();
+        });
+
+        window.addEventListener('beforeunload', () => {
+            if (strategyDetailAbortController) strategyDetailAbortController.abort();
+        });
     });
 })();
 </script>

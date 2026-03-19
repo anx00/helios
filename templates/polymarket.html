@@ -1106,9 +1106,21 @@
     // DATA FETCHING
     // ========================
     async function fetchData() {
+        const requestSeq = ++fetchDataRequestSeq;
+        if (fetchDataAbortController) {
+            fetchDataAbortController.abort();
+        }
+        const controller = new AbortController();
+        fetchDataAbortController = controller;
+
         try {
-            const resp = await fetch(`/api/polymarket/${selectedStation}?target_day=${selectedDay}&depth=5`, { cache: 'no-store' });
+            const resp = await fetch(`/api/polymarket/${selectedStation}?target_day=${selectedDay}&depth=5`, {
+                cache: 'no-store',
+                signal: controller.signal,
+            });
+            if (requestSeq !== fetchDataRequestSeq) return;
             const data = await resp.json();
+            if (requestSeq !== fetchDataRequestSeq) return;
             if (data.error) {
                 showError(data.error);
                 return;
@@ -1120,7 +1132,12 @@
             renderAll(data);
             maybeRefreshHistory();
         } catch (e) {
+            if (e && e.name === 'AbortError') return;
             showError('Failed to fetch market data');
+        } finally {
+            if (fetchDataAbortController === controller && requestSeq === fetchDataRequestSeq) {
+                fetchDataAbortController = null;
+            }
         }
     }
 
@@ -2881,6 +2898,8 @@
     window.renderPaperTraderHistory = renderPaperTraderHistory;
 
     let diagOpen = false;
+    let fetchDataRequestSeq = 0;
+    let fetchDataAbortController = null;
     function toggleDiagnostics() {
         diagOpen = !diagOpen;
         document.getElementById('pm-diag-content').classList.toggle('visible', diagOpen);
@@ -2925,7 +2944,9 @@
             selectStation(nextStation);
         });
         fetchData();
-        setInterval(fetchData, REFRESH_MS);
+        setInterval(() => {
+            if (!document.hidden) fetchData();
+        }, REFRESH_MS);
         lucide.createIcons();
     });
 

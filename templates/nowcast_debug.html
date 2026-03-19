@@ -362,13 +362,25 @@
 (function() {
     let currentStation = 'KLGA';
     let pollInterval = null;
+    let debugRequestSeq = 0;
+    let debugAbortController = null;
 
     async function init() {
         await loadStations();
         await loadDebugData();
 
         // Poll every 10 seconds for debug
-        pollInterval = setInterval(loadDebugData, 10000);
+        pollInterval = setInterval(() => {
+            if (!document.hidden) loadDebugData();
+        }, 10000);
+
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                if (debugAbortController) debugAbortController.abort();
+                return;
+            }
+            loadDebugData();
+        });
     }
 
     async function loadStations() {
@@ -400,14 +412,29 @@
     }
 
     async function loadDebugData() {
+        const requestSeq = ++debugRequestSeq;
+        if (debugAbortController) {
+            debugAbortController.abort();
+        }
+        const controller = new AbortController();
+        debugAbortController = controller;
+
         try {
             // Load state
-            const stateResp = await fetch(`/api/v3/nowcast/${currentStation}/state`);
+            const stateResp = await fetch(`/api/v3/nowcast/${currentStation}/state`, {
+                signal: controller.signal,
+            });
+            if (requestSeq !== debugRequestSeq) return;
             const stateData = await stateResp.json();
+            if (requestSeq !== debugRequestSeq) return;
 
             // Load status
-            const statusResp = await fetch('/api/v3/nowcast/status');
+            const statusResp = await fetch('/api/v3/nowcast/status', {
+                signal: controller.signal,
+            });
+            if (requestSeq !== debugRequestSeq) return;
             const statusData = await statusResp.json();
+            if (requestSeq !== debugRequestSeq) return;
 
             renderState(stateData);
             renderStatus(statusData);
@@ -417,7 +444,14 @@
                 JSON.stringify(stateData, null, 2);
 
         } catch (e) {
+            if (e && e.name === 'AbortError') {
+                return;
+            }
             console.error('Failed to load debug data:', e);
+        } finally {
+            if (debugAbortController === controller && requestSeq === debugRequestSeq) {
+                debugAbortController = null;
+            }
         }
     }
 
@@ -523,6 +557,7 @@
     // Cleanup
     window.addEventListener('beforeunload', () => {
         if (pollInterval) clearInterval(pollInterval);
+        if (debugAbortController) debugAbortController.abort();
     });
 
     document.addEventListener('DOMContentLoaded', init);

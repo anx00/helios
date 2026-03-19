@@ -589,6 +589,8 @@
         : 'KLGA';
     let pollInterval = null;
     let hourlyChart = null;
+    let nowcastRequestSeq = 0;
+    let nowcastAbortController = null;
 
     // Station timezone + market-unit info
     const stationTimezones = {};    // stationId -> IANA timezone
@@ -764,12 +766,22 @@
         await loadStations();
         await loadNowcast();
 
-        // Poll every 30 seconds
-        pollInterval = setInterval(loadNowcast, 30000);
+        // Poll every 30 seconds, but skip refreshes while hidden.
+        pollInterval = setInterval(() => {
+            if (!document.hidden) {
+                loadNowcast();
+            }
+        }, 30000);
 
         // Update clock every second
         setInterval(updateMarketClock, 1000);
         updateMarketClock();
+
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) {
+                loadNowcast();
+            }
+        });
     }
 
     // Market clock and countdown
@@ -926,14 +938,23 @@
     }
 
     async function loadNowcast() {
+        const requestSeq = ++nowcastRequestSeq;
+        if (nowcastAbortController) {
+            nowcastAbortController.abort();
+        }
+        const controller = new AbortController();
+        nowcastAbortController = controller;
+
         try {
             // Fetch distribution, state, and market data in parallel
             const [distResp, stateResp, marketResp, metarResp] = await Promise.all([
-                fetch(`/api/v3/nowcast/${currentStation}`),
-                fetch(`/api/v3/nowcast/${currentStation}/state`),
-                fetch(`/api/market/${currentStation}`),
-                fetch(`/api/v2/world/metar_history/${currentStation}`)
+                fetch(`/api/v3/nowcast/${currentStation}`, { signal: controller.signal }),
+                fetch(`/api/v3/nowcast/${currentStation}/state`, { signal: controller.signal }),
+                fetch(`/api/market/${currentStation}`, { signal: controller.signal }),
+                fetch(`/api/v2/world/metar_history/${currentStation}`, { signal: controller.signal })
             ]);
+
+            if (requestSeq !== nowcastRequestSeq) return;
 
             const data = await distResp.json();
             const state = await stateResp.json();
@@ -941,6 +962,8 @@
             try { marketData = await marketResp.json(); } catch {}
             let metarHistory = null;
             try { metarHistory = await metarResp.json(); } catch {}
+
+            if (requestSeq !== nowcastRequestSeq) return;
 
             if (data.error) {
                 console.warn('Nowcast error:', data.error);
@@ -962,7 +985,14 @@
             document.getElementById('last-update').textContent = `Updated: ${updateTime}`;
 
         } catch (e) {
+            if (e && e.name === 'AbortError') {
+                return;
+            }
             console.error('Failed to load nowcast:', e);
+        } finally {
+            if (nowcastAbortController === controller && requestSeq === nowcastRequestSeq) {
+                nowcastAbortController = null;
+            }
         }
     }
 

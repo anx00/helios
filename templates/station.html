@@ -1258,10 +1258,14 @@
             setInterval(updateClock, 1000);
 
             // Real-time market updates
-            setInterval(fetchMarket, MARKET_REFRESH_INTERVAL);
+            setInterval(() => {
+                if (!document.hidden) fetchMarket();
+            }, MARKET_REFRESH_INTERVAL);
 
             // Periodic observed updates (every 5 min)
-            setInterval(fetchObserved, 5 * 60 * 1000);
+            setInterval(() => {
+                if (!document.hidden) fetchObserved();
+            }, 5 * 60 * 1000);
         }
 
         document.addEventListener('DOMContentLoaded', () => {
