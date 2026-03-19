@@ -10,7 +10,7 @@ import re
 import csv
 from io import StringIO
 from pathlib import Path
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Request, Response, HTTPException
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -19,7 +19,7 @@ from pydantic import BaseModel
 import asyncio
 import logging
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 # Silence verbose loggers
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -64,7 +64,7 @@ from market.polymarket_checker import build_event_slug, fetch_event_data, check_
 from market.discovery import fetch_market_token_ids, fetch_market_token_ids_for_station_date, fetch_event_for_station_date
 from market.polymarket_ws import get_ws_client
 from opportunity import check_bet_opportunity
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from core.hourly_curve import (
     infer_synthetic_peak_hour,
@@ -73,6 +73,10 @@ from core.hourly_curve import (
 )
 from core.autotrader import AutoTrader, load_autotrader_config_from_env
 from core.papertrader import PaperTrader, PaperTraderConfig, load_paper_state, load_papertrader_config
+from core.nowcast_integration import get_nowcast_integration
+from core.trading_signal import build_trading_signal
+from core.world import get_world
+from collector.wunderground_fetcher import get_observed_max
 
 def build_synthetic_hourly_curve_f(
     now_utc: datetime,
@@ -3365,6 +3369,579 @@ async def get_trading_signal_api(
         "trading": trading,
         "server_ts": payload.get("server_ts"),
     }
+
+
+def _normalize_experimental_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): _normalize_experimental_value(value[key]) for key in sorted(value.keys(), key=str)}
+    if isinstance(value, list):
+        return [_normalize_experimental_value(item) for item in value]
+    if isinstance(value, tuple):
+        return [_normalize_experimental_value(item) for item in value]
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    return value
+
+
+def _dict_subset(payload: Any, keys: Sequence[str]) -> Dict[str, Any]:
+    if not isinstance(payload, dict):
+        return {}
+    return {key: payload.get(key) for key in keys if key in payload}
+
+
+def _comparison_block(
+    *,
+    production: Any,
+    experimental: Any,
+    fields: Sequence[str],
+) -> Dict[str, Any]:
+    production_is_dict = isinstance(production, dict)
+    experimental_is_dict = isinstance(experimental, dict)
+
+    prod_view = _dict_subset(production, fields)
+    exp_view = _dict_subset(experimental, fields)
+    if not production_is_dict and not experimental_is_dict:
+        return {
+            "status": "missing",
+            "fields": list(fields),
+            "production": None,
+            "experimental": None,
+            "differences": [],
+        }
+    if not production_is_dict or not experimental_is_dict:
+        return {
+            "status": "partial",
+            "fields": list(fields),
+            "production": prod_view or None,
+            "experimental": exp_view or None,
+            "differences": [
+                {
+                    "field": field,
+                    "production": prod_view.get(field),
+                    "experimental": exp_view.get(field),
+                    "status": "missing",
+                }
+                for field in fields
+                if _normalize_experimental_value(prod_view.get(field)) != _normalize_experimental_value(exp_view.get(field))
+            ],
+        }
+
+    differences = []
+    missing = False
+    for field in fields:
+        p_has = field in production
+        e_has = field in experimental
+        if p_has != e_has:
+            missing = True
+        p_val = production.get(field)
+        e_val = experimental.get(field)
+        if _normalize_experimental_value(p_val) != _normalize_experimental_value(e_val):
+            differences.append(
+                {
+                    "field": field,
+                    "production": p_val,
+                    "experimental": e_val,
+                    "status": "mismatch",
+                }
+            )
+
+    status = "match"
+    if differences:
+        status = "mismatch"
+    elif missing:
+        status = "partial"
+
+    return {
+        "status": status,
+        "fields": list(fields),
+        "production": prod_view,
+        "experimental": exp_view,
+        "differences": differences,
+    }
+
+
+def _comparison_status(*blocks: Dict[str, Any]) -> str:
+    statuses = [str(block.get("status") or "").lower() for block in blocks if isinstance(block, dict)]
+    if any(status == "mismatch" for status in statuses):
+        return "partial"
+    if any(status == "partial" for status in statuses):
+        return "partial"
+    if any(status == "missing" for status in statuses):
+        return "partial"
+    return "ok"
+
+
+def _staleness_seconds_from_iso(value: Any, *, reference_utc: Optional[datetime] = None) -> Optional[float]:
+    if not value:
+        return None
+    try:
+        raw = str(value)
+        if raw.endswith("Z"):
+            raw = raw[:-1] + "+00:00"
+        parsed = datetime.fromisoformat(raw)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        ref = reference_utc or datetime.now(timezone.utc)
+        return round(max(0.0, (ref - parsed.astimezone(timezone.utc)).total_seconds()), 1)
+    except Exception:
+        return None
+
+
+def _experimental_market_summary(brackets: Any) -> Dict[str, Any]:
+    rows = [row for row in list(brackets or []) if isinstance(row, dict)]
+    top = rows[0] if rows else {}
+    return {
+        "bracket_count": len(rows),
+        "top_bracket": top.get("name"),
+        "top_yes_price": top.get("yes_price"),
+        "top_yes_bid": top.get("ws_best_bid"),
+        "top_yes_ask": top.get("ws_best_ask"),
+        "top_yes_mid": top.get("ws_mid"),
+        "top_yes_staleness_ms": top.get("ws_staleness_ms"),
+    }
+
+
+async def _build_experimental_live_station_payload(
+    station_id: str,
+    *,
+    target_day: int = 0,
+    depth: int = 5,
+    production: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    station_id = str(station_id or "").upper()
+    target_day = max(0, min(2, int(target_day)))
+    now_utc = datetime.now(timezone.utc)
+    missing_sections: List[str] = []
+    errors: Dict[str, str] = {}
+    production_payload = copy.deepcopy(production) if isinstance(production, dict) else None
+
+    if production_payload is None:
+        try:
+            production_payload = await get_polymarket_dashboard_data(
+                station_id,
+                target_day=target_day,
+                depth=depth,
+            )
+        except Exception as exc:
+            production_payload = {"error": f"Production baseline unavailable: {exc}"}
+            errors["production"] = str(exc)
+            missing_sections.append("production")
+
+    if not isinstance(production_payload, dict):
+        production_payload = {"error": "Production baseline unavailable"}
+        missing_sections.append("production")
+    elif production_payload.get("error"):
+        errors["production"] = str(production_payload.get("error"))
+        missing_sections.append("production")
+
+    target_date_raw = production_payload.get("target_date") if isinstance(production_payload, dict) else None
+    target_date_obj = None
+    if target_date_raw:
+        try:
+            target_date_obj = date.fromisoformat(str(target_date_raw))
+        except Exception:
+            target_date_obj = None
+    if target_date_obj is None:
+        from config import STATIONS
+
+        station = STATIONS.get(station_id)
+        if station:
+            try:
+                local_now = datetime.now(timezone.utc).astimezone(ZoneInfo(station.timezone))
+                target_date_obj = local_now.date() + timedelta(days=target_day)
+            except Exception:
+                target_date_obj = datetime.now(timezone.utc).date() + timedelta(days=target_day)
+        else:
+            target_date_obj = datetime.now(timezone.utc).date() + timedelta(days=target_day)
+
+    market_unit = None
+    trading_payload = production_payload.get("trading") if isinstance(production_payload, dict) else None
+    if isinstance(trading_payload, dict):
+        market_unit = trading_payload.get("market_unit")
+
+    world_snapshot = {}
+    official = None
+    auxiliary = None
+    pws_details: List[Dict[str, Any]] = []
+    pws_metrics: Dict[str, Any] = {}
+    try:
+        world_snapshot = get_world().get_snapshot()
+        official = ((world_snapshot.get("official") or {}).get(station_id)) or None
+        auxiliary = ((world_snapshot.get("aux") or {}).get(station_id)) or None
+        pws_details = list(((world_snapshot.get("pws_details") or {}).get(station_id)) or [])
+        pws_metrics = dict(((world_snapshot.get("pws_metrics") or {}).get(station_id)) or {})
+    except Exception as exc:
+        errors["world"] = str(exc)
+        missing_sections.append("world")
+
+    nowcast_distribution = None
+    nowcast_state = None
+    try:
+        integration = get_nowcast_integration()
+        engine = integration.get_engine(station_id)
+        distribution = integration.get_distribution(station_id)
+        if not distribution:
+            distribution = engine.generate_distribution()
+        if distribution:
+            nowcast_distribution = distribution.to_dict()
+        nowcast_state = engine.get_state_snapshot()
+        if nowcast_distribution is None:
+            missing_sections.append("nowcast")
+    except Exception as exc:
+        errors["nowcast"] = str(exc)
+        missing_sections.append("nowcast")
+
+    settlement_review = {
+        "contract_role": "settlement_review",
+        "available": False,
+        "status": "review_pending",
+        "source": "wunderground",
+        "high_temp_f": None,
+        "high_temp_time": None,
+        "current_temp_f": None,
+        "forecast_high_f": None,
+        "forecast_peak_hour_local": None,
+        "forecast_peak_temp_f": None,
+        "confidence": None,
+        "notes": "Wunderground review unavailable",
+        "verification_status": "review_pending",
+        "source_age_s": None,
+        "staleness_s": None,
+    }
+    try:
+        observed = await get_observed_max(station_id, target_date=target_date_obj)
+        if observed:
+            settlement_review = {
+                "contract_role": "settlement_review",
+                "available": True,
+                "status": observed.verification_status or "verified",
+                "source": observed.source,
+                "high_temp_f": observed.high_temp_f,
+                "high_temp_time": observed.high_temp_time,
+                "current_temp_f": observed.current_temp_f,
+                "forecast_high_f": observed.forecast_high_f,
+                "forecast_peak_hour_local": observed.forecast_peak_hour_local,
+                "forecast_peak_temp_f": observed.forecast_peak_temp_f,
+                "confidence": observed.confidence,
+                "notes": observed.notes,
+                "metar_max_f": observed.metar_max_f,
+                "wunderground_max_f": observed.wunderground_max_f,
+                "wunderground_current_f": observed.wunderground_current_f,
+                "verification_status": observed.verification_status,
+                "source_age_s": None,
+                "staleness_s": None,
+            }
+        else:
+            missing_sections.append("wunderground")
+    except Exception as exc:
+        errors["wunderground"] = str(exc)
+        missing_sections.append("wunderground")
+
+    signal_payload = None
+    try:
+        if isinstance(production_payload, dict):
+            signal_payload = build_trading_signal(
+                station_id=station_id,
+                target_day=target_day,
+                target_date=target_date_obj.isoformat(),
+                brackets=copy.deepcopy(production_payload.get("brackets") or []),
+                prediction=None,
+                nowcast_distribution=nowcast_distribution,
+                nowcast_state=nowcast_state,
+                official=official,
+                pws_details=pws_details,
+                pws_metrics=pws_metrics,
+                reference_utc=now_utc,
+            )
+    except Exception as exc:
+        errors["signal"] = str(exc)
+        missing_sections.append("signal")
+
+    market_payload = {
+        "contract_role": "market",
+        "available": isinstance(production_payload, dict) and not bool(production_payload.get("error")),
+        "station_id": station_id,
+        "target_day": target_day,
+        "target_date": str(target_date_raw or target_date_obj.isoformat()),
+        "event_title": production_payload.get("event_title"),
+        "event_slug": production_payload.get("event_slug"),
+        "total_volume": production_payload.get("total_volume"),
+        "market_status": copy.deepcopy(production_payload.get("market_status")) if isinstance(production_payload.get("market_status"), dict) else production_payload.get("market_status"),
+        "ws_connected": production_payload.get("ws_connected"),
+        "ws_metrics": copy.deepcopy(production_payload.get("ws_metrics")) if isinstance(production_payload.get("ws_metrics"), dict) else production_payload.get("ws_metrics"),
+        "brackets": copy.deepcopy(production_payload.get("brackets") or []),
+        "sentiment": production_payload.get("sentiment"),
+        "shifts": copy.deepcopy(production_payload.get("shifts") or []),
+    }
+    market_payload.update(_experimental_market_summary(market_payload.get("brackets")))
+    market_staleness_s = None
+    if isinstance(market_payload.get("top_yes_staleness_ms"), (int, float)):
+        market_staleness_s = round(float(market_payload["top_yes_staleness_ms"]) / 1000.0, 1)
+    market_payload["source_age_s"] = market_staleness_s
+    market_payload["staleness_s"] = market_staleness_s
+
+    official_payload = copy.deepcopy(official) if isinstance(official, dict) else {}
+    official_payload["contract_role"] = "official"
+    official_payload["available"] = bool(official_payload)
+    official_payload["staleness_s"] = official_payload.get("source_age_s")
+    if not official_payload.get("available"):
+        missing_sections.append("official")
+
+    aux_source_age_s = auxiliary.get("source_age_s") if isinstance(auxiliary, dict) else None
+    auxiliary_payload = {
+        "contract_role": "auxiliary",
+        "available": bool(auxiliary or pws_details or pws_metrics),
+        "latest_aux": auxiliary,
+        "pws_details": pws_details,
+        "pws_metrics": pws_metrics,
+        "source_age_s": aux_source_age_s,
+        "staleness_s": aux_source_age_s,
+    }
+
+    forecast_staleness_s = _staleness_seconds_from_iso(
+        (nowcast_state or {}).get("last_update_utc") if isinstance(nowcast_state, dict) else None,
+        reference_utc=now_utc,
+    )
+    forecast_payload = {
+        "contract_role": "forecast",
+        "available": bool(nowcast_distribution or nowcast_state),
+        "nowcast_distribution": nowcast_distribution,
+        "nowcast_state": nowcast_state,
+        "source_age_s": forecast_staleness_s,
+        "staleness_s": forecast_staleness_s,
+    }
+    if not forecast_payload["available"]:
+        missing_sections.append("forecast")
+
+    signal_payload = copy.deepcopy(signal_payload) if isinstance(signal_payload, dict) else {}
+    signal_payload["contract_role"] = "signal"
+    signal_payload["available"] = bool(signal_payload.get("available")) if signal_payload else False
+    terminal_trade = signal_payload.get("best_terminal_trade") if isinstance(signal_payload.get("best_terminal_trade"), dict) else {}
+    signal_payload["fair_probability"] = signal_payload.get("fair_probability", terminal_trade.get("selected_fair"))
+    if signal_payload.get("edge_points") is None:
+        edge_value = terminal_trade.get("edge_points")
+        if edge_value is None and terminal_trade.get("best_edge") is not None:
+            try:
+                edge_value = float(terminal_trade.get("best_edge")) * 100.0
+            except Exception:
+                edge_value = None
+        signal_payload["edge_points"] = edge_value
+    signal_payload["reason"] = signal_payload.get("reason") or terminal_trade.get("policy_reason") or signal_payload.get("policy_reason")
+    signal_payload["source_age_s"] = forecast_staleness_s
+    signal_payload["staleness_s"] = forecast_staleness_s
+    if not signal_payload.get("available"):
+        missing_sections.append("signal")
+
+    provenance_payload = {
+        "contract_role": "provenance",
+        "generated_at_utc": now_utc.isoformat(),
+        "station_id": station_id,
+        "scope": "experimental_live_station",
+        "target_day": target_day,
+        "target_date": str(target_date_raw or target_date_obj.isoformat()),
+        "market_unit": market_unit,
+        "official_source_age_s": official_payload.get("source_age_s"),
+        "aux_source_age_s": auxiliary_payload.get("source_age_s"),
+        "forecast_source_age_s": forecast_payload.get("source_age_s"),
+        "market_source_age_s": market_payload.get("source_age_s"),
+        "review_status": settlement_review.get("status"),
+        "source_age_s": 0.0,
+        "staleness_s": 0.0,
+    }
+
+    experimental_payload = {
+        "official": official_payload,
+        "auxiliary": auxiliary_payload,
+        "forecast": forecast_payload,
+        "market": market_payload,
+        "signal": signal_payload,
+        "settlement_review": settlement_review,
+        "provenance": provenance_payload,
+    }
+
+    comparison = _diff_experimental_live_station_payload(production_payload, experimental_payload)
+    comparison["status"] = _comparison_status(
+        comparison.get("official"),
+        comparison.get("market"),
+        comparison.get("signal"),
+        comparison.get("provenance"),
+    )
+    missing_sections.extend(
+        key for key, value in comparison.items()
+        if key != "status" and isinstance(value, dict) and value.get("status") in {"partial", "missing"}
+    )
+
+    missing_sections = list(dict.fromkeys(missing_sections))
+    response_status = "ok"
+    if missing_sections or errors:
+        response_status = "partial"
+    elif any(
+        isinstance(value, dict) and value.get("status") in {"partial", "missing", "mismatch"}
+        for value in comparison.values()
+    ):
+        response_status = "partial"
+
+    return {
+        "station_id": station_id,
+        "scope": "experimental_live_station",
+        "target_day": target_day,
+        "target_date": str(target_date_obj.isoformat()),
+        "generated_at_utc": now_utc.isoformat(),
+        "status": response_status,
+        "missing_sections": missing_sections,
+        "errors": errors,
+        "production": production_payload,
+        "experimental": experimental_payload,
+        "comparison": comparison,
+    }
+
+
+def _diff_experimental_live_station_payload(
+    production: Optional[Dict[str, Any]],
+    experimental: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    production = production if isinstance(production, dict) else {}
+    experimental = experimental if isinstance(experimental, dict) else {}
+
+    production_official = None
+    if isinstance(production.get("intraday_context"), dict):
+        production_official = production["intraday_context"].get("official")
+    if production_official is None and isinstance(production.get("official"), dict):
+        production_official = production.get("official")
+
+    experimental_official = experimental.get("official") if isinstance(experimental.get("official"), dict) else None
+    official = _comparison_block(
+        production=production_official,
+        experimental=experimental_official,
+        fields=(
+            "station_id",
+            "temp_f",
+            "temp_c",
+            "daily_max_f",
+            "obs_time_utc",
+            "source_age_s",
+            "report_type",
+            "is_speci",
+            "qc_passed",
+        ),
+    )
+
+    production_market = {
+        "station_id": production.get("station_id"),
+        "target_day": production.get("target_day"),
+        "target_date": production.get("target_date"),
+        "event_title": production.get("event_title"),
+        "event_slug": production.get("event_slug"),
+        "market_status": production.get("market_status"),
+        "ws_connected": production.get("ws_connected"),
+        "bracket_count": len(production.get("brackets") or []),
+        "top_bracket": None,
+        "top_yes_price": None,
+        "top_yes_bid": None,
+        "top_yes_ask": None,
+        "top_yes_mid": None,
+    }
+    prod_brackets = production.get("brackets") if isinstance(production.get("brackets"), list) else []
+    if prod_brackets:
+        top_prod = prod_brackets[0] if isinstance(prod_brackets[0], dict) else {}
+        production_market["top_bracket"] = top_prod.get("name")
+        production_market["top_yes_price"] = top_prod.get("yes_price")
+        production_market["top_yes_bid"] = top_prod.get("ws_best_bid")
+        production_market["top_yes_ask"] = top_prod.get("ws_best_ask")
+        production_market["top_yes_mid"] = top_prod.get("ws_mid")
+
+    experimental_market = experimental.get("market") if isinstance(experimental.get("market"), dict) else None
+    market = _comparison_block(
+        production=production_market,
+        experimental=experimental_market,
+        fields=(
+            "station_id",
+            "target_day",
+            "target_date",
+            "event_title",
+            "event_slug",
+            "market_status",
+            "ws_connected",
+            "bracket_count",
+            "top_bracket",
+            "top_yes_price",
+            "top_yes_bid",
+            "top_yes_ask",
+            "top_yes_mid",
+        ),
+    )
+
+    production_signal = production.get("trading") if isinstance(production.get("trading"), dict) else None
+    experimental_signal = experimental.get("signal") if isinstance(experimental.get("signal"), dict) else None
+    signal = _comparison_block(
+        production=production_signal,
+        experimental=experimental_signal,
+        fields=(
+            "available",
+            "station_id",
+            "target_day",
+            "target_date",
+            "market_unit",
+            "horizon",
+            "model",
+            "policy",
+            "best_terminal_trade",
+            "best_tactical_trade",
+            "forecast_winner",
+        ),
+    )
+
+    production_provenance = {
+        "station_id": production.get("station_id"),
+        "target_day": production.get("target_day"),
+        "target_date": production.get("target_date"),
+        "server_ts": production.get("server_ts"),
+        "market_unit": (production_signal or {}).get("market_unit") if isinstance(production_signal, dict) else None,
+        "scope": "production_polymarket",
+    }
+    experimental_provenance = experimental.get("provenance") if isinstance(experimental.get("provenance"), dict) else None
+    provenance = _comparison_block(
+        production=production_provenance,
+        experimental=experimental_provenance,
+        fields=(
+            "station_id",
+            "target_day",
+            "target_date",
+            "market_unit",
+        ),
+    )
+
+    return {
+        "official": official,
+        "market": market,
+        "signal": signal,
+        "provenance": provenance,
+    }
+
+
+@app.get("/api/experimental/live-station/{station_id}")
+async def get_experimental_live_station_api(
+    station_id: str,
+    target_day: int = 0,
+    depth: int = 5,
+):
+    station_id = str(station_id or "").upper()
+    if station_id not in STATIONS:
+        raise HTTPException(status_code=400, detail="Invalid station")
+    if station_id != "KLGA":
+        raise HTTPException(status_code=404, detail="Experimental live-station endpoint is KLGA-only")
+
+    production = await get_polymarket_dashboard_data(
+        station_id,
+        target_day=target_day,
+        depth=depth,
+    )
+    return await _build_experimental_live_station_payload(
+        station_id,
+        target_day=target_day,
+        depth=depth,
+        production=production if isinstance(production, dict) else None,
+    )
 
 
 def _convert_f_to_probability_lab_unit(value_f: Any, market_unit: str) -> Optional[float]:

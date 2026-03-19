@@ -22,3 +22,12 @@ def test_papertrader_template_surfaces_price_anomaly_as_activity():
     assert "Ask vivo" in html
     assert "Compra bloqueada" in html
     assert "_paperReasonText(ev)" in html
+
+
+def test_polymarket_template_contains_klga_comparison_panel():
+    html = TEMPLATE_PATH.read_text(encoding="utf-8")
+
+    assert 'id="pm-comparison-section"' in html
+    assert "/api/experimental/live-station/" in html
+    assert "KLGA Comparison" in html
+    assert "isComparisonStation" in html

@@ -2,6 +2,30 @@
 
 This document tracks the evolution of the HELIOS Weather Lab project.
 
+## 2026-03-19
+
+### Live parity audit and experimental KLGA comparison guardrails
+**Goal**: document the current live/replay parity gap and pin a thin experimental contract for `KLGA` comparison without creating another source of truth.
+
+**Changes**:
+- Added a short factual audit note:
+  - `docs/CODEX_CHANGES/2026-03-19_live_parity_audit.md`
+- Added a contract guardrail test for the experimental live-station payload:
+  - `tests/test_experimental_live_station_contract.py`
+- Guardrails now assert role separation and provenance fields for:
+  - `official`
+  - `auxiliary`
+  - `forecast`
+  - `market`
+  - `signal`
+  - `provenance`
+  - `settlement_review`
+
+**Notes**:
+- `METAR/SPECI` remains the live official anchor.
+- `Wunderground` remains review/settlement context, not a merged live state.
+- Replay/backtest parity is still blocked by missing frozen contract persistence.
+
 ## 2026-03-04
 
 ### Probability Lab Board + day-ahead calibration loop

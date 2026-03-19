@@ -129,6 +129,250 @@
     .pm-sentiment.shifting { color: #F4D03F; }
     .pm-sentiment.aggressive { color: #EF4444; }
 
+    /* ============= COMPARISON ============= */
+    .pm-comparison {
+        background: rgba(255,255,255,0.02);
+        border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 14px;
+        padding: 22px;
+        margin-bottom: 20px;
+    }
+    .pm-comparison-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 14px;
+        flex-wrap: wrap;
+        margin-bottom: 12px;
+    }
+    .pm-comparison-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        justify-content: flex-end;
+    }
+    .pm-comparison-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        border-radius: 999px;
+        padding: 4px 10px;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.6px;
+        text-transform: uppercase;
+        border: 1px solid rgba(255,255,255,0.10);
+        background: rgba(255,255,255,0.04);
+        color: var(--text-secondary);
+    }
+    .pm-comparison-chip.match {
+        color: #10B981;
+        border-color: rgba(16,185,129,0.24);
+        background: rgba(16,185,129,0.08);
+    }
+    .pm-comparison-chip.partial {
+        color: #F4D03F;
+        border-color: rgba(244,208,63,0.24);
+        background: rgba(244,208,63,0.08);
+    }
+    .pm-comparison-chip.missing,
+    .pm-comparison-chip.unavailable {
+        color: #94A3B8;
+        border-color: rgba(148,163,184,0.22);
+        background: rgba(148,163,184,0.08);
+    }
+    .pm-comparison-chip.mismatch {
+        color: #EF4444;
+        border-color: rgba(239,68,68,0.24);
+        background: rgba(239,68,68,0.08);
+    }
+    .pm-comparison-note {
+        margin-bottom: 14px;
+        font-size: 12px;
+        color: var(--text-secondary);
+        line-height: 1.5;
+    }
+    .pm-comparison-diff {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+        margin-bottom: 14px;
+    }
+    .pm-comparison-diff-card {
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 12px;
+        padding: 12px;
+        background: rgba(255,255,255,0.015);
+    }
+    .pm-comparison-diff-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 8px;
+    }
+    .pm-comparison-diff-title {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        font-weight: 700;
+        color: var(--text-secondary);
+    }
+    .pm-comparison-diff-body {
+        display: grid;
+        gap: 6px;
+        font-size: 12px;
+        line-height: 1.45;
+        color: var(--text-secondary);
+    }
+    .pm-comparison-diff-body strong {
+        color: var(--text-primary);
+    }
+    .pm-comparison-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+    }
+    .pm-comparison-panel {
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 12px;
+        padding: 14px;
+        background: rgba(255,255,255,0.015);
+    }
+    .pm-comparison-panel.authoritative {
+        border-color: rgba(16,185,129,0.24);
+        background: rgba(16,185,129,0.04);
+    }
+    .pm-comparison-panel.experimental {
+        border-color: rgba(56,189,248,0.22);
+        background: rgba(56,189,248,0.03);
+    }
+    .pm-comparison-panel-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 12px;
+    }
+    .pm-comparison-panel-title {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+    .pm-comparison-panel-title strong {
+        font-size: 14px;
+        font-weight: 800;
+        color: var(--text-primary);
+    }
+    .pm-comparison-panel-title span {
+        font-size: 11px;
+        color: var(--text-secondary);
+    }
+    .pm-comparison-panel-badge {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.8px;
+        text-transform: uppercase;
+        padding: 4px 8px;
+        border-radius: 999px;
+        border: 1px solid rgba(255,255,255,0.12);
+        color: var(--text-secondary);
+        background: rgba(255,255,255,0.04);
+    }
+    .pm-comparison-panel-badge.authoritative {
+        color: #10B981;
+        border-color: rgba(16,185,129,0.28);
+        background: rgba(16,185,129,0.08);
+    }
+    .pm-comparison-panel-badge.experimental {
+        color: #38BDF8;
+        border-color: rgba(56,189,248,0.28);
+        background: rgba(56,189,248,0.08);
+    }
+    .pm-comparison-panel-badge.warn {
+        color: #F4D03F;
+        border-color: rgba(244,208,63,0.28);
+        background: rgba(244,208,63,0.08);
+    }
+    .pm-comparison-section {
+        margin-bottom: 12px;
+    }
+    .pm-comparison-section:last-child {
+        margin-bottom: 0;
+    }
+    .pm-comparison-section-title {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: var(--text-secondary);
+        font-weight: 700;
+        margin-bottom: 8px;
+    }
+    .pm-comparison-rows {
+        display: grid;
+        gap: 8px;
+    }
+    .pm-comparison-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 12px;
+        border-top: 1px solid rgba(255,255,255,0.05);
+        padding-top: 8px;
+    }
+    .pm-comparison-row:first-child {
+        border-top: none;
+        padding-top: 0;
+    }
+    .pm-comparison-row-label {
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.8px;
+        color: var(--text-secondary);
+        flex: 0 0 auto;
+    }
+    .pm-comparison-row-value {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--text-primary);
+        text-align: right;
+        line-height: 1.45;
+        word-break: break-word;
+    }
+    .pm-comparison-details {
+        margin-top: 12px;
+        border-top: 1px solid rgba(255,255,255,0.05);
+        padding-top: 10px;
+    }
+    .pm-comparison-details summary {
+        cursor: pointer;
+        list-style: none;
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        margin-bottom: 8px;
+    }
+    .pm-comparison-details summary::-webkit-details-marker {
+        display: none;
+    }
+    .pm-comparison-json {
+        margin: 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-size: 11px;
+        line-height: 1.5;
+        color: #CBD5E1;
+        background: rgba(255,255,255,0.02);
+        border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 10px;
+        padding: 10px 12px;
+        max-height: 320px;
+        overflow: auto;
+    }
+
     /* ============= TRADING SIGNAL ============= */
     .pm-trading {
         background: rgba(255,255,255,0.02);
@@ -689,6 +933,8 @@
         .ob-book { grid-template-columns: 1fr; }
         .pm-trading-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .pm-agent-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .pm-comparison-diff { grid-template-columns: 1fr; }
+        .pm-comparison-grid { grid-template-columns: 1fr; }
     }
     @media (max-width: 600px) {
         .pm-brackets-grid { grid-template-columns: 1fr; }
@@ -696,6 +942,8 @@
         .pm-overview-right { align-items: flex-start; }
         .pm-trading-grid { grid-template-columns: 1fr; }
         .pm-agent-grid { grid-template-columns: 1fr; }
+        .pm-comparison-head { flex-direction: column; }
+        .pm-comparison-chips { justify-content: flex-start; }
     }
 
     /* ============= UNIFIED TRADING PANEL (.tp-*) ============= */
@@ -874,7 +1122,22 @@
         </div>
     </div>
 
-    <!-- Section 2: Trading -->
+    <!-- Section 2: Comparison -->
+    <div class="pm-comparison" id="pm-comparison-section" style="display:none;">
+        <div class="pm-comparison-head">
+            <div class="pm-section-title" style="margin-bottom:0;">
+                <i data-lucide="columns-3"></i> KLGA Comparison
+            </div>
+            <div class="pm-comparison-chips" id="pm-comparison-chips"></div>
+        </div>
+        <div class="pm-comparison-note" id="pm-comparison-note">
+            Side-by-side view of the authoritative production path versus the experimental live-station payload.
+        </div>
+        <div class="pm-comparison-diff" id="pm-comparison-diff"></div>
+        <div class="pm-comparison-grid" id="pm-comparison-grid"></div>
+    </div>
+
+    <!-- Section 3: Trading -->
     <div class="pm-trading" id="pm-trading-section" style="display:none;">
         <div class="pm-section-title">
             <i data-lucide="crosshair"></i> Paper Trading
@@ -885,12 +1148,12 @@
         <div id="pm-trading-table-wrap"></div>
     </div>
 
-    <!-- Section 3: Bracket Grid -->
+    <!-- Section 4: Bracket Grid -->
     <div class="pm-brackets-grid" id="pm-brackets-grid">
         <!-- Filled by JS -->
     </div>
 
-    <!-- Section 4: Orderbook Detail (hidden until bracket clicked) -->
+    <!-- Section 5: Orderbook Detail (hidden until bracket clicked) -->
     <div class="pm-orderbook-detail" id="pm-orderbook-detail">
         <div class="ob-header">
             <div class="ob-title" id="ob-title">--</div>
@@ -930,7 +1193,7 @@
         </div>
     </div>
 
-    <!-- Section 5: Market Shifts -->
+    <!-- Section 6: Market Shifts -->
     <div class="pm-shifts" id="pm-shifts-section" style="display:none;">
         <div class="pm-section-title">
             <i data-lucide="trending-up"></i> Market Shifts (last 60 min)
@@ -949,7 +1212,7 @@
         </table>
     </div>
 
-    <!-- Section 6: WS Diagnostics (collapsible) -->
+    <!-- Section 7: WS Diagnostics (collapsible) -->
     <div class="pm-diagnostics">
         <div class="pm-diag-toggle" onclick="toggleDiagnostics()">
             <div class="pm-section-title" style="margin-bottom:0;">
@@ -979,6 +1242,8 @@
     let selectedDay = 0;
     let selectedBracket = null;
     let lastData = null;
+    let comparisonRequestSeq = 0;
+    let comparisonAbortController = null;
     const REFRESH_MS = 5000;
 
     function firstNum(...values) {
@@ -1026,6 +1291,448 @@
     function marketTempLabel(v, unit, decimals = 1) {
         if (typeof v !== 'number' || !Number.isFinite(v)) return '--';
         return `${v.toFixed(decimals)}&deg;${unit}`;
+    }
+
+    function escapeHtml(value) {
+        return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#39;',
+        })[ch]);
+    }
+
+    function firstText(...values) {
+        for (const value of values) {
+            if (typeof value === 'string' && value.trim()) return value.trim();
+            if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+        }
+        return '';
+    }
+
+    function isComparisonStation(stationId = selectedStation) {
+        return String(stationId || '').trim().toUpperCase() === 'KLGA';
+    }
+
+    function formatComparisonTime(value) {
+        if (!value) return '--';
+        const dt = new Date(String(value));
+        return Number.isNaN(dt.getTime()) ? String(value) : dt.toISOString();
+    }
+
+    function formatComparisonTemp(tempF, tempC, unit = 'F') {
+        const targetUnit = String(unit || 'F').toUpperCase() === 'C' ? 'C' : 'F';
+        const n = targetUnit === 'C'
+            ? (typeof tempC === 'number' && Number.isFinite(tempC) ? tempC : (typeof tempF === 'number' && Number.isFinite(tempF) ? (tempF - 32) * 5 / 9 : null))
+            : (typeof tempF === 'number' && Number.isFinite(tempF) ? tempF : (typeof tempC === 'number' && Number.isFinite(tempC) ? (tempC * 9 / 5) + 32 : null));
+        if (n === null) return '--';
+        return `${n.toFixed(1)}&deg;${targetUnit}`;
+    }
+
+    function formatComparisonNumber(value, suffix = '') {
+        if (typeof value !== 'number' || !Number.isFinite(value)) return '--';
+        return `${value.toFixed(1)}${suffix}`;
+    }
+
+    function formatComparisonCents(value) {
+        if (typeof value !== 'number' || !Number.isFinite(value)) return '--';
+        return cents(value, 1);
+    }
+
+    function formatComparisonProbability(value) {
+        if (typeof value !== 'number' || !Number.isFinite(value)) return '--';
+        return pct(value, 1);
+    }
+
+    function formatComparisonDepth(value) {
+        if (typeof value !== 'number' || !Number.isFinite(value)) return '--';
+        return `$${Math.round(value).toLocaleString()}`;
+    }
+
+    function comparisonStatusClass(status) {
+        const normalized = String(status || 'missing').toLowerCase();
+        if (normalized === 'ok' || normalized === 'match') return 'match';
+        if (normalized === 'partial') return 'partial';
+        if (normalized === 'mismatch') return 'mismatch';
+        if (normalized === 'unavailable') return 'unavailable';
+        return 'missing';
+    }
+
+    function compareDisplay(prod, exp) {
+        const hasProd = prod !== null && prod !== undefined && String(prod).trim() !== '';
+        const hasExp = exp !== null && exp !== undefined && String(exp).trim() !== '';
+        if (!hasExp) return hasProd ? 'partial' : 'missing';
+        if (!hasProd) return 'partial';
+        return String(prod).trim() === String(exp).trim() ? 'match' : 'mismatch';
+    }
+
+    function buildRow(label, production, experimental) {
+        return {
+            label,
+            production: production ?? '--',
+            experimental: experimental ?? '--',
+            status: compareDisplay(production, experimental),
+        };
+    }
+
+    function safeJson(value) {
+        try {
+            return JSON.stringify(value, null, 2);
+        } catch (e) {
+            return '{}';
+        }
+    }
+
+    function buildProductionComparisonView(data) {
+        const trading = data?.trading || {};
+        const unit = firstText(trading.market_unit, data?.market_unit, 'F').toUpperCase();
+        const official = data?.intraday_context?.official || data?.official || {};
+        const topBracket = Array.isArray(data?.brackets) ? data.brackets[0] : null;
+        const yesBook = topBracket ? resolveBook(topBracket, 'yes') : {};
+        const signal = trading.best_terminal_trade || {};
+        const model = trading.model || {};
+        const policy = trading.policy || {};
+        const generatedAt = data?.server_ts ? new Date(Number(data.server_ts) * 1000).toISOString() : '--';
+        const reviewState = data?.market_status?.event_closed ? 'closed' : (data?.market_status?.is_mature ? 'mature' : 'open');
+
+        return {
+            identity: {
+                station: firstText(data?.station_id, selectedStation) || '--',
+                target_day: data?.target_day !== undefined ? String(data.target_day) : '--',
+                target_date: firstText(data?.target_date) || '--',
+                market_unit: unit,
+            },
+            official: {
+                temp: formatComparisonTemp(official.temp_f, official.temp_c, unit),
+                daily_max: formatComparisonTemp(official.daily_max_f, null, unit),
+                obs_time: formatComparisonTime(official.obs_time_utc || official.obs_time_nyc || official.ingest_time_utc),
+                freshness: official.source_age_s !== undefined ? `${Number(official.source_age_s).toFixed(1)}s` : '--',
+            },
+            market: {
+                event_title: firstText(data?.event_title) || '--',
+                top_bracket: firstText(topBracket?.name) || firstText(model.top_label, model.expected_label) || '--',
+                best_bid_ask: `${formatComparisonCents(yesBook.bestBid)} / ${formatComparisonCents(yesBook.bestAsk)}`,
+                midpoint: formatComparisonCents(yesBook.mid),
+                spread: formatComparisonCents(yesBook.spread),
+                depth: `${formatComparisonDepth(yesBook.bidDepth)} / ${formatComparisonDepth(yesBook.askDepth)}`,
+            },
+            signal: {
+                recommendation: firstText(signal.recommendation, policy.headline) || '--',
+                fair_probability: formatComparisonProbability(Number(signal.selected_fair ?? signal.fair_yes ?? model.top_label_probability)),
+                edge: formatComparisonNumber(
+                    Number.isFinite(Number(signal.edge_points))
+                        ? Number(signal.edge_points)
+                        : (Number.isFinite(Number(signal.best_edge)) ? Number(signal.best_edge) * 100.0 : null),
+                    ' pts',
+                ),
+                reason: firstText(signal.policy_reason, policy.headline) || '--',
+            },
+            provenance: {
+                generated_at: generatedAt,
+                source_age: firstText(
+                    official.source_age_s !== undefined ? `${Number(official.source_age_s).toFixed(1)}s` : '',
+                    data?.ws_metrics?.publisher_lag_ms !== undefined ? `${data.ws_metrics.publisher_lag_ms}ms` : '',
+                    data?.server_ts ? 'server_ts available' : '',
+                ) || '--',
+                review_state: reviewState,
+                status: data?.ws_connected ? 'live' : 'offline',
+            },
+            raw: data || {},
+        };
+    }
+
+    function buildExperimentalComparisonView(payload) {
+        const exp = payload?.experimental && typeof payload.experimental === 'object'
+            ? payload.experimental
+            : (payload || {});
+        const unit = firstText(payload?.market_unit, exp?.market_unit, exp?.signal?.market_unit, 'F').toUpperCase();
+        const official = exp?.official || {};
+        const market = exp?.market || {};
+        const signal = exp?.signal || {};
+        const provenance = exp?.provenance || {};
+        const topBracket = Array.isArray(market?.brackets) ? market.brackets[0] : null;
+        const yesBook = topBracket ? resolveBook(topBracket, 'yes') : {};
+        const reviewStatus = exp?.settlement_review?.status || 'review_pending';
+
+        return {
+            identity: {
+                station: firstText(exp?.station_id, payload?.station_id, selectedStation) || '--',
+                target_day: exp?.target_day !== undefined ? String(exp.target_day) : (payload?.target_day !== undefined ? String(payload.target_day) : '--'),
+                target_date: firstText(exp?.target_date, payload?.target_date) || '--',
+                market_unit: unit,
+            },
+            official: {
+                temp: formatComparisonTemp(official.temp_f, official.temp_c, unit),
+                daily_max: formatComparisonTemp(official.daily_max_f, official.daily_max_c, unit),
+                obs_time: formatComparisonTime(official.obs_time_utc || official.obs_time_nyc || official.ingest_time_utc),
+                freshness: official.source_age_s !== undefined ? `${Number(official.source_age_s).toFixed(1)}s` : '--',
+            },
+            market: {
+                event_title: firstText(market.event_title, payload?.event_title) || '--',
+                top_bracket: firstText(topBracket?.name, market.top_bracket, market.top_label) || '--',
+                best_bid_ask: `${formatComparisonCents(yesBook.bestBid)} / ${formatComparisonCents(yesBook.bestAsk)}`,
+                midpoint: formatComparisonCents(yesBook.mid),
+                spread: formatComparisonCents(yesBook.spread),
+                depth: `${formatComparisonDepth(yesBook.bidDepth)} / ${formatComparisonDepth(yesBook.askDepth)}`,
+            },
+            signal: {
+                recommendation: firstText(signal.recommendation, signal.best_recommendation, signal.policy_reason) || '--',
+                fair_probability: formatComparisonProbability(Number(signal.fair_probability ?? signal.selected_fair ?? signal.fair_yes ?? signal.market_probability)),
+                edge: formatComparisonNumber(
+                    Number.isFinite(Number(signal.edge_points))
+                        ? Number(signal.edge_points)
+                        : (Number.isFinite(Number(signal.best_edge)) ? Number(signal.best_edge) * 100.0 : Number(signal.edge)),
+                    ' pts',
+                ),
+                reason: firstText(signal.reason, signal.policy_reason, signal.headline) || '--',
+            },
+            provenance: {
+                generated_at: firstText(provenance.generated_at_utc, payload?.generated_at_utc, payload?.server_ts) || '--',
+                source_age: firstText(
+                    provenance.source_age_s !== undefined ? `${Number(provenance.source_age_s).toFixed(1)}s` : '',
+                    payload?.comparison?.status ? String(payload.comparison.status) : '',
+                ) || '--',
+                review_state: reviewStatus,
+                status: firstText(payload?.status, provenance.status) || 'partial',
+            },
+            raw: payload || {},
+        };
+    }
+
+    function makeBlankComparisonView() {
+        return {
+            identity: { station: '--', target_day: '--', target_date: '--', market_unit: '--' },
+            official: { temp: '--', daily_max: '--', obs_time: '--', freshness: '--' },
+            market: { event_title: '--', top_bracket: '--', best_bid_ask: '-- / --', midpoint: '--', spread: '--', depth: '-- / --' },
+            signal: { recommendation: '--', fair_probability: '--', edge: '--', reason: '--' },
+            provenance: { generated_at: '--', source_age: '--', review_state: '--', status: '--' },
+            raw: {},
+        };
+    }
+
+    function buildComparisonSections(productionView, experimentalView) {
+        return {
+            identity: [
+                buildRow('Station', productionView.identity.station, experimentalView.identity.station),
+                buildRow('Target day', productionView.identity.target_day, experimentalView.identity.target_day),
+                buildRow('Target date', productionView.identity.target_date, experimentalView.identity.target_date),
+                buildRow('Market unit', productionView.identity.market_unit, experimentalView.identity.market_unit),
+            ],
+            official: [
+                buildRow('Temp', productionView.official.temp, experimentalView.official.temp),
+                buildRow('Daily max', productionView.official.daily_max, experimentalView.official.daily_max),
+                buildRow('Obs time', productionView.official.obs_time, experimentalView.official.obs_time),
+                buildRow('Freshness', productionView.official.freshness, experimentalView.official.freshness),
+            ],
+            market: [
+                buildRow('Event title', productionView.market.event_title, experimentalView.market.event_title),
+                buildRow('Top bracket', productionView.market.top_bracket, experimentalView.market.top_bracket),
+                buildRow('Best bid / ask', productionView.market.best_bid_ask, experimentalView.market.best_bid_ask),
+                buildRow('Midpoint / spread', `${productionView.market.midpoint} / ${productionView.market.spread}`, `${experimentalView.market.midpoint} / ${experimentalView.market.spread}`),
+                buildRow('Depth', productionView.market.depth, experimentalView.market.depth),
+            ],
+            signal: [
+                buildRow('Recommendation', productionView.signal.recommendation, experimentalView.signal.recommendation),
+                buildRow('Fair probability', productionView.signal.fair_probability, experimentalView.signal.fair_probability),
+                buildRow('Edge', productionView.signal.edge, experimentalView.signal.edge),
+                buildRow('Reason', productionView.signal.reason, experimentalView.signal.reason),
+            ],
+            provenance: [
+                buildRow('Generated at', productionView.provenance.generated_at, experimentalView.provenance.generated_at),
+                buildRow('Source age', productionView.provenance.source_age, experimentalView.provenance.source_age),
+                buildRow('Review state', productionView.provenance.review_state, experimentalView.provenance.review_state),
+                buildRow('Status', productionView.provenance.status, experimentalView.provenance.status),
+            ],
+        };
+    }
+
+    function renderComparisonRows(rows, side) {
+        return (rows || []).map((row) => {
+            const value = side === 'production' ? row.production : row.experimental;
+            return `
+                <div class="pm-comparison-row">
+                    <div class="pm-comparison-row-label">${escapeHtml(row.label)}</div>
+                    <div class="pm-comparison-row-value">${escapeHtml(value)}</div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    function renderComparisonColumn(title, badgeText, badgeClass, summary, side, raw) {
+        const sections = [
+            ['Identity', summary.identity],
+            ['Official', summary.official],
+            ['Market', summary.market],
+            ['Signal', summary.signal],
+            ['Provenance', summary.provenance],
+        ];
+        return `
+            <div class="pm-comparison-panel ${side === 'production' ? 'authoritative' : 'experimental'}">
+                <div class="pm-comparison-panel-head">
+                    <div class="pm-comparison-panel-title">
+                        <strong>${escapeHtml(title)}</strong>
+                        <span>${side === 'production' ? 'Authoritative current page payload' : 'Experimental KLGA payload'}</span>
+                    </div>
+                    <div class="pm-comparison-panel-badge ${badgeClass}">${escapeHtml(badgeText)}</div>
+                </div>
+                ${sections.map(([sectionTitle, rows]) => `
+                    <div class="pm-comparison-section">
+                        <div class="pm-comparison-section-title">${escapeHtml(sectionTitle)}</div>
+                        <div class="pm-comparison-rows">${renderComparisonRows(rows, side)}</div>
+                    </div>
+                `).join('')}
+                <details class="pm-comparison-details">
+                    <summary>Raw JSON</summary>
+                    <pre class="pm-comparison-json">${escapeHtml(safeJson(raw || {}))}</pre>
+                </details>
+            </div>
+        `;
+    }
+
+    function renderComparisonDiffCard(label, prodValue, expValue, status) {
+        return `
+            <div class="pm-comparison-diff-card">
+                <div class="pm-comparison-diff-head">
+                    <div class="pm-comparison-diff-title">${escapeHtml(label)}</div>
+                    <span class="pm-comparison-chip ${comparisonStatusClass(status)}">${escapeHtml(status || 'missing')}</span>
+                </div>
+                <div class="pm-comparison-diff-body">
+                    <div><strong>Production</strong>: ${escapeHtml(prodValue)}</div>
+                    <div><strong>Experimental</strong>: ${escapeHtml(expValue)}</div>
+                </div>
+            </div>
+        `;
+    }
+
+    function renderComparisonShell(productionData, experimentalPayload, options = {}) {
+        const section = document.getElementById('pm-comparison-section');
+        const chips = document.getElementById('pm-comparison-chips');
+        const note = document.getElementById('pm-comparison-note');
+        const diff = document.getElementById('pm-comparison-diff');
+        const grid = document.getElementById('pm-comparison-grid');
+        if (!section || !chips || !note || !diff || !grid) return;
+
+        if (!isComparisonStation()) {
+            section.style.display = 'none';
+            return;
+        }
+
+        section.style.display = 'block';
+        const prodView = buildProductionComparisonView(productionData || lastData || {});
+        const loading = options.loading === true;
+        const unavailable = options.unavailable === true;
+        const experimentalView = (!loading && !unavailable && experimentalPayload)
+            ? buildExperimentalComparisonView(experimentalPayload)
+            : null;
+        const summaryStatus = firstText(
+            experimentalPayload?.status,
+            experimentalView?.provenance?.status,
+            unavailable ? 'unavailable' : (loading ? 'pending' : 'partial'),
+        ) || 'partial';
+
+        const comparisonSections = experimentalView ? buildComparisonSections(prodView, experimentalView) : buildComparisonSections(prodView, makeBlankComparisonView());
+        const rawExperimental = experimentalPayload?.experimental || experimentalPayload || {};
+        const productionRaw = productionData || lastData || {};
+
+        const officialStatus = experimentalView ? compareDisplay(prodView.official.temp, experimentalView.official.temp) : (loading ? 'pending' : 'missing');
+        const marketStatus = experimentalView ? compareDisplay(prodView.market.top_bracket, experimentalView.market.top_bracket) : (loading ? 'pending' : 'missing');
+        const signalStatus = experimentalView ? compareDisplay(prodView.signal.recommendation, experimentalView.signal.recommendation) : (loading ? 'pending' : 'missing');
+        const provenanceStatus = experimentalView ? compareDisplay(prodView.provenance.status, experimentalView.provenance.status) : (loading ? 'pending' : 'missing');
+
+        chips.innerHTML = `
+            <span class="pm-comparison-chip ${comparisonStatusClass(summaryStatus)}">${escapeHtml(summaryStatus)}</span>
+            <span class="pm-comparison-chip ${comparisonStatusClass(officialStatus)}">official ${escapeHtml(officialStatus)}</span>
+            <span class="pm-comparison-chip ${comparisonStatusClass(marketStatus)}">market ${escapeHtml(marketStatus)}</span>
+            <span class="pm-comparison-chip ${comparisonStatusClass(signalStatus)}">signal ${escapeHtml(signalStatus)}</span>
+            <span class="pm-comparison-chip ${comparisonStatusClass(provenanceStatus)}">provenance ${escapeHtml(provenanceStatus)}</span>
+        `;
+
+        note.textContent = unavailable
+            ? 'Experimental payload unavailable. Production remains authoritative.'
+            : loading
+                ? 'Fetching the experimental KLGA payload alongside the authoritative production snapshot...'
+                : (experimentalPayload?.status === 'partial'
+                    ? `Partial experimental payload. Missing: ${(experimentalPayload?.missing_sections || []).join(', ') || 'none'}`
+                    : 'Side-by-side view of the authoritative production path versus the experimental live-station payload.');
+
+        diff.innerHTML = `
+            ${renderComparisonDiffCard('Official', prodView.official.temp, experimentalView ? experimentalView.official.temp : '--', officialStatus)}
+            ${renderComparisonDiffCard('Market', prodView.market.top_bracket, experimentalView ? experimentalView.market.top_bracket : '--', marketStatus)}
+            ${renderComparisonDiffCard('Signal', prodView.signal.recommendation, experimentalView ? experimentalView.signal.recommendation : '--', signalStatus)}
+        `;
+
+        grid.innerHTML = `
+            ${renderComparisonColumn('Production', 'Authoritative', 'authoritative', comparisonSections, 'production', productionRaw)}
+            ${experimentalView
+                ? renderComparisonColumn('Experimental', summaryStatus === 'partial' ? 'Partial' : 'Comparison', summaryStatus === 'partial' ? 'warn' : 'experimental', comparisonSections, 'experimental', rawExperimental)
+                : `
+                    <div class="pm-comparison-panel experimental">
+                        <div class="pm-comparison-panel-head">
+                            <div class="pm-comparison-panel-title">
+                                <strong>Experimental</strong>
+                                <span>${unavailable ? 'Experimental payload unavailable' : 'Waiting for experimental fetch'}</span>
+                            </div>
+                            <div class="pm-comparison-panel-badge warn">${escapeHtml(unavailable ? 'unavailable' : 'pending')}</div>
+                        </div>
+                        <div class="pm-comparison-section">
+                            <div class="pm-comparison-section-title">Status</div>
+                            <div class="pm-comparison-note" style="margin-bottom:0;">${escapeHtml(unavailable ? 'No experimental payload could be fetched.' : 'Experimental KLGA payload is loading...')}</div>
+                        </div>
+                    </div>
+                `}
+        `;
+        lucide.createIcons();
+    }
+
+    function hideComparisonPanel() {
+        const section = document.getElementById('pm-comparison-section');
+        if (section) section.style.display = 'none';
+        if (comparisonAbortController) {
+            comparisonAbortController.abort();
+            comparisonAbortController = null;
+        }
+    }
+
+    async function refreshComparison(productionData) {
+        if (!isComparisonStation()) {
+            hideComparisonPanel();
+            return;
+        }
+        const requestSeq = ++comparisonRequestSeq;
+        if (comparisonAbortController) {
+            comparisonAbortController.abort();
+        }
+        const controller = new AbortController();
+        comparisonAbortController = controller;
+        renderComparisonShell(productionData, null, { loading: true });
+        try {
+            const resp = await fetch(`/api/experimental/live-station/${selectedStation}?target_day=${selectedDay}`, {
+                cache: 'no-store',
+                signal: controller.signal,
+            });
+            const text = await resp.text();
+            if (requestSeq !== comparisonRequestSeq) return;
+            let payload = null;
+            try {
+                payload = text ? JSON.parse(text) : null;
+            } catch (e) {
+                payload = null;
+            }
+            if (!resp.ok || !payload) {
+                renderComparisonShell(productionData, null, { unavailable: true });
+                return;
+            }
+            renderComparisonShell(productionData, payload, {});
+        } catch (e) {
+            if (e && e.name === 'AbortError') return;
+            if (requestSeq !== comparisonRequestSeq) return;
+            renderComparisonShell(productionData, null, { unavailable: true });
+        } finally {
+            if (comparisonAbortController === controller) {
+                comparisonAbortController = null;
+            }
+        }
     }
 
     function resolveBook(bracket, side) {
@@ -1134,6 +1841,7 @@
             document.getElementById('pm-error').style.display = 'none';
             document.getElementById('pm-content').style.display = 'block';
             renderAll(data);
+            await refreshComparison(data);
             maybeRefreshHistory();
         } catch (e) {
             if (e && e.name === 'AbortError') return;
@@ -1151,6 +1859,7 @@
         const el = document.getElementById('pm-error');
         el.style.display = 'block';
         el.textContent = msg;
+        hideComparisonPanel();
     }
 
     // ========================
@@ -2923,6 +3632,7 @@
         if (sel && sel.value !== selectedStation) sel.value = selectedStation;
         selectedBracket = null;
         document.getElementById('pm-orderbook-detail').classList.remove('visible');
+        if (!isComparisonStation(normalized)) hideComparisonPanel();
         fetchData({ force: true });
     }
     window.selectStation = selectStation;
@@ -2934,6 +3644,7 @@
         });
         selectedBracket = null;
         document.getElementById('pm-orderbook-detail').classList.remove('visible');
+        if (!isComparisonStation()) hideComparisonPanel();
         fetchData({ force: true });
     }
     window.selectDay = selectDay;
