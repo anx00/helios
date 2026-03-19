@@ -192,6 +192,62 @@
         color: var(--text-secondary);
         line-height: 1.5;
     }
+    .pm-comparison-summary {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+        margin-bottom: 14px;
+    }
+    .pm-comparison-summary-card {
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 12px;
+        padding: 14px;
+        background: rgba(255,255,255,0.015);
+    }
+    .pm-comparison-summary-card.authoritative {
+        border-color: rgba(16,185,129,0.24);
+        background: rgba(16,185,129,0.04);
+    }
+    .pm-comparison-summary-card.experimental {
+        border-color: rgba(56,189,248,0.22);
+        background: rgba(56,189,248,0.03);
+    }
+    .pm-comparison-summary-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 10px;
+    }
+    .pm-comparison-summary-title {
+        font-size: 12px;
+        font-weight: 800;
+        letter-spacing: 0.5px;
+        text-transform: uppercase;
+        color: var(--text-primary);
+    }
+    .pm-comparison-summary-list {
+        display: grid;
+        gap: 8px;
+    }
+    .pm-comparison-summary-item {
+        display: grid;
+        gap: 2px;
+    }
+    .pm-comparison-summary-label {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.8px;
+        text-transform: uppercase;
+        color: var(--text-secondary);
+    }
+    .pm-comparison-summary-value {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text-primary);
+        line-height: 1.45;
+        word-break: break-word;
+    }
     .pm-comparison-diff {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -371,6 +427,10 @@
         padding: 10px 12px;
         max-height: 320px;
         overflow: auto;
+    }
+    .pm-comparison-details-wrap {
+        display: grid;
+        gap: 12px;
     }
 
     /* ============= TRADING SIGNAL ============= */
@@ -933,6 +993,7 @@
         .ob-book { grid-template-columns: 1fr; }
         .pm-trading-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .pm-agent-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .pm-comparison-summary { grid-template-columns: 1fr; }
         .pm-comparison-diff { grid-template-columns: 1fr; }
         .pm-comparison-grid { grid-template-columns: 1fr; }
     }
@@ -1131,19 +1192,19 @@
             <div class="pm-comparison-chips" id="pm-comparison-chips"></div>
         </div>
         <div class="pm-comparison-note" id="pm-comparison-note">
-            Side-by-side view of the authoritative production path versus the experimental live-station payload.
+            Compact comparison between the authoritative payload and the experimental live-station contract.
         </div>
+        <div class="pm-comparison-summary" id="pm-comparison-summary"></div>
         <div class="pm-comparison-diff" id="pm-comparison-diff"></div>
-        <div class="pm-comparison-grid" id="pm-comparison-grid"></div>
+        <div class="pm-comparison-details-wrap" id="pm-comparison-details-wrap"></div>
     </div>
 
     <!-- Section 3: Trading -->
     <div class="pm-trading" id="pm-trading-section" style="display:none;">
         <div class="pm-section-title">
-            <i data-lucide="crosshair"></i> Paper Trading
+            <i data-lucide="crosshair"></i> Trading Signal
         </div>
         <div id="pm-autotrader-panel" style="display:none;"></div>
-        <div id="pt-panel" style="display:none;"></div>
         <div class="pm-trading-grid" id="pm-trading-grid"></div>
         <div id="pm-trading-table-wrap"></div>
     </div>
@@ -1242,6 +1303,8 @@
     let selectedDay = 0;
     let selectedBracket = null;
     let lastData = null;
+    let comparisonCacheKey = null;
+    let comparisonCachePayload = null;
     let comparisonRequestSeq = 0;
     let comparisonAbortController = null;
     const REFRESH_MS = 5000;
@@ -1605,13 +1668,37 @@
         `;
     }
 
+    function renderComparisonSummaryCard(title, badgeText, badgeClass, entries, detailsLabel, raw) {
+        return `
+            <div class="pm-comparison-summary-card ${badgeClass}">
+                <div class="pm-comparison-summary-head">
+                    <div class="pm-comparison-summary-title">${escapeHtml(title)}</div>
+                    <span class="pm-comparison-chip ${badgeClass === 'authoritative' ? 'match' : comparisonStatusClass(badgeText)}">${escapeHtml(badgeClass === 'authoritative' ? 'authoritative' : badgeText)}</span>
+                </div>
+                <div class="pm-comparison-summary-list">
+                    ${(entries || []).map((entry) => `
+                        <div class="pm-comparison-summary-item">
+                            <div class="pm-comparison-summary-label">${escapeHtml(entry.label)}</div>
+                            <div class="pm-comparison-summary-value">${escapeHtml(entry.value ?? '--')}</div>
+                        </div>
+                    `).join('')}
+                </div>
+                <details class="pm-comparison-details">
+                    <summary>${escapeHtml(detailsLabel)}</summary>
+                    <pre class="pm-comparison-json">${escapeHtml(safeJson(raw || {}))}</pre>
+                </details>
+            </div>
+        `;
+    }
+
     function renderComparisonShell(productionData, experimentalPayload, options = {}) {
         const section = document.getElementById('pm-comparison-section');
         const chips = document.getElementById('pm-comparison-chips');
         const note = document.getElementById('pm-comparison-note');
+        const summary = document.getElementById('pm-comparison-summary');
         const diff = document.getElementById('pm-comparison-diff');
-        const grid = document.getElementById('pm-comparison-grid');
-        if (!section || !chips || !note || !diff || !grid) return;
+        const detailsWrap = document.getElementById('pm-comparison-details-wrap');
+        if (!section || !chips || !note || !summary || !diff || !detailsWrap) return;
 
         if (!isComparisonStation()) {
             section.style.display = 'none';
@@ -1630,8 +1717,6 @@
             experimentalView?.provenance?.status,
             unavailable ? 'unavailable' : (loading ? 'pending' : 'partial'),
         ) || 'partial';
-
-        const comparisonSections = experimentalView ? buildComparisonSections(prodView, experimentalView) : buildComparisonSections(prodView, makeBlankComparisonView());
         const rawExperimental = experimentalPayload?.experimental || experimentalPayload || {};
         const productionRaw = productionData || lastData || {};
 
@@ -1651,52 +1736,87 @@
         note.textContent = unavailable
             ? 'Experimental payload unavailable. Production remains authoritative.'
             : loading
-                ? 'Fetching the experimental KLGA payload alongside the authoritative production snapshot...'
+                ? 'Fetching the experimental KLGA payload for this station/day...'
                 : (experimentalPayload?.status === 'partial'
-                    ? `Partial experimental payload. Missing: ${(experimentalPayload?.missing_sections || []).join(', ') || 'none'}`
-                    : 'Side-by-side view of the authoritative production path versus the experimental live-station payload.');
+                    ? `Partial experimental payload. Missing: ${(experimentalPayload?.missing_sections || []).join(', ') || 'none'}.`
+                    : 'Stable comparison for the current KLGA context. This panel updates on initial load and when station/day changes.');
+
+        summary.innerHTML = `
+            ${renderComparisonSummaryCard(
+                'Production',
+                'authoritative',
+                'authoritative',
+                [
+                    { label: 'Official', value: `${prodView.official.temp} | max ${prodView.official.daily_max} | ${prodView.official.obs_time}` },
+                    { label: 'Market', value: `${prodView.market.top_bracket} | ${prodView.market.best_bid_ask} | mid ${prodView.market.midpoint}` },
+                    { label: 'Signal', value: `${prodView.signal.recommendation} | ${prodView.signal.fair_probability} | ${prodView.signal.edge}` },
+                    { label: 'Provenance', value: `${prodView.provenance.status} | ${prodView.provenance.source_age}` },
+                ],
+                'Production raw JSON',
+                productionRaw,
+            )}
+            ${renderComparisonSummaryCard(
+                'Experimental',
+                unavailable ? 'unavailable' : (loading ? 'pending' : summaryStatus),
+                'experimental',
+                [
+                    { label: 'Official', value: experimentalView ? `${experimentalView.official.temp} | max ${experimentalView.official.daily_max} | ${experimentalView.official.obs_time}` : '--' },
+                    { label: 'Market', value: experimentalView ? `${experimentalView.market.top_bracket} | ${experimentalView.market.best_bid_ask} | mid ${experimentalView.market.midpoint}` : '--' },
+                    { label: 'Signal', value: experimentalView ? `${experimentalView.signal.recommendation} | ${experimentalView.signal.fair_probability} | ${experimentalView.signal.edge}` : '--' },
+                    { label: 'Review', value: experimentalView ? `${experimentalView.provenance.review_state} | ${experimentalView.provenance.status}` : (unavailable ? 'experimental unavailable' : 'pending') },
+                ],
+                'Experimental raw JSON',
+                rawExperimental,
+            )}
+        `;
 
         diff.innerHTML = `
             ${renderComparisonDiffCard('Official', prodView.official.temp, experimentalView ? experimentalView.official.temp : '--', officialStatus)}
-            ${renderComparisonDiffCard('Market', prodView.market.top_bracket, experimentalView ? experimentalView.market.top_bracket : '--', marketStatus)}
-            ${renderComparisonDiffCard('Signal', prodView.signal.recommendation, experimentalView ? experimentalView.signal.recommendation : '--', signalStatus)}
+            ${renderComparisonDiffCard('Market', `${prodView.market.top_bracket} | ${prodView.market.best_bid_ask}`, experimentalView ? `${experimentalView.market.top_bracket} | ${experimentalView.market.best_bid_ask}` : '--', marketStatus)}
+            ${renderComparisonDiffCard('Signal', `${prodView.signal.recommendation} | ${prodView.signal.edge}`, experimentalView ? `${experimentalView.signal.recommendation} | ${experimentalView.signal.edge}` : '--', signalStatus)}
         `;
 
-        grid.innerHTML = `
-            ${renderComparisonColumn('Production', 'Authoritative', 'authoritative', comparisonSections, 'production', productionRaw)}
-            ${experimentalView
-                ? renderComparisonColumn('Experimental', summaryStatus === 'partial' ? 'Partial' : 'Comparison', summaryStatus === 'partial' ? 'warn' : 'experimental', comparisonSections, 'experimental', rawExperimental)
-                : `
-                    <div class="pm-comparison-panel experimental">
-                        <div class="pm-comparison-panel-head">
-                            <div class="pm-comparison-panel-title">
-                                <strong>Experimental</strong>
-                                <span>${unavailable ? 'Experimental payload unavailable' : 'Waiting for experimental fetch'}</span>
-                            </div>
-                            <div class="pm-comparison-panel-badge warn">${escapeHtml(unavailable ? 'unavailable' : 'pending')}</div>
-                        </div>
-                        <div class="pm-comparison-section">
-                            <div class="pm-comparison-section-title">Status</div>
-                            <div class="pm-comparison-note" style="margin-bottom:0;">${escapeHtml(unavailable ? 'No experimental payload could be fetched.' : 'Experimental KLGA payload is loading...')}</div>
-                        </div>
+        detailsWrap.innerHTML = experimentalView ? `
+            <details class="pm-comparison-details">
+                <summary>Key field checks</summary>
+                <div class="pm-comparison-summary-list">
+                    <div class="pm-comparison-summary-item">
+                        <div class="pm-comparison-summary-label">Official freshness</div>
+                        <div class="pm-comparison-summary-value">Production ${escapeHtml(prodView.official.freshness)} | Experimental ${escapeHtml(experimentalView.official.freshness)}</div>
                     </div>
-                `}
-        `;
+                    <div class="pm-comparison-summary-item">
+                        <div class="pm-comparison-summary-label">Depth</div>
+                        <div class="pm-comparison-summary-value">Production ${escapeHtml(prodView.market.depth)} | Experimental ${escapeHtml(experimentalView.market.depth)}</div>
+                    </div>
+                    <div class="pm-comparison-summary-item">
+                        <div class="pm-comparison-summary-label">Reason</div>
+                        <div class="pm-comparison-summary-value">Production ${escapeHtml(prodView.signal.reason)} | Experimental ${escapeHtml(experimentalView.signal.reason)}</div>
+                    </div>
+                </div>
+            </details>
+        ` : '';
         lucide.createIcons();
     }
 
     function hideComparisonPanel() {
         const section = document.getElementById('pm-comparison-section');
         if (section) section.style.display = 'none';
+        comparisonCacheKey = null;
+        comparisonCachePayload = null;
         if (comparisonAbortController) {
             comparisonAbortController.abort();
             comparisonAbortController = null;
         }
     }
 
-    async function refreshComparison(productionData) {
+    async function refreshComparison(productionData, options = {}) {
         if (!isComparisonStation()) {
             hideComparisonPanel();
+            return;
+        }
+        const force = options.force === true;
+        const comparisonKey = `${String(selectedStation || '').toUpperCase()}:${selectedDay}`;
+        if (!force && comparisonCacheKey === comparisonKey && comparisonCachePayload) {
             return;
         }
         const requestSeq = ++comparisonRequestSeq;
@@ -1720,13 +1840,19 @@
                 payload = null;
             }
             if (!resp.ok || !payload) {
+                comparisonCacheKey = comparisonKey;
+                comparisonCachePayload = { status: 'unavailable' };
                 renderComparisonShell(productionData, null, { unavailable: true });
                 return;
             }
+            comparisonCacheKey = comparisonKey;
+            comparisonCachePayload = payload;
             renderComparisonShell(productionData, payload, {});
         } catch (e) {
             if (e && e.name === 'AbortError') return;
             if (requestSeq !== comparisonRequestSeq) return;
+            comparisonCacheKey = comparisonKey;
+            comparisonCachePayload = { status: 'unavailable' };
             renderComparisonShell(productionData, null, { unavailable: true });
         } finally {
             if (comparisonAbortController === controller) {
@@ -1841,8 +1967,7 @@
             document.getElementById('pm-error').style.display = 'none';
             document.getElementById('pm-content').style.display = 'block';
             renderAll(data);
-            await refreshComparison(data);
-            maybeRefreshHistory();
+            await refreshComparison(data, { force });
         } catch (e) {
             if (e && e.name === 'AbortError') return;
             showError('Failed to fetch market data');
@@ -1867,7 +1992,6 @@
     // ========================
     function renderAll(data) {
         renderOverview(data);
-        renderPaperTrader(data.papertrader);
         renderTrading(data.trading);
         renderBrackets(data.brackets);
         renderShifts(data.shifts);
