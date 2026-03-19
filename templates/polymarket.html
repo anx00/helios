@@ -1105,11 +1105,15 @@
     // ========================
     // DATA FETCHING
     // ========================
-    async function fetchData() {
-        const requestSeq = ++fetchDataRequestSeq;
+    async function fetchData(options = {}) {
+        const force = Boolean(options.force);
         if (fetchDataAbortController) {
+            if (!force) {
+                return;
+            }
             fetchDataAbortController.abort();
         }
+        const requestSeq = ++fetchDataRequestSeq;
         const controller = new AbortController();
         fetchDataAbortController = controller;
 
@@ -1196,7 +1200,7 @@
             if (firstResult && firstResult.status === 'error') {
                 throw new Error(firstResult.error || 'station run failed');
             }
-            await fetchData();
+            await fetchData({ force: true });
         } catch (e) {
             showError(`Autotrader ${action} failed: ${e.message || e}`);
         }
@@ -1215,7 +1219,7 @@
             if (firstResult && firstResult.status === 'error') {
                 throw new Error(firstResult.error || 'station run failed');
             }
-            await fetchData();
+            await fetchData({ force: true });
         } catch (e) {
             showError(`Autotrader ${action} failed: ${e.message || e}`);
         }
@@ -1368,7 +1372,7 @@
             setAutotraderBanner('');
             autotraderDraft = buildAutotraderDraftFromStatus(data.status || {});
             autotraderDraftDirty = false;
-            if (!silent) await fetchData();
+            if (!silent) await fetchData({ force: true });
             return data;
         } catch (e) {
             setAutotraderBanner(`Config save failed: ${e.message || e}`);
@@ -1390,7 +1394,7 @@
                 throw new Error(firstResult.error || 'station run failed');
             }
             setAutotraderBanner('');
-            await fetchData();
+            await fetchData({ force: true });
         } catch (e) {
             setAutotraderBanner(`Autotrader ${action} failed: ${e.message || e}`);
         }
@@ -2919,7 +2923,7 @@
         if (sel && sel.value !== selectedStation) sel.value = selectedStation;
         selectedBracket = null;
         document.getElementById('pm-orderbook-detail').classList.remove('visible');
-        fetchData();
+        fetchData({ force: true });
     }
     window.selectStation = selectStation;
 
@@ -2930,7 +2934,7 @@
         });
         selectedBracket = null;
         document.getElementById('pm-orderbook-detail').classList.remove('visible');
-        fetchData();
+        fetchData({ force: true });
     }
     window.selectDay = selectDay;
 
@@ -2943,7 +2947,7 @@
             if (!nextStation || nextStation === selectedStation) return;
             selectStation(nextStation);
         });
-        fetchData();
+        fetchData({ force: true });
         setInterval(() => {
             if (!document.hidden) fetchData();
         }, REFRESH_MS);

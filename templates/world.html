@@ -1220,14 +1220,14 @@
                 }
             } else {
                 // Fallback to full snapshot if backend couldn't return a world-formatted official payload.
-                fetchSnapshot();
+                fetchSnapshot({ force: true });
             }
 
             const nextObsTime = (data && data.official && data.official.obs_time_utc)
                 ? data.official.obs_time_utc
                 : (data ? data.observation_time_utc : null);
             if (nextObsTime && nextObsTime !== prevObsTime && sid === currentStation) {
-                fetchMetarHistory();
+                fetchMetarHistory({ force: true });
             }
         } catch (e) {
             console.error('Manual METAR refresh failed:', e);
@@ -1426,7 +1426,7 @@
         if (lastSnapshot) renderAll(lastSnapshot);
 
         // Reload METAR history for new station
-        fetchMetarHistory();
+        fetchMetarHistory({ force: true });
         refreshMetarRefreshButton();
         refreshMetarSubscriptionButton();
         fetchMetarSubscriptionState(currentStation);
@@ -1448,7 +1448,7 @@
         if (!lastSnapshot) {
             initialSnapshotFallbackTimer = setTimeout(() => {
                 if (!lastSnapshot && !initialSseSnapshotReceived) {
-                    fetchSnapshot();
+                    fetchSnapshot({ force: true });
                 }
             }, 1500);
         }
@@ -1471,11 +1471,11 @@
                 if (lastSnapshot) {
                     applySSEUpdate(event);
                 } else {
-                    fetchSnapshot();
+                    fetchSnapshot({ force: true });
                 }
             } catch(err) {
                 console.error('SSE update parse error:', err);
-                fetchSnapshot();
+                fetchSnapshot({ force: true });
             }
         });
 
@@ -1514,16 +1514,20 @@
             if (!lastSnapshot.env) lastSnapshot.env = {};
             lastSnapshot.env[feat] = event.data;
         } else {
-            fetchSnapshot();
+            fetchSnapshot({ force: true });
         }
     }
 
     // === Fallback polling ===
-    async function fetchSnapshot() {
-        const requestSeq = ++snapshotFetchSeq;
+    async function fetchSnapshot(options = {}) {
+        const force = Boolean(options.force);
         if (snapshotAbortController) {
+            if (!force) {
+                return;
+            }
             snapshotAbortController.abort();
         }
+        const requestSeq = ++snapshotFetchSeq;
         const controller = new AbortController();
         snapshotAbortController = controller;
         try {
@@ -3214,12 +3218,16 @@
     // === METAR History ===
     let lastHistoryStation = null;
 
-    async function fetchMetarHistory() {
+    async function fetchMetarHistory(options = {}) {
+        const force = Boolean(options.force);
         if (!currentStation) return;
-        const requestSeq = ++historyFetchSeq;
         if (historyAbortController) {
+            if (!force) {
+                return;
+            }
             historyAbortController.abort();
         }
+        const requestSeq = ++historyFetchSeq;
         const controller = new AbortController();
         historyAbortController = controller;
         try {
@@ -3349,7 +3357,7 @@
         connectSSE();
 
         // Fetch METAR history for today
-        fetchMetarHistory();
+        fetchMetarHistory({ force: true });
         // Refresh METAR history every 60s
         setInterval(() => {
             if (!document.hidden && currentStation !== lastHistoryStation) fetchMetarHistory();
@@ -3374,7 +3382,7 @@
         // Force immediate refresh when tab becomes visible again
         document.addEventListener('visibilitychange', () => {
             if (!document.hidden) {
-                fetchSnapshot();
+                fetchSnapshot({ force: true });
                 updateMetarLiveAge();
                 if (!evtSource || evtSource.readyState === EventSource.CLOSED) {
                     connectSSE();

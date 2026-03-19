@@ -367,7 +367,7 @@
 
     async function init() {
         await loadStations();
-        await loadDebugData();
+        await loadDebugData({ force: true });
 
         // Poll every 10 seconds for debug
         pollInterval = setInterval(() => {
@@ -379,7 +379,7 @@
                 if (debugAbortController) debugAbortController.abort();
                 return;
             }
-            loadDebugData();
+            loadDebugData({ force: true });
         });
     }
 
@@ -408,14 +408,18 @@
         document.querySelectorAll('.station-btn').forEach(btn => {
             btn.classList.toggle('active', btn.textContent === stationId);
         });
-        loadDebugData();
+        loadDebugData({ force: true });
     }
 
-    async function loadDebugData() {
-        const requestSeq = ++debugRequestSeq;
+    async function loadDebugData(options = {}) {
+        const force = Boolean(options.force);
         if (debugAbortController) {
+            if (!force) {
+                return;
+            }
             debugAbortController.abort();
         }
+        const requestSeq = ++debugRequestSeq;
         const controller = new AbortController();
         debugAbortController = controller;
 

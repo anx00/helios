@@ -386,11 +386,15 @@
     let strategyDetailRequestSeq = 0;
     let strategyDetailAbortController = null;
 
-    async function loadStrategyDetail() {
-        const requestSeq = ++strategyDetailRequestSeq;
+    async function loadStrategyDetail(options = {}) {
+        const force = Boolean(options.force);
         if (strategyDetailAbortController) {
+            if (!force) {
+                return;
+            }
             strategyDetailAbortController.abort();
         }
+        const requestSeq = ++strategyDetailRequestSeq;
 
         const controller = new AbortController();
         strategyDetailAbortController = controller;
@@ -417,7 +421,7 @@
     }
 
     document.addEventListener('DOMContentLoaded', () => {
-        loadStrategyDetail();
+        loadStrategyDetail({ force: true });
         setInterval(() => {
             if (!document.hidden) loadStrategyDetail();
         }, 30000);
@@ -427,7 +431,7 @@
                 if (strategyDetailAbortController) strategyDetailAbortController.abort();
                 return;
             }
-            loadStrategyDetail();
+            loadStrategyDetail({ force: true });
         });
 
         window.addEventListener('beforeunload', () => {

@@ -405,11 +405,15 @@
     let predictionRequestSeq = 0;
     let predictionAbortController = null;
 
-    async function loadPredictionData() {
-        const requestSeq = ++predictionRequestSeq;
+    async function loadPredictionData(options = {}) {
+        const force = Boolean(options.force);
         if (predictionAbortController) {
+            if (!force) {
+                return;
+            }
             predictionAbortController.abort();
         }
+        const requestSeq = ++predictionRequestSeq;
         const controller = new AbortController();
         predictionAbortController = controller;
 
@@ -529,7 +533,7 @@
     }
 
     // Initial load
-    loadPredictionData();
+    loadPredictionData({ force: true });
 
     // Auto-refresh every 10 seconds
     setInterval(() => {
@@ -540,7 +544,7 @@
 
     document.addEventListener('visibilitychange', () => {
         if (!document.hidden) {
-            loadPredictionData();
+            loadPredictionData({ force: true });
         }
     });
 </script>

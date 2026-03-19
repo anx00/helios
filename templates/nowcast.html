@@ -764,7 +764,7 @@
         updateTimezoneFormatters();
 
         await loadStations();
-        await loadNowcast();
+        await loadNowcast({ force: true });
 
         // Poll every 30 seconds, but skip refreshes while hidden.
         pollInterval = setInterval(() => {
@@ -779,7 +779,7 @@
 
         document.addEventListener('visibilitychange', () => {
             if (!document.hidden) {
-                loadNowcast();
+                loadNowcast({ force: true });
             }
         });
     }
@@ -934,14 +934,18 @@
 
         // Update timezone formatters for the new station
         updateTimezoneFormatters();
-        loadNowcast();
+        loadNowcast({ force: true });
     }
 
-    async function loadNowcast() {
-        const requestSeq = ++nowcastRequestSeq;
+    async function loadNowcast(options = {}) {
+        const force = Boolean(options.force);
         if (nowcastAbortController) {
+            if (!force) {
+                return;
+            }
             nowcastAbortController.abort();
         }
+        const requestSeq = ++nowcastRequestSeq;
         const controller = new AbortController();
         nowcastAbortController = controller;
 
