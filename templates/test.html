@@ -1,0 +1,222 @@
+{% extends "base.html" %}
+{% block title %}HELIOS - Test Console{% endblock %}
+{% block head_extra %}
+<style>
+  .test-shell{display:flex;flex-direction:column;gap:18px}
+  .test-card,.test-loading,.test-error{background:rgba(10,14,24,.94);border:1px solid rgba(148,163,184,.14);border-radius:20px;box-shadow:0 24px 56px rgba(2,6,23,.28)}
+  .test-card{padding:20px}
+  .test-loading,.test-error{padding:24px}
+  .test-error{color:#fecaca;background:rgba(44,10,17,.88);border-color:rgba(248,113,113,.24)}
+  .test-hero{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(280px,.8fr);gap:18px}
+  .test-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
+  .test-grid .full{grid-column:1/-1}
+  .test-title,.test-panel-title{color:#f8fbff;font-family:"Space Grotesk",sans-serif;letter-spacing:-.03em}
+  .test-title{font-size:clamp(1.9rem,3vw,2.9rem);line-height:1.02}
+  .test-panel-title{font-size:1.3rem;line-height:1.1}
+  .test-kicker,.test-mini,.test-table th{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#8da3bc}
+  .test-kicker{color:#7dd3fc}
+  .test-copy,.test-subtitle,.test-note,.test-kpi-copy,.test-metric-value,.test-summary-copy{font-size:12px;line-height:1.5;color:#d8e4f3}
+  .test-subtitle,.test-summary-copy{color:#8da3bc}
+  .test-chip-row,.test-controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+  .test-chip,.test-pill,.test-status,.test-badge{display:inline-flex;align-items:center;padding:7px 11px;border-radius:999px;border:1px solid rgba(148,163,184,.16);background:rgba(15,23,42,.72);color:#d8e4f3;font-size:11px}
+  .test-status.ok{color:#34d399}.test-status.partial{color:#fbbf24}.test-status.error{color:#f87171}
+  .test-toggle{display:inline-flex;gap:6px;padding:4px;border-radius:999px;border:1px solid rgba(56,189,248,.16);background:rgba(15,23,42,.76)}
+  .test-toggle button,.test-refresh{appearance:none;border:none;cursor:pointer;font:inherit;color:#d8e4f3;background:transparent}
+  .test-toggle button{padding:9px 14px;border-radius:999px;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+  .test-toggle button.active{color:#ecfeff;background:linear-gradient(135deg,rgba(14,165,233,.24),rgba(16,185,129,.16))}
+  .test-refresh{padding:10px 14px;border-radius:12px;border:1px solid rgba(148,163,184,.16);background:rgba(15,23,42,.76);font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+  .test-summary-grid,.test-kpis,.test-metrics{display:grid;gap:12px}
+  .test-summary-grid{grid-template-columns:repeat(4,minmax(0,1fr));margin-top:12px}
+  .test-kpis,.test-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .test-summary,.test-kpi,.test-metric,.test-station{border:1px solid rgba(148,163,184,.12);border-radius:16px;padding:14px;background:rgba(10,17,31,.76)}
+  .test-summary-value,.test-kpi-value{margin-top:8px;color:#f8fbff;font-family:"Space Grotesk",sans-serif;letter-spacing:-.03em;line-height:1.05;word-break:break-word}
+  .test-summary-value{font-size:clamp(1.35rem,2vw,1.9rem)}
+  .test-kpi-value{font-size:clamp(1.2rem,1.5vw,1.7rem)}
+  .test-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+  .test-table-wrap{overflow:auto;border:1px solid rgba(148,163,184,.10);border-radius:16px;background:rgba(9,14,26,.72)}
+  .test-table{width:100%;border-collapse:collapse;min-width:560px}
+  .test-table th,.test-table td{padding:11px 13px;text-align:left;border-bottom:1px solid rgba(148,163,184,.08);color:#d8e4f3;font-size:12px;line-height:1.45}
+  .test-table tr:last-child td{border-bottom:none}
+  .test-details{border-top:1px solid rgba(148,163,184,.08);padding-top:12px}
+  .test-details summary{cursor:pointer;list-style:none;color:#8da3bc;font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase}
+  .test-json{margin:12px 0 0;white-space:pre-wrap;word-break:break-word;font-size:11px;line-height:1.55;color:#c9d8eb;background:rgba(3,8,19,.8);border:1px solid rgba(148,163,184,.12);border-radius:16px;padding:14px;max-height:320px;overflow:auto}
+  .test-last{text-align:right;color:#8da3bc;font-size:11px;opacity:.78}
+  @media (max-width:1200px){.test-hero{grid-template-columns:1fr}.test-summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  @media (max-width:980px){.test-grid,.test-kpis,.test-metrics{grid-template-columns:1fr}.test-grid .full{grid-column:auto}}
+  @media (max-width:700px){.test-summary-grid{grid-template-columns:1fr}}
+</style>
+{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div class="page-title"><i data-lucide="radar" style="width:24px;height:24px;color:var(--accent-blue);"></i> Test</div>
+  <div class="test-controls">
+    <div class="test-toggle">
+      <button class="test-day active" data-day="0" onclick="selectDay(0)">Today</button>
+      <button class="test-day" data-day="1" onclick="selectDay(1)">Tomorrow</button>
+    </div>
+    <button class="test-refresh" onclick="fetchTestConsole({ force: true })">Refresh</button>
+  </div>
+</div>
+<div class="page-content">
+  <div id="test-loading" class="test-loading">Loading Test console...</div>
+  <div id="test-error" class="test-error" style="display:none;"></div>
+  <div id="test-shell" class="test-shell" style="display:none;">
+    <section class="test-hero">
+      <div class="test-card">
+        <div class="test-kicker">Live Observation Console</div>
+        <div class="test-title">Official, pressure, market and signal in one readable view.</div>
+        <div class="test-copy" id="test-hero-copy">This page shows the station state, local pressure, market pricing and settlement review without transport wrappers.</div>
+        <div class="test-chip-row" id="test-status-row"></div>
+        <div class="test-summary-grid" id="test-summary-grid"></div>
+      </div>
+      <div class="test-card test-station">
+        <div class="test-kicker">Scope</div>
+        <div class="test-panel-title" id="test-station-title">--</div>
+        <div class="test-copy" id="test-station-copy">--</div>
+        <div class="test-chip-row" id="test-station-pills"></div>
+      </div>
+    </section>
+    <div class="test-grid">
+      <section class="test-card"><div id="test-official"></div></section>
+      <section class="test-card"><div id="test-pressure"></div></section>
+      <section class="test-card full"><div id="test-market"></div></section>
+      <section class="test-card"><div id="test-signal"></div></section>
+      <section class="test-card"><div id="test-settlement"></div></section>
+      <section class="test-card"><div id="test-forecast"></div></section>
+      <section class="test-card"><div id="test-provenance"></div></section>
+    </div>
+    <div class="test-last">Last update: <span id="test-last-update">--</span></div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(() => {
+  let selectedStation = (window.HeliosStationState && window.HeliosStationState.get()) ? window.HeliosStationState.get() : '{{ selected_station_id or default_station_id }}';
+  let selectedDay = 0;
+  let fetchSeq = 0;
+  let fetchController = null;
+  const REFRESH_MS = 15000;
+
+  const $ = (id) => document.getElementById(id);
+  const num = (value) => (typeof value === 'number' && Number.isFinite(value)) ? value : null;
+  const text = (...values) => { for (const value of values) { if (typeof value === 'string' && value.trim()) return value.trim(); if (typeof value === 'number' && Number.isFinite(value)) return String(value); } return '--'; };
+  const esc = (value) => String(value ?? '').replace(/[&<>\"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+  const temp = (value, unit = 'F', decimals = 1) => { const n = num(value); return n === null ? '--' : `${n.toFixed(decimals)} ${String(unit || 'F').toUpperCase()}`; };
+  const pct = (value, decimals = 1) => { const n = num(value); return n === null ? '--' : `${(n * 100).toFixed(decimals)}%`; };
+  const cents = (value, decimals = 1) => { const n = num(value); return n === null ? '--' : `${(n * 100).toFixed(decimals)}c`; };
+  const money = (value) => { const n = num(value); return n === null ? '--' : `$${Math.round(n).toLocaleString()}`; };
+  const age = (seconds) => { const n = num(seconds); if (n === null) return '--'; if (n < 60) return `${Math.round(n)} sec`; if (n < 3600) return `${Math.round(n / 60)} min`; return `${(n / 3600).toFixed(1)} h`; };
+  const localTime = (value, timezone) => { if (!value) return '--'; const dt = new Date(String(value)); if (Number.isNaN(dt.getTime())) return String(value); const zone = timezone || 'UTC'; return `${dt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', timeZone: zone })} ${dt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: zone })}`; };
+  const stationTime = (value, payload) => localTime(value, payload?.station?.station_timezone || 'UTC');
+  const safeJson = (value) => { try { return JSON.stringify(value, null, 2); } catch (_) { return '{}'; } };
+  const head = (title, subtitle, badge) => `<div class="test-head"><div><div class="test-mini">${esc(title)}</div><div class="test-panel-title">${esc(title)}</div><div class="test-subtitle">${esc(subtitle || '')}</div></div><div class="test-badge">${esc(badge || 'live')}</div></div>`;
+  const kpi = (label, value, copy = '') => `<div class="test-kpi"><div class="test-mini">${esc(label)}</div><div class="test-kpi-value">${esc(value)}</div>${copy ? `<div class="test-kpi-copy">${esc(copy)}</div>` : ''}</div>`;
+  const metric = (label, value) => `<div class="test-metric"><div class="test-mini">${esc(label)}</div><div class="test-metric-value">${esc(value)}</div></div>`;
+  const details = (label, payload) => `<details class="test-details"><summary>${esc(label)}</summary><pre class="test-json">${esc(safeJson(payload || {}))}</pre></details>`;
+
+  function showError(message) { $('test-loading').style.display = 'none'; $('test-shell').style.display = 'none'; $('test-error').style.display = 'block'; $('test-error').textContent = message; }
+  function clearError() { $('test-error').style.display = 'none'; }
+  function showShell() { $('test-loading').style.display = 'none'; $('test-shell').style.display = 'flex'; }
+
+  function renderHero(payload) {
+    const station = payload.station || {}, official = payload.official || {}, market = payload.market || {}, signal = payload.signal || {}, summary = payload.summary || {}, meta = payload.meta || {}, settlement = payload.settlement_review || {};
+    $('test-station-title').textContent = `${text(station.station_name)} (${text(station.station_id)})`;
+    $('test-station-copy').textContent = `${text(station.target_date)} | ${text(station.station_timezone)} | ${text(station.event_title)}`;
+    $('test-station-pills').innerHTML = `<span class="test-pill">Day ${esc(text(station.target_day))}</span><span class="test-pill">Unit ${esc(text(station.market_unit))}</span><span class="test-pill">Generated ${esc(localTime(station.generated_at_utc, 'UTC'))} UTC</span>`;
+    $('test-status-row').innerHTML = `<span class="test-status ${esc(String(meta.status || 'partial').toLowerCase())}">${esc(meta.status || 'partial')}</span><span class="test-chip">Official ${summary.official_available ? 'ready' : 'missing'}</span><span class="test-chip">Pressure ${summary.pressure_available ? 'ready' : 'missing'}</span><span class="test-chip">Market ${summary.market_available ? 'ready' : 'missing'}</span><span class="test-chip">Settlement ${summary.settlement_review_available ? 'ready' : 'pending'}</span>`;
+    $('test-summary-grid').innerHTML = `<div class="test-summary"><div class="test-mini">Official temp</div><div class="test-summary-value">${esc(temp(official.temp_f, station.market_unit || 'F'))}</div><div class="test-summary-copy">${esc(stationTime(official.obs_time_utc, payload))} | ${esc(age(official.source_age_s))}</div></div><div class="test-summary"><div class="test-mini">Daily max</div><div class="test-summary-value">${esc(temp(official.daily_max_f, station.market_unit || 'F'))}</div><div class="test-summary-copy">Confirmed bucket ${esc(text(official.confirmed_bucket, official.temp_f))}</div></div><div class="test-summary"><div class="test-mini">Top market</div><div class="test-summary-value">${esc(text(market.top_bracket))}</div><div class="test-summary-copy">${esc(cents(market.top_yes_bid))} bid | ${esc(cents(market.top_yes_ask))} ask</div></div><div class="test-summary"><div class="test-mini">Signal</div><div class="test-summary-value">${esc(text(signal.recommendation, summary.recommendation))}</div><div class="test-summary-copy">${esc(pct(signal.fair_probability))} fair | ${esc(signal.edge_points !== undefined && signal.edge_points !== null ? `${Number(signal.edge_points).toFixed(1)} pts` : '--')}</div></div>`;
+    $('test-hero-copy').textContent = settlement.available ? `Official state is shown next to local pressure, live market pricing and settlement review for ${station.target_date}.` : 'Official state, local pressure, live market pricing and signal are visible. Settlement review is still pending.';
+  }
+
+  function renderOfficial(payload) {
+    const station = payload.station || {}, official = payload.official || {};
+    $('test-official').innerHTML = `${head('Official', 'Latest airport confirmation from METAR or SPECI.', text(official.report_type, 'official'))}<div class="test-kpis">${kpi('Current temp', temp(official.temp_f, station.market_unit || 'F'), `Observed ${stationTime(official.obs_time_utc, payload)}`)}${kpi('Daily max', temp(official.daily_max_f, station.market_unit || 'F'), `Freshness ${age(official.source_age_s)}`)}${kpi('Confirmed bin', text(official.confirmed_bucket, official.temp_f), `Raw ${temp(official.temp_f_raw, station.market_unit || 'F')}`)}${kpi('Report type', text(official.report_type), official.is_speci ? 'SPECI update' : 'Routine METAR')}</div><div class="test-metrics">${metric('Dew point', temp(official.dewpoint_c, 'C'))}${metric('Wind', text(official.wind_dir !== undefined && official.wind_dir !== null ? `${official.wind_dir} deg` : null, official.wind_speed !== undefined && official.wind_speed !== null ? `${official.wind_speed} kt` : null))}${metric('Sky', text(official.sky_condition))}${metric('QC', official.qc_passed === true ? 'passed' : (official.qc_passed === false ? 'failed' : 'pending'))}</div>${details('Official raw JSON', official)}`;
+  }
+
+  function renderPressure(payload) {
+    const station = payload.station || {}, pressure = payload.pressure || {}, rows = Array.isArray(pressure.pws_details) ? pressure.pws_details.slice(0, 8) : [];
+    const table = rows.length ? `<div class="test-table-wrap"><table class="test-table"><thead><tr><th>Station</th><th>Source</th><th>Temp</th><th>Distance</th><th>Age</th></tr></thead><tbody>${rows.map((row) => `<tr><td>${esc(text(row.station_id, row.name))}</td><td>${esc(text(row.source))}</td><td>${esc(temp(row.temp_f, station.market_unit || 'F'))}</td><td>${esc(row.distance_km !== undefined && row.distance_km !== null ? `${Number(row.distance_km).toFixed(1)} km` : '--')}</td><td>${esc(age(row.source_age_s))}</td></tr>`).join('')}</tbody></table></div>` : '<div class="test-note">No auxiliary stations available right now.</div>';
+    $('test-pressure').innerHTML = `${head('Pressure', 'Auxiliary stations and local pressure before the next official print.', `${pressure.station_count || 0} stations`)}<div class="test-kpis">${kpi('Consensus temp', temp(pressure.consensus_temp_f, station.market_unit || 'F'), `Latest aux ${age(pressure.source_age_s)}`)}${kpi('Trend', pressure.local_trend_f_per_hour !== undefined && pressure.local_trend_f_per_hour !== null ? `${Number(pressure.local_trend_f_per_hour).toFixed(1)} F/h` : '--', `Spread ${pressure.network_spread_f !== undefined && pressure.network_spread_f !== null ? `${Number(pressure.network_spread_f).toFixed(1)} F` : '--'}`)}${kpi('Forecast peak', temp(pressure.forecast_peak_temp_f, station.market_unit || 'F'), text(pressure.forecast_peak_hour_local, 'hour pending'))}${kpi('Degrees to target', pressure.degrees_to_target_f !== undefined && pressure.degrees_to_target_f !== null ? `${Number(pressure.degrees_to_target_f).toFixed(1)} F` : '--', `WU current ${temp(pressure.review_current_temp_f, station.market_unit || 'F')}`)}</div>${table}${details('Pressure raw JSON', pressure)}`;
+  }
+
+  function renderMarket(payload) {
+    const market = payload.market || {}, rows = Array.isArray(market.brackets) ? market.brackets.slice(0, 8) : [];
+    const table = rows.length ? `<div class="test-table-wrap"><table class="test-table"><thead><tr><th>Bracket</th><th>Price</th><th>Bid / ask</th><th>Mid</th><th>Depth</th></tr></thead><tbody>${rows.map((row) => `<tr><td>${esc(text(row.name))}</td><td>${esc(cents(row.yes_price))}</td><td>${esc(cents(row.ws_yes_best_bid ?? row.ws_best_bid))} / ${esc(cents(row.ws_yes_best_ask ?? row.ws_best_ask))}</td><td>${esc(cents(row.ws_yes_mid ?? row.ws_mid))}</td><td>${esc(money(row.ws_yes_bid_depth ?? row.ws_bid_depth))} / ${esc(money(row.ws_yes_ask_depth ?? row.ws_ask_depth))}</td></tr>`).join('')}</tbody></table></div>` : '<div class="test-note">No market brackets available.</div>';
+    $('test-market').innerHTML = `${head('Market', 'What Polymarket is pricing right now.', market.ws_connected ? 'live book' : 'snapshot')}<div class="test-kpis">${kpi('Top bracket', text(market.top_bracket), `${cents(market.top_yes_bid)} bid | ${cents(market.top_yes_ask)} ask`)}${kpi('Mid / price', `${cents(market.top_yes_mid)} | ${cents(market.top_yes_price)}`, `Staleness ${age(market.source_age_s)}`)}${kpi('Depth', `${money(market.top_yes_bid_depth)} / ${money(market.top_yes_ask_depth)}`, `${market.bracket_count || 0} brackets`)}${kpi('Market state', market.market_status?.event_closed ? 'closed' : (market.market_status?.is_mature ? 'mature' : 'open'), text(market.sentiment))}</div>${table}${details('Market raw JSON', market)}`;
+  }
+
+  function renderSignal(payload) {
+    const station = payload.station || {}, signal = payload.signal || {}, best = signal.best_terminal_trade || {}, tactical = signal.best_tactical_trade || {}, nextOfficial = (signal.tactical_context || {}).next_metar || {};
+    $('test-signal').innerHTML = `${head('Signal', 'Current idea, edge and next-official setup.', text(signal.horizon, 'signal'))}<div class="test-kpis">${kpi('Recommendation', text(signal.recommendation, best.best_side ? `${best.best_side} ${text(best.label)}` : null), text(signal.reason))}${kpi('Fair probability', pct(signal.fair_probability ?? best.selected_fair), `Market ${pct(best.selected_entry ?? best.market_probability)}`)}${kpi('Edge', signal.edge_points !== undefined && signal.edge_points !== null ? `${Number(signal.edge_points).toFixed(1)} pts` : '--', text(signal.policy_reason, signal.policy?.headline))}${kpi('Next official', nextOfficial.expected_market !== undefined && nextOfficial.expected_market !== null ? temp(nextOfficial.expected_market, station.market_unit || 'F') : '--', text(nextOfficial.direction, 'pending'))}</div><div class="test-metrics">${metric('Best terminal', best.best_side ? `${best.best_side} ${text(best.label)}` : '--')}${metric('Best tactical', tactical.best_side ? `${tactical.best_side} ${text(tactical.label)}` : '--')}${metric('Forecast winner', text((signal.forecast_winner || {}).label, signal.model?.top_label))}${metric('Next official ETA', nextOfficial.minutes_to_next !== undefined && nextOfficial.minutes_to_next !== null ? `${Number(nextOfficial.minutes_to_next).toFixed(0)} min` : '--')}</div>${details('Signal raw JSON', signal)}`;
+  }
+
+  function renderSettlement(payload) {
+    const station = payload.station || {}, settlement = payload.settlement_review || {};
+    $('test-settlement').innerHTML = `${head('Settlement Review', 'Wunderground review kept separate from live official state.', text(settlement.status, 'review pending'))}<div class="test-kpis">${kpi('Reviewed max', temp(settlement.high_temp_f, station.market_unit || 'F'), text(settlement.high_temp_time, settlement.notes))}${kpi('METAR max', temp(settlement.metar_max_f, station.market_unit || 'F'), `WU ${temp(settlement.wunderground_max_f, station.market_unit || 'F')}`)}${kpi('Current WU', temp(settlement.current_temp_f, station.market_unit || 'F'), `Forecast ${temp(settlement.forecast_peak_temp_f, station.market_unit || 'F')}`)}${kpi('Confidence', text(settlement.confidence), text(settlement.source))}</div><div class="test-metrics">${metric('Verification', text(settlement.verification_status, settlement.status))}${metric('Peak hour', text(settlement.forecast_peak_hour_local, settlement.high_temp_time))}${metric('Notes', text(settlement.notes))}${metric('Review state', settlement.available ? 'available' : 'pending')}</div>${details('Settlement raw JSON', settlement)}`;
+  }
+
+  function renderForecast(payload) {
+    const station = payload.station || {}, forecast = payload.forecast || {}, sources = Array.isArray(forecast.external_sources) ? forecast.external_sources.slice(0, 6) : [], persisted = Array.isArray(forecast.persisted_sources) ? forecast.persisted_sources.slice(0, 6) : [];
+    const sourceTable = sources.length ? `<div class="test-table-wrap"><table class="test-table"><thead><tr><th>Source</th><th>Status</th><th>Realtime</th><th>Day max</th><th>Forecast peak</th></tr></thead><tbody>${sources.map((row) => `<tr><td>${esc(text(row.display_name, row.source))}</td><td>${esc(text(row.status))}</td><td>${esc(temp(row.realtime_temp_f, station.market_unit || 'F'))}</td><td>${esc(temp(row.historical_max_f, station.market_unit || 'F'))}</td><td>${esc(temp(row.forecast_peak_f, station.market_unit || 'F'))}</td></tr>`).join('')}</tbody></table></div>` : '<div class="test-note">No external forecast sources available.</div>';
+    const persistedTable = persisted.length ? `<div class="test-table-wrap"><table class="test-table"><thead><tr><th>Source</th><th>Captured</th><th>Provider updated</th><th>Peak</th><th>Rows</th></tr></thead><tbody>${persisted.map((row) => `<tr><td>${esc(text(row.source))}</td><td>${esc(localTime(row.captured_at_utc, 'UTC'))}</td><td>${esc(localTime(row.provider_updated_at_utc, 'UTC'))}</td><td>${esc(temp(row.forecast_peak_f, station.market_unit || 'F'))}</td><td>${esc(text(row.hourly_points))}</td></tr>`).join('')}</tbody></table></div>` : '<div class="test-note">No persisted forecast snapshots found for this target date.</div>';
+    $('test-forecast').innerHTML = `${head('Forecast', 'Nowcast state plus external baseline snapshots.', forecast.available ? 'ready' : 'partial')}<div class="test-kpis">${kpi('Nowcast mean', temp((forecast.nowcast_distribution || {}).tmax_mean_f, station.market_unit || 'F'), `Sigma ${temp((forecast.nowcast_distribution || {}).tmax_sigma_f, station.market_unit || 'F')}`)}${kpi('Confidence', pct((forecast.nowcast_distribution || {}).confidence), `Age ${age(forecast.source_age_s)}`)}${kpi('Max so far', temp((forecast.nowcast_state || {}).max_so_far_f, station.market_unit || 'F'), `Updated ${stationTime((forecast.nowcast_state || {}).last_update_utc, payload)}`)}${kpi('Sources', String(sources.length), `${persisted.length} persisted snapshots`)}</div>${sourceTable}${persistedTable}${details('Forecast raw JSON', forecast)}`;
+  }
+
+  function renderProvenance(payload) {
+    const station = payload.station || {}, provenance = payload.provenance || {}, meta = payload.meta || {};
+    $('test-provenance').innerHTML = `${head('Provenance', 'Freshness, timestamps and missing sections.', text(meta.status, 'partial'))}<div class="test-metrics">${metric('Generated', localTime(station.generated_at_utc, 'UTC'))}${metric('World snapshot', localTime(provenance.world_snapshot_utc, 'UTC'))}${metric('Official age', age(provenance.official_source_age_s))}${metric('Pressure age', age(provenance.pressure_source_age_s))}${metric('Forecast age', age(provenance.forecast_source_age_s))}${metric('Market age', age(provenance.market_source_age_s))}${metric('Settlement status', text(provenance.settlement_status))}${metric('Missing', (provenance.missing_sections || []).length ? provenance.missing_sections.join(', ') : 'none')}</div>${details('Provenance raw JSON', provenance)}`;
+  }
+
+  function renderAll(payload) {
+    renderHero(payload); renderOfficial(payload); renderPressure(payload); renderMarket(payload); renderSignal(payload); renderSettlement(payload); renderForecast(payload); renderProvenance(payload);
+    $('test-last-update').textContent = new Date().toLocaleTimeString();
+  }
+
+  async function fetchTestConsole(options = {}) {
+    const force = Boolean(options.force);
+    if (fetchController) { if (!force) return; fetchController.abort(); }
+    const seq = ++fetchSeq;
+    const controller = new AbortController();
+    fetchController = controller;
+    try {
+      const response = await fetch(`/api/test/${encodeURIComponent(selectedStation)}?target_day=${selectedDay}&depth=5`, { cache: 'no-store', signal: controller.signal });
+      if (seq !== fetchSeq) return;
+      const payload = await response.json();
+      if (!response.ok || payload?.detail || payload?.error) { showError(payload?.detail || payload?.error || `HTTP ${response.status}`); return; }
+      clearError(); showShell(); renderAll(payload); lucide.createIcons();
+    } catch (error) {
+      if (error && error.name === 'AbortError') return;
+      showError(String(error?.message || error || 'Failed to load Test console'));
+    } finally {
+      if (fetchController === controller && seq === fetchSeq) fetchController = null;
+    }
+  }
+
+  function selectDay(day) {
+    selectedDay = day;
+    document.querySelectorAll('.test-day').forEach((button) => button.classList.toggle('active', Number(button.dataset.day) === day));
+    fetchTestConsole({ force: true });
+  }
+
+  window.selectDay = selectDay;
+  window.fetchTestConsole = fetchTestConsole;
+
+  document.addEventListener('DOMContentLoaded', () => {
+    window.addEventListener('helios:stationchange', (event) => {
+      const nextStation = event?.detail?.stationId;
+      if (!nextStation || nextStation === selectedStation) return;
+      selectedStation = nextStation;
+      fetchTestConsole({ force: true });
+    });
+    fetchTestConsole({ force: true });
+    setInterval(() => { if (!document.hidden) fetchTestConsole(); }, REFRESH_MS);
+    lucide.createIcons();
+  });
+
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) fetchTestConsole({ force: true });
+  });
+})();
+</script>
+{% endblock %}

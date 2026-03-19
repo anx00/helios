@@ -248,6 +248,11 @@
         line-height: 1.45;
         word-break: break-word;
     }
+    .pm-comparison-summary-meta {
+        font-size: 11px;
+        color: var(--text-secondary);
+        line-height: 1.45;
+    }
     .pm-comparison-diff {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1381,7 +1386,19 @@
     function formatComparisonTime(value) {
         if (!value) return '--';
         const dt = new Date(String(value));
-        return Number.isNaN(dt.getTime()) ? String(value) : dt.toISOString();
+        if (Number.isNaN(dt.getTime())) return String(value);
+        const dateLabel = dt.toLocaleDateString('en-GB', {
+            day: '2-digit',
+            month: 'short',
+            timeZone: 'UTC',
+        });
+        const timeLabel = dt.toLocaleTimeString('en-GB', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+            timeZone: 'UTC',
+        });
+        return `${dateLabel} ${timeLabel} UTC`;
     }
 
     function formatComparisonTemp(tempF, tempC, unit = 'F') {
@@ -1390,7 +1407,7 @@
             ? (typeof tempC === 'number' && Number.isFinite(tempC) ? tempC : (typeof tempF === 'number' && Number.isFinite(tempF) ? (tempF - 32) * 5 / 9 : null))
             : (typeof tempF === 'number' && Number.isFinite(tempF) ? tempF : (typeof tempC === 'number' && Number.isFinite(tempC) ? (tempC * 9 / 5) + 32 : null));
         if (n === null) return '--';
-        return `${n.toFixed(1)}&deg;${targetUnit}`;
+        return `${n.toFixed(1)} ${targetUnit}`;
     }
 
     function formatComparisonNumber(value, suffix = '') {
@@ -1411,6 +1428,20 @@
     function formatComparisonDepth(value) {
         if (typeof value !== 'number' || !Number.isFinite(value)) return '--';
         return `$${Math.round(value).toLocaleString()}`;
+    }
+
+    function formatComparisonAge(seconds) {
+        if (typeof seconds !== 'number' || !Number.isFinite(seconds)) return '--';
+        if (seconds < 60) return `${Math.round(seconds)} sec`;
+        if (seconds < 3600) return `${Math.round(seconds / 60)} min`;
+        return `${(seconds / 3600).toFixed(1)} h`;
+    }
+
+    function formatComparisonTargetDay(day) {
+        if (day === '0' || day === 0) return 'Today';
+        if (day === '1' || day === 1) return 'Tomorrow';
+        if (day === '--' || day === null || day === undefined) return '--';
+        return `Day ${day}`;
     }
 
     function comparisonStatusClass(status) {
@@ -1470,7 +1501,7 @@
                 temp: formatComparisonTemp(official.temp_f, official.temp_c, unit),
                 daily_max: formatComparisonTemp(official.daily_max_f, null, unit),
                 obs_time: formatComparisonTime(official.obs_time_utc || official.obs_time_nyc || official.ingest_time_utc),
-                freshness: official.source_age_s !== undefined ? `${Number(official.source_age_s).toFixed(1)}s` : '--',
+                freshness: formatComparisonAge(Number(official.source_age_s)),
             },
             market: {
                 event_title: firstText(data?.event_title) || '--',
@@ -1492,10 +1523,10 @@
                 reason: firstText(signal.policy_reason, policy.headline) || '--',
             },
             provenance: {
-                generated_at: generatedAt,
+                generated_at: formatComparisonTime(generatedAt),
                 source_age: firstText(
-                    official.source_age_s !== undefined ? `${Number(official.source_age_s).toFixed(1)}s` : '',
-                    data?.ws_metrics?.publisher_lag_ms !== undefined ? `${data.ws_metrics.publisher_lag_ms}ms` : '',
+                    formatComparisonAge(Number(official.source_age_s)),
+                    data?.ws_metrics?.publisher_lag_ms !== undefined ? `${data.ws_metrics.publisher_lag_ms} ms` : '',
                     data?.server_ts ? 'server_ts available' : '',
                 ) || '--',
                 review_state: reviewState,
@@ -1529,7 +1560,7 @@
                 temp: formatComparisonTemp(official.temp_f, official.temp_c, unit),
                 daily_max: formatComparisonTemp(official.daily_max_f, official.daily_max_c, unit),
                 obs_time: formatComparisonTime(official.obs_time_utc || official.obs_time_nyc || official.ingest_time_utc),
-                freshness: official.source_age_s !== undefined ? `${Number(official.source_age_s).toFixed(1)}s` : '--',
+                freshness: formatComparisonAge(Number(official.source_age_s)),
             },
             market: {
                 event_title: firstText(market.event_title, payload?.event_title) || '--',
@@ -1551,9 +1582,9 @@
                 reason: firstText(signal.reason, signal.policy_reason, signal.headline) || '--',
             },
             provenance: {
-                generated_at: firstText(provenance.generated_at_utc, payload?.generated_at_utc, payload?.server_ts) || '--',
+                generated_at: formatComparisonTime(firstText(provenance.generated_at_utc, payload?.generated_at_utc, payload?.server_ts)),
                 source_age: firstText(
-                    provenance.source_age_s !== undefined ? `${Number(provenance.source_age_s).toFixed(1)}s` : '',
+                    formatComparisonAge(Number(provenance.source_age_s)),
                     payload?.comparison?.status ? String(payload.comparison.status) : '',
                 ) || '--',
                 review_state: reviewStatus,
@@ -1680,6 +1711,7 @@
                         <div class="pm-comparison-summary-item">
                             <div class="pm-comparison-summary-label">${escapeHtml(entry.label)}</div>
                             <div class="pm-comparison-summary-value">${escapeHtml(entry.value ?? '--')}</div>
+                            ${entry.meta ? `<div class="pm-comparison-summary-meta">${escapeHtml(entry.meta)}</div>` : ''}
                         </div>
                     `).join('')}
                 </div>
@@ -1747,10 +1779,16 @@
                 'authoritative',
                 'authoritative',
                 [
-                    { label: 'Official', value: `${prodView.official.temp} | max ${prodView.official.daily_max} | ${prodView.official.obs_time}` },
-                    { label: 'Market', value: `${prodView.market.top_bracket} | ${prodView.market.best_bid_ask} | mid ${prodView.market.midpoint}` },
-                    { label: 'Signal', value: `${prodView.signal.recommendation} | ${prodView.signal.fair_probability} | ${prodView.signal.edge}` },
-                    { label: 'Provenance', value: `${prodView.provenance.status} | ${prodView.provenance.source_age}` },
+                    { label: 'Station / day', value: `${prodView.identity.station} · ${prodView.identity.target_date} · day ${prodView.identity.target_day}` },
+                    { label: 'Official temp', value: prodView.official.temp },
+                    { label: 'Official max', value: prodView.official.daily_max },
+                    { label: 'Observed', value: `${prodView.official.obs_time} · ${prodView.official.freshness}` },
+                    { label: 'Top bracket', value: prodView.market.top_bracket },
+                    { label: 'Bid / ask', value: prodView.market.best_bid_ask },
+                    { label: 'Mid / spread', value: `${prodView.market.midpoint} / ${prodView.market.spread}` },
+                    { label: 'Signal', value: prodView.signal.recommendation },
+                    { label: 'Fair / edge', value: `${prodView.signal.fair_probability} · ${prodView.signal.edge}` },
+                    { label: 'Status', value: `${prodView.provenance.status} · ${prodView.provenance.source_age}` },
                 ],
                 'Production raw JSON',
                 productionRaw,
@@ -1760,10 +1798,16 @@
                 unavailable ? 'unavailable' : (loading ? 'pending' : summaryStatus),
                 'experimental',
                 [
-                    { label: 'Official', value: experimentalView ? `${experimentalView.official.temp} | max ${experimentalView.official.daily_max} | ${experimentalView.official.obs_time}` : '--' },
-                    { label: 'Market', value: experimentalView ? `${experimentalView.market.top_bracket} | ${experimentalView.market.best_bid_ask} | mid ${experimentalView.market.midpoint}` : '--' },
-                    { label: 'Signal', value: experimentalView ? `${experimentalView.signal.recommendation} | ${experimentalView.signal.fair_probability} | ${experimentalView.signal.edge}` : '--' },
-                    { label: 'Review', value: experimentalView ? `${experimentalView.provenance.review_state} | ${experimentalView.provenance.status}` : (unavailable ? 'experimental unavailable' : 'pending') },
+                    { label: 'Station / day', value: experimentalView ? `${experimentalView.identity.station} · ${experimentalView.identity.target_date} · day ${experimentalView.identity.target_day}` : '--' },
+                    { label: 'Official temp', value: experimentalView ? experimentalView.official.temp : '--' },
+                    { label: 'Official max', value: experimentalView ? experimentalView.official.daily_max : '--' },
+                    { label: 'Observed', value: experimentalView ? `${experimentalView.official.obs_time} · ${experimentalView.official.freshness}` : '--' },
+                    { label: 'Top bracket', value: experimentalView ? experimentalView.market.top_bracket : '--' },
+                    { label: 'Bid / ask', value: experimentalView ? experimentalView.market.best_bid_ask : '--' },
+                    { label: 'Mid / spread', value: experimentalView ? `${experimentalView.market.midpoint} / ${experimentalView.market.spread}` : '--' },
+                    { label: 'Signal', value: experimentalView ? experimentalView.signal.recommendation : '--' },
+                    { label: 'Fair / edge', value: experimentalView ? `${experimentalView.signal.fair_probability} · ${experimentalView.signal.edge}` : '--' },
+                    { label: 'Review', value: experimentalView ? `${experimentalView.provenance.review_state} · ${experimentalView.provenance.status}` : (unavailable ? 'experimental unavailable' : 'pending') },
                 ],
                 'Experimental raw JSON',
                 rawExperimental,
@@ -1771,9 +1815,9 @@
         `;
 
         diff.innerHTML = `
-            ${renderComparisonDiffCard('Official', prodView.official.temp, experimentalView ? experimentalView.official.temp : '--', officialStatus)}
-            ${renderComparisonDiffCard('Market', `${prodView.market.top_bracket} | ${prodView.market.best_bid_ask}`, experimentalView ? `${experimentalView.market.top_bracket} | ${experimentalView.market.best_bid_ask}` : '--', marketStatus)}
-            ${renderComparisonDiffCard('Signal', `${prodView.signal.recommendation} | ${prodView.signal.edge}`, experimentalView ? `${experimentalView.signal.recommendation} | ${experimentalView.signal.edge}` : '--', signalStatus)}
+            ${renderComparisonDiffCard('Official', `${prodView.official.temp} · max ${prodView.official.daily_max}`, experimentalView ? `${experimentalView.official.temp} · max ${experimentalView.official.daily_max}` : '--', officialStatus)}
+            ${renderComparisonDiffCard('Market', `${prodView.market.top_bracket} · ${prodView.market.best_bid_ask}`, experimentalView ? `${experimentalView.market.top_bracket} · ${experimentalView.market.best_bid_ask}` : '--', marketStatus)}
+            ${renderComparisonDiffCard('Signal', `${prodView.signal.recommendation} · ${prodView.signal.edge}`, experimentalView ? `${experimentalView.signal.recommendation} · ${experimentalView.signal.edge}` : '--', signalStatus)}
         `;
 
         detailsWrap.innerHTML = experimentalView ? `

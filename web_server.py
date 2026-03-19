@@ -3487,6 +3487,74 @@ def _staleness_seconds_from_iso(value: Any, *, reference_utc: Optional[datetime]
         return None
 
 
+def _pick_first_mapping(payload: Any, *keys: str) -> Dict[str, Any]:
+    if not isinstance(payload, dict):
+        return {}
+    for key in keys:
+        value = payload.get(key)
+        if isinstance(value, dict):
+            return copy.deepcopy(value)
+    return {}
+
+
+def _pick_first_list(payload: Any, *keys: str) -> List[Any]:
+    if not isinstance(payload, dict):
+        return []
+    for key in keys:
+        value = payload.get(key)
+        if isinstance(value, list):
+            return copy.deepcopy(value)
+    return []
+
+
+def _build_test_pressure_payload(
+    *,
+    station_id: str,
+    auxiliary: Optional[Dict[str, Any]],
+    forecast: Optional[Dict[str, Any]],
+    settlement_review: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    auxiliary = auxiliary if isinstance(auxiliary, dict) else {}
+    forecast = forecast if isinstance(forecast, dict) else {}
+    settlement_review = settlement_review if isinstance(settlement_review, dict) else {}
+    pws_details = list(auxiliary.get("pws_details") or [])
+    pws_metrics = auxiliary.get("pws_metrics") if isinstance(auxiliary.get("pws_metrics"), dict) else {}
+    latest_aux = auxiliary.get("latest_aux") if isinstance(auxiliary.get("latest_aux"), dict) else {}
+    nowcast_state = forecast.get("nowcast_state") if isinstance(forecast.get("nowcast_state"), dict) else {}
+    consensus_temp_f = latest_aux.get("temp_f")
+    if consensus_temp_f is None:
+        consensus_temp_f = pws_metrics.get("weighted_avg_f")
+    target_temp_f = settlement_review.get("forecast_peak_temp_f")
+    if target_temp_f is None:
+        target_temp_f = nowcast_state.get("expected_peak_temp_f")
+    try:
+        degrees_to_next_bin_f = None
+        if consensus_temp_f is not None and target_temp_f is not None:
+            degrees_to_next_bin_f = round(float(target_temp_f) - float(consensus_temp_f), 1)
+    except Exception:
+        degrees_to_next_bin_f = None
+
+    return {
+        "contract_role": "pressure",
+        "available": bool(auxiliary.get("available") or forecast.get("available") or settlement_review.get("available")),
+        "station_id": station_id,
+        "latest_aux": copy.deepcopy(latest_aux) if latest_aux else None,
+        "pws_details": pws_details,
+        "pws_metrics": copy.deepcopy(pws_metrics) if pws_metrics else {},
+        "consensus_temp_f": consensus_temp_f,
+        "local_trend_f_per_hour": pws_metrics.get("trend_f_per_hour"),
+        "network_spread_f": pws_metrics.get("spread_f"),
+        "station_count": len(pws_details),
+        "degrees_to_target_f": degrees_to_next_bin_f,
+        "forecast_peak_temp_f": target_temp_f,
+        "forecast_peak_hour_local": settlement_review.get("forecast_peak_hour_local") or nowcast_state.get("expected_peak_hour_local"),
+        "review_current_temp_f": settlement_review.get("current_temp_f"),
+        "review_high_temp_f": settlement_review.get("high_temp_f"),
+        "source_age_s": auxiliary.get("source_age_s") if auxiliary.get("source_age_s") is not None else forecast.get("source_age_s"),
+        "staleness_s": auxiliary.get("staleness_s") if auxiliary.get("staleness_s") is not None else forecast.get("staleness_s"),
+    }
+
+
 def _experimental_market_summary(brackets: Any) -> Dict[str, Any]:
     rows = [row for row in list(brackets or []) if isinstance(row, dict)]
     top = rows[0] if rows else {}
@@ -3499,6 +3567,503 @@ def _experimental_market_summary(brackets: Any) -> Dict[str, Any]:
         "top_yes_mid": top.get("ws_mid"),
         "top_yes_staleness_ms": top.get("ws_staleness_ms"),
     }
+
+
+def _test_pick_temp_bucket(temp_f: Any, brackets: Any) -> Optional[str]:
+    try:
+        numeric = float(temp_f)
+    except Exception:
+        return None
+    labels = [str(row.get("name") or "").strip() for row in list(brackets or []) if isinstance(row, dict) and row.get("name")]
+    if not labels:
+        return None
+    try:
+        from core.polymarket_labels import label_for_temp
+
+        label, _ = label_for_temp(numeric, labels)
+        return label
+    except Exception:
+        return None
+
+
+def _test_summarize_external_sources(snapshot: Any) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for source in list((snapshot or {}).get("sources") or []):
+        if not isinstance(source, dict):
+            continue
+        history = source.get("historical_day") if isinstance(source.get("historical_day"), dict) else {}
+        realtime = source.get("realtime") if isinstance(source.get("realtime"), dict) else {}
+        hourly = source.get("forecast_hourly") if isinstance(source.get("forecast_hourly"), dict) else {}
+        hourly_points = [point for point in list(hourly.get("points") or []) if isinstance(point, dict)]
+        peak_f = None
+        if hourly_points:
+            temps = [point.get("temp_f") for point in hourly_points if isinstance(point.get("temp_f"), (int, float))]
+            if temps:
+                peak_f = max(float(value) for value in temps)
+        rows.append(
+            {
+                "source": source.get("source"),
+                "display_name": source.get("display_name") or source.get("source"),
+                "status": source.get("status"),
+                "realtime_temp_f": realtime.get("temp_f"),
+                "realtime_as_of_local": realtime.get("as_of_local"),
+                "historical_max_f": history.get("max_temp_f"),
+                "historical_max_time_local": history.get("max_temp_time_local"),
+                "forecast_peak_f": peak_f,
+                "forecast_points": len(hourly_points),
+                "note_count": len(list(source.get("notes") or [])),
+                "error_count": len(list(source.get("errors") or [])),
+            }
+        )
+    return rows
+
+
+def _test_summarize_persisted_forecasts(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    for row in list(rows or []):
+        if not isinstance(row, dict):
+            continue
+        payload = row.get("payload") if isinstance(row.get("payload"), dict) else {}
+        temps = []
+        for point in list(payload.get("hourly") or payload.get("points") or []):
+            if isinstance(point, dict) and isinstance(point.get("temp_f"), (int, float)):
+                temps.append(float(point.get("temp_f")))
+        out.append(
+            {
+                "source": row.get("source"),
+                "captured_at_utc": row.get("captured_at_utc"),
+                "provider_updated_at_utc": row.get("provider_updated_at_utc"),
+                "forecast_peak_f": max(temps) if temps else None,
+                "hourly_points": len(temps),
+            }
+        )
+    return out
+
+
+async def _build_test_dashboard_payload(
+    station_id: str,
+    *,
+    target_day: int = 0,
+    target_date: Optional[str] = None,
+    depth: int = 5,
+) -> Dict[str, Any]:
+    from collector.external_sources_fetcher import fetch_external_sources_snapshot
+    from database import get_latest_forecast_source_snapshots
+
+    station_id = str(station_id or "").strip().upper()
+    if station_id not in STATIONS:
+        raise HTTPException(status_code=400, detail=f"Invalid station: {station_id}")
+
+    station = STATIONS[station_id]
+    now_utc = datetime.now(timezone.utc)
+    target_date_obj, resolved_target_day = _resolve_station_market_date(
+        station_id,
+        target_day=target_day,
+        target_date=target_date,
+    )
+    target_date_str = target_date_obj.isoformat()
+    errors: Dict[str, str] = {}
+    missing_sections: List[str] = []
+
+    market_payload: Dict[str, Any] = {}
+    try:
+        market_payload = await get_polymarket_dashboard_data(
+            station_id,
+            target_day=resolved_target_day,
+            target_date=target_date_str,
+            depth=depth,
+        )
+        if not isinstance(market_payload, dict) or market_payload.get("error"):
+            errors["market"] = str((market_payload or {}).get("error") or "market unavailable")
+            missing_sections.append("market")
+            market_payload = {}
+    except Exception as exc:
+        errors["market"] = str(exc)
+        missing_sections.append("market")
+        market_payload = {}
+
+    world_snapshot: Dict[str, Any] = {}
+    official: Dict[str, Any] = {}
+    latest_aux: Dict[str, Any] = {}
+    pws_details: List[Dict[str, Any]] = []
+    pws_metrics: Dict[str, Any] = {}
+    qc_payload: Dict[str, Any] = {}
+    health_payload: Dict[str, Any] = {}
+    try:
+        world_snapshot = get_world().get_snapshot()
+        official = ((world_snapshot.get("official") or {}).get(station_id)) or {}
+        latest_aux = ((world_snapshot.get("aux") or {}).get(station_id)) or {}
+        pws_details = list(((world_snapshot.get("pws_details") or {}).get(station_id)) or [])
+        pws_metrics = dict(((world_snapshot.get("pws_metrics") or {}).get(station_id)) or {})
+        qc_payload = dict(((world_snapshot.get("qc") or {}).get(f"PWS_{station_id}")) or ((world_snapshot.get("qc") or {}).get(station_id) or {}))
+        health_payload = dict(((world_snapshot.get("health") or {}).get(station_id)) or {})
+        if not official:
+            missing_sections.append("official")
+    except Exception as exc:
+        errors["world"] = str(exc)
+        missing_sections.extend(["official", "pressure"])
+
+    nowcast_distribution = None
+    nowcast_state: Dict[str, Any] = {}
+    try:
+        integration = get_nowcast_integration()
+        engine = integration.get_engine(station_id)
+        distribution = integration.get_distribution(station_id)
+        if not distribution:
+            distribution = engine.generate_distribution()
+        if distribution:
+            nowcast_distribution = distribution.to_dict()
+        nowcast_state = engine.get_state_snapshot() if engine else {}
+    except Exception as exc:
+        errors["forecast"] = str(exc)
+        missing_sections.append("forecast")
+
+    external_sources_snapshot: Dict[str, Any] = {}
+    external_sources_summary: List[Dict[str, Any]] = []
+    try:
+        external_sources_snapshot = await fetch_external_sources_snapshot(station_id)
+        external_sources_summary = _test_summarize_external_sources(external_sources_snapshot)
+    except Exception as exc:
+        errors["external_sources"] = str(exc)
+        missing_sections.append("forecast")
+
+    persisted_forecasts: List[Dict[str, Any]] = []
+    try:
+        persisted_forecasts = await asyncio.to_thread(
+            get_latest_forecast_source_snapshots,
+            station_id,
+            target_date_str,
+        )
+    except Exception as exc:
+        errors["persisted_forecasts"] = str(exc)
+
+    settlement_review: Dict[str, Any] = {
+        "available": False,
+        "status": "review_pending",
+        "source": "wunderground",
+    }
+    try:
+        observed = await get_observed_max(station_id, target_date=target_date_obj)
+        if observed:
+            settlement_review = {
+                "available": True,
+                "status": observed.verification_status or "verified",
+                "source": observed.source,
+                "high_temp_f": observed.high_temp_f,
+                "high_temp_time": observed.high_temp_time,
+                "current_temp_f": observed.current_temp_f,
+                "forecast_high_f": observed.forecast_high_f,
+                "forecast_peak_hour_local": observed.forecast_peak_hour_local,
+                "forecast_peak_temp_f": observed.forecast_peak_temp_f,
+                "metar_max_f": getattr(observed, "metar_max_f", None),
+                "wunderground_max_f": getattr(observed, "wunderground_max_f", None),
+                "wunderground_current_f": getattr(observed, "wunderground_current_f", None),
+                "confidence": getattr(observed, "confidence", None),
+                "notes": getattr(observed, "notes", None),
+            }
+        else:
+            missing_sections.append("settlement_review")
+    except Exception as exc:
+        errors["settlement_review"] = str(exc)
+        missing_sections.append("settlement_review")
+
+    trading = market_payload.get("trading") if isinstance(market_payload.get("trading"), dict) else {}
+    brackets = [row for row in list(market_payload.get("brackets") or []) if isinstance(row, dict)]
+    official_bucket = _test_pick_temp_bucket(official.get("temp_f"), brackets)
+    market_unit = str(
+        trading.get("market_unit")
+        or get_polymarket_temp_unit(station_id)
+        or "F"
+    ).upper()
+    top_brackets = []
+    for row in brackets[:5]:
+        top_brackets.append(
+            {
+                "label": row.get("name"),
+                "yes_price": row.get("yes_price"),
+                "best_bid": row.get("ws_best_bid"),
+                "best_ask": row.get("ws_best_ask"),
+                "midpoint": row.get("ws_mid"),
+                "spread": row.get("ws_spread"),
+                "bid_depth": row.get("ws_bid_depth"),
+                "ask_depth": row.get("ws_ask_depth"),
+                "staleness_ms": row.get("ws_staleness_ms"),
+                "volume": row.get("volume"),
+            }
+        )
+
+    signal_terminal = trading.get("best_terminal_trade") if isinstance(trading.get("best_terminal_trade"), dict) else {}
+    signal_forecast = trading.get("forecast_winner") if isinstance(trading.get("forecast_winner"), dict) else {}
+    signal_tactical = trading.get("best_tactical_trade") if isinstance(trading.get("best_tactical_trade"), dict) else {}
+    signal_policy = trading.get("policy") if isinstance(trading.get("policy"), dict) else {}
+    edge_points = signal_terminal.get("edge_points")
+    if edge_points is None and signal_terminal.get("best_edge") is not None:
+        try:
+            edge_points = round(float(signal_terminal.get("best_edge")) * 100.0, 2)
+        except Exception:
+            edge_points = None
+    signal_strength = "none"
+    if isinstance(edge_points, (int, float)):
+        if float(edge_points) >= 8.0:
+            signal_strength = "strong"
+        elif float(edge_points) > 0.0:
+            signal_strength = "watch"
+
+    pressure_available = bool(latest_aux or pws_details or pws_metrics)
+    pressure_station_preview = []
+    for row in sorted(
+        [item for item in pws_details if isinstance(item, dict)],
+        key=lambda item: float(item.get("distance_km") or 9999.0),
+    )[:6]:
+        pressure_station_preview.append(
+            {
+                "station_id": row.get("station_id"),
+                "station_name": row.get("station_name"),
+                "source": row.get("source"),
+                "distance_km": row.get("distance_km"),
+                "temp_f": row.get("temp_f"),
+                "learning_weight": row.get("learning_weight"),
+                "valid": row.get("valid"),
+            }
+        )
+
+    metrics_summary = {}
+    network_spread_f = None
+    for key, value in pws_metrics.items():
+        if key == "learning" or not isinstance(value, dict):
+            continue
+        if network_spread_f is None and isinstance(value.get("spread_f"), (int, float)):
+            network_spread_f = float(value.get("spread_f"))
+        metrics_summary[key] = {
+            "median_temp_f": value.get("median_temp_f"),
+            "drift_c": value.get("drift_c"),
+            "support": value.get("support"),
+            "spread_f": value.get("spread_f"),
+        }
+    pressure_forecast_peak_f = settlement_review.get("forecast_peak_temp_f")
+    pressure_forecast_peak_hour = settlement_review.get("forecast_peak_hour_local")
+    if pressure_forecast_peak_f is None and isinstance(nowcast_distribution, dict):
+        pressure_forecast_peak_f = nowcast_distribution.get("tmax_mean_f")
+    degrees_to_target_f = None
+    top_bracket_mid_f = None
+    try:
+        from market.polymarket_checker import parse_bracket_midpoint
+
+        top_bracket_mid_f = parse_bracket_midpoint((top_brackets[0] or {}).get("label")) if top_brackets else None
+    except Exception:
+        top_bracket_mid_f = None
+    if isinstance(top_bracket_mid_f, (int, float)) and isinstance(official.get("temp_f"), (int, float)):
+        degrees_to_target_f = round(float(top_bracket_mid_f) - float(official.get("temp_f")), 1)
+
+    official_block = {
+        "contract_role": "official",
+        "available": bool(official),
+        "temp_f": official.get("temp_f"),
+        "temp_f_raw": official.get("temp_f_raw"),
+        "temp_c": official.get("temp_c"),
+        "daily_max_f": official.get("daily_max_f"),
+        "daily_max_f_raw": official.get("daily_max_f_raw"),
+        "obs_time_utc": official.get("obs_time_utc"),
+        "report_type": official.get("report_type"),
+        "is_speci": official.get("is_speci"),
+        "raw_metar": official.get("raw_metar"),
+        "source_age_s": official.get("source_age_s"),
+        "confirmed_bucket": official_bucket,
+        "qc_passed": official.get("qc_passed"),
+        "qc_flags": list(official.get("qc_flags") or []),
+        "health": health_payload,
+    }
+
+    pressure_block = {
+        "contract_role": "pressure",
+        "available": pressure_available,
+        "consensus_temp_f": latest_aux.get("temp_f"),
+        "consensus_temp_c": latest_aux.get("temp_c"),
+        "support": latest_aux.get("support"),
+        "drift_c": latest_aux.get("drift"),
+        "source": latest_aux.get("source"),
+        "obs_time_utc": latest_aux.get("obs_time_utc"),
+        "source_age_s": latest_aux.get("source_age_s"),
+        "station_count": len(pressure_station_preview),
+        "network_count": len(pressure_station_preview),
+        "local_trend_f_per_hour": nowcast_state.get("trend_f_per_hour"),
+        "network_spread_f": network_spread_f,
+        "forecast_peak_temp_f": pressure_forecast_peak_f,
+        "forecast_peak_hour_local": pressure_forecast_peak_hour,
+        "degrees_to_target_f": degrees_to_target_f,
+        "review_current_temp_f": settlement_review.get("wunderground_current_f") or settlement_review.get("current_temp_f"),
+        "metrics": metrics_summary,
+        "learning": pws_metrics.get("learning") if isinstance(pws_metrics.get("learning"), dict) else {},
+        "stations": pressure_station_preview,
+        "pws_details": pressure_station_preview,
+        "qc": qc_payload,
+        "nowcast_state": nowcast_state,
+    }
+
+    market_block = {
+        "contract_role": "market",
+        "available": bool(market_payload),
+        "event_title": market_payload.get("event_title"),
+        "event_slug": market_payload.get("event_slug"),
+        "total_volume": market_payload.get("total_volume"),
+        "market_status": market_payload.get("market_status"),
+        "sentiment": market_payload.get("sentiment"),
+        "shifts": list(market_payload.get("shifts") or [])[:5],
+        "ws_connected": market_payload.get("ws_connected"),
+        "ws_metrics": market_payload.get("ws_metrics"),
+        "source_age_s": round(float(top_brackets[0].get("staleness_ms") or 0.0) / 1000.0, 1) if top_brackets and top_brackets[0].get("staleness_ms") is not None else None,
+        "top_bracket": top_brackets[0].get("label") if top_brackets else None,
+        "top_yes_price": top_brackets[0].get("yes_price") if top_brackets else None,
+        "top_yes_bid": top_brackets[0].get("best_bid") if top_brackets else None,
+        "top_yes_ask": top_brackets[0].get("best_ask") if top_brackets else None,
+        "top_yes_mid": top_brackets[0].get("midpoint") if top_brackets else None,
+        "top_yes_staleness_ms": top_brackets[0].get("staleness_ms") if top_brackets else None,
+        "bracket_count": len(brackets),
+        "top_brackets": top_brackets,
+        "top_bracket": top_brackets[0] if top_brackets else None,
+        "brackets": brackets,
+    }
+
+    signal_block = {
+        "contract_role": "signal",
+        "available": bool(trading.get("available")),
+        "market_unit": market_unit,
+        "strength": signal_strength,
+        "headline": signal_policy.get("headline") or signal_terminal.get("recommendation"),
+        "horizon": trading.get("horizon"),
+        "recommendation": signal_terminal.get("recommendation"),
+        "policy_reason": signal_terminal.get("policy_reason") or signal_policy.get("headline"),
+        "reason": signal_terminal.get("policy_reason") or signal_policy.get("headline"),
+        "forecast_winner": signal_forecast,
+        "best_terminal_trade": signal_terminal,
+        "best_tactical_trade": signal_tactical,
+        "terminal_opportunities": list(trading.get("terminal_opportunities") or [])[:5],
+        "tactical_context": trading.get("tactical_context"),
+        "edge_points": edge_points,
+        "fair_probability": signal_terminal.get("selected_fair"),
+        "policy": signal_policy,
+        "model": trading.get("model"),
+    }
+    if not signal_block["available"]:
+        missing_sections.append("signal")
+
+    forecast_block = {
+        "contract_role": "forecast",
+        "available": bool(nowcast_distribution or nowcast_state or external_sources_summary or persisted_forecasts),
+        "nowcast_distribution": nowcast_distribution,
+        "nowcast_state": nowcast_state,
+        "external_sources": external_sources_summary,
+        "persisted_sources": _test_summarize_persisted_forecasts(persisted_forecasts),
+        "source_age_s": nowcast_state.get("staleness_seconds"),
+    }
+    if not forecast_block["available"]:
+        missing_sections.append("forecast")
+
+    provenance_block = {
+        "contract_role": "provenance",
+        "world_snapshot_utc": world_snapshot.get("ts_utc"),
+        "generated_at_utc": now_utc.isoformat(),
+        "station_timezone": station.timezone,
+        "market_unit": market_unit,
+        "official_source_age_s": official_block.get("source_age_s"),
+        "pressure_source_age_s": pressure_block.get("source_age_s"),
+        "forecast_source_age_s": nowcast_state.get("staleness_seconds"),
+        "market_source_age_s": (
+            round(float(top_brackets[0].get("staleness_ms") or 0.0) / 1000.0, 1) if top_brackets and top_brackets[0].get("staleness_ms") is not None else None
+        ),
+        "settlement_status": settlement_review.get("status"),
+        "missing_sections": [],
+    }
+
+    missing_sections = list(dict.fromkeys(missing_sections))
+    provenance_block["missing_sections"] = missing_sections
+    status = "partial" if errors or missing_sections else "ok"
+
+    return {
+        "station": {
+            "station_id": station_id,
+            "station_name": station.name,
+            "station_timezone": station.timezone,
+            "target_day": resolved_target_day,
+            "target_date": target_date_str,
+            "market_unit": market_unit,
+            "generated_at_utc": now_utc.isoformat(),
+            "event_title": market_payload.get("event_title"),
+            "event_slug": market_payload.get("event_slug"),
+        },
+        "meta": {
+            "scope": "test_console",
+            "status": status,
+            "missing_sections": missing_sections,
+            "errors": errors,
+        },
+        "summary": {
+            "status": status,
+            "official_available": official_block["available"],
+            "pressure_available": pressure_block["available"],
+            "market_available": market_block["available"],
+            "signal_available": signal_block["available"],
+            "settlement_review_available": settlement_review.get("available", False),
+            "forecast_available": forecast_block["available"],
+            "has_errors": bool(errors),
+            "missing_sections": missing_sections,
+            "edge_points": edge_points,
+            "recommendation": signal_block.get("recommendation"),
+        },
+        "official": official_block,
+        "pressure": pressure_block,
+        "market": market_block,
+        "signal": signal_block,
+        "settlement_review": settlement_review,
+        "forecast": forecast_block,
+        "provenance": provenance_block,
+    }
+
+
+async def _build_test_console_payload(
+    station_id: str,
+    *,
+    target_day: int = 0,
+    target_date: Optional[str] = None,
+    depth: int = 5,
+) -> Dict[str, Any]:
+    return await _build_test_dashboard_payload(
+        station_id,
+        target_day=target_day,
+        target_date=target_date,
+        depth=depth,
+    )
+
+
+@app.get("/api/test/{station_id}")
+async def get_test_dashboard_data(
+    station_id: str,
+    target_day: int = 0,
+    target_date: Optional[str] = None,
+    depth: int = 5,
+):
+    station_id = str(station_id or "").strip().upper()
+    if station_id not in STATIONS:
+        return JSONResponse(
+            status_code=400,
+            content={"detail": "Invalid station"},
+        )
+
+    cache_key = f"test:{station_id}:{int(target_day)}:{target_date or ''}:{int(depth)}"
+
+    async def _build_payload():
+        return await _build_test_console_payload(
+            station_id,
+            target_day=target_day,
+            target_date=target_date,
+            depth=depth,
+        )
+
+    return await _get_or_build_hot_api_payload(
+        cache_key,
+        _build_payload,
+        ttl_seconds=5.0,
+    )
 
 
 async def _build_experimental_live_station_payload(
@@ -7122,6 +7687,14 @@ async def trading_dashboard(request: Request):
     """Trading dashboard - live market data, orderbook and trading policy."""
     return _render_template(request, "polymarket.html", {
         "active_page": "trading"
+    })
+
+
+@app.get("/test", response_class=HTMLResponse)
+async def test_dashboard(request: Request):
+    """Domain-oriented Test console for official, pressure, market, signal and settlement review."""
+    return _render_template(request, "test.html", {
+        "active_page": "test"
     })
 
 
