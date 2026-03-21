@@ -2,90 +2,149 @@
 {% block title %}HELIOS - Test Console{% endblock %}
 {% block head_extra %}
 <style>
-  .test-shell{display:flex;flex-direction:column;gap:18px}
-  .test-card,.test-loading,.test-error{background:rgba(10,14,24,.94);border:1px solid rgba(148,163,184,.14);border-radius:20px;box-shadow:0 24px 56px rgba(2,6,23,.28)}
-  .test-card{padding:20px}
-  .test-loading,.test-error{padding:24px}
-  .test-error{color:#fecaca;background:rgba(44,10,17,.88);border-color:rgba(248,113,113,.24)}
-  .test-hero{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(280px,.8fr);gap:18px}
-  .test-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
-  .test-grid .full{grid-column:1/-1}
-  .test-title,.test-panel-title{color:#f8fbff;font-family:"Space Grotesk",sans-serif;letter-spacing:-.03em}
-  .test-title{font-size:clamp(1.9rem,3vw,2.9rem);line-height:1.02}
-  .test-panel-title{font-size:1.3rem;line-height:1.1}
-  .test-kicker,.test-mini,.test-table th{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#8da3bc}
-  .test-kicker{color:#7dd3fc}
-  .test-copy,.test-subtitle,.test-note,.test-kpi-copy,.test-metric-value,.test-summary-copy{font-size:12px;line-height:1.5;color:#d8e4f3}
-  .test-subtitle,.test-summary-copy{color:#8da3bc}
-  .test-chip-row,.test-controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
-  .test-chip,.test-pill,.test-status,.test-badge{display:inline-flex;align-items:center;padding:7px 11px;border-radius:999px;border:1px solid rgba(148,163,184,.16);background:rgba(15,23,42,.72);color:#d8e4f3;font-size:11px}
-  .test-status.ok{color:#34d399}.test-status.partial{color:#fbbf24}.test-status.error{color:#f87171}
-  .test-toggle{display:inline-flex;gap:6px;padding:4px;border-radius:999px;border:1px solid rgba(56,189,248,.16);background:rgba(15,23,42,.76)}
-  .test-toggle button,.test-refresh{appearance:none;border:none;cursor:pointer;font:inherit;color:#d8e4f3;background:transparent}
-  .test-toggle button{padding:9px 14px;border-radius:999px;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
-  .test-toggle button.active{color:#ecfeff;background:linear-gradient(135deg,rgba(14,165,233,.24),rgba(16,185,129,.16))}
-  .test-refresh{padding:10px 14px;border-radius:12px;border:1px solid rgba(148,163,184,.16);background:rgba(15,23,42,.76);font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
-  .test-summary-grid,.test-kpis,.test-metrics{display:grid;gap:12px}
-  .test-summary-grid{grid-template-columns:repeat(4,minmax(0,1fr));margin-top:12px}
-  .test-kpis,.test-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .test-summary,.test-kpi,.test-metric,.test-station{border:1px solid rgba(148,163,184,.12);border-radius:16px;padding:14px;background:rgba(10,17,31,.76)}
-  .test-summary-value,.test-kpi-value{margin-top:8px;color:#f8fbff;font-family:"Space Grotesk",sans-serif;letter-spacing:-.03em;line-height:1.05;word-break:break-word}
-  .test-summary-value{font-size:clamp(1.35rem,2vw,1.9rem)}
-  .test-kpi-value{font-size:clamp(1.2rem,1.5vw,1.7rem)}
-  .test-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
-  .test-table-wrap{overflow:auto;border:1px solid rgba(148,163,184,.10);border-radius:16px;background:rgba(9,14,26,.72)}
-  .test-table{width:100%;border-collapse:collapse;min-width:560px}
-  .test-table th,.test-table td{padding:11px 13px;text-align:left;border-bottom:1px solid rgba(148,163,184,.08);color:#d8e4f3;font-size:12px;line-height:1.45}
-  .test-table tr:last-child td{border-bottom:none}
-  .test-details{border-top:1px solid rgba(148,163,184,.08);padding-top:12px}
-  .test-details summary{cursor:pointer;list-style:none;color:#8da3bc;font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase}
-  .test-json{margin:12px 0 0;white-space:pre-wrap;word-break:break-word;font-size:11px;line-height:1.55;color:#c9d8eb;background:rgba(3,8,19,.8);border:1px solid rgba(148,163,184,.12);border-radius:16px;padding:14px;max-height:320px;overflow:auto}
-  .test-last{text-align:right;color:#8da3bc;font-size:11px;opacity:.78}
-  @media (max-width:1200px){.test-hero{grid-template-columns:1fr}.test-summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-  @media (max-width:980px){.test-grid,.test-kpis,.test-metrics{grid-template-columns:1fr}.test-grid .full{grid-column:auto}}
-  @media (max-width:700px){.test-summary-grid{grid-template-columns:1fr}}
+  /* ── Reset & base ── */
+  .tc{--glass:rgba(255,255,255,.04);--glass-border:rgba(255,255,255,.07);--glass-hover:rgba(255,255,255,.08);--neon-cyan:#00e5ff;--neon-green:#00e676;--neon-amber:#ffab00;--neon-rose:#ff5252;--text-primary:#eaf0f9;--text-secondary:rgba(234,240,249,.55);--text-muted:rgba(234,240,249,.35);--radius:14px;--radius-sm:10px;font-family:'Inter',system-ui,sans-serif;display:flex;flex-direction:column;gap:20px}
+
+  /* ── Glassmorphism card ── */
+  .tc-card{background:var(--glass);backdrop-filter:blur(24px) saturate(1.4);-webkit-backdrop-filter:blur(24px) saturate(1.4);border:1px solid var(--glass-border);border-radius:var(--radius);padding:22px;transition:border-color .2s,box-shadow .2s}
+  .tc-card:hover{border-color:rgba(0,229,255,.12);box-shadow:0 0 32px rgba(0,229,255,.04)}
+  .tc-loading,.tc-error{padding:32px;border-radius:var(--radius);text-align:center}
+  .tc-loading{background:var(--glass);color:var(--text-secondary);font-size:13px;letter-spacing:.04em;animation:tc-pulse 1.8s ease-in-out infinite}
+  @keyframes tc-pulse{0%,100%{opacity:.6}50%{opacity:1}}
+  .tc-error{background:rgba(255,82,82,.08);border:1px solid rgba(255,82,82,.18);color:#ff8a80}
+
+  /* ── Typography ── */
+  .tc-eyebrow{font-size:10px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--neon-cyan);margin-bottom:6px}
+  .tc-headline{font-family:'Space Grotesk',sans-serif;font-size:clamp(1.6rem,2.8vw,2.4rem);font-weight:600;letter-spacing:-.04em;line-height:1.08;color:var(--text-primary);background:linear-gradient(135deg,#eaf0f9 30%,var(--neon-cyan));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+  .tc-subtitle{font-size:12.5px;color:var(--text-secondary);line-height:1.55;margin-top:8px;max-width:520px}
+  .tc-section-label{font-size:10.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted);margin-bottom:10px}
+  .tc-section-title{font-family:'Space Grotesk',sans-serif;font-size:1.15rem;font-weight:600;letter-spacing:-.02em;color:var(--text-primary)}
+  .tc-section-desc{font-size:11.5px;color:var(--text-secondary);margin-top:2px}
+
+  /* ── Bento hero grid ── */
+  .tc-bento{display:grid;grid-template-columns:1.5fr .7fr;grid-template-rows:auto;gap:16px}
+  .tc-bento-main{grid-row:1}
+  .tc-bento-scope{display:flex;flex-direction:column;justify-content:space-between}
+
+  /* ── Controls ── */
+  .tc-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .tc-segmented{display:inline-flex;padding:3px;border-radius:999px;background:rgba(255,255,255,.04);border:1px solid var(--glass-border)}
+  .tc-segmented button{appearance:none;border:none;cursor:pointer;padding:8px 16px;border-radius:999px;font-size:11.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text-secondary);background:transparent;transition:all .2s}
+  .tc-segmented button.active{color:var(--neon-cyan);background:rgba(0,229,255,.1);box-shadow:0 0 12px rgba(0,229,255,.08)}
+  .tc-btn{appearance:none;border:1px solid var(--glass-border);cursor:pointer;padding:8px 16px;border-radius:var(--radius-sm);font-size:11.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text-secondary);background:var(--glass);transition:all .2s}
+  .tc-btn:hover{color:var(--text-primary);border-color:rgba(0,229,255,.2);background:var(--glass-hover)}
+
+  /* ── Status indicators ── */
+  .tc-status-bar{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+  .tc-dot{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:500;color:var(--text-secondary);padding:5px 12px;border-radius:999px;border:1px solid var(--glass-border);background:rgba(0,0,0,.18)}
+  .tc-dot::before{content:'';width:7px;height:7px;border-radius:50%;flex-shrink:0}
+  .tc-dot.ok::before{background:var(--neon-green);box-shadow:0 0 8px var(--neon-green)}
+  .tc-dot.warn::before{background:var(--neon-amber);box-shadow:0 0 8px var(--neon-amber)}
+  .tc-dot.off::before{background:rgba(255,255,255,.15)}
+
+  /* ── KPI stat boxes ── */
+  .tc-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:16px}
+  .tc-stat{padding:14px;border-radius:var(--radius-sm);background:rgba(0,0,0,.22);border:1px solid var(--glass-border)}
+  .tc-stat-label{font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--text-muted)}
+  .tc-stat-value{font-family:'Space Grotesk',sans-serif;font-size:clamp(1.1rem,1.6vw,1.5rem);font-weight:600;letter-spacing:-.03em;color:var(--text-primary);margin-top:6px;word-break:break-word}
+  .tc-stat-hint{font-size:10.5px;color:var(--text-muted);margin-top:4px}
+
+  /* ── Panel grid ── */
+  .tc-panels{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}
+  .tc-panels .full{grid-column:1/-1}
+  .tc-panel-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:14px}
+  .tc-tag{display:inline-flex;align-items:center;padding:4px 10px;border-radius:999px;font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--neon-cyan);background:rgba(0,229,255,.08);border:1px solid rgba(0,229,255,.14)}
+
+  /* ── KPI rows inside panels ── */
+  .tc-kpis{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+  .tc-kpi{padding:12px;border-radius:var(--radius-sm);background:rgba(0,0,0,.16);border:1px solid rgba(255,255,255,.04)}
+  .tc-kpi-label{font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted)}
+  .tc-kpi-val{font-family:'Space Grotesk',sans-serif;font-size:1.05rem;font-weight:600;letter-spacing:-.02em;color:var(--text-primary);margin-top:4px}
+  .tc-kpi-sub{font-size:10px;color:var(--text-muted);margin-top:2px}
+
+  /* ── Metrics row ── */
+  .tc-metrics{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:12px}
+  .tc-met{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-radius:var(--radius-sm);background:rgba(0,0,0,.12);border:1px solid rgba(255,255,255,.03)}
+  .tc-met-k{font-size:10.5px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;font-weight:600}
+  .tc-met-v{font-size:12px;color:var(--text-secondary);font-weight:500;font-family:'JetBrains Mono',monospace}
+
+  /* ── Tables ── */
+  .tc-table-wrap{overflow:auto;border-radius:var(--radius-sm);border:1px solid var(--glass-border);margin-top:12px;background:rgba(0,0,0,.14)}
+  .tc-table{width:100%;border-collapse:collapse;min-width:520px}
+  .tc-table th{font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--text-muted);padding:10px 14px;text-align:left;border-bottom:1px solid var(--glass-border);background:rgba(0,0,0,.12)}
+  .tc-table td{font-size:12px;color:var(--text-secondary);padding:10px 14px;text-align:left;border-bottom:1px solid rgba(255,255,255,.03);font-family:'JetBrains Mono',monospace;font-size:11.5px}
+  .tc-table tr:last-child td{border-bottom:none}
+  .tc-table tr:hover td{background:rgba(0,229,255,.02)}
+  .tc-note{font-size:12px;color:var(--text-muted);padding:16px;text-align:center;font-style:italic}
+
+  /* ── Collapsible raw JSON ── */
+  .tc-collapse{border-top:1px solid var(--glass-border);padding-top:10px;margin-top:14px}
+  .tc-collapse summary{cursor:pointer;list-style:none;font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--text-muted);transition:color .2s}
+  .tc-collapse summary:hover{color:var(--neon-cyan)}
+  .tc-collapse summary::-webkit-details-marker{display:none}
+  .tc-json{margin-top:10px;white-space:pre-wrap;word-break:break-word;font-family:'JetBrains Mono',monospace;font-size:10.5px;line-height:1.6;color:var(--text-muted);background:rgba(0,0,0,.28);border:1px solid rgba(255,255,255,.04);border-radius:var(--radius-sm);padding:14px;max-height:280px;overflow:auto}
+
+  /* ── Scope card pills ── */
+  .tc-pills{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+  .tc-pill{display:inline-flex;align-items:center;padding:5px 11px;border-radius:999px;font-size:10.5px;font-weight:500;color:var(--text-secondary);border:1px solid var(--glass-border);background:rgba(0,0,0,.14)}
+
+  /* ── Footer timestamp ── */
+  .tc-footer{text-align:right;font-size:10.5px;color:var(--text-muted);letter-spacing:.04em}
+
+  /* ── Scope card inner ── */
+  .tc-scope-name{font-family:'Space Grotesk',sans-serif;font-size:1.2rem;font-weight:600;color:var(--text-primary);letter-spacing:-.02em}
+  .tc-scope-meta{font-size:11.5px;color:var(--text-secondary);margin-top:4px;line-height:1.5}
+
+  /* ── Responsive ── */
+  @media(max-width:1100px){.tc-bento{grid-template-columns:1fr}.tc-stats{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:860px){.tc-panels{grid-template-columns:1fr}.tc-panels .full{grid-column:auto}}
+  @media(max-width:600px){.tc-stats{grid-template-columns:1fr}.tc-kpis{grid-template-columns:1fr}.tc-metrics{grid-template-columns:1fr}}
 </style>
 {% endblock %}
 {% block content %}
 <div class="page-header">
-  <div class="page-title"><i data-lucide="radar" style="width:24px;height:24px;color:var(--accent-blue);"></i> Test</div>
-  <div class="test-controls">
-    <div class="test-toggle">
-      <button class="test-day active" data-day="0" onclick="selectDay(0)">Today</button>
-      <button class="test-day" data-day="1" onclick="selectDay(1)">Tomorrow</button>
+  <div class="page-title"><i data-lucide="radar" style="width:24px;height:24px;color:var(--accent-blue);"></i> Test Console</div>
+  <div class="tc-controls">
+    <div class="tc-segmented">
+      <button class="tc-day active" data-day="0" onclick="selectDay(0)">Today</button>
+      <button class="tc-day" data-day="1" onclick="selectDay(1)">Tomorrow</button>
     </div>
-    <button class="test-refresh" onclick="fetchTestConsole({ force: true })">Refresh</button>
+    <button class="tc-btn" onclick="fetchTestConsole({ force: true })">Refresh</button>
   </div>
 </div>
 <div class="page-content">
-  <div id="test-loading" class="test-loading">Loading Test console...</div>
-  <div id="test-error" class="test-error" style="display:none;"></div>
-  <div id="test-shell" class="test-shell" style="display:none;">
-    <section class="test-hero">
-      <div class="test-card">
-        <div class="test-kicker">Live Observation Console</div>
-        <div class="test-title">Official, pressure, market and signal in one readable view.</div>
-        <div class="test-copy" id="test-hero-copy">This page shows the station state, local pressure, market pricing and settlement review without transport wrappers.</div>
-        <div class="test-chip-row" id="test-status-row"></div>
-        <div class="test-summary-grid" id="test-summary-grid"></div>
+  <div id="tc-loading" class="tc-loading">Initializing console&hellip;</div>
+  <div id="tc-error" class="tc-error" style="display:none;"></div>
+  <div id="tc-root" class="tc" style="display:none;">
+    <!-- ── Hero bento ── -->
+    <section class="tc-bento">
+      <div class="tc-card tc-bento-main">
+        <div class="tc-eyebrow">Live Observation Console</div>
+        <div class="tc-headline">Station state, market pricing &amp; signal — unified.</div>
+        <div class="tc-subtitle" id="tc-hero-copy">Displays the official temperature, local pressure network, Polymarket book and trading signal for the active station.</div>
+        <div class="tc-status-bar" id="tc-status-bar"></div>
+        <div class="tc-stats" id="tc-stats"></div>
       </div>
-      <div class="test-card test-station">
-        <div class="test-kicker">Scope</div>
-        <div class="test-panel-title" id="test-station-title">--</div>
-        <div class="test-copy" id="test-station-copy">--</div>
-        <div class="test-chip-row" id="test-station-pills"></div>
+      <div class="tc-card tc-bento-scope">
+        <div>
+          <div class="tc-eyebrow">Scope</div>
+          <div class="tc-scope-name" id="tc-scope-name">--</div>
+          <div class="tc-scope-meta" id="tc-scope-meta">--</div>
+          <div class="tc-pills" id="tc-scope-pills"></div>
+        </div>
       </div>
     </section>
-    <div class="test-grid">
-      <section class="test-card"><div id="test-official"></div></section>
-      <section class="test-card"><div id="test-pressure"></div></section>
-      <section class="test-card full"><div id="test-market"></div></section>
-      <section class="test-card"><div id="test-signal"></div></section>
-      <section class="test-card"><div id="test-settlement"></div></section>
-      <section class="test-card"><div id="test-forecast"></div></section>
-      <section class="test-card"><div id="test-provenance"></div></section>
+    <!-- ── Panel grid ── -->
+    <div class="tc-panels">
+      <section class="tc-card"><div id="tc-official"></div></section>
+      <section class="tc-card"><div id="tc-pressure"></div></section>
+      <section class="tc-card full"><div id="tc-market"></div></section>
+      <section class="tc-card"><div id="tc-signal"></div></section>
+      <section class="tc-card"><div id="tc-settlement"></div></section>
+      <section class="tc-card"><div id="tc-forecast"></div></section>
+      <section class="tc-card"><div id="tc-provenance"></div></section>
     </div>
-    <div class="test-last">Last update: <span id="test-last-update">--</span></div>
+    <div class="tc-footer">Last update: <span id="tc-last-update">--</span></div>
   </div>
 </div>
 {% endblock %}
@@ -99,95 +158,105 @@
   const REFRESH_MS = 15000;
 
   const $ = (id) => document.getElementById(id);
-  const num = (value) => (typeof value === 'number' && Number.isFinite(value)) ? value : null;
-  const text = (...values) => { for (const value of values) { if (typeof value === 'string' && value.trim()) return value.trim(); if (typeof value === 'number' && Number.isFinite(value)) return String(value); } return '--'; };
-  const esc = (value) => String(value ?? '').replace(/[&<>\"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
-  const temp = (value, unit = 'F', decimals = 1) => { const n = num(value); return n === null ? '--' : `${n.toFixed(decimals)} ${String(unit || 'F').toUpperCase()}`; };
-  const pct = (value, decimals = 1) => { const n = num(value); return n === null ? '--' : `${(n * 100).toFixed(decimals)}%`; };
-  const cents = (value, decimals = 1) => { const n = num(value); return n === null ? '--' : `${(n * 100).toFixed(decimals)}c`; };
-  const money = (value) => { const n = num(value); return n === null ? '--' : `$${Math.round(n).toLocaleString()}`; };
-  const age = (seconds) => { const n = num(seconds); if (n === null) return '--'; if (n < 60) return `${Math.round(n)} sec`; if (n < 3600) return `${Math.round(n / 60)} min`; return `${(n / 3600).toFixed(1)} h`; };
-  const localTime = (value, timezone) => { if (!value) return '--'; const dt = new Date(String(value)); if (Number.isNaN(dt.getTime())) return String(value); const zone = timezone || 'UTC'; return `${dt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', timeZone: zone })} ${dt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: zone })}`; };
-  const stationTime = (value, payload) => localTime(value, payload?.station?.station_timezone || 'UTC');
-  const safeJson = (value) => { try { return JSON.stringify(value, null, 2); } catch (_) { return '{}'; } };
-  const head = (title, subtitle, badge) => `<div class="test-head"><div><div class="test-mini">${esc(title)}</div><div class="test-panel-title">${esc(title)}</div><div class="test-subtitle">${esc(subtitle || '')}</div></div><div class="test-badge">${esc(badge || 'live')}</div></div>`;
-  const kpi = (label, value, copy = '') => `<div class="test-kpi"><div class="test-mini">${esc(label)}</div><div class="test-kpi-value">${esc(value)}</div>${copy ? `<div class="test-kpi-copy">${esc(copy)}</div>` : ''}</div>`;
-  const metric = (label, value) => `<div class="test-metric"><div class="test-mini">${esc(label)}</div><div class="test-metric-value">${esc(value)}</div></div>`;
-  const details = (label, payload) => `<details class="test-details"><summary>${esc(label)}</summary><pre class="test-json">${esc(safeJson(payload || {}))}</pre></details>`;
+  const num = (v) => (typeof v === 'number' && Number.isFinite(v)) ? v : null;
+  const text = (...vals) => { for (const v of vals) { if (typeof v === 'string' && v.trim()) return v.trim(); if (typeof v === 'number' && Number.isFinite(v)) return String(v); } return '--'; };
+  const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+  const temp = (v, u='F', d=1) => { const n = num(v); return n === null ? '--' : `${n.toFixed(d)} ${String(u||'F').toUpperCase()}`; };
+  const pct = (v, d=1) => { const n = num(v); return n === null ? '--' : `${(n*100).toFixed(d)}%`; };
+  const cents = (v, d=1) => { const n = num(v); return n === null ? '--' : `${(n*100).toFixed(d)}c`; };
+  const money = (v) => { const n = num(v); return n === null ? '--' : `$${Math.round(n).toLocaleString()}`; };
+  const age = (s) => { const n = num(s); if (n===null) return '--'; if (n<60) return `${Math.round(n)}s`; if (n<3600) return `${Math.round(n/60)}m`; return `${(n/3600).toFixed(1)}h`; };
+  const localTime = (v, tz) => { if (!v) return '--'; const d = new Date(String(v)); if (isNaN(d.getTime())) return String(v); const z = tz||'UTC'; return `${d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',timeZone:z})} ${d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',hour12:false,timeZone:z})}`; };
+  const stationTime = (v, p) => localTime(v, p?.station?.station_timezone || 'UTC');
+  const safeJson = (v) => { try { return JSON.stringify(v, null, 2); } catch(_) { return '{}'; } };
 
-  function showError(message) { $('test-loading').style.display = 'none'; $('test-shell').style.display = 'none'; $('test-error').style.display = 'block'; $('test-error').textContent = message; }
-  function clearError() { $('test-error').style.display = 'none'; }
-  function showShell() { $('test-loading').style.display = 'none'; $('test-shell').style.display = 'flex'; }
+  /* ── Builders ── */
+  const panelHead = (title, subtitle, badge) => `<div class="tc-panel-head"><div><div class="tc-section-label">${esc(title)}</div><div class="tc-section-title">${esc(title)}</div><div class="tc-section-desc">${esc(subtitle||'')}</div></div>${badge ? `<div class="tc-tag">${esc(badge)}</div>`:''}</div>`;
+  const kpi = (label, value, sub='') => `<div class="tc-kpi"><div class="tc-kpi-label">${esc(label)}</div><div class="tc-kpi-val">${esc(value)}</div>${sub?`<div class="tc-kpi-sub">${esc(sub)}</div>`:''}</div>`;
+  const met = (k, v) => `<div class="tc-met"><span class="tc-met-k">${esc(k)}</span><span class="tc-met-v">${esc(v)}</span></div>`;
+  const collapse = (label, payload) => `<details class="tc-collapse"><summary>${esc(label)}</summary><pre class="tc-json">${esc(safeJson(payload||{}))}</pre></details>`;
 
-  function renderHero(payload) {
-    const station = payload.station || {}, official = payload.official || {}, market = payload.market || {}, signal = payload.signal || {}, summary = payload.summary || {}, meta = payload.meta || {}, settlement = payload.settlement_review || {};
-    $('test-station-title').textContent = `${text(station.station_name)} (${text(station.station_id)})`;
-    $('test-station-copy').textContent = `${text(station.target_date)} | ${text(station.station_timezone)} | ${text(station.event_title)}`;
-    $('test-station-pills').innerHTML = `<span class="test-pill">Day ${esc(text(station.target_day))}</span><span class="test-pill">Unit ${esc(text(station.market_unit))}</span><span class="test-pill">Generated ${esc(localTime(station.generated_at_utc, 'UTC'))} UTC</span>`;
-    $('test-status-row').innerHTML = `<span class="test-status ${esc(String(meta.status || 'partial').toLowerCase())}">${esc(meta.status || 'partial')}</span><span class="test-chip">Official ${summary.official_available ? 'ready' : 'missing'}</span><span class="test-chip">Pressure ${summary.pressure_available ? 'ready' : 'missing'}</span><span class="test-chip">Market ${summary.market_available ? 'ready' : 'missing'}</span><span class="test-chip">Settlement ${summary.settlement_review_available ? 'ready' : 'pending'}</span>`;
-    $('test-summary-grid').innerHTML = `<div class="test-summary"><div class="test-mini">Official temp</div><div class="test-summary-value">${esc(temp(official.temp_f, station.market_unit || 'F'))}</div><div class="test-summary-copy">${esc(stationTime(official.obs_time_utc, payload))} | ${esc(age(official.source_age_s))}</div></div><div class="test-summary"><div class="test-mini">Daily max</div><div class="test-summary-value">${esc(temp(official.daily_max_f, station.market_unit || 'F'))}</div><div class="test-summary-copy">Confirmed bucket ${esc(text(official.confirmed_bucket, official.temp_f))}</div></div><div class="test-summary"><div class="test-mini">Top market</div><div class="test-summary-value">${esc(text(market.top_bracket))}</div><div class="test-summary-copy">${esc(cents(market.top_yes_bid))} bid | ${esc(cents(market.top_yes_ask))} ask</div></div><div class="test-summary"><div class="test-mini">Signal</div><div class="test-summary-value">${esc(text(signal.recommendation, summary.recommendation))}</div><div class="test-summary-copy">${esc(pct(signal.fair_probability))} fair | ${esc(signal.edge_points !== undefined && signal.edge_points !== null ? `${Number(signal.edge_points).toFixed(1)} pts` : '--')}</div></div>`;
-    $('test-hero-copy').textContent = settlement.available ? `Official state is shown next to local pressure, live market pricing and settlement review for ${station.target_date}.` : 'Official state, local pressure, live market pricing and signal are visible. Settlement review is still pending.';
+  function showError(msg) { $('tc-loading').style.display='none'; $('tc-root').style.display='none'; $('tc-error').style.display='block'; $('tc-error').textContent=msg; }
+  function clearError() { $('tc-error').style.display='none'; }
+  function showShell() { $('tc-loading').style.display='none'; $('tc-root').style.display='flex'; }
+
+  /* ── Renderers ── */
+  function renderHero(p) {
+    const s=p.station||{}, o=p.official||{}, m=p.market||{}, sig=p.signal||{}, sum=p.summary||{}, meta=p.meta||{}, sr=p.settlement_review||{};
+    $('tc-scope-name').textContent = `${text(s.station_name)} (${text(s.station_id)})`;
+    $('tc-scope-meta').textContent = `${text(s.target_date)}  \u00b7  ${text(s.station_timezone)}  \u00b7  ${text(s.event_title)}`;
+    $('tc-scope-pills').innerHTML = `<span class="tc-pill">Day ${esc(text(s.target_day))}</span><span class="tc-pill">${esc(text(s.market_unit,'F'))}</span><span class="tc-pill">${esc(localTime(s.generated_at_utc,'UTC'))} UTC</span>`;
+    const dot = (ok, label) => `<span class="tc-dot ${ok?'ok':'off'}">${esc(label)}</span>`;
+    $('tc-status-bar').innerHTML = `<span class="tc-dot ${({'ok':'ok','partial':'warn','error':'off'})[String(meta.status||'partial').toLowerCase()]||'warn'}">${esc(meta.status||'partial')}</span>${dot(sum.official_available,'Official')}${dot(sum.pressure_available,'Pressure')}${dot(sum.market_available,'Market')}${dot(sum.settlement_review_available,'Settlement')}`;
+    $('tc-stats').innerHTML = [
+      `<div class="tc-stat"><div class="tc-stat-label">Official temp</div><div class="tc-stat-value">${esc(temp(o.temp_f,s.market_unit||'F'))}</div><div class="tc-stat-hint">${esc(stationTime(o.obs_time_utc,p))} &middot; ${esc(age(o.source_age_s))}</div></div>`,
+      `<div class="tc-stat"><div class="tc-stat-label">Daily max</div><div class="tc-stat-value">${esc(temp(o.daily_max_f,s.market_unit||'F'))}</div><div class="tc-stat-hint">Bucket ${esc(text(o.confirmed_bucket,o.temp_f))}</div></div>`,
+      `<div class="tc-stat"><div class="tc-stat-label">Top market</div><div class="tc-stat-value">${esc(text(m.top_bracket))}</div><div class="tc-stat-hint">${esc(cents(m.top_yes_bid))} bid &middot; ${esc(cents(m.top_yes_ask))} ask</div></div>`,
+      `<div class="tc-stat"><div class="tc-stat-label">Signal</div><div class="tc-stat-value">${esc(text(sig.recommendation,sum.recommendation))}</div><div class="tc-stat-hint">${esc(pct(sig.fair_probability))} fair &middot; ${sig.edge_points!=null?`${Number(sig.edge_points).toFixed(1)} pts`:'--'}</div></div>`
+    ].join('');
+    $('tc-hero-copy').textContent = sr.available ? `Official, pressure, market and settlement data for ${s.target_date}.` : 'Live official, pressure, market and signal. Settlement review pending.';
   }
 
-  function renderOfficial(payload) {
-    const station = payload.station || {}, official = payload.official || {};
-    $('test-official').innerHTML = `${head('Official', 'Latest airport confirmation from METAR or SPECI.', text(official.report_type, 'official'))}<div class="test-kpis">${kpi('Current temp', temp(official.temp_f, station.market_unit || 'F'), `Observed ${stationTime(official.obs_time_utc, payload)}`)}${kpi('Daily max', temp(official.daily_max_f, station.market_unit || 'F'), `Freshness ${age(official.source_age_s)}`)}${kpi('Confirmed bin', text(official.confirmed_bucket, official.temp_f), `Raw ${temp(official.temp_f_raw, station.market_unit || 'F')}`)}${kpi('Report type', text(official.report_type), official.is_speci ? 'SPECI update' : 'Routine METAR')}</div><div class="test-metrics">${metric('Dew point', temp(official.dewpoint_c, 'C'))}${metric('Wind', text(official.wind_dir !== undefined && official.wind_dir !== null ? `${official.wind_dir} deg` : null, official.wind_speed !== undefined && official.wind_speed !== null ? `${official.wind_speed} kt` : null))}${metric('Sky', text(official.sky_condition))}${metric('QC', official.qc_passed === true ? 'passed' : (official.qc_passed === false ? 'failed' : 'pending'))}</div>${details('Official raw JSON', official)}`;
+  function renderOfficial(p) {
+    const s=p.station||{}, o=p.official||{};
+    $('tc-official').innerHTML = `${panelHead('Official','Latest METAR / SPECI confirmation.',text(o.report_type,'official'))}<div class="tc-kpis">${kpi('Current temp',temp(o.temp_f,s.market_unit||'F'),`Observed ${stationTime(o.obs_time_utc,p)}`)}${kpi('Daily max',temp(o.daily_max_f,s.market_unit||'F'),`Freshness ${age(o.source_age_s)}`)}${kpi('Confirmed bin',text(o.confirmed_bucket,o.temp_f),`Raw ${temp(o.temp_f_raw,s.market_unit||'F')}`)}${kpi('Report type',text(o.report_type),o.is_speci?'SPECI':'Routine METAR')}</div><div class="tc-metrics">${met('Dew point',temp(o.dewpoint_c,'C'))}${met('Wind',text(o.wind_dir!=null?`${o.wind_dir}\u00b0`:null,o.wind_speed!=null?`${o.wind_speed}kt`:null))}${met('Sky',text(o.sky_condition))}${met('QC',o.qc_passed===true?'passed':(o.qc_passed===false?'failed':'pending'))}</div>${collapse('Raw JSON',o)}`;
   }
 
-  function renderPressure(payload) {
-    const station = payload.station || {}, pressure = payload.pressure || {}, rows = Array.isArray(pressure.pws_details) ? pressure.pws_details.slice(0, 8) : [];
-    const table = rows.length ? `<div class="test-table-wrap"><table class="test-table"><thead><tr><th>Station</th><th>Source</th><th>Temp</th><th>Distance</th><th>Age</th></tr></thead><tbody>${rows.map((row) => `<tr><td>${esc(text(row.station_id, row.name))}</td><td>${esc(text(row.source))}</td><td>${esc(temp(row.temp_f, station.market_unit || 'F'))}</td><td>${esc(row.distance_km !== undefined && row.distance_km !== null ? `${Number(row.distance_km).toFixed(1)} km` : '--')}</td><td>${esc(age(row.source_age_s))}</td></tr>`).join('')}</tbody></table></div>` : '<div class="test-note">No auxiliary stations available right now.</div>';
-    $('test-pressure').innerHTML = `${head('Pressure', 'Auxiliary stations and local pressure before the next official print.', `${pressure.station_count || 0} stations`)}<div class="test-kpis">${kpi('Consensus temp', temp(pressure.consensus_temp_f, station.market_unit || 'F'), `Latest aux ${age(pressure.source_age_s)}`)}${kpi('Trend', pressure.local_trend_f_per_hour !== undefined && pressure.local_trend_f_per_hour !== null ? `${Number(pressure.local_trend_f_per_hour).toFixed(1)} F/h` : '--', `Spread ${pressure.network_spread_f !== undefined && pressure.network_spread_f !== null ? `${Number(pressure.network_spread_f).toFixed(1)} F` : '--'}`)}${kpi('Forecast peak', temp(pressure.forecast_peak_temp_f, station.market_unit || 'F'), text(pressure.forecast_peak_hour_local, 'hour pending'))}${kpi('Degrees to target', pressure.degrees_to_target_f !== undefined && pressure.degrees_to_target_f !== null ? `${Number(pressure.degrees_to_target_f).toFixed(1)} F` : '--', `WU current ${temp(pressure.review_current_temp_f, station.market_unit || 'F')}`)}</div>${table}${details('Pressure raw JSON', pressure)}`;
+  function renderPressure(p) {
+    const s=p.station||{}, pr=p.pressure||{}, rows=Array.isArray(pr.pws_details)?pr.pws_details.slice(0,8):[];
+    const tbl = rows.length ? `<div class="tc-table-wrap"><table class="tc-table"><thead><tr><th>Station</th><th>Source</th><th>Temp</th><th>Distance</th><th>Age</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${esc(text(r.station_id,r.name))}</td><td>${esc(text(r.source))}</td><td>${esc(temp(r.temp_f,s.market_unit||'F'))}</td><td>${esc(r.distance_km!=null?`${Number(r.distance_km).toFixed(1)} km`:'--')}</td><td>${esc(age(r.source_age_s))}</td></tr>`).join('')}</tbody></table></div>` : '<div class="tc-note">No auxiliary stations available.</div>';
+    $('tc-pressure').innerHTML = `${panelHead('Pressure','Auxiliary stations & local pressure.',`${pr.station_count||0} stations`)}<div class="tc-kpis">${kpi('Consensus temp',temp(pr.consensus_temp_f,s.market_unit||'F'),`Aux ${age(pr.source_age_s)}`)}${kpi('Trend',pr.local_trend_f_per_hour!=null?`${Number(pr.local_trend_f_per_hour).toFixed(1)} F/h`:'--',`Spread ${pr.network_spread_f!=null?`${Number(pr.network_spread_f).toFixed(1)} F`:'--'}`)}${kpi('Forecast peak',temp(pr.forecast_peak_temp_f,s.market_unit||'F'),text(pr.forecast_peak_hour_local,'pending'))}${kpi('Degrees to target',pr.degrees_to_target_f!=null?`${Number(pr.degrees_to_target_f).toFixed(1)} F`:'--',`WU ${temp(pr.review_current_temp_f,s.market_unit||'F')}`)}</div>${tbl}${collapse('Raw JSON',pr)}`;
   }
 
-  function renderMarket(payload) {
-    const market = payload.market || {}, rows = Array.isArray(market.brackets) ? market.brackets.slice(0, 8) : [];
-    const table = rows.length ? `<div class="test-table-wrap"><table class="test-table"><thead><tr><th>Bracket</th><th>Price</th><th>Bid / ask</th><th>Mid</th><th>Depth</th></tr></thead><tbody>${rows.map((row) => `<tr><td>${esc(text(row.name))}</td><td>${esc(cents(row.yes_price))}</td><td>${esc(cents(row.ws_yes_best_bid ?? row.ws_best_bid))} / ${esc(cents(row.ws_yes_best_ask ?? row.ws_best_ask))}</td><td>${esc(cents(row.ws_yes_mid ?? row.ws_mid))}</td><td>${esc(money(row.ws_yes_bid_depth ?? row.ws_bid_depth))} / ${esc(money(row.ws_yes_ask_depth ?? row.ws_ask_depth))}</td></tr>`).join('')}</tbody></table></div>` : '<div class="test-note">No market brackets available.</div>';
-    $('test-market').innerHTML = `${head('Market', 'What Polymarket is pricing right now.', market.ws_connected ? 'live book' : 'snapshot')}<div class="test-kpis">${kpi('Top bracket', text(market.top_bracket), `${cents(market.top_yes_bid)} bid | ${cents(market.top_yes_ask)} ask`)}${kpi('Mid / price', `${cents(market.top_yes_mid)} | ${cents(market.top_yes_price)}`, `Staleness ${age(market.source_age_s)}`)}${kpi('Depth', `${money(market.top_yes_bid_depth)} / ${money(market.top_yes_ask_depth)}`, `${market.bracket_count || 0} brackets`)}${kpi('Market state', market.market_status?.event_closed ? 'closed' : (market.market_status?.is_mature ? 'mature' : 'open'), text(market.sentiment))}</div>${table}${details('Market raw JSON', market)}`;
+  function renderMarket(p) {
+    const m=p.market||{}, rows=Array.isArray(m.brackets)?m.brackets.slice(0,8):[];
+    const tbl = rows.length ? `<div class="tc-table-wrap"><table class="tc-table"><thead><tr><th>Bracket</th><th>Price</th><th>Bid / Ask</th><th>Mid</th><th>Depth</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${esc(text(r.name))}</td><td>${esc(cents(r.yes_price))}</td><td>${esc(cents(r.ws_yes_best_bid??r.ws_best_bid))} / ${esc(cents(r.ws_yes_best_ask??r.ws_best_ask))}</td><td>${esc(cents(r.ws_yes_mid??r.ws_mid))}</td><td>${esc(money(r.ws_yes_bid_depth??r.ws_bid_depth))} / ${esc(money(r.ws_yes_ask_depth??r.ws_ask_depth))}</td></tr>`).join('')}</tbody></table></div>` : '<div class="tc-note">No market brackets available.</div>';
+    $('tc-market').innerHTML = `${panelHead('Market','Live Polymarket book pricing.',m.ws_connected?'live book':'snapshot')}<div class="tc-kpis">${kpi('Top bracket',text(m.top_bracket),`${cents(m.top_yes_bid)} bid \u00b7 ${cents(m.top_yes_ask)} ask`)}${kpi('Mid / Price',`${cents(m.top_yes_mid)} \u00b7 ${cents(m.top_yes_price)}`,`Staleness ${age(m.source_age_s)}`)}${kpi('Depth',`${money(m.top_yes_bid_depth)} / ${money(m.top_yes_ask_depth)}`,`${m.bracket_count||0} brackets`)}${kpi('State',m.market_status?.event_closed?'closed':(m.market_status?.is_mature?'mature':'open'),text(m.sentiment))}</div>${tbl}${collapse('Raw JSON',m)}`;
   }
 
-  function renderSignal(payload) {
-    const station = payload.station || {}, signal = payload.signal || {}, best = signal.best_terminal_trade || {}, tactical = signal.best_tactical_trade || {}, nextOfficial = (signal.tactical_context || {}).next_metar || {};
-    $('test-signal').innerHTML = `${head('Signal', 'Current idea, edge and next-official setup.', text(signal.horizon, 'signal'))}<div class="test-kpis">${kpi('Recommendation', text(signal.recommendation, best.best_side ? `${best.best_side} ${text(best.label)}` : null), text(signal.reason))}${kpi('Fair probability', pct(signal.fair_probability ?? best.selected_fair), `Market ${pct(best.selected_entry ?? best.market_probability)}`)}${kpi('Edge', signal.edge_points !== undefined && signal.edge_points !== null ? `${Number(signal.edge_points).toFixed(1)} pts` : '--', text(signal.policy_reason, signal.policy?.headline))}${kpi('Next official', nextOfficial.expected_market !== undefined && nextOfficial.expected_market !== null ? temp(nextOfficial.expected_market, station.market_unit || 'F') : '--', text(nextOfficial.direction, 'pending'))}</div><div class="test-metrics">${metric('Best terminal', best.best_side ? `${best.best_side} ${text(best.label)}` : '--')}${metric('Best tactical', tactical.best_side ? `${tactical.best_side} ${text(tactical.label)}` : '--')}${metric('Forecast winner', text((signal.forecast_winner || {}).label, signal.model?.top_label))}${metric('Next official ETA', nextOfficial.minutes_to_next !== undefined && nextOfficial.minutes_to_next !== null ? `${Number(nextOfficial.minutes_to_next).toFixed(0)} min` : '--')}</div>${details('Signal raw JSON', signal)}`;
+  function renderSignal(p) {
+    const s=p.station||{}, sig=p.signal||{}, best=sig.best_terminal_trade||{}, tac=sig.best_tactical_trade||{}, nxt=(sig.tactical_context||{}).next_metar||{};
+    $('tc-signal').innerHTML = `${panelHead('Signal','Edge, idea and next-official setup.',text(sig.horizon,'signal'))}<div class="tc-kpis">${kpi('Recommendation',text(sig.recommendation,best.best_side?`${best.best_side} ${text(best.label)}`:null),text(sig.reason))}${kpi('Fair probability',pct(sig.fair_probability??best.selected_fair),`Market ${pct(best.selected_entry??best.market_probability)}`)}${kpi('Edge',sig.edge_points!=null?`${Number(sig.edge_points).toFixed(1)} pts`:'--',text(sig.policy_reason,sig.policy?.headline))}${kpi('Next official',nxt.expected_market!=null?temp(nxt.expected_market,s.market_unit||'F'):'--',text(nxt.direction,'pending'))}</div><div class="tc-metrics">${met('Terminal',best.best_side?`${best.best_side} ${text(best.label)}`:'--')}${met('Tactical',tac.best_side?`${tac.best_side} ${text(tac.label)}`:'--')}${met('Forecast winner',text((sig.forecast_winner||{}).label,sig.model?.top_label))}${met('Next ETA',nxt.minutes_to_next!=null?`${Number(nxt.minutes_to_next).toFixed(0)}m`:'--')}</div>${collapse('Raw JSON',sig)}`;
   }
 
-  function renderSettlement(payload) {
-    const station = payload.station || {}, settlement = payload.settlement_review || {};
-    $('test-settlement').innerHTML = `${head('Settlement Review', 'Wunderground review kept separate from live official state.', text(settlement.status, 'review pending'))}<div class="test-kpis">${kpi('Reviewed max', temp(settlement.high_temp_f, station.market_unit || 'F'), text(settlement.high_temp_time, settlement.notes))}${kpi('METAR max', temp(settlement.metar_max_f, station.market_unit || 'F'), `WU ${temp(settlement.wunderground_max_f, station.market_unit || 'F')}`)}${kpi('Current WU', temp(settlement.current_temp_f, station.market_unit || 'F'), `Forecast ${temp(settlement.forecast_peak_temp_f, station.market_unit || 'F')}`)}${kpi('Confidence', text(settlement.confidence), text(settlement.source))}</div><div class="test-metrics">${metric('Verification', text(settlement.verification_status, settlement.status))}${metric('Peak hour', text(settlement.forecast_peak_hour_local, settlement.high_temp_time))}${metric('Notes', text(settlement.notes))}${metric('Review state', settlement.available ? 'available' : 'pending')}</div>${details('Settlement raw JSON', settlement)}`;
+  function renderSettlement(p) {
+    const s=p.station||{}, sr=p.settlement_review||{};
+    $('tc-settlement').innerHTML = `${panelHead('Settlement','Wunderground review, separate from live official.',text(sr.status,'pending'))}<div class="tc-kpis">${kpi('Reviewed max',temp(sr.high_temp_f,s.market_unit||'F'),text(sr.high_temp_time,sr.notes))}${kpi('METAR max',temp(sr.metar_max_f,s.market_unit||'F'),`WU ${temp(sr.wunderground_max_f,s.market_unit||'F')}`)}${kpi('Current WU',temp(sr.current_temp_f,s.market_unit||'F'),`Forecast ${temp(sr.forecast_peak_temp_f,s.market_unit||'F')}`)}${kpi('Confidence',text(sr.confidence),text(sr.source))}</div><div class="tc-metrics">${met('Verification',text(sr.verification_status,sr.status))}${met('Peak hour',text(sr.forecast_peak_hour_local,sr.high_temp_time))}${met('Notes',text(sr.notes))}${met('State',sr.available?'available':'pending')}</div>${collapse('Raw JSON',sr)}`;
   }
 
-  function renderForecast(payload) {
-    const station = payload.station || {}, forecast = payload.forecast || {}, sources = Array.isArray(forecast.external_sources) ? forecast.external_sources.slice(0, 6) : [], persisted = Array.isArray(forecast.persisted_sources) ? forecast.persisted_sources.slice(0, 6) : [];
-    const sourceTable = sources.length ? `<div class="test-table-wrap"><table class="test-table"><thead><tr><th>Source</th><th>Status</th><th>Realtime</th><th>Day max</th><th>Forecast peak</th></tr></thead><tbody>${sources.map((row) => `<tr><td>${esc(text(row.display_name, row.source))}</td><td>${esc(text(row.status))}</td><td>${esc(temp(row.realtime_temp_f, station.market_unit || 'F'))}</td><td>${esc(temp(row.historical_max_f, station.market_unit || 'F'))}</td><td>${esc(temp(row.forecast_peak_f, station.market_unit || 'F'))}</td></tr>`).join('')}</tbody></table></div>` : '<div class="test-note">No external forecast sources available.</div>';
-    const persistedTable = persisted.length ? `<div class="test-table-wrap"><table class="test-table"><thead><tr><th>Source</th><th>Captured</th><th>Provider updated</th><th>Peak</th><th>Rows</th></tr></thead><tbody>${persisted.map((row) => `<tr><td>${esc(text(row.source))}</td><td>${esc(localTime(row.captured_at_utc, 'UTC'))}</td><td>${esc(localTime(row.provider_updated_at_utc, 'UTC'))}</td><td>${esc(temp(row.forecast_peak_f, station.market_unit || 'F'))}</td><td>${esc(text(row.hourly_points))}</td></tr>`).join('')}</tbody></table></div>` : '<div class="test-note">No persisted forecast snapshots found for this target date.</div>';
-    $('test-forecast').innerHTML = `${head('Forecast', 'Nowcast state plus external baseline snapshots.', forecast.available ? 'ready' : 'partial')}<div class="test-kpis">${kpi('Nowcast mean', temp((forecast.nowcast_distribution || {}).tmax_mean_f, station.market_unit || 'F'), `Sigma ${temp((forecast.nowcast_distribution || {}).tmax_sigma_f, station.market_unit || 'F')}`)}${kpi('Confidence', pct((forecast.nowcast_distribution || {}).confidence), `Age ${age(forecast.source_age_s)}`)}${kpi('Max so far', temp((forecast.nowcast_state || {}).max_so_far_f, station.market_unit || 'F'), `Updated ${stationTime((forecast.nowcast_state || {}).last_update_utc, payload)}`)}${kpi('Sources', String(sources.length), `${persisted.length} persisted snapshots`)}</div>${sourceTable}${persistedTable}${details('Forecast raw JSON', forecast)}`;
+  function renderForecast(p) {
+    const s=p.station||{}, fc=p.forecast||{}, src=Array.isArray(fc.external_sources)?fc.external_sources.slice(0,6):[], per=Array.isArray(fc.persisted_sources)?fc.persisted_sources.slice(0,6):[];
+    const srcTbl = src.length ? `<div class="tc-table-wrap"><table class="tc-table"><thead><tr><th>Source</th><th>Status</th><th>Realtime</th><th>Day max</th><th>Forecast peak</th></tr></thead><tbody>${src.map(r=>`<tr><td>${esc(text(r.display_name,r.source))}</td><td>${esc(text(r.status))}</td><td>${esc(temp(r.realtime_temp_f,s.market_unit||'F'))}</td><td>${esc(temp(r.historical_max_f,s.market_unit||'F'))}</td><td>${esc(temp(r.forecast_peak_f,s.market_unit||'F'))}</td></tr>`).join('')}</tbody></table></div>` : '<div class="tc-note">No external sources.</div>';
+    const perTbl = per.length ? `<div class="tc-table-wrap"><table class="tc-table"><thead><tr><th>Source</th><th>Captured</th><th>Updated</th><th>Peak</th><th>Rows</th></tr></thead><tbody>${per.map(r=>`<tr><td>${esc(text(r.source))}</td><td>${esc(localTime(r.captured_at_utc,'UTC'))}</td><td>${esc(localTime(r.provider_updated_at_utc,'UTC'))}</td><td>${esc(temp(r.forecast_peak_f,s.market_unit||'F'))}</td><td>${esc(text(r.hourly_points))}</td></tr>`).join('')}</tbody></table></div>` : '<div class="tc-note">No persisted snapshots.</div>';
+    const nc=fc.nowcast_distribution||{}, ns=fc.nowcast_state||{};
+    $('tc-forecast').innerHTML = `${panelHead('Forecast','Nowcast state + external baselines.',fc.available?'ready':'partial')}<div class="tc-kpis">${kpi('Nowcast mean',temp(nc.tmax_mean_f,s.market_unit||'F'),`Sigma ${temp(nc.tmax_sigma_f,s.market_unit||'F')}`)}${kpi('Confidence',pct(nc.confidence),`Age ${age(fc.source_age_s)}`)}${kpi('Max so far',temp(ns.max_so_far_f,s.market_unit||'F'),`Updated ${stationTime(ns.last_update_utc,p)}`)}${kpi('Sources',String(src.length),`${per.length} persisted`)}</div>${srcTbl}${perTbl}${collapse('Raw JSON',fc)}`;
   }
 
-  function renderProvenance(payload) {
-    const station = payload.station || {}, provenance = payload.provenance || {}, meta = payload.meta || {};
-    $('test-provenance').innerHTML = `${head('Provenance', 'Freshness, timestamps and missing sections.', text(meta.status, 'partial'))}<div class="test-metrics">${metric('Generated', localTime(station.generated_at_utc, 'UTC'))}${metric('World snapshot', localTime(provenance.world_snapshot_utc, 'UTC'))}${metric('Official age', age(provenance.official_source_age_s))}${metric('Pressure age', age(provenance.pressure_source_age_s))}${metric('Forecast age', age(provenance.forecast_source_age_s))}${metric('Market age', age(provenance.market_source_age_s))}${metric('Settlement status', text(provenance.settlement_status))}${metric('Missing', (provenance.missing_sections || []).length ? provenance.missing_sections.join(', ') : 'none')}</div>${details('Provenance raw JSON', provenance)}`;
+  function renderProvenance(p) {
+    const s=p.station||{}, pv=p.provenance||{}, meta=p.meta||{};
+    $('tc-provenance').innerHTML = `${panelHead('Provenance','Freshness, timestamps and missing sections.',text(meta.status,'partial'))}<div class="tc-metrics">${met('Generated',localTime(s.generated_at_utc,'UTC'))}${met('World snapshot',localTime(pv.world_snapshot_utc,'UTC'))}${met('Official age',age(pv.official_source_age_s))}${met('Pressure age',age(pv.pressure_source_age_s))}${met('Forecast age',age(pv.forecast_source_age_s))}${met('Market age',age(pv.market_source_age_s))}${met('Settlement',text(pv.settlement_status))}${met('Missing',(pv.missing_sections||[]).length?pv.missing_sections.join(', '):'none')}</div>${collapse('Raw JSON',pv)}`;
   }
 
-  function renderAll(payload) {
-    renderHero(payload); renderOfficial(payload); renderPressure(payload); renderMarket(payload); renderSignal(payload); renderSettlement(payload); renderForecast(payload); renderProvenance(payload);
-    $('test-last-update').textContent = new Date().toLocaleTimeString();
+  function renderAll(p) {
+    renderHero(p); renderOfficial(p); renderPressure(p); renderMarket(p); renderSignal(p); renderSettlement(p); renderForecast(p); renderProvenance(p);
+    $('tc-last-update').textContent = new Date().toLocaleTimeString();
   }
 
-  async function fetchTestConsole(options = {}) {
+  async function fetchTestConsole(options={}) {
     const force = Boolean(options.force);
     if (fetchController) { if (!force) return; fetchController.abort(); }
     const seq = ++fetchSeq;
     const controller = new AbortController();
     fetchController = controller;
     try {
-      const response = await fetch(`/api/test/${encodeURIComponent(selectedStation)}?target_day=${selectedDay}&depth=5`, { cache: 'no-store', signal: controller.signal });
+      const resp = await fetch(`/api/test/${encodeURIComponent(selectedStation)}?target_day=${selectedDay}&depth=5`, { cache:'no-store', signal:controller.signal });
       if (seq !== fetchSeq) return;
-      const payload = await response.json();
-      if (!response.ok || payload?.detail || payload?.error) { showError(payload?.detail || payload?.error || `HTTP ${response.status}`); return; }
+      const payload = await resp.json();
+      if (!resp.ok || payload?.detail || payload?.error) { showError(payload?.detail || payload?.error || `HTTP ${resp.status}`); return; }
       clearError(); showShell(); renderAll(payload); lucide.createIcons();
-    } catch (error) {
-      if (error && error.name === 'AbortError') return;
-      showError(String(error?.message || error || 'Failed to load Test console'));
+    } catch(e) {
+      if (e && e.name === 'AbortError') return;
+      showError(String(e?.message || e || 'Failed to load console'));
     } finally {
       if (fetchController === controller && seq === fetchSeq) fetchController = null;
     }
@@ -195,7 +264,7 @@
 
   function selectDay(day) {
     selectedDay = day;
-    document.querySelectorAll('.test-day').forEach((button) => button.classList.toggle('active', Number(button.dataset.day) === day));
+    document.querySelectorAll('.tc-day').forEach(b => b.classList.toggle('active', Number(b.dataset.day) === day));
     fetchTestConsole({ force: true });
   }
 
@@ -203,10 +272,10 @@
   window.fetchTestConsole = fetchTestConsole;
 
   document.addEventListener('DOMContentLoaded', () => {
-    window.addEventListener('helios:stationchange', (event) => {
-      const nextStation = event?.detail?.stationId;
-      if (!nextStation || nextStation === selectedStation) return;
-      selectedStation = nextStation;
+    window.addEventListener('helios:stationchange', (e) => {
+      const next = e?.detail?.stationId;
+      if (!next || next === selectedStation) return;
+      selectedStation = next;
       fetchTestConsole({ force: true });
     });
     fetchTestConsole({ force: true });
