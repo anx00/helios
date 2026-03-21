@@ -4,11 +4,26 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script>
+        (function () {
+            const storageKey = 'heliosTheme';
+            let theme = null;
+            try {
+                theme = localStorage.getItem(storageKey);
+            } catch (_) {}
+            if (theme !== 'light' && theme !== 'dark') {
+                theme = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+            }
+            document.documentElement.dataset.theme = theme;
+            document.documentElement.style.colorScheme = theme;
+        })();
+    </script>
     <title>HELIOS | Physics Engine Dashboard</title>
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap"
         rel="stylesheet">
     <link href="/static/style.css" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="/static/theme.js" defer></script>
 </head>
 
 <body>
@@ -20,6 +35,10 @@
                 <h1>HELIOS <span class="subtitle">Physics Engine v3.0</span></h1>
             </div>
             <div class="system-status">
+                <button type="button" class="theme-toggle" onclick="toggleTheme()" data-theme-toggle aria-label="Switch theme">
+                    <i data-lucide="sun" data-theme-icon></i>
+                    <span data-theme-label>Light mode</span>
+                </button>
                 <a href="/analytics"
                     style="text-decoration:none; margin-right:15px; color:var(--accent-blue); font-size:14px; display:inline-flex; align-items:center; gap:5px; border:1px solid rgba(59,130,246,0.3); padding:4px 10px; border-radius:6px; background:rgba(59,130,246,0.05); transition:all 0.2s;">
                     <i data-lucide="bar-chart-2" style="width:16px;height:16px"></i> Analytics

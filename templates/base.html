@@ -4,6 +4,20 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script>
+        (function () {
+            const storageKey = 'heliosTheme';
+            let theme = null;
+            try {
+                theme = localStorage.getItem(storageKey);
+            } catch (_) {}
+            if (theme !== 'light' && theme !== 'dark') {
+                theme = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+            }
+            document.documentElement.dataset.theme = theme;
+            document.documentElement.style.colorScheme = theme;
+        })();
+    </script>
     <title>{% block title %}HELIOS Weather Lab{% endblock %}</title>
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -15,6 +29,7 @@
     <script src="https://unpkg.com/lucide@latest"></script>
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="/static/theme.js" defer></script>
     <!-- Styles -->
     <link href="/static/style.css" rel="stylesheet">
 
@@ -25,6 +40,13 @@
             --bg-primary: #0a0e17;
             --bg-secondary: #0f1629;
             --bg-tertiary: #1a2035;
+            --surface-primary: rgba(255, 255, 255, 0.03);
+            --surface-secondary: rgba(255, 255, 255, 0.05);
+            --surface-tertiary: rgba(255, 255, 255, 0.08);
+            --surface-hover: rgba(255, 255, 255, 0.05);
+            --border-subtle: rgba(255, 255, 255, 0.05);
+            --border-strong: rgba(255, 255, 255, 0.1);
+            --topbar-bg: rgba(10, 14, 23, 0.96);
             --accent-blue: #0078FF;
             --accent-green: #10B981;
             --accent-yellow: #F4D03F;
@@ -32,6 +54,24 @@
             --text-main: #f1f5f9;
             --text-secondary: #94a3b8;
             --text-muted: #64748b;
+            --shadow-color: rgba(0, 0, 0, 0.35);
+        }
+
+        :root[data-theme='light'] {
+            --bg-primary: #f4f7fb;
+            --bg-secondary: #ffffff;
+            --bg-tertiary: #e9eef7;
+            --surface-primary: rgba(15, 23, 42, 0.03);
+            --surface-secondary: rgba(15, 23, 42, 0.05);
+            --surface-tertiary: rgba(15, 23, 42, 0.08);
+            --surface-hover: rgba(15, 23, 42, 0.06);
+            --border-subtle: rgba(15, 23, 42, 0.08);
+            --border-strong: rgba(15, 23, 42, 0.14);
+            --topbar-bg: rgba(244, 247, 251, 0.96);
+            --text-main: #0f172a;
+            --text-secondary: #475569;
+            --text-muted: #64748b;
+            --shadow-color: rgba(15, 23, 42, 0.12);
         }
 
         * {
@@ -52,7 +92,7 @@
         select {
             background: var(--bg-tertiary);
             color: var(--text-main);
-            border: 1px solid rgba(255, 255, 255, 0.12);
+            border: 1px solid var(--border-strong);
             border-radius: 8px;
             padding: 7px 28px 7px 10px;
             font-size: 12px;
@@ -85,7 +125,7 @@
         .sidebar {
             width: var(--sidebar-width);
             background: var(--bg-secondary);
-            border-right: 1px solid rgba(255, 255, 255, 0.05);
+            border-right: 1px solid var(--border-subtle);
             display: flex;
             flex-direction: column;
             position: fixed;
@@ -190,7 +230,7 @@
 
         .sidebar.collapsed .nav-station .nav-item:hover {
             opacity: 1;
-            background: rgba(255, 255, 255, 0.05);
+            background: var(--surface-hover);
         }
 
         .sidebar.collapsed .nav-station .nav-item.active {
@@ -214,7 +254,7 @@
 
         .sidebar-header {
             padding: 20px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            border-bottom: 1px solid var(--border-subtle);
             display: flex;
             align-items: center;
             gap: 12px;
@@ -243,7 +283,7 @@
         .sidebar-version {
             font-size: 10px;
             color: var(--text-muted);
-            background: rgba(255, 255, 255, 0.05);
+            background: var(--surface-secondary);
             padding: 2px 8px;
             border-radius: 10px;
             white-space: nowrap;
@@ -258,7 +298,7 @@
             width: 24px;
             height: 24px;
             background: var(--bg-tertiary);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            border: 1px solid var(--border-strong);
             border-radius: 50%;
             display: flex;
             align-items: center;
@@ -310,8 +350,8 @@
             margin: 4px 6px 16px;
             padding: 12px;
             border-radius: 10px;
-            border: 1px solid rgba(255, 255, 255, 0.07);
-            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--border-subtle);
+            background: var(--surface-primary);
         }
 
         .sidebar-station-label {
@@ -354,7 +394,7 @@
         }
 
         .nav-item:hover {
-            background: rgba(255, 255, 255, 0.05);
+            background: var(--surface-hover);
             color: var(--text-main);
         }
 
@@ -373,7 +413,7 @@
         /* Station Submenu */
         .nav-station {
             margin-left: 10px;
-            border-left: 2px solid rgba(255, 255, 255, 0.1);
+            border-left: 2px solid var(--border-strong);
             padding-left: 15px;
             transition: all 0.3s;
         }
@@ -398,7 +438,7 @@
         }
 
         .station-header:hover {
-            background: rgba(255, 255, 255, 0.03);
+            background: var(--surface-hover);
         }
 
         .station-header .station-flag {
@@ -418,12 +458,51 @@
         /* Sidebar Footer */
         .sidebar-footer {
             padding: 15px;
-            border-top: 1px solid rgba(255, 255, 255, 0.05);
+            border-top: 1px solid var(--border-subtle);
             font-size: 11px;
             color: var(--text-muted);
             text-align: center;
             white-space: nowrap;
             overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .theme-toggle {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            width: 100%;
+            border: 1px solid var(--border-strong);
+            background: var(--surface-tertiary);
+            color: var(--text-main);
+            border-radius: 10px;
+            padding: 10px 12px;
+            font: inherit;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .theme-toggle:hover {
+            background: var(--surface-hover);
+            border-color: var(--accent-blue);
+        }
+
+        .theme-toggle i {
+            width: 14px;
+            height: 14px;
+        }
+
+        .sidebar.collapsed .theme-toggle {
+            padding: 10px;
+        }
+
+        .sidebar.collapsed .theme-toggle span {
+            display: none;
         }
 
         /* ============================================
@@ -451,8 +530,8 @@
             position: sticky;
             top: 0;
             z-index: 900;
-            background: rgba(10, 14, 23, 0.96);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            background: var(--topbar-bg);
+            border-bottom: 1px solid var(--border-subtle);
             backdrop-filter: blur(8px);
         }
 
@@ -508,7 +587,7 @@
         .page-header {
             padding: 20px 30px;
             background: var(--bg-secondary);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            border-bottom: 1px solid var(--border-subtle);
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -548,8 +627,8 @@
            UTILITIES
         ============================================ */
         .glass-panel {
-            background: rgba(255, 255, 255, 0.02);
-            border: 1px solid rgba(255, 255, 255, 0.05);
+            background: var(--surface-primary);
+            border: 1px solid var(--border-subtle);
             border-radius: 12px;
             backdrop-filter: blur(10px);
         }
@@ -614,6 +693,10 @@
         </nav>
 
         <div class="sidebar-footer">
+            <button class="theme-toggle" type="button" onclick="toggleTheme()" data-theme-toggle aria-label="Switch theme">
+                <i data-lucide="sun" data-theme-icon></i>
+                <span data-theme-label>Light mode</span>
+            </button>
             <span>HELIOS Weather Lab (c) 2026</span>
         </div>
     </aside>

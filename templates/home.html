@@ -21,8 +21,8 @@
         }
 
         .station-card {
-            background: rgba(255, 255, 255, 0.02);
-            border: 1px solid rgba(255, 255, 255, 0.05);
+            background: var(--surface-primary);
+            border: 1px solid var(--border-subtle);
             border-radius: 16px;
             padding: 25px;
             transition: all 0.3s;
@@ -34,7 +34,7 @@
         .station-card:hover {
             border-color: var(--accent-blue);
             transform: translateY(-4px);
-            box-shadow: 0 10px 40px rgba(0, 120, 255, 0.1);
+            box-shadow: 0 10px 40px var(--shadow-color);
         }
 
         .station-card-header {
@@ -64,7 +64,7 @@
             grid-template-columns: repeat(3, 1fr);
             gap: 15px;
             padding-top: 20px;
-            border-top: 1px solid rgba(255, 255, 255, 0.05);
+            border-top: 1px solid var(--border-subtle);
         }
 
         .stat-item {

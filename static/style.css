@@ -1,7 +1,14 @@
 :root {
     --bg-color: #050510;
+    --bg-gradient-a: rgba(255, 140, 0, 0.15);
+    --bg-gradient-b: rgba(0, 191, 255, 0.1);
     --card-bg: rgba(20, 20, 35, 0.6);
+    --card-hover-bg: rgba(24, 24, 40, 0.82);
     --glass-border: rgba(255, 255, 255, 0.1);
+    --surface-border: rgba(255, 255, 255, 0.05);
+    --surface-soft: rgba(255, 255, 255, 0.02);
+    --surface-hover: rgba(255, 255, 255, 0.08);
+    --shadow-color: rgba(0, 0, 0, 0.3);
     --text-primary: #ffffff;
     --text-secondary: #a0a0b0;
     --accent-gold: #FFD700;
@@ -12,16 +19,40 @@
     --font-main: 'Space Grotesk', sans-serif;
 }
 
+:root[data-theme='light'],
+body[data-theme='light'] {
+    --bg-color: #f3f6fb;
+    --bg-gradient-a: rgba(59, 130, 246, 0.12);
+    --bg-gradient-b: rgba(16, 185, 129, 0.08);
+    --card-bg: rgba(255, 255, 255, 0.82);
+    --card-hover-bg: rgba(255, 255, 255, 0.96);
+    --glass-border: rgba(15, 23, 42, 0.08);
+    --surface-border: rgba(15, 23, 42, 0.08);
+    --surface-soft: rgba(15, 23, 42, 0.03);
+    --surface-hover: rgba(15, 23, 42, 0.06);
+    --shadow-color: rgba(15, 23, 42, 0.12);
+    --text-primary: #0f172a;
+    --text-secondary: #475569;
+    --accent-gold: #b45309;
+    --accent-orange: #ea580c;
+    --accent-blue: #2563eb;
+    --accent-green: #059669;
+}
+
 body {
     margin: 0;
     padding: 0;
     background-color: var(--bg-color);
     background-image:
-        radial-gradient(circle at 10% 20%, rgba(255, 140, 0, 0.15) 0%, transparent 20%),
-        radial-gradient(circle at 90% 80%, rgba(0, 191, 255, 0.1) 0%, transparent 20%);
+        radial-gradient(circle at 10% 20%, var(--bg-gradient-a) 0%, transparent 20%),
+        radial-gradient(circle at 90% 80%, var(--bg-gradient-b) 0%, transparent 20%);
     color: var(--text-primary);
     font-family: var(--font-main);
     min-height: 100vh;
+}
+
+body[data-theme='light'] {
+    color-scheme: light;
 }
 
 .app-container {
@@ -38,6 +69,34 @@ header {
     padding: 20px 30px;
     margin-bottom: 40px;
     border-radius: 16px;
+}
+
+.theme-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border: 1px solid var(--glass-border);
+    background: var(--surface-soft);
+    color: var(--text-primary);
+    border-radius: 999px;
+    padding: 8px 14px;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.theme-toggle:hover {
+    transform: translateY(-1px);
+    border-color: var(--accent-blue);
+    background: var(--surface-hover);
+}
+
+.theme-toggle i {
+    width: 16px;
+    height: 16px;
 }
 
 .logo {
@@ -107,7 +166,7 @@ h1 {
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--glass-border);
-    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+    box-shadow: 0 8px 32px 0 var(--shadow-color);
 }
 
 /* Grid */
@@ -135,7 +194,7 @@ h1 {
 .station-card:hover {
     transform: translateY(-5px);
     border-color: rgba(255, 215, 0, 0.4);
-    box-shadow: 0 12px 40px 0 rgba(0, 0, 0, 0.5);
+    box-shadow: 0 12px 40px 0 var(--shadow-color);
 }
 
 .card-header {
@@ -162,7 +221,7 @@ h1 {
 }
 
 .refresh-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--surface-hover);
     color: var(--text-primary);
 }
 
@@ -196,7 +255,7 @@ h1 {
 }
 
 .badge {
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--surface-hover);
     padding: 4px 10px;
     border-radius: 20px;
     font-size: 11px;
@@ -531,8 +590,8 @@ h1 {
     font-size: 11px;
     padding: 4px 10px;
     border-radius: 12px;
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: var(--surface-soft);
+    border: 1px solid var(--glass-border);
 }
 
 .legend-dot {
@@ -568,14 +627,14 @@ h1 {
     align-items: center;
     padding: 10px 12px;
     border-radius: 10px;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    background: var(--surface-soft);
+    border: 1px solid var(--surface-border);
     transition: all 0.2s;
 }
 
 .market-row:hover {
-    background: rgba(255, 255, 255, 0.06);
-    border-color: rgba(255, 255, 255, 0.1);
+    background: var(--surface-hover);
+    border-color: var(--glass-border);
 }
 
 .market-row.leading {
@@ -623,7 +682,7 @@ h1 {
     flex: 1;
     max-width: 120px;
     height: 6px;
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--surface-hover);
     border-radius: 3px;
     margin: 0 15px;
     overflow: hidden;
@@ -649,12 +708,12 @@ h1 {
 .station-card-link:hover .station-card {
     transform: translateY(-4px);
     border-color: rgba(255, 255, 255, 0.2);
-    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+    box-shadow: 0 12px 40px var(--shadow-color);
 }
 
 .market-summary {
     padding: 15px 0;
-    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    border-top: 1px solid var(--surface-border);
     margin-top: 15px;
     flex-grow: 1;
 }
@@ -666,7 +725,7 @@ h1 {
     gap: 8px;
     padding: 12px;
     margin-top: auto;
-    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    border-top: 1px solid var(--surface-border);
     color: var(--text-secondary);
     font-size: 13px;
     transition: color 0.2s;
