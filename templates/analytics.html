@@ -34,8 +34,8 @@
     }
 
     .kpi-label {
-        color: var(--text-secondary);
-        font-size: 11px;
+        color: var(--color-text-secondary);
+        font-size: var(--text-xs);
         text-transform: uppercase;
         letter-spacing: 1px;
         margin-bottom: 5px;
@@ -43,15 +43,15 @@
     }
 
     .kpi-value {
-        font-size: 32px;
+        font-size: var(--text-3xl);
         font-weight: 700;
-        color: var(--text-main);
-        font-family: 'Space Grotesk', sans-serif;
+        color: var(--color-text-primary);
+        font-family: var(--font-display);
     }
 
     .kpi-sub {
-        font-size: 12px;
-        color: var(--text-muted);
+        font-size: var(--text-sm);
+        color: var(--color-text-muted);
         margin-top: auto;
         padding-top: 10px;
     }
@@ -77,21 +77,21 @@
     }
 
     th {
-        background: rgba(255, 255, 255, 0.03);
+        background: var(--color-surface-1);
         text-align: left;
         padding: 15px 20px;
-        color: var(--text-secondary);
+        color: var(--color-text-secondary);
         font-weight: 500;
-        font-size: 12px;
+        font-size: var(--text-sm);
         text-transform: uppercase;
         letter-spacing: 0.5px;
     }
 
     td {
         padding: 15px 20px;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 13px;
+        border-bottom: 1px solid var(--color-border-subtle);
+        font-family: var(--font-mono);
+        font-size: var(--text-sm);
     }
 
     tr:last-child td {
@@ -99,7 +99,7 @@
     }
 
     tr:hover {
-        background: rgba(255, 255, 255, 0.02);
+        background: var(--color-surface-1);
     }
 
     .status-badge {
@@ -114,27 +114,27 @@
     }
 
     .status-badge.success {
-        background: rgba(16, 185, 129, 0.15);
-        color: #34d399;
-        border: 1px solid rgba(16, 185, 129, 0.3);
+        background: var(--color-success-surface);
+        color: var(--color-accent-green);
+        border: 1px solid var(--color-success-border);
     }
 
     .status-badge.warning {
-        background: rgba(245, 158, 11, 0.15);
-        color: #fbbf24;
-        border: 1px solid rgba(245, 158, 11, 0.3);
+        background: var(--color-warning-surface);
+        color: var(--color-accent-gold);
+        border: 1px solid var(--color-warning-border);
     }
 
     .status-badge.error {
-        background: rgba(239, 68, 68, 0.15);
-        color: #f87171;
-        border: 1px solid rgba(239, 68, 68, 0.3);
+        background: var(--color-danger-surface);
+        color: var(--color-accent-red);
+        border: 1px solid var(--color-danger-border);
     }
 
     .status-badge.pending {
-        background: rgba(148, 163, 184, 0.15);
-        color: #94a3b8;
-        border: 1px solid rgba(148, 163, 184, 0.3);
+        background: var(--color-surface-3);
+        color: var(--color-text-secondary);
+        border: 1px solid var(--color-border-medium);
     }
 
     /* Time Filter Buttons */
@@ -147,40 +147,40 @@
     /* v7.0: Alert Select Styling */
     .alert-select {
         width: 100%;
-        padding: 12px;
-        background: rgba(255, 255, 255, 0.05);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 8px;
-        color: #fff;
-        font-size: 14px;
+        padding: var(--space-3);
+        background: var(--color-surface-2);
+        border: 1px solid var(--color-border-medium);
+        border-radius: var(--radius-sm);
+        color: var(--color-text-primary);
+        font-size: var(--text-base);
         cursor: pointer;
         transition: all 0.2s;
         outline: none;
     }
 
     .alert-select:hover {
-        background: rgba(255, 255, 255, 0.08);
-        border-color: rgba(255, 255, 255, 0.2);
+        background: var(--color-surface-3);
+        border-color: var(--color-border-strong);
     }
 
     .alert-select:focus {
-        border-color: var(--accent-blue);
-        box-shadow: 0 0 0 2px rgba(0, 120, 255, 0.2);
+        border-color: var(--color-accent-blue);
+        box-shadow: 0 0 0 2px var(--color-info-surface);
     }
 
     .alert-select option {
-        background-color: #121212;
-        color: #fff;
-        padding: 10px;
+        background-color: var(--color-bg-raised);
+        color: var(--color-text-primary);
+        padding: var(--space-3);
     }
 
     .filter-btn {
-        background: rgba(255, 255, 255, 0.05);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        color: var(--text-secondary);
+        background: var(--color-surface-2);
+        border: 1px solid var(--color-border-medium);
+        color: var(--color-text-secondary);
         padding: 6px 12px;
-        border-radius: 6px;
-        font-size: 11px;
+        border-radius: var(--radius-sm);
+        font-size: var(--text-xs);
         cursor: pointer;
         transition: all 0.2s;
         font-weight: 500;
@@ -189,15 +189,15 @@
     }
 
     .filter-btn:hover {
-        background: rgba(255, 255, 255, 0.1);
-        border-color: rgba(255, 255, 255, 0.2);
-        color: var(--text-main);
+        background: var(--color-surface-3);
+        border-color: var(--color-border-strong);
+        color: var(--color-text-primary);
     }
 
     .filter-btn.active {
-        background: var(--accent-blue);
-        border-color: var(--accent-blue);
-        color: white;
+        background: var(--color-accent-blue);
+        border-color: var(--color-accent-blue);
+        color: var(--color-text-inverse);
     }
 
     /* Time filter container - wrap on smaller screens */
@@ -215,26 +215,26 @@
         justify-content: center;
         width: 32px;
         height: 32px;
-        background: rgba(255, 255, 255, 0.05);
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        border-radius: 8px;
-        color: var(--text-secondary);
+        background: var(--color-surface-2);
+        border: 1px solid var(--color-border-medium);
+        border-radius: var(--radius-sm);
+        color: var(--color-text-secondary);
         cursor: pointer;
         transition: all 0.2s ease;
         text-decoration: none;
     }
 
     .fullscreen-btn:hover {
-        background: rgba(255, 255, 255, 0.1);
-        border-color: var(--accent-blue);
-        color: var(--accent-blue);
+        background: var(--color-surface-3);
+        border-color: var(--color-accent-blue);
+        color: var(--color-accent-blue);
         transform: scale(1.05);
     }
 
     .fullscreen-btn i {
         width: 16px;
         height: 16px;
-        box-shadow: 0 0 15px rgba(0, 120, 255, 0.3);
+        box-shadow: 0 0 15px var(--color-info-surface);
     }
 
     .back-link {
@@ -265,13 +265,13 @@
     }
 
     .local-clock {
-        background: rgba(255, 255, 255, 0.05);
+        background: var(--color-surface-2);
         padding: 5px 12px;
-        border-radius: 20px;
-        font-size: 13px;
-        font-family: 'Inter', sans-serif;
-        color: var(--accent-blue);
-        border: 1px solid rgba(0, 120, 255, 0.2);
+        border-radius: var(--radius-xl);
+        font-size: var(--text-sm);
+        font-family: var(--font-body);
+        color: var(--color-accent-blue);
+        border: 1px solid var(--color-info-border);
         margin-top: 5px;
         display: inline-block;
         font-weight: 500;
@@ -363,12 +363,12 @@
             <!-- Date Picker -->
             <div style="display: flex; align-items: center; gap: 10px;">
                 <label for="date-picker" style="color: var(--text-secondary); font-size: 13px;">Date:</label>
-                <input type="date" id="date-picker" style="background: rgba(255,255,255,0.05); 
-                                  border: 1px solid rgba(255,255,255,0.1); 
+                <input type="date" id="date-picker" style="background: var(--color-surface-2); 
+                                  border: 1px solid var(--color-border-medium); 
                                   border-radius: 8px; 
                                   padding: 8px 12px; 
                                   color: var(--text-main); 
-                                  font-family: 'Inter', sans-serif;
+                                  font-family: var(--font-body);
                                   cursor: pointer;" onchange="loadDataForDate(this.value)">
             </div>
 
@@ -390,15 +390,15 @@
 
             <!-- v13.0: Market Resolution Banner -->
             <div id="resolution-banner" class="glass-panel resolution-banner"
-                style="display: none; padding: 16px; border: 2px solid #00C853; background: linear-gradient(135deg, rgba(0, 200, 83, 0.15) 0%, rgba(255, 215, 0, 0.1) 100%);">
+                style="display: none; padding: 16px; border: 2px solid var(--color-accent-green); background: linear-gradient(135deg, var(--color-success-surface) 0%, var(--color-warning-surface) 100%);">
                 <div style="display: flex; align-items: center; gap: 12px;">
                     <div class="resolution-icon"
-                        style="width: 36px; height: 36px; background: linear-gradient(135deg, #00C853, #FFD700); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 18px;">
+                        style="width: 36px; height: 36px; background: linear-gradient(135deg, var(--color-accent-green), var(--color-accent-gold)); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 18px;">
                         ✓
                     </div>
                     <div style="flex: 1;">
                         <div
-                            style="font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #00C853; font-weight: 700; margin-bottom: 4px;">
+                            style="font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 1px; color: var(--color-accent-green); font-weight: 700; margin-bottom: 4px;">
                             MARKET RESOLVED
                         </div>
                         <div style="font-size: 15px; font-weight: 600; color: var(--text-main);">
@@ -416,7 +416,7 @@
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                     <h3 style="margin:0; font-size: 14px; color: var(--text-main);">MARKET CONSENSUS</h3>
                     <span class="status-badge"
-                        style="background: rgba(255, 165, 0, 0.1); color: orange; border: 1px solid rgba(255, 165, 0, 0.3);">Top
+                        style="background: var(--color-warning-surface); color: var(--color-accent-orange); border: 1px solid var(--color-warning-border);">Top
                         3</span>
                 </div>
 
@@ -429,8 +429,8 @@
                             <span id="mkt-top1-prob" style="color: var(--text-secondary);">--%</span>
                         </div>
                         <div class="progress-bar"
-                            style="background: rgba(255,255,255,0.1); height: 6px; border-radius: 3px; overflow: hidden;">
-                            <div id="mkt-top1-bar" style="width: 0%; height: 100%; background: orange;"></div>
+                            style="background: var(--color-surface-3); height: 6px; border-radius: 3px; overflow: hidden;">
+                            <div id="mkt-top1-bar" style="width: 0%; height: 100%; background: var(--color-accent-orange);"></div>
                         </div>
                     </div>
 
@@ -439,12 +439,12 @@
                         <div
                             style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px;">
                             <span id="mkt-top2-bracket"
-                                style="font-weight: 600; color: var(--text-secondary);">--</span>
-                            <span id="mkt-top2-prob" style="color: var(--text-secondary);">--%</span>
+                                style="font-weight: 600; color: var(--color-text-secondary);">--</span>
+                            <span id="mkt-top2-prob" style="color: var(--color-text-secondary);">--%</span>
                         </div>
                         <div class="progress-bar"
-                            style="background: rgba(255,255,255,0.1); height: 6px; border-radius: 3px; overflow: hidden;">
-                            <div id="mkt-top2-bar" style="width: 0%; height: 100%; background: rgba(255, 165, 0, 0.6);">
+                            style="background: var(--color-surface-3); height: 6px; border-radius: 3px; overflow: hidden;">
+                            <div id="mkt-top2-bar" style="width: 0%; height: 100%; background: var(--color-accent-orange); opacity: 0.6;">
                             </div>
                         </div>
                     </div>
@@ -454,12 +454,12 @@
                         <div
                             style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px;">
                             <span id="mkt-top3-bracket"
-                                style="font-weight: 600; color: var(--text-secondary);">--</span>
-                            <span id="mkt-top3-prob" style="color: var(--text-secondary);">--%</span>
+                                style="font-weight: 600; color: var(--color-text-secondary);">--</span>
+                            <span id="mkt-top3-prob" style="color: var(--color-text-secondary);">--%</span>
                         </div>
                         <div class="progress-bar"
-                            style="background: rgba(255,255,255,0.1); height: 6px; border-radius: 3px; overflow: hidden;">
-                            <div id="mkt-top3-bar" style="width: 0%; height: 100%; background: rgba(255, 165, 0, 0.3);">
+                            style="background: var(--color-surface-3); height: 6px; border-radius: 3px; overflow: hidden;">
+                            <div id="mkt-top3-bar" style="width: 0%; height: 100%; background: var(--color-accent-orange); opacity: 0.3;">
                             </div>
                         </div>
                     </div>
@@ -504,7 +504,7 @@
 
                 <!-- v12.0: Protection Status Indicators -->
                 <div id="v12-status-row"
-                    style="display: none; margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.1);">
+                    style="display: none; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--color-border-medium);">
                     <div style="font-size: 10px; color: var(--text-secondary); margin-bottom: 6px;">v12.0 PROTECTION
                         STATUS</div>
                     <div style="display: flex; flex-wrap: wrap; gap: 6px;">
@@ -583,19 +583,19 @@
             <style>
                 /* Alerts now reuse .kpi-card and .glass-panel styles */
                 .kpi-card.warning {
-                    border-top: 4px solid #FFC107 !important;
-                    box-shadow: 0 4px 15px rgba(255, 193, 7, 0.1);
+                    border-top: 4px solid var(--color-accent-yellow) !important;
+                    box-shadow: 0 4px 15px var(--color-warning-surface);
                 }
 
                 .kpi-card.critical {
-                    border-top: 4px solid #ff4d4d !important;
-                    box-shadow: 0 4px 15px rgba(220, 53, 69, 0.2);
+                    border-top: 4px solid var(--color-accent-red) !important;
+                    box-shadow: 0 4px 15px var(--color-danger-surface);
                     animation: pulse-red 2s infinite;
                 }
 
                 .kpi-card.info {
-                    border-top: 4px solid #00d4ff !important;
-                    box-shadow: 0 4px 15px rgba(0, 212, 255, 0.1);
+                    border-top: 4px solid var(--color-info) !important;
+                    box-shadow: 0 4px 15px var(--color-info-surface);
                 }
 
                 /* Custom scrollbar for alerts */
@@ -604,25 +604,25 @@
                 }
 
                 #alerts-content::-webkit-scrollbar-track {
-                    background: rgba(255, 255, 255, 0.05);
+                    background: var(--color-surface-2);
                 }
 
                 #alerts-content::-webkit-scrollbar-thumb {
-                    background: rgba(255, 255, 255, 0.2);
+                    background: var(--color-border-strong);
                     border-radius: 2px;
                 }
 
                 @keyframes pulse-red {
                     0% {
-                        box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.4);
+                        box-shadow: 0 0 0 0 var(--color-danger-surface);
                     }
 
                     70% {
-                        box-shadow: 0 0 0 10px rgba(220, 53, 69, 0);
+                        box-shadow: 0 0 0 10px transparent;
                     }
 
                     100% {
-                        box-shadow: 0 0 0 0 rgba(220, 53, 69, 0);
+                        box-shadow: 0 0 0 0 transparent;
                     }
                 }
             </style>
@@ -688,7 +688,7 @@
                             style="display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 5px;">Temperature
                             (°F)</label>
                         <input type="number" id="alert-value" step="0.1" placeholder="e.g. 42.0"
-                            style="width: 100%; padding: 10px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #fff; font-size: 14px; box-sizing: border-box;">
+                            style="width: 100%; padding: 10px; background: var(--color-surface-2); border: 1px solid var(--color-border-medium); border-radius: 8px; color: #fff; font-size: 14px; box-sizing: border-box;">
                     </div>
 
                     <!-- Active Alerts List -->
@@ -697,7 +697,7 @@
 
                     <div style="display: flex; gap: 10px; justify-content: flex-end;">
                         <button onclick="closeAlertModal()" class="filter-btn"
-                            style="background: rgba(255,255,255,0.05);">Cancel</button>
+                            style="background: var(--color-surface-2);">Cancel</button>
                         <button onclick="saveAlert()" class="filter-btn"
                             style="background: rgba(0, 212, 255, 0.2); border-color: rgba(0, 212, 255, 0.4); color: #00d4ff;">Save
                             Alert</button>
@@ -760,8 +760,8 @@
 
             <!-- Unified Tooltip (positioned via JS) -->
             <div id="unified-tooltip" style="display: none; position: fixed; z-index: 1000; pointer-events: none;
-                    background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(255, 255, 255, 0.1);
-                    border-radius: 12px; padding: 15px; min-width: 220px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);">
+                    background: rgba(15, 23, 42, 0.95); border: 1px solid var(--color-border-medium);
+                    border-radius: 12px; padding: 15px; min-width: 220px; box-shadow: 0 8px 32px var(--shadow-color);">
             </div>
 
             <!-- Audit Table -->
@@ -881,7 +881,7 @@
                     // Use a darker/lighter sub-card style within the main card
                     div.className = `kpi-card glass-panel ${alert.level}`;
                     div.style.marginBottom = '0'; // Reset margin for nested cards
-                    div.style.border = '1px solid rgba(255,255,255,0.1)';
+                    div.style.border = '1px solid var(--color-border-medium)';
 
                     div.innerHTML = `
                             <div class="kpi-label" style="display:flex; justify-content:space-between; font-size: 9px; margin-bottom: 2px;">
@@ -1176,7 +1176,7 @@
                 ctx.moveTo(crosshairX, yAxis.top);
                 ctx.lineTo(crosshairX, yAxis.bottom);
                 ctx.lineWidth = 1;
-                ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+                ctx.strokeStyle = 'var(--color-border-strong)';
                 ctx.setLineDash([5, 5]);
                 ctx.stroke();
                 ctx.restore();
@@ -1259,7 +1259,7 @@
         });
 
         tooltip.innerHTML = `
-                <div style="font-weight: 600; color: var(--text-main); margin-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px; font-size: 14px;">
+                <div style="font-weight: 600; color: var(--text-main); margin-bottom: 10px; border-bottom: 1px solid var(--color-border-medium); padding-bottom: 8px; font-size: 14px;">
                     🕐 ${timeLabel}
                 </div>
                 
@@ -1281,7 +1281,7 @@
                 </div>
                 
                 <!-- Real Time Data Section -->
-                <div style="margin-bottom: 12px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 10px;">
+                <div style="margin-bottom: 12px; border-top: 1px solid var(--color-border-subtle); padding-top: 10px;">
                     <div style="color: var(--text-secondary); font-size: 11px; text-transform: uppercase; font-weight: bold; margin-bottom: 6px; letter-spacing: 0.5px;">🔴 Real Time Data</div>
                     <div style="display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 14px;">
                         <span>🔥 WU Live:</span>
@@ -1307,7 +1307,7 @@
                 </div>
                 
                 <!-- Polymarket Odds Section - TOP 3 Only -->
-                <div style="border-top: 1px solid rgba(255,255,255,0.1); padding-top: 10px;">
+                <div style="border-top: 1px solid var(--color-border-medium); padding-top: 10px;">
                     <div style="color: var(--text-secondary); font-size: 11px; text-transform: uppercase; font-weight: bold; margin-bottom: 6px; letter-spacing: 0.5px;">📊 Polymarket Top 3</div>
                     <div style="color: var(--text-main);">
                         ${probLines}
@@ -1502,7 +1502,7 @@
                         min: dynamicMin,
                         max: dynamicMax,
                         title: { display: true, text: TEMP_UNIT, color: '#94a3b8' },
-                        grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                        grid: { color: 'var(--color-surface-2)' },
                         ticks: {
                             color: '#94a3b8',
                             callback: (v) => Math.round(v * 10) / 10  // Fix floating point precision
@@ -1544,7 +1544,7 @@
                         min: 0,
                         max: probMax,
                         title: { display: true, text: '%', color: '#94a3b8' },
-                        grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                        grid: { color: 'var(--color-surface-2)' },
                         ticks: {
                             color: '#94a3b8',
                             callback: (v) => v + '%'
@@ -1852,7 +1852,7 @@
         const condLabels = { gte: '≥', lte: '≤', eq: '=' };
 
         container.innerHTML = alerts.map(a => `
-                <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: rgba(255,255,255,0.05); border-radius: 8px; margin-bottom: 5px; font-size: 13px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: var(--color-surface-2); border-radius: 8px; margin-bottom: 5px; font-size: 13px;">
                     <span>${varLabels[a.variable]} ${condLabels[a.condition]} ${a.value}°F</span>
                     <button onclick="deleteAlert(${a.id})" style="background: none; border: none; color: #ff4d4d; cursor: pointer; font-size: 16px;">✕</button>
                 </div>

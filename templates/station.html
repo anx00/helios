@@ -9,27 +9,28 @@
         rel="stylesheet">
     <link href="/static/style.css" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="/static/chart-theme.js" defer></script>
     <style>
         /* Station Detail Page Overrides */
         .detail-container {
             max-width: 1400px;
             margin: 0 auto;
-            padding: 20px;
+            padding: var(--space-5);
         }
 
         .back-link {
             display: inline-flex;
             align-items: center;
-            gap: 8px;
-            color: var(--text-secondary);
+            gap: var(--space-2);
+            color: var(--color-text-secondary);
             text-decoration: none;
-            font-size: 14px;
-            margin-bottom: 20px;
+            font-size: var(--text-base);
+            margin-bottom: var(--space-5);
             transition: color 0.2s;
         }
 
         .back-link:hover {
-            color: var(--accent-gold);
+            color: var(--color-accent-gold);
         }
 
         .station-header {
@@ -40,31 +41,32 @@
         }
 
         .station-header h1 {
-            font-size: 28px;
+            font-size: var(--text-3xl);
+            font-family: var(--font-display);
             margin: 0;
         }
 
         .station-header .subtitle {
-            color: var(--text-secondary);
+            color: var(--color-text-secondary);
             font-weight: 400;
         }
 
         .live-badge {
             display: flex;
             align-items: center;
-            gap: 8px;
-            background: rgba(0, 255, 127, 0.1);
-            border: 1px solid rgba(0, 255, 127, 0.3);
+            gap: var(--space-2);
+            background: var(--color-success-surface);
+            border: 1px solid var(--color-success-border);
             padding: 6px 12px;
-            border-radius: 20px;
-            font-size: 12px;
-            color: var(--accent-green);
+            border-radius: var(--radius-pill);
+            font-size: var(--text-xs);
+            color: var(--color-accent-green);
         }
 
         .live-dot {
             width: 8px;
             height: 8px;
-            background: var(--accent-green);
+            background: var(--color-accent-green);
             border-radius: 50%;
             animation: pulse-green 2s infinite;
         }
@@ -83,18 +85,19 @@
 
         .detail-card {
             padding: 30px;
-            border-radius: 24px;
+            border-radius: var(--radius-xl);
         }
 
         .detail-card h2 {
-            font-size: 16px;
+            font-size: var(--text-lg);
+            font-family: var(--font-display);
             text-transform: uppercase;
             letter-spacing: 1.5px;
-            color: var(--text-secondary);
+            color: var(--color-text-secondary);
             margin: 0 0 20px 0;
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: var(--space-3);
         }
 
         .detail-card h2 i {
@@ -116,22 +119,22 @@
             align-items: center;
             justify-content: center;
             padding: 20px 10px;
-            background: rgba(255, 255, 255, 0.03);
-            border-radius: 12px;
-            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: var(--color-surface-1);
+            border-radius: var(--radius-md);
+            border: 1px solid var(--color-border-strong);
             transition: all 0.3s ease;
         }
 
         .temp-item.primary {
-            background: rgba(0, 120, 255, 0.08);
-            border-color: rgba(0, 120, 255, 0.3);
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            background: var(--color-info-surface);
+            border-color: var(--color-info-border);
+            box-shadow: var(--shadow-md);
         }
 
         .temp-item .label {
             font-size: 10px;
             text-transform: uppercase;
-            color: var(--text-secondary);
+            color: var(--color-text-secondary);
             margin-bottom: 10px;
             letter-spacing: 0.8px;
             font-weight: 600;
@@ -139,14 +142,15 @@
         }
 
         .temp-item .value {
-            font-size: 28px;
+            font-size: var(--text-3xl);
             font-weight: 700;
-            color: var(--text-main);
+            font-family: var(--font-display);
+            color: var(--color-text-primary);
             line-height: 1;
         }
 
         .temp-item .unit {
-            font-size: 14px;
+            font-size: var(--text-base);
             font-weight: 400;
             opacity: 0.6;
             margin-left: 2px;
@@ -155,19 +159,19 @@
         .prediction-components {
             display: flex;
             flex-direction: column;
-            gap: 12px;
+            gap: var(--space-3);
         }
 
         .component-row {
             display: flex;
             justify-content: space-between;
             padding: 12px 15px;
-            background: rgba(255, 255, 255, 0.03);
-            border-radius: 10px;
+            background: var(--color-surface-1);
+            border-radius: var(--radius-md);
         }
 
         .component-row .label {
-            color: var(--text-secondary);
+            color: var(--color-text-secondary);
         }
 
         .component-row .value {
@@ -175,11 +179,11 @@
         }
 
         .component-row .value.positive {
-            color: var(--accent-orange);
+            color: var(--color-accent-orange);
         }
 
         .component-row .value.negative {
-            color: var(--accent-blue);
+            color: var(--color-accent-blue);
         }
 
         /* Market Card */
@@ -189,43 +193,44 @@
 
         .market-hero-title {
             font-size: 18px;
+            font-family: var(--font-display);
             font-weight: 600;
-            margin-bottom: 8px;
+            margin-bottom: var(--space-2);
         }
 
         .market-hero-meta {
             display: flex;
-            gap: 20px;
-            color: var(--text-secondary);
-            font-size: 14px;
+            gap: var(--space-5);
+            color: var(--color-text-secondary);
+            font-size: var(--text-base);
         }
 
         .market-hero-meta .volume {
-            color: var(--accent-green);
+            color: var(--color-accent-green);
             font-weight: 600;
         }
 
         .market-legend-detail {
             display: flex;
-            gap: 10px;
+            gap: var(--space-3);
             flex-wrap: wrap;
-            margin-bottom: 20px;
+            margin-bottom: var(--space-5);
         }
 
         .market-outcomes-detail {
             display: flex;
             flex-direction: column;
-            gap: 10px;
+            gap: var(--space-3);
         }
 
         /* Reality Check Panel */
         .reality-check-panel {
             display: flex;
             flex-direction: column;
-            gap: 12px;
+            gap: var(--space-3);
             padding: 15px;
-            background: rgba(0, 0, 0, 0.2);
-            border-radius: 12px;
+            background: var(--color-bg-overlay);
+            border-radius: var(--radius-md);
         }
 
         .comparison-row {
@@ -233,83 +238,83 @@
             justify-content: space-between;
             align-items: center;
             padding: 10px 12px;
-            background: rgba(255, 255, 255, 0.03);
-            border-radius: 8px;
+            background: var(--color-surface-1);
+            border-radius: var(--radius-sm);
         }
 
         .comparison-row .label {
-            color: var(--text-secondary);
-            font-size: 14px;
+            color: var(--color-text-secondary);
+            font-size: var(--text-base);
         }
 
         .comparison-row .value {
             font-weight: 600;
-            font-size: 16px;
+            font-size: var(--text-lg);
         }
 
         .comparison-row .meta {
-            color: var(--text-secondary);
-            font-size: 12px;
-            margin-left: 8px;
+            color: var(--color-text-secondary);
+            font-size: var(--text-xs);
+            margin-left: var(--space-2);
         }
 
         .comparison-row.highlight {
-            background: rgba(255, 215, 0, 0.1);
-            border: 1px solid rgba(255, 215, 0, 0.2);
+            background: var(--color-warning-surface);
+            border: 1px solid var(--color-warning-border);
         }
 
         .comparison-row.highlight .value.positive {
-            color: var(--accent-green);
+            color: var(--color-accent-green);
         }
 
         .comparison-row.highlight .value.negative {
-            color: #ff6b6b;
+            color: var(--color-danger);
         }
 
         .comparison-status {
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 10px;
+            gap: var(--space-3);
             padding: 15px;
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 10px;
-            font-size: 14px;
+            background: var(--color-surface-2);
+            border-radius: var(--radius-md);
+            font-size: var(--text-base);
         }
 
         .comparison-status .status-icon {
-            font-size: 20px;
+            font-size: var(--text-xl);
         }
 
         .comparison-status.accurate {
-            background: rgba(0, 255, 127, 0.1);
-            border: 1px solid rgba(0, 255, 127, 0.3);
+            background: var(--color-success-surface);
+            border: 1px solid var(--color-success-border);
         }
 
         .comparison-status.above {
-            background: rgba(255, 215, 0, 0.1);
-            border: 1px solid rgba(255, 215, 0, 0.3);
+            background: var(--color-warning-surface);
+            border: 1px solid var(--color-warning-border);
         }
 
         .comparison-status.below {
-            background: rgba(255, 107, 107, 0.1);
-            border: 1px solid rgba(255, 107, 107, 0.3);
+            background: var(--color-danger-surface);
+            border: 1px solid var(--color-danger-border);
         }
 
         /* Verification Details Breakdown */
         .verification-details {
             display: flex;
             flex-direction: column;
-            gap: 8px;
-            margin-top: 10px;
+            gap: var(--space-2);
+            margin-top: var(--space-3);
             padding-top: 15px;
-            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            border-top: 1px solid var(--color-border-medium);
         }
 
         .verification-title {
-            font-size: 11px;
+            font-size: var(--text-xs);
             text-transform: uppercase;
-            color: var(--text-secondary);
+            color: var(--color-text-secondary);
             letter-spacing: 1px;
             margin-bottom: 5px;
         }
@@ -317,23 +322,23 @@
         .verify-row {
             display: flex;
             justify-content: space-between;
-            font-size: 13px;
-            color: var(--text-secondary);
+            font-size: var(--text-sm);
+            color: var(--color-text-secondary);
         }
 
         .verify-row .value {
-            color: var(--text-main);
+            color: var(--color-text-primary);
             font-weight: 500;
         }
 
         .verify-note {
-            font-size: 12px;
-            color: var(--accent-blue);
+            font-size: var(--text-xs);
+            color: var(--color-accent-blue);
             font-style: italic;
             margin-top: 5px;
-            padding: 8px;
-            background: rgba(0, 120, 255, 0.05);
-            border-radius: 6px;
+            padding: var(--space-2);
+            background: var(--color-info-surface);
+            border-radius: var(--radius-sm);
         }
 
         /* Collapsible Sections */
@@ -350,7 +355,7 @@
 
         .toggle-header:hover {
             opacity: 0.8;
-            color: var(--accent-blue);
+            color: var(--color-accent-blue);
         }
 
         .toggle-header h2 {
@@ -359,7 +364,7 @@
 
         .toggle-icon {
             transition: transform 0.3s ease;
-            color: var(--text-secondary);
+            color: var(--color-text-secondary);
         }
 
         .toggle-header.active .toggle-icon {
@@ -379,7 +384,7 @@
             /* High enough for most tables */
             opacity: 1;
             visibility: visible;
-            padding-bottom: 20px;
+            padding-bottom: var(--space-5);
             transition: max-height 0.6s ease-in, opacity 0.4s ease-in-out;
         }
 
@@ -388,22 +393,23 @@
             margin-top: 15px;
             max-height: 400px;
             overflow-y: auto;
-            border-radius: 12px;
-            background: rgba(0, 0, 0, 0.2);
-            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: var(--radius-md);
+            background: var(--color-bg-overlay);
+            border: 1px solid var(--color-border-subtle);
         }
 
         .history-mini-table {
             width: 100%;
             border-collapse: collapse;
-            font-size: 13px;
+            font-size: var(--text-sm);
+            font-family: var(--font-body);
         }
 
         .history-mini-table th {
             text-align: left;
             padding: 10px 15px;
-            background: rgba(255, 255, 255, 0.05);
-            color: var(--text-secondary);
+            background: var(--color-surface-2);
+            color: var(--color-text-secondary);
             font-weight: 500;
             position: sticky;
             top: 0;
@@ -412,38 +418,38 @@
 
         .history-mini-table td {
             padding: 8px 15px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+            border-bottom: 1px solid var(--color-border-subtle);
         }
 
         .history-mini-table tr:hover {
-            background: rgba(255, 255, 255, 0.02);
+            background: var(--color-surface-hover);
         }
 
         .history-mini-table .temp-col {
             font-weight: 600;
-            color: var(--text-main);
+            color: var(--color-text-primary);
         }
 
         .history-mini-table .cond-col {
-            color: var(--text-secondary);
-            font-size: 11px;
+            color: var(--color-text-secondary);
+            font-size: var(--text-xs);
         }
 
         .comparison-source {
             text-align: center;
-            font-size: 11px;
-            color: var(--text-secondary);
+            font-size: var(--text-xs);
+            color: var(--color-text-secondary);
             opacity: 0.7;
         }
 
         .local-clock {
-            background: rgba(255, 255, 255, 0.05);
+            background: var(--color-surface-2);
             padding: 5px 12px;
-            border-radius: 20px;
-            font-size: 13px;
-            font-family: 'Inter', sans-serif;
-            color: var(--accent-blue);
-            border: 1px solid rgba(0, 120, 255, 0.2);
+            border-radius: var(--radius-pill);
+            font-size: var(--text-sm);
+            font-family: var(--font-body);
+            color: var(--color-accent-blue);
+            border: 1px solid var(--color-info-border);
             margin-top: 5px;
             display: inline-block;
             font-weight: 500;
@@ -451,8 +457,8 @@
 
         .last-update {
             text-align: center;
-            font-size: 11px;
-            color: var(--text-secondary);
+            font-size: var(--text-xs);
+            color: var(--color-text-secondary);
             margin-top: 15px;
             opacity: 0.7;
         }
@@ -460,8 +466,8 @@
         /* Day Toggle (Today/Tomorrow) */
         .day-toggle {
             display: flex;
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 8px;
+            background: var(--color-surface-2);
+            border-radius: var(--radius-sm);
             padding: 3px;
             gap: 3px;
         }
@@ -470,22 +476,23 @@
             padding: 6px 14px;
             border: none;
             background: transparent;
-            color: var(--text-secondary);
-            font-size: 12px;
+            color: var(--color-text-secondary);
+            font-size: var(--text-xs);
             font-weight: 500;
-            border-radius: 6px;
+            font-family: var(--font-body);
+            border-radius: var(--radius-sm);
             cursor: pointer;
             transition: all 0.2s ease;
         }
 
         .day-btn:hover {
-            background: rgba(255, 255, 255, 0.08);
-            color: var(--text-main);
+            background: var(--color-surface-3);
+            color: var(--color-text-primary);
         }
 
         .day-btn.active {
-            background: var(--accent-blue);
-            color: white;
+            background: var(--color-accent-blue);
+            color: var(--color-text-inverse);
         }
     </style>
 </head>
@@ -538,7 +545,7 @@
                     </div>
                 </div>
                 <div class="target-date-display" id="target-date-display"
-                    style="text-align: center; margin-bottom: 15px; font-size: 12px; color: var(--text-secondary);">
+                    style="text-align: center; margin-bottom: 15px; font-size: var(--text-xs); color: var(--color-text-secondary);">
                     Target: <span id="target-date-label">--</span>
                 </div>
 
@@ -657,7 +664,7 @@
                                 <!-- Filled by JS -->
                                 <tr>
                                     <td colspan="3"
-                                        style="text-align:center; padding: 20px; color: var(--text-secondary);">
+                                        style="text-align:center; padding: 20px; color: var(--color-text-secondary);">
                                         Cargando historial...</td>
                                 </tr>
                             </tbody>
@@ -700,26 +707,26 @@
                     </div>
 
                     <h2 style="margin-bottom: 5px;"><i data-lucide="bar-chart-2"></i> Performance Analytics</h2>
-                    <div style="color: var(--text-secondary); font-size: 13px; margin-bottom: 15px;">
+                    <div style="color: var(--color-text-secondary); font-size: var(--text-sm); margin-bottom: 15px;">
                         Click to view verification dashboard
                     </div>
 
                     <div style="display: flex; gap: 20px; align-items: flex-end;">
                         <div>
                             <div
-                                style="font-size: 11px; text-transform: uppercase; color: var(--text-secondary); letter-spacing: 1px;">
+                                style="font-size: var(--text-xs); text-transform: uppercase; color: var(--color-text-secondary); letter-spacing: 1px;">
                                 Win Rate</div>
                             <div
-                                style="font-size: 24px; font-weight: 700; font-family: 'Space Grotesk', sans-serif; color: var(--accent-green);">
+                                style="font-size: var(--text-2xl); font-weight: 700; font-family: var(--font-display); color: var(--color-accent-green);">
                                 <span id="mini-winrate">--</span>%
                             </div>
                         </div>
-                        <div style="height: 30px; width: 1px; background: rgba(255,255,255,0.1);"></div>
+                        <div style="height: 30px; width: 1px; background: var(--color-border-medium);"></div>
                         <div>
                             <div
-                                style="font-size: 11px; text-transform: uppercase; color: var(--text-secondary); letter-spacing: 1px;">
+                                style="font-size: var(--text-xs); text-transform: uppercase; color: var(--color-text-secondary); letter-spacing: 1px;">
                                 MAE</div>
-                            <div style="font-size: 24px; font-weight: 700; font-family: 'Space Grotesk', sans-serif;">
+                            <div style="font-size: var(--text-2xl); font-weight: 700; font-family: var(--font-display);">
                                 <span id="mini-mae">--</span>°F
                             </div>
                         </div>
@@ -730,41 +737,41 @@
             <!-- External Sources Tile -->
             <a href="/station/{{ station_id }}/external-sources" style="text-decoration: none;">
                 <section class="detail-card glass-panel"
-                    style="position: relative; overflow: hidden; transition: all 0.3s; cursor: pointer; background: radial-gradient(circle at top right, rgba(14,165,233,0.16), transparent 34%), rgba(255,255,255,0.02);">
+                    style="position: relative; overflow: hidden; transition: all 0.3s; cursor: pointer; background: radial-gradient(circle at top right, var(--color-info-surface), transparent 34%), var(--color-surface-1);">
                     <div style="position: absolute; top: 0; right: 0; padding: 15px; opacity: 0.12;">
                         <i data-lucide="satellite-dish" style="width: 100px; height: 100px;"></i>
                     </div>
 
                     <h2 style="margin-bottom: 5px;"><i data-lucide="satellite-dish"></i> External Sources</h2>
-                    <div style="color: var(--text-secondary); font-size: 13px; margin-bottom: 15px;">
+                    <div style="color: var(--color-text-secondary); font-size: var(--text-sm); margin-bottom: 15px;">
                         Compare Wunderground, NOAA/NWS, Open-Meteo and future providers for this station
                     </div>
 
                     <div style="display: flex; gap: 20px; align-items: flex-end; flex-wrap: wrap;">
                         <div>
                             <div
-                                style="font-size: 11px; text-transform: uppercase; color: var(--text-secondary); letter-spacing: 1px;">
+                                style="font-size: var(--text-xs); text-transform: uppercase; color: var(--color-text-secondary); letter-spacing: 1px;">
                                 Online</div>
                             <div
-                                style="font-size: 24px; font-weight: 700; font-family: 'Space Grotesk', sans-serif; color: #7dd3fc;">
+                                style="font-size: var(--text-2xl); font-weight: 700; font-family: var(--font-display); color: var(--color-info);">
                                 <span id="mini-ext-online">--</span>
                             </div>
                         </div>
-                        <div style="height: 30px; width: 1px; background: rgba(255,255,255,0.1);"></div>
+                        <div style="height: 30px; width: 1px; background: var(--color-border-medium);"></div>
                         <div>
                             <div
-                                style="font-size: 11px; text-transform: uppercase; color: var(--text-secondary); letter-spacing: 1px;">
+                                style="font-size: var(--text-xs); text-transform: uppercase; color: var(--color-text-secondary); letter-spacing: 1px;">
                                 Confirmed</div>
-                            <div style="font-size: 24px; font-weight: 700; font-family: 'Space Grotesk', sans-serif; color: var(--accent-green);">
+                            <div style="font-size: var(--text-2xl); font-weight: 700; font-family: var(--font-display); color: var(--color-accent-green);">
                                 <span id="mini-ext-confirmed">--</span>
                             </div>
                         </div>
-                        <div style="height: 30px; width: 1px; background: rgba(255,255,255,0.1);"></div>
+                        <div style="height: 30px; width: 1px; background: var(--color-border-medium);"></div>
                         <div>
                             <div
-                                style="font-size: 11px; text-transform: uppercase; color: var(--text-secondary); letter-spacing: 1px;">
+                                style="font-size: var(--text-xs); text-transform: uppercase; color: var(--color-text-secondary); letter-spacing: 1px;">
                                 Disabled</div>
-                            <div style="font-size: 24px; font-weight: 700; font-family: 'Space Grotesk', sans-serif;">
+                            <div style="font-size: var(--text-2xl); font-weight: 700; font-family: var(--font-display);">
                                 <span id="mini-ext-disabled">--</span>
                             </div>
                         </div>
@@ -1127,19 +1134,19 @@
                         if (v.metar_racing) {
                             const r = v.metar_racing;
                             if (r.NOAA_JSON_API) {
-                                html += `<div class="verify-row" style="border-left: 2px solid #10B981; padding-left: 8px; font-size: 11px; margin-top: 4px;">
+                                html += `<div class="verify-row" style="border-left: 2px solid var(--color-accent-green); padding-left: 8px; font-size: var(--text-xs); margin-top: 4px;">
                                     <span>🏁 NOAA JSON API</span>
                                     <span class="value">${formatTemp(r.NOAA_JSON_API)}${tempUnit}</span>
                                 </div>`;
                             }
                             if (r.AWC_TDS_XML) {
-                                html += `<div class="verify-row" style="border-left: 2px solid #8B5CF6; padding-left: 8px; font-size: 11px;">
+                                html += `<div class="verify-row" style="border-left: 2px solid var(--color-accent-purple); padding-left: 8px; font-size: var(--text-xs);">
                                     <span>🏁 AWC TDS (XML)</span>
                                     <span class="value">${formatTemp(r.AWC_TDS_XML)}${tempUnit}</span>
                                 </div>`;
                             }
                             if (r.NOAA_TG_FTP_TXT) {
-                                html += `<div class="verify-row" style="border-left: 2px solid #EC4899; padding-left: 8px; font-size: 11px;">
+                                html += `<div class="verify-row" style="border-left: 2px solid var(--color-accent-red); padding-left: 8px; font-size: var(--text-xs);">
                                     <span>🏁 NOAA FTP (TXT)</span>
                                     <span class="value">${formatTemp(r.NOAA_TG_FTP_TXT)}${tempUnit}</span>
                                 </div>`;
@@ -1189,7 +1196,7 @@
                     });
                     historyList.innerHTML = historyHtml;
                 } else {
-                    historyList.innerHTML = '<tr><td colspan="3" style="text-align:center; padding: 20px; color: var(--text-secondary);">No hay datos históricos disponibles</td></tr>';
+                    historyList.innerHTML = '<tr><td colspan="3" style="text-align:center; padding: 20px; color: var(--color-text-secondary);">No hay datos históricos disponibles</td></tr>';
                 }
 
             } catch (e) {

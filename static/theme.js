@@ -52,6 +52,13 @@
             window.lucide.createIcons();
         }
 
+        // Dispatch theme change event for chart-theme.js and other listeners
+        try {
+            window.dispatchEvent(new CustomEvent('helios:theme-changed', {
+                detail: { theme: nextTheme }
+            }));
+        } catch (_) {}
+
         return nextTheme;
     }
 

@@ -12,10 +12,10 @@
     }
 
     .debug-panel {
-        background: var(--bg-secondary);
-        border: 1px solid rgba(255,255,255,0.05);
-        border-radius: 12px;
-        padding: 20px;
+        background: var(--color-bg-raised);
+        border: 1px solid var(--color-border-subtle);
+        border-radius: var(--radius-md);
+        padding: var(--space-5);
     }
 
     .debug-panel-header {
@@ -24,11 +24,11 @@
         justify-content: space-between;
         margin-bottom: 15px;
         padding-bottom: 10px;
-        border-bottom: 1px solid rgba(255,255,255,0.05);
+        border-bottom: 1px solid var(--color-border-subtle);
     }
 
     .debug-panel-title {
-        font-size: 14px;
+        font-size: var(--text-base);
         font-weight: 600;
         color: var(--text-main);
         display: flex;
@@ -39,7 +39,7 @@
     .debug-panel-title i {
         width: 18px;
         height: 18px;
-        color: #8B5CF6;
+        color: var(--color-accent-purple);
     }
 
     /* State Table */
@@ -50,7 +50,7 @@
     }
 
     .state-table tr {
-        border-bottom: 1px solid rgba(255,255,255,0.03);
+        border-bottom: 1px solid var(--color-surface-1);
     }
 
     .state-table td {
@@ -66,7 +66,7 @@
     }
 
     .state-table td:last-child {
-        font-family: 'JetBrains Mono', monospace;
+        font-family: var(--font-mono);
         color: var(--text-main);
     }
 
@@ -76,8 +76,8 @@
         align-items: center;
         gap: 10px;
         padding: 10px 12px;
-        background: rgba(255,255,255,0.02);
-        border-radius: 8px;
+        background: var(--color-surface-1);
+        border-radius: var(--radius-sm);
         margin-bottom: 8px;
     }
 
@@ -88,13 +88,13 @@
     }
 
     .component-value {
-        font-size: 14px;
+        font-size: var(--text-base);
         font-weight: 600;
-        font-family: 'JetBrains Mono', monospace;
+        font-family: var(--font-mono);
     }
 
-    .component-value.positive { color: #10B981; }
-    .component-value.negative { color: #EF4444; }
+    .component-value.positive { color: var(--color-accent-green); }
+    .component-value.negative { color: var(--color-accent-red); }
     .component-value.neutral { color: var(--text-main); }
 
     /* Health Status */
@@ -105,9 +105,9 @@
     }
 
     .health-card {
-        background: rgba(255,255,255,0.02);
-        border: 1px solid rgba(255,255,255,0.05);
-        border-radius: 8px;
+        background: var(--color-surface-1);
+        border: 1px solid var(--color-border-subtle);
+        border-radius: var(--radius-sm);
         padding: 12px;
         text-align: center;
     }
@@ -126,9 +126,9 @@
         display: inline-block;
     }
 
-    .health-status.ok { background: rgba(16,185,129,0.2); color: #10B981; }
-    .health-status.stale { background: rgba(244,208,63,0.2); color: #F4D03F; }
-    .health-status.dead { background: rgba(239,68,68,0.2); color: #EF4444; }
+    .health-status.ok { background: var(--color-success-surface); color: var(--color-accent-green); }
+    .health-status.stale { background: var(--color-warning-surface); color: var(--color-accent-yellow); }
+    .health-status.dead { background: var(--color-danger-surface); color: var(--color-accent-red); }
 
     /* Bias History Chart */
     .bias-chart-container {
@@ -144,8 +144,8 @@
     }
 
     .trigger-card {
-        background: rgba(255,255,255,0.02);
-        border-radius: 8px;
+        background: var(--color-surface-1);
+        border-radius: var(--radius-sm);
         padding: 12px;
         text-align: center;
     }
@@ -157,9 +157,9 @@
     }
 
     .trigger-count {
-        font-size: 20px;
+        font-size: var(--text-xl);
         font-weight: 700;
-        font-family: 'JetBrains Mono', monospace;
+        font-family: var(--font-mono);
         color: var(--accent-blue);
     }
 
@@ -175,18 +175,18 @@
     }
 
     .qc-badge.ok {
-        background: rgba(16,185,129,0.2);
-        color: #10B981;
+        background: var(--color-success-surface);
+        color: var(--color-accent-green);
     }
 
     .qc-badge.uncertain {
-        background: rgba(244,208,63,0.2);
-        color: #F4D03F;
+        background: var(--color-warning-surface);
+        color: var(--color-accent-yellow);
     }
 
     .qc-badge.outlier {
-        background: rgba(239,68,68,0.2);
-        color: #EF4444;
+        background: var(--color-danger-surface);
+        color: var(--color-accent-red);
     }
 
     /* Station selector */
@@ -198,9 +198,9 @@
 
     .station-btn {
         padding: 8px 20px;
-        background: rgba(255,255,255,0.05);
-        border: 1px solid rgba(255,255,255,0.1);
-        border-radius: 8px;
+        background: var(--color-surface-2);
+        border: 1px solid var(--color-border-medium);
+        border-radius: var(--radius-sm);
         color: var(--text-secondary);
         font-size: 13px;
         font-weight: 500;
@@ -209,21 +209,21 @@
     }
 
     .station-btn:hover {
-        background: rgba(255,255,255,0.1);
+        background: var(--color-surface-3);
     }
 
     .station-btn.active {
         background: rgba(139,92,246,0.2);
-        border-color: #8B5CF6;
-        color: #8B5CF6;
+        border-color: var(--color-accent-purple);
+        color: var(--color-accent-purple);
     }
 
     /* JSON Viewer */
     .json-viewer {
-        background: rgba(0,0,0,0.3);
-        border-radius: 8px;
+        background: var(--color-bg-base);
+        border-radius: var(--radius-sm);
         padding: 15px;
-        font-family: 'JetBrains Mono', monospace;
+        font-family: var(--font-mono);
         font-size: 11px;
         max-height: 300px;
         overflow: auto;
@@ -246,7 +246,7 @@
 {% block content %}
 <div class="page-header">
     <div class="page-title">
-        <i data-lucide="bug" style="width:24px;height:24px;color:#8B5CF6;"></i>
+        <i data-lucide="bug" style="width:24px;height:24px;color:var(--color-accent-purple);"></i>
         Nowcast Debug
     </div>
     <a href="/nowcast" style="font-size:13px;color:var(--text-muted);text-decoration:none;">

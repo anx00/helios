@@ -59,7 +59,7 @@
     content: "";
     position: absolute;
     inset: 0;
-    background: linear-gradient(90deg, rgba(255, 255, 255, 0.02), transparent 42%, rgba(255, 255, 255, 0.03));
+    background: linear-gradient(90deg, var(--color-surface-1), transparent 42%, var(--color-surface-2));
     pointer-events: none;
 }
 
@@ -95,7 +95,7 @@
 
 .pl-hero-title {
     color: var(--pl-heading);
-    font-family: "Space Grotesk", sans-serif;
+    font-family: var(--font-display);
     font-size: clamp(2rem, 3vw, 3.2rem);
     line-height: 1.04;
     letter-spacing: -0.03em;
@@ -189,7 +189,7 @@
 
 .pl-station-title {
     color: var(--pl-heading);
-    font-family: "Space Grotesk", sans-serif;
+    font-family: var(--font-display);
     font-size: 1.45rem;
     line-height: 1.1;
 }
@@ -216,7 +216,7 @@
 
 .pl-action-title {
     color: var(--pl-heading);
-    font-family: "Space Grotesk", sans-serif;
+    font-family: var(--font-display);
     font-size: clamp(1.7rem, 2.2vw, 2.6rem);
     line-height: 1.06;
     letter-spacing: -0.03em;
@@ -289,7 +289,7 @@
 .pl-detail-value,
 .pl-data-list strong {
     color: var(--pl-heading);
-    font-family: "Space Grotesk", sans-serif;
+    font-family: var(--font-display);
 }
 
 .pl-summary-value {
@@ -364,7 +364,7 @@
     gap: 12px;
     cursor: pointer;
     color: var(--pl-heading);
-    font-family: "Space Grotesk", sans-serif;
+    font-family: var(--font-display);
     font-size: 1.1rem;
 }
 
@@ -417,7 +417,7 @@
     margin-top: 6px;
     color: var(--pl-heading);
     font-size: 18px;
-    font-family: "Space Grotesk", sans-serif;
+    font-family: var(--font-display);
     font-weight: 700;
 }
 

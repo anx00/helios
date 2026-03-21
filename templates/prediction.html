@@ -17,11 +17,11 @@
     }
 
     .calc-section {
-        background: rgba(255, 255, 255, 0.02);
-        border: 1px solid rgba(255, 255, 255, 0.05);
-        border-radius: 12px;
-        padding: 20px;
-        margin-bottom: 20px;
+        background: var(--color-surface-1);
+        border: 1px solid var(--color-border-subtle);
+        border-radius: var(--radius-md);
+        padding: var(--space-5);
+        margin-bottom: var(--space-5);
     }
 
     .calc-section-header {
@@ -30,11 +30,11 @@
         gap: 10px;
         margin-bottom: 15px;
         padding-bottom: 10px;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        border-bottom: 1px solid var(--color-border-subtle);
     }
 
     .calc-section-header h3 {
-        font-size: 14px;
+        font-size: var(--text-base);
         font-weight: 600;
         text-transform: uppercase;
         letter-spacing: 0.5px;
@@ -49,7 +49,7 @@
         justify-content: space-between;
         align-items: center;
         padding: 10px 0;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+        border-bottom: 1px solid var(--color-surface-1);
     }
 
     .calc-row:last-child {
@@ -65,17 +65,17 @@
     }
 
     .calc-value {
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 14px;
+        font-family: var(--font-mono);
+        font-size: var(--text-base);
         font-weight: 600;
     }
 
     .calc-value.positive {
-        color: #10B981;
+        color: var(--color-accent-green);
     }
 
     .calc-value.negative {
-        color: #EF4444;
+        color: var(--color-accent-red);
     }
 
     .calc-value.neutral {
@@ -83,13 +83,13 @@
     }
 
     .calc-value.warning {
-        color: #F59E0B;
+        color: var(--color-accent-yellow);
     }
 
     .final-prediction {
-        background: linear-gradient(135deg, rgba(0, 120, 255, 0.15), rgba(0, 212, 255, 0.05));
-        border: 1px solid rgba(0, 120, 255, 0.3);
-        border-radius: 16px;
+        background: linear-gradient(135deg, var(--color-info-surface), rgba(0, 212, 255, 0.05));
+        border: 1px solid var(--color-info-border);
+        border-radius: var(--radius-lg);
         padding: 30px;
         text-align: center;
         margin-bottom: 20px;
@@ -104,10 +104,10 @@
     }
 
     .final-value {
-        font-size: 48px;
+        font-size: var(--text-4xl);
         font-weight: 700;
-        font-family: 'Space Grotesk', sans-serif;
-        color: #0078FF;
+        font-family: var(--font-display);
+        color: var(--color-accent-blue);
     }
 
     .final-bracket {
@@ -128,21 +128,21 @@
     }
 
     .protection-badge.active {
-        background: rgba(16, 185, 129, 0.15);
-        color: #10B981;
-        border: 1px solid rgba(16, 185, 129, 0.3);
+        background: var(--color-success-surface);
+        color: var(--color-accent-green);
+        border: 1px solid var(--color-success-border);
     }
 
     .protection-badge.inactive {
-        background: rgba(100, 116, 139, 0.15);
-        color: #64748b;
-        border: 1px solid rgba(100, 116, 139, 0.3);
+        background: var(--color-surface-2);
+        color: var(--color-text-muted);
+        border: 1px solid var(--color-border-medium);
     }
 
     .protection-badge.warning {
-        background: rgba(239, 68, 68, 0.15);
-        color: #f87171;
-        border: 1px solid rgba(239, 68, 68, 0.3);
+        background: var(--color-danger-surface);
+        color: var(--color-accent-red);
+        border: 1px solid var(--color-danger-border);
         animation: pulse-warning 2s infinite;
     }
 
@@ -163,8 +163,8 @@
         justify-content: space-between;
         align-items: center;
         padding: 10px 20px;
-        background: rgba(255, 255, 255, 0.02);
-        border-radius: 8px;
+        background: var(--color-surface-1);
+        border-radius: var(--radius-sm);
         margin-bottom: 20px;
         font-size: 12px;
         color: var(--text-muted);
@@ -179,7 +179,7 @@
     .live-dot {
         width: 8px;
         height: 8px;
-        background: #10B981;
+        background: var(--color-accent-green);
         border-radius: 50%;
         animation: pulse-live 2s infinite;
     }
@@ -199,8 +199,8 @@
     }
 
     .strategy-note {
-        background: rgba(255, 255, 255, 0.03);
-        border-left: 3px solid var(--accent-blue);
+        background: var(--color-surface-1);
+        border-left: 3px solid var(--color-accent-blue);
         padding: 12px 15px;
         margin-top: 15px;
         font-size: 12px;

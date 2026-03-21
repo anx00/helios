@@ -2,6 +2,121 @@
 
 {% block title %}HELIOS - Home{% endblock %}
 
+{% block head_extra %}
+<style>
+    .home-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+        gap: var(--space-6);
+    }
+
+    .home-grid .station-card {
+        background: var(--color-surface-1);
+        border: 1px solid var(--color-border-subtle);
+        border-radius: var(--radius-lg);
+        padding: var(--space-6);
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        cursor: pointer;
+        text-decoration: none;
+        color: inherit;
+        display: block;
+    }
+
+    .home-grid .station-card:hover {
+        border-color: var(--color-accent-blue);
+        transform: translateY(-4px);
+        box-shadow: var(--shadow-lg);
+    }
+
+    .station-card-header {
+        display: flex;
+        align-items: center;
+        gap: 15px;
+        margin-bottom: var(--space-5);
+    }
+
+    .station-flag {
+        font-size: 36px;
+    }
+
+    .station-info h3 {
+        font-size: var(--text-xl);
+        font-weight: 600;
+        margin-bottom: var(--space-1);
+        font-family: var(--font-display);
+    }
+
+    .station-info span {
+        font-size: var(--text-sm);
+        color: var(--color-text-muted);
+    }
+
+    .station-stats {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 15px;
+        padding-top: var(--space-5);
+        border-top: 1px solid var(--color-border-subtle);
+    }
+
+    .stat-item {
+        text-align: center;
+    }
+
+    .stat-value {
+        font-size: 22px;
+        font-weight: 700;
+        font-family: var(--font-display);
+        color: var(--color-text-primary);
+    }
+
+    .stat-label {
+        font-size: var(--text-xs);
+        color: var(--color-text-muted);
+        text-transform: uppercase;
+        margin-top: var(--space-1);
+        letter-spacing: 0.5px;
+        font-weight: 500;
+    }
+
+    .hero-section {
+        text-align: center;
+        padding: var(--space-10) 0;
+        margin-bottom: var(--space-8);
+    }
+
+    .hero-title {
+        font-size: var(--text-3xl);
+        font-weight: 700;
+        margin-bottom: var(--space-3);
+        font-family: var(--font-display);
+        background: linear-gradient(90deg, var(--color-text-primary), var(--color-text-muted));
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+    }
+
+    .hero-subtitle {
+        font-size: var(--text-lg);
+        color: var(--color-text-secondary);
+    }
+
+    .v12-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--space-2);
+        background: var(--color-info-surface);
+        border: 1px solid var(--color-info-border);
+        border-radius: var(--radius-pill);
+        padding: var(--space-2) var(--space-5);
+        margin-top: var(--space-5);
+        font-size: var(--text-sm);
+        font-weight: 600;
+        color: var(--color-accent-blue);
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="page-header">
     <h1 class="page-title">
@@ -13,111 +128,6 @@
 </div>
 
 <div class="page-content">
-    <style>
-        .home-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-            gap: 25px;
-        }
-
-        .station-card {
-            background: var(--surface-primary);
-            border: 1px solid var(--border-subtle);
-            border-radius: 16px;
-            padding: 25px;
-            transition: all 0.3s;
-            cursor: pointer;
-            text-decoration: none;
-            color: inherit;
-        }
-
-        .station-card:hover {
-            border-color: var(--accent-blue);
-            transform: translateY(-4px);
-            box-shadow: 0 10px 40px var(--shadow-color);
-        }
-
-        .station-card-header {
-            display: flex;
-            align-items: center;
-            gap: 15px;
-            margin-bottom: 20px;
-        }
-
-        .station-flag {
-            font-size: 36px;
-        }
-
-        .station-info h3 {
-            font-size: 20px;
-            font-weight: 600;
-            margin-bottom: 4px;
-        }
-
-        .station-info span {
-            font-size: 13px;
-            color: var(--text-muted);
-        }
-
-        .station-stats {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 15px;
-            padding-top: 20px;
-            border-top: 1px solid var(--border-subtle);
-        }
-
-        .stat-item {
-            text-align: center;
-        }
-
-        .stat-value {
-            font-size: 22px;
-            font-weight: 700;
-            font-family: 'Space Grotesk', sans-serif;
-        }
-
-        .stat-label {
-            font-size: 11px;
-            color: var(--text-muted);
-            text-transform: uppercase;
-            margin-top: 4px;
-        }
-
-        .hero-section {
-            text-align: center;
-            padding: 40px 0;
-            margin-bottom: 30px;
-        }
-
-        .hero-title {
-            font-size: 32px;
-            font-weight: 700;
-            margin-bottom: 10px;
-            background: linear-gradient(90deg, #fff, #94a3b8);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        .hero-subtitle {
-            font-size: 16px;
-            color: var(--text-secondary);
-        }
-
-        .v12-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            background: linear-gradient(135deg, rgba(0, 120, 255, 0.2), rgba(0, 212, 255, 0.1));
-            border: 1px solid rgba(0, 120, 255, 0.3);
-            border-radius: 30px;
-            padding: 8px 20px;
-            margin-top: 20px;
-            font-size: 13px;
-            font-weight: 600;
-        }
-    </style>
-
     <div class="hero-section">
         <h1 class="hero-title">Temperature Prediction Engine</h1>
         <p class="hero-subtitle">Multi-model ensemble with physics-based corrections</p>
@@ -147,7 +157,7 @@
                     <div class="stat-label">METAR</div>
                 </div>
                 <div class="stat-item">
-                    <div class="stat-value" style="color: var(--accent-green);" id="{{ sid|lower }}-status">&#x25CF;</div>
+                    <div class="stat-value" style="color: var(--color-accent-green);" id="{{ sid|lower }}-status">&#x25CF;</div>
                     <div class="stat-label">Status</div>
                 </div>
             </div>
@@ -159,7 +169,6 @@
 
 {% block scripts %}
 <script>
-    // Fetch latest data for each station
     async function loadStationData(stationId) {
         try {
             const resp = await fetch(`/api/prediction/${stationId}`);
@@ -179,7 +188,6 @@
         }
     }
 
-    // Load active stations
     {{ active_stations|tojson }}.forEach(loadStationData);
 </script>
 {% endblock %}

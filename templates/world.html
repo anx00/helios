@@ -7,13 +7,13 @@
     .world-grid {
         display: grid;
         grid-template-columns: 1fr 1fr;
-        gap: 20px;
+        gap: var(--space-5);
     }
 
     .world-panel {
-        background: rgba(255, 255, 255, 0.02);
-        border: 1px solid rgba(255, 255, 255, 0.06);
-        border-radius: 14px;
+        background: var(--color-surface-1);
+        border: 1px solid var(--color-border-subtle);
+        border-radius: var(--radius-lg);
         padding: 22px;
         transition: border-color 0.3s;
         min-height: 180px;
@@ -21,7 +21,7 @@
     }
 
     .world-panel:hover {
-        border-color: rgba(255, 255, 255, 0.12);
+        border-color: var(--color-border-medium);
     }
 
     .world-panel.full-width {
@@ -38,35 +38,35 @@
     .panel-header-actions {
         display: flex;
         align-items: center;
-        gap: 8px;
+        gap: var(--space-2);
     }
 
     .panel-title {
-        font-size: 13px;
+        font-size: var(--text-sm);
         font-weight: 700;
         text-transform: uppercase;
         letter-spacing: 1.5px;
-        color: var(--text-secondary);
+        color: var(--color-text-secondary);
         display: flex;
         align-items: center;
-        gap: 8px;
+        gap: var(--space-2);
     }
 
     .panel-badge {
         font-size: 10px;
         padding: 3px 10px;
-        border-radius: 20px;
+        border-radius: var(--radius-pill);
         font-weight: 600;
         letter-spacing: 0.5px;
     }
 
     .metar-subscription-btn {
-        font-size: 11px;
+        font-size: var(--text-xs);
         padding: 5px 10px;
-        border-radius: 20px;
+        border-radius: var(--radius-pill);
         border: 1px solid rgba(100, 116, 139, 0.35);
         background: rgba(100, 116, 139, 0.12);
-        color: #cbd5e1;
+        color: var(--color-text-secondary);
         font-weight: 600;
         cursor: pointer;
         transition: background-color 0.2s, border-color 0.2s, color 0.2s, opacity 0.2s;
@@ -79,9 +79,9 @@
     }
 
     .metar-subscription-btn.enabled {
-        border-color: rgba(16, 185, 129, 0.35);
-        background: rgba(16, 185, 129, 0.14);
-        color: #10B981;
+        border-color: var(--color-success-border);
+        background: var(--color-success-surface);
+        color: var(--color-accent-green);
     }
 
     .metar-subscription-btn.loading {
@@ -94,32 +94,32 @@
     }
 
     .badge-live {
-        background: rgba(16, 185, 129, 0.15);
-        color: #10B981;
+        background: var(--color-success-surface);
+        color: var(--color-accent-green);
         border: 1px solid rgba(16, 185, 129, 0.3);
     }
 
     .badge-ok {
-        background: rgba(0, 120, 255, 0.15);
-        color: #0078FF;
-        border: 1px solid rgba(0, 120, 255, 0.3);
+        background: var(--color-info-surface);
+        color: var(--color-accent-blue);
+        border: 1px solid var(--color-info-border);
     }
 
     .badge-stale {
-        background: rgba(244, 208, 63, 0.15);
-        color: #F4D03F;
-        border: 1px solid rgba(244, 208, 63, 0.3);
+        background: var(--color-warning-surface);
+        color: var(--color-accent-yellow);
+        border: 1px solid var(--color-warning-border);
     }
 
     .badge-dead {
-        background: rgba(239, 68, 68, 0.15);
-        color: #EF4444;
-        border: 1px solid rgba(239, 68, 68, 0.3);
+        background: var(--color-danger-surface);
+        color: var(--color-accent-red);
+        border: 1px solid var(--color-danger-border);
     }
 
     .badge-no-data {
         background: rgba(100, 116, 139, 0.15);
-        color: #64748b;
+        color: var(--color-text-muted);
         border: 1px solid rgba(100, 116, 139, 0.3);
     }
 
@@ -127,63 +127,63 @@
     .metar-main {
         display: flex;
         align-items: baseline;
-        gap: 12px;
-        margin-bottom: 16px;
+        gap: var(--space-3);
+        margin-bottom: var(--space-4);
     }
 
     .metar-temp {
-        font-size: 48px;
+        font-size: var(--text-4xl);
         font-weight: 700;
-        font-family: 'Space Grotesk', sans-serif;
-        background: linear-gradient(135deg, #10B981, #0078FF);
+        font-family: var(--font-display);
+        background: linear-gradient(135deg, var(--color-accent-green), var(--color-accent-blue));
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
     }
 
     .metar-unit {
-        font-size: 20px;
-        color: var(--text-secondary);
+        font-size: var(--text-xl);
+        color: var(--color-text-secondary);
     }
 
     .metar-age-live {
-        font-size: 14px;
+        font-size: var(--text-base);
         font-weight: 600;
-        font-family: 'JetBrains Mono', monospace;
-        margin-left: 8px;
+        font-family: var(--font-mono);
+        margin-left: var(--space-2);
         padding: 3px 10px;
-        border-radius: 8px;
+        border-radius: var(--radius-sm);
         transition: color 0.3s, background 0.3s;
     }
 
     .metar-age-live.fresh {
-        color: #EF4444;
-        background: rgba(239, 68, 68, 0.12);
-        border: 1px solid rgba(239, 68, 68, 0.25);
+        color: var(--color-accent-red);
+        background: var(--color-danger-surface);
+        border: 1px solid var(--color-danger-border);
         animation: pulse-red 2s infinite;
     }
 
     .metar-age-live.recent {
-        color: #10B981;
-        background: rgba(16, 185, 129, 0.10);
+        color: var(--color-accent-green);
+        background: var(--color-success-surface);
         border: 1px solid rgba(16, 185, 129, 0.20);
     }
 
     .metar-age-live.aging {
-        color: #F4D03F;
-        background: rgba(244, 208, 63, 0.10);
+        color: var(--color-accent-yellow);
+        background: var(--color-warning-surface);
         border: 1px solid rgba(244, 208, 63, 0.20);
     }
 
     .metar-age-live.stale {
-        color: #F97316;
+        color: var(--color-accent-orange);
         background: rgba(249, 115, 22, 0.10);
         border: 1px solid rgba(249, 115, 22, 0.20);
     }
 
     .metar-age-live.normal {
-        color: var(--text-muted);
-        background: rgba(255, 255, 255, 0.04);
-        border: 1px solid rgba(255, 255, 255, 0.08);
+        color: var(--color-text-muted);
+        background: var(--color-surface-1);
+        border: 1px solid var(--color-border-subtle);
     }
 
     .metar-details {
@@ -195,104 +195,104 @@
     .detail-item {
         display: flex;
         flex-direction: column;
-        gap: 4px;
+        gap: var(--space-1);
     }
 
     .detail-label {
         font-size: 10px;
         text-transform: uppercase;
         letter-spacing: 1px;
-        color: var(--text-muted);
+        color: var(--color-text-muted);
         font-weight: 600;
     }
 
     .detail-value {
         font-size: 15px;
         font-weight: 600;
-        font-family: 'JetBrains Mono', monospace;
-        color: var(--text-main);
+        font-family: var(--font-mono);
+        color: var(--color-text-primary);
     }
 
     .detail-value.muted {
-        color: var(--text-muted);
+        color: var(--color-text-muted);
     }
 
     /* Timestamps */
     .timestamps-row {
         display: flex;
-        gap: 20px;
+        gap: var(--space-5);
         flex-wrap: wrap;
         padding-top: 14px;
         margin-top: 14px;
-        border-top: 1px solid rgba(255, 255, 255, 0.05);
+        border-top: 1px solid var(--color-border-subtle);
     }
 
     .ts-item {
         display: flex;
         align-items: center;
-        gap: 6px;
-        font-size: 12px;
-        color: var(--text-muted);
+        gap: var(--space-2);
+        font-size: var(--text-sm);
+        color: var(--color-text-muted);
     }
 
     .ts-flag {
-        font-size: 14px;
+        font-size: var(--text-base);
     }
 
     .ts-value {
-        font-family: 'JetBrains Mono', monospace;
-        color: var(--text-secondary);
+        font-family: var(--font-mono);
+        color: var(--color-text-secondary);
     }
 
     /* Daily Max Row */
     .daily-max-row {
         display: flex;
         align-items: center;
-        gap: 16px;
+        gap: var(--space-4);
         padding: 10px 14px;
-        margin-bottom: 16px;
+        margin-bottom: var(--space-4);
         background: rgba(249, 115, 22, 0.06);
         border: 1px solid rgba(249, 115, 22, 0.18);
-        border-radius: 10px;
+        border-radius: var(--radius-md);
     }
 
     .daily-max-label {
         font-size: 10px;
         text-transform: uppercase;
         letter-spacing: 1px;
-        color: #F97316;
+        color: var(--color-accent-orange);
         font-weight: 700;
     }
 
     .daily-max-value {
-        font-size: 22px;
+        font-size: var(--text-2xl);
         font-weight: 700;
-        font-family: 'Space Grotesk', sans-serif;
-        color: #F97316;
+        font-family: var(--font-display);
+        color: var(--color-accent-orange);
     }
 
     .daily-max-meta {
-        font-size: 11px;
-        color: var(--text-muted);
-        font-family: 'JetBrains Mono', monospace;
+        font-size: var(--text-xs);
+        color: var(--color-text-muted);
+        font-family: var(--font-mono);
     }
 
     /* METAR History Table */
     .metar-history-table {
         width: 100%;
         border-collapse: collapse;
-        font-size: 12px;
+        font-size: var(--text-sm);
     }
 
     .metar-history-table th {
         text-align: left;
-        padding: 8px 10px;
+        padding: var(--space-2) 10px;
         font-size: 10px;
         text-transform: uppercase;
         letter-spacing: 1px;
-        color: var(--text-muted);
+        color: var(--color-text-muted);
         font-weight: 600;
-        background: rgba(255, 255, 255, 0.02);
+        background: var(--color-surface-1);
         position: sticky;
         top: 0;
         z-index: 1;
@@ -300,8 +300,8 @@
 
     .metar-history-table td {
         padding: 7px 10px;
-        font-family: 'JetBrains Mono', monospace;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+        font-family: var(--font-mono);
+        border-bottom: 1px solid var(--color-surface-1);
     }
 
     .metar-history-table tr.is-max td {
@@ -319,7 +319,7 @@
     }
 
     .metar-history-table .temp-max-marker {
-        color: #F97316;
+        color: var(--color-accent-orange);
         font-weight: 700;
     }
 
@@ -329,16 +329,16 @@
         justify-content: center;
         min-width: 46px;
         padding: 2px 6px;
-        border-radius: 999px;
+        border-radius: var(--radius-pill);
         font-size: 10px;
         line-height: 1.2;
         font-weight: 700;
         letter-spacing: 0.5px;
         text-transform: uppercase;
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        background: rgba(255, 255, 255, 0.03);
-        color: #cbd5e1;
-        font-family: 'Space Grotesk', sans-serif;
+        border: 1px solid var(--color-border-subtle);
+        background: var(--color-surface-1);
+        color: var(--color-text-secondary);
+        font-family: var(--font-display);
     }
 
     .metar-report-badge.speci {
@@ -355,22 +355,22 @@
     }
 
     .env-card {
-        background: rgba(255, 255, 255, 0.02);
-        border: 1px solid rgba(255, 255, 255, 0.05);
-        border-radius: 10px;
-        padding: 16px;
+        background: var(--color-surface-1);
+        border: 1px solid var(--color-border-subtle);
+        border-radius: var(--radius-md);
+        padding: var(--space-4);
     }
 
     .env-value {
         font-size: 28px;
         font-weight: 700;
-        font-family: 'Space Grotesk', sans-serif;
-        margin: 8px 0;
+        font-family: var(--font-display);
+        margin: var(--space-2) 0;
     }
 
     .env-meta {
-        font-size: 11px;
-        color: var(--text-muted);
+        font-size: var(--text-xs);
+        color: var(--color-text-muted);
         display: flex;
         flex-direction: column;
         gap: 3px;
@@ -380,29 +380,29 @@
     .qc-grid {
         display: flex;
         flex-direction: column;
-        gap: 12px;
+        gap: var(--space-3);
     }
 
     .qc-station {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 12px 16px;
-        background: rgba(255, 255, 255, 0.02);
-        border: 1px solid rgba(255, 255, 255, 0.05);
-        border-radius: 10px;
+        padding: var(--space-3) var(--space-4);
+        background: var(--color-surface-1);
+        border: 1px solid var(--color-border-subtle);
+        border-radius: var(--radius-md);
     }
 
     .qc-station-id {
         font-weight: 700;
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 14px;
+        font-family: var(--font-mono);
+        font-size: var(--text-base);
     }
 
     .qc-status {
         display: flex;
         align-items: center;
-        gap: 8px;
+        gap: var(--space-2);
     }
 
     .qc-dot {
@@ -411,9 +411,9 @@
         border-radius: 50%;
     }
 
-    .qc-dot.ok { background: #10B981; }
-    .qc-dot.uncertain { background: #F4D03F; }
-    .qc-dot.outlier { background: #EF4444; }
+    .qc-dot.ok { background: var(--color-accent-green); }
+    .qc-dot.uncertain { background: var(--color-accent-yellow); }
+    .qc-dot.outlier { background: var(--color-accent-red); }
     .qc-dot.severe { background: #DC143C; animation: pulse-red 2s infinite; }
 
     @keyframes pulse-red {
@@ -423,17 +423,17 @@
 
     .qc-flags {
         display: flex;
-        gap: 6px;
+        gap: var(--space-2);
         flex-wrap: wrap;
     }
 
     .qc-flag {
         font-size: 10px;
-        padding: 2px 8px;
-        border-radius: 6px;
-        background: rgba(239, 68, 68, 0.1);
-        color: #EF4444;
-        font-family: 'JetBrains Mono', monospace;
+        padding: 2px var(--space-2);
+        border-radius: var(--radius-sm);
+        background: var(--color-danger-surface);
+        color: var(--color-accent-red);
+        font-family: var(--font-mono);
     }
 
     /* Health Table */
@@ -449,16 +449,16 @@
         font-size: 10px;
         text-transform: uppercase;
         letter-spacing: 1px;
-        color: var(--text-muted);
+        color: var(--color-text-muted);
         font-weight: 600;
-        background: rgba(255, 255, 255, 0.02);
+        background: var(--color-surface-1);
     }
 
     .health-table td {
         padding: 10px 14px;
-        font-size: 13px;
-        font-family: 'JetBrains Mono', monospace;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+        font-size: var(--text-sm);
+        font-family: var(--font-mono);
+        border-bottom: 1px solid var(--color-surface-1);
     }
 
     .health-dot {
@@ -466,47 +466,47 @@
         height: 8px;
         border-radius: 50%;
         display: inline-block;
-        margin-right: 8px;
+        margin-right: var(--space-2);
         vertical-align: middle;
     }
 
-    .health-dot.live { background: #10B981; }
-    .health-dot.ok { background: #0078FF; }
-    .health-dot.stale { background: #F4D03F; }
-    .health-dot.dead { background: #EF4444; }
-    .health-dot.no-data { background: #64748b; }
+    .health-dot.live { background: var(--color-accent-green); }
+    .health-dot.ok { background: var(--color-accent-blue); }
+    .health-dot.stale { background: var(--color-accent-yellow); }
+    .health-dot.dead { background: var(--color-accent-red); }
+    .health-dot.no-data { background: var(--color-text-muted); }
 
     /* System Status Bar */
     .system-bar {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 12px 20px;
-        background: rgba(255, 255, 255, 0.02);
-        border: 1px solid rgba(255, 255, 255, 0.05);
-        border-radius: 10px;
-        margin-bottom: 20px;
-        font-size: 12px;
+        padding: var(--space-3) var(--space-5);
+        background: var(--color-surface-1);
+        border: 1px solid var(--color-border-subtle);
+        border-radius: var(--radius-md);
+        margin-bottom: var(--space-5);
+        font-size: var(--text-sm);
     }
 
     .system-bar-left {
         display: flex;
         align-items: center;
-        gap: 20px;
+        gap: var(--space-5);
     }
 
     .system-bar-item {
         display: flex;
         align-items: center;
-        gap: 6px;
-        color: var(--text-secondary);
+        gap: var(--space-2);
+        color: var(--color-text-secondary);
     }
 
     .system-dot {
         width: 8px;
         height: 8px;
         border-radius: 50%;
-        background: #10B981;
+        background: var(--color-accent-green);
         animation: pulse-green 2s infinite;
     }
 
@@ -518,20 +518,20 @@
     .sse-status {
         display: flex;
         align-items: center;
-        gap: 6px;
-        font-size: 11px;
-        color: var(--text-muted);
+        gap: var(--space-2);
+        font-size: var(--text-xs);
+        color: var(--color-text-muted);
     }
 
     .sse-dot {
         width: 6px;
         height: 6px;
         border-radius: 50%;
-        background: #64748b;
+        background: var(--color-text-muted);
     }
 
     .sse-dot.connected {
-        background: #10B981;
+        background: var(--color-accent-green);
         animation: pulse-green 2s infinite;
     }
 
@@ -540,36 +540,36 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 14px 16px;
-        background: rgba(255, 255, 255, 0.02);
-        border: 1px solid rgba(255, 255, 255, 0.05);
-        border-radius: 10px;
+        padding: 14px var(--space-4);
+        background: var(--color-surface-1);
+        border: 1px solid var(--color-border-subtle);
+        border-radius: var(--radius-md);
         margin-bottom: 10px;
     }
 
     .aux-id {
         font-weight: 600;
-        font-size: 13px;
+        font-size: var(--text-sm);
     }
 
     .aux-temp {
-        font-size: 20px;
+        font-size: var(--text-xl);
         font-weight: 700;
-        font-family: 'Space Grotesk', sans-serif;
+        font-family: var(--font-display);
     }
 
     .aux-drift {
-        font-size: 12px;
-        font-family: 'JetBrains Mono', monospace;
+        font-size: var(--text-sm);
+        font-family: var(--font-mono);
     }
 
-    .aux-drift.positive { color: #EF4444; }
-    .aux-drift.negative { color: #0078FF; }
-    .aux-drift.neutral { color: var(--text-muted); }
+    .aux-drift.positive { color: var(--color-accent-red); }
+    .aux-drift.negative { color: var(--color-accent-blue); }
+    .aux-drift.neutral { color: var(--color-text-muted); }
 
     /* PWS Sortable Table */
     .pws-sort-active {
-        color: #8B5CF6 !important;
+        color: var(--color-accent-purple) !important;
         font-weight: 700;
     }
 
@@ -580,7 +580,7 @@
     }
 
     .pws-table th[onclick]:hover {
-        color: #8B5CF6;
+        color: var(--color-accent-purple);
         background: rgba(139, 92, 246, 0.1);
     }
 
@@ -588,98 +588,98 @@
         display: flex;
         flex-wrap: wrap;
         align-items: center;
-        gap: 8px;
+        gap: var(--space-2);
         margin-bottom: 10px;
     }
 
     .pws-filter-chip {
-        border: 1px solid rgba(255,255,255,0.15);
-        background: rgba(255,255,255,0.03);
-        color: var(--text-secondary);
-        border-radius: 999px;
-        padding: 4px 10px;
-        font-size: 11px;
+        border: 1px solid var(--color-border-medium);
+        background: var(--color-surface-1);
+        color: var(--color-text-secondary);
+        border-radius: var(--radius-pill);
+        padding: var(--space-1) 10px;
+        font-size: var(--text-xs);
         font-weight: 600;
         cursor: pointer;
         user-select: none;
     }
 
     .pws-filter-chip.active {
-        border-color: rgba(139,92,246,0.45);
-        background: rgba(139,92,246,0.18);
+        border-color: rgba(139, 92, 246, 0.45);
+        background: rgba(139, 92, 246, 0.18);
         color: #C4B5FD;
     }
 
     .pws-filter-help {
-        font-size: 11px;
-        color: var(--text-muted);
+        font-size: var(--text-xs);
+        color: var(--color-text-muted);
     }
 
     .next-metar-grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-        gap: 12px;
+        gap: var(--space-3);
         margin-bottom: 14px;
     }
 
     .next-metar-card {
-        padding: 14px 16px;
-        border-radius: 12px;
-        background: rgba(255, 255, 255, 0.025);
-        border: 1px solid rgba(255, 255, 255, 0.06);
+        padding: 14px var(--space-4);
+        border-radius: var(--radius-md);
+        background: var(--color-surface-1);
+        border: 1px solid var(--color-border-subtle);
     }
 
     .next-metar-card-value {
-        font-size: 22px;
+        font-size: var(--text-2xl);
         font-weight: 700;
-        font-family: 'Space Grotesk', sans-serif;
-        color: var(--text-main);
-        margin-top: 6px;
+        font-family: var(--font-display);
+        color: var(--color-text-primary);
+        margin-top: var(--space-2);
     }
 
     .next-metar-card-meta {
-        margin-top: 6px;
-        font-size: 11px;
+        margin-top: var(--space-2);
+        font-size: var(--text-xs);
         line-height: 1.35;
-        color: var(--text-muted);
+        color: var(--color-text-muted);
     }
 
     .next-metar-chip-row {
         display: flex;
         flex-wrap: wrap;
-        gap: 8px;
+        gap: var(--space-2);
         margin-bottom: 14px;
     }
 
     .next-metar-chip {
         display: inline-flex;
         align-items: center;
-        gap: 6px;
-        padding: 6px 10px;
-        border-radius: 999px;
-        font-size: 11px;
+        gap: var(--space-2);
+        padding: var(--space-2) 10px;
+        border-radius: var(--radius-pill);
+        font-size: var(--text-xs);
         font-weight: 600;
-        color: var(--text-secondary);
-        background: rgba(255, 255, 255, 0.03);
-        border: 1px solid rgba(255, 255, 255, 0.08);
+        color: var(--color-text-secondary);
+        background: var(--color-surface-1);
+        border: 1px solid var(--color-border-subtle);
     }
 
     .next-metar-chip.warning {
-        color: #F97316;
+        color: var(--color-accent-orange);
         border-color: rgba(249, 115, 22, 0.25);
         background: rgba(249, 115, 22, 0.10);
     }
 
     .next-metar-chip.good {
-        color: #10B981;
-        border-color: rgba(16, 185, 129, 0.25);
-        background: rgba(16, 185, 129, 0.10);
+        color: var(--color-accent-green);
+        border-color: var(--color-success-border);
+        background: var(--color-success-surface);
     }
 
     .next-metar-prob-row {
         display: grid;
         grid-template-columns: 120px 1fr 64px;
-        gap: 12px;
+        gap: var(--space-3);
         align-items: center;
         margin-bottom: 10px;
     }
@@ -687,28 +687,28 @@
     .next-metar-prob-bar {
         position: relative;
         height: 12px;
-        border-radius: 999px;
-        background: rgba(255, 255, 255, 0.06);
+        border-radius: var(--radius-pill);
+        background: var(--color-border-subtle);
         overflow: hidden;
     }
 
     .next-metar-prob-fill {
         position: absolute;
         inset: 0 auto 0 0;
-        border-radius: 999px;
-        background: linear-gradient(90deg, #8B5CF6, #3B82F6);
+        border-radius: var(--radius-pill);
+        background: linear-gradient(90deg, var(--color-accent-purple), var(--color-accent-blue));
     }
 
     .next-metar-contrib-table {
         width: 100%;
         border-collapse: collapse;
-        font-size: 11px;
+        font-size: var(--text-xs);
     }
 
     .next-metar-contrib-table th,
     .next-metar-contrib-table td {
-        padding: 8px 10px;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        padding: var(--space-2) 10px;
+        border-bottom: 1px solid var(--color-border-subtle);
         text-align: left;
     }
 
@@ -716,21 +716,21 @@
         font-size: 10px;
         letter-spacing: 1px;
         text-transform: uppercase;
-        color: var(--text-muted);
+        color: var(--color-text-muted);
     }
 
     .trade-grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-        gap: 12px;
+        gap: var(--space-3);
         margin-bottom: 14px;
     }
 
     .trade-card {
-        padding: 14px 16px;
-        border-radius: 12px;
-        background: rgba(255, 255, 255, 0.025);
-        border: 1px solid rgba(255, 255, 255, 0.06);
+        padding: 14px var(--space-4);
+        border-radius: var(--radius-md);
+        background: var(--color-surface-1);
+        border: 1px solid var(--color-border-subtle);
     }
 
     .trade-card.good {
@@ -744,68 +744,68 @@
     }
 
     .trade-card-value {
-        font-size: 22px;
+        font-size: var(--text-2xl);
         font-weight: 700;
-        font-family: 'Space Grotesk', sans-serif;
-        color: var(--text-main);
-        margin-top: 6px;
+        font-family: var(--font-display);
+        color: var(--color-text-primary);
+        margin-top: var(--space-2);
     }
 
     .trade-card-meta {
-        margin-top: 6px;
-        font-size: 11px;
+        margin-top: var(--space-2);
+        font-size: var(--text-xs);
         line-height: 1.35;
-        color: var(--text-muted);
+        color: var(--color-text-muted);
     }
 
     .trade-chip-row {
         display: flex;
         flex-wrap: wrap;
-        gap: 8px;
+        gap: var(--space-2);
         margin-bottom: 14px;
     }
 
     .trade-chip {
         display: inline-flex;
         align-items: center;
-        gap: 6px;
-        padding: 6px 10px;
-        border-radius: 999px;
-        font-size: 11px;
+        gap: var(--space-2);
+        padding: var(--space-2) 10px;
+        border-radius: var(--radius-pill);
+        font-size: var(--text-xs);
         font-weight: 600;
-        color: var(--text-secondary);
-        background: rgba(255, 255, 255, 0.03);
-        border: 1px solid rgba(255, 255, 255, 0.08);
+        color: var(--color-text-secondary);
+        background: var(--color-surface-1);
+        border: 1px solid var(--color-border-subtle);
     }
 
     .trade-chip.buy {
-        color: #10B981;
-        border-color: rgba(16, 185, 129, 0.25);
-        background: rgba(16, 185, 129, 0.10);
+        color: var(--color-accent-green);
+        border-color: var(--color-success-border);
+        background: var(--color-success-surface);
     }
 
     .trade-chip.down {
-        color: #EF4444;
-        border-color: rgba(239, 68, 68, 0.25);
-        background: rgba(239, 68, 68, 0.10);
+        color: var(--color-accent-red);
+        border-color: var(--color-danger-border);
+        background: var(--color-danger-surface);
     }
 
     .trade-chip.up {
-        color: #10B981;
-        border-color: rgba(16, 185, 129, 0.25);
-        background: rgba(16, 185, 129, 0.10);
+        color: var(--color-accent-green);
+        border-color: var(--color-success-border);
+        background: var(--color-success-surface);
     }
 
     .trade-table {
         width: 100%;
         border-collapse: collapse;
-        font-size: 11px;
+        font-size: var(--text-xs);
     }
 
     .trade-table th,
     .trade-table td {
-        padding: 8px 10px;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        padding: var(--space-2) 10px;
+        border-bottom: 1px solid var(--color-border-subtle);
         text-align: left;
     }
 
@@ -813,11 +813,11 @@
         font-size: 10px;
         letter-spacing: 1px;
         text-transform: uppercase;
-        color: var(--text-muted);
+        color: var(--color-text-muted);
     }
 
     .trade-edge-positive {
-        color: #10B981;
+        color: var(--color-accent-green);
         font-weight: 700;
     }
 
@@ -826,29 +826,29 @@
         display: flex;
         gap: 10px;
         flex-wrap: wrap;
-        margin-bottom: 20px;
+        margin-bottom: var(--space-5);
     }
 
     .station-btn {
-        padding: 8px 20px;
-        background: rgba(255,255,255,0.05);
-        border: 1px solid rgba(255,255,255,0.1);
-        border-radius: 8px;
-        color: var(--text-secondary);
-        font-size: 12px;
+        padding: var(--space-2) var(--space-5);
+        background: var(--color-surface-2);
+        border: 1px solid var(--color-border-medium);
+        border-radius: var(--radius-sm);
+        color: var(--color-text-secondary);
+        font-size: var(--text-sm);
         font-weight: 500;
         cursor: pointer;
         transition: all 0.2s;
     }
 
     .station-btn:hover {
-        background: rgba(255,255,255,0.1);
+        background: var(--color-surface-3);
     }
 
     .station-btn.active {
-        background: rgba(0,120,255,0.2);
-        border-color: var(--accent-blue);
-        color: var(--accent-blue);
+        background: var(--color-info-surface);
+        border-color: var(--color-accent-blue);
+        color: var(--color-accent-blue);
     }
 
     /* Responsive */
@@ -2351,11 +2351,11 @@
             : `${(model.bestPredictive ? model.bestPredictive.skill_factor * 100 : 0).toFixed(0)} heuristic`;
         const topBinsHtml = model.topBins.map(item => `
             <div class="next-metar-prob-row">
-                <div style="font-family:'JetBrains Mono',monospace; font-weight:600;">${item.bucket}${tempUnitSymbol(stationName)}</div>
+                <div style="font-family:var(--font-mono); font-weight:600;">${item.bucket}${tempUnitSymbol(stationName)}</div>
                 <div class="next-metar-prob-bar">
                     <div class="next-metar-prob-fill" style="width:${(item.probability * 100).toFixed(1)}%;"></div>
                 </div>
-                <div style="font-family:'JetBrains Mono',monospace; color:var(--text-secondary);">${(item.probability * 100).toFixed(1)}%</div>
+                <div style="font-family:var(--font-mono); color:var(--text-secondary);">${(item.probability * 100).toFixed(1)}%</div>
             </div>
         `).join('');
         const noteChipsHtml = [
@@ -2367,14 +2367,14 @@
         const contributorsHtml = model.contributors.slice(0, 6).map(item => `
             <tr>
                 <td>
-                    <div style="font-family:'JetBrains Mono',monospace; font-weight:600;">${item.station_id}</div>
+                    <div style="font-family:var(--font-mono); font-weight:600;">${item.station_id}</div>
                     <div style="font-size:10px; color:var(--text-muted);">${sourceLabel(item.source)}${Number.isFinite(item.distance_km) ? ` | ${item.distance_km.toFixed(1)} km` : ''}</div>
                 </td>
-                <td style="font-family:'JetBrains Mono',monospace;">${formatTempFromC(item.current_c, 1, stationName)}</td>
-                <td style="font-family:'JetBrains Mono',monospace;">${formatTempFromC(item.projected_c, 1, stationName)}</td>
-                <td style="font-family:'JetBrains Mono',monospace;">${Number.isFinite(item.lead_minutes) ? `${item.lead_minutes.toFixed(0)} min` : '--'}</td>
-                <td style="font-family:'JetBrains Mono',monospace;">${(item.weight / model.effectiveWeight * 100).toFixed(0)}%</td>
-                <td style="font-family:'JetBrains Mono',monospace;">${(item.hit_prob_within_1_c * 100).toFixed(0)}%</td>
+                <td style="font-family:var(--font-mono);">${formatTempFromC(item.current_c, 1, stationName)}</td>
+                <td style="font-family:var(--font-mono);">${formatTempFromC(item.projected_c, 1, stationName)}</td>
+                <td style="font-family:var(--font-mono);">${Number.isFinite(item.lead_minutes) ? `${item.lead_minutes.toFixed(0)} min` : '--'}</td>
+                <td style="font-family:var(--font-mono);">${(item.weight / model.effectiveWeight * 100).toFixed(0)}%</td>
+                <td style="font-family:var(--font-mono);">${(item.hit_prob_within_1_c * 100).toFixed(0)}%</td>
                 <td style="color:${item.flags.length > 0 ? '#F97316' : 'var(--text-secondary)'};">${item.flags.length > 0 ? item.flags.join(', ') : 'clean'}</td>
             </tr>
         `).join('');
@@ -2468,7 +2468,7 @@
                     </div>
                 </div>
             </div>
-            <div style="margin-top:14px; padding:12px 14px; border-radius:12px; border:1px solid rgba(255,255,255,0.05); background:rgba(255,255,255,0.02);">
+            <div style="margin-top:14px; padding:12px 14px; border-radius:12px; border:1px solid var(--color-surface-2); background:var(--color-surface-1);">
                 <div class="detail-label" style="margin-bottom:8px;">Why this estimate moves</div>
                 ${notesHtml}
             </div>
@@ -2612,7 +2612,7 @@
             const minTemp = temps.length > 0 ? `${Math.min(...temps).toFixed(1)}${tempUnitSymbol()}` : '--';
             const maxTemp = temps.length > 0 ? `${Math.max(...temps).toFixed(1)}${tempUnitSymbol()}` : '--';
             html += `
-                <div style="font-size:11px; color:var(--text-muted); padding:8px 12px; background:rgba(255,255,255,0.02); border-radius:6px;">
+                <div style="font-size:11px; color:var(--text-muted); padding:8px 12px; background:var(--color-surface-1); border-radius:6px;">
                     ${validCount} valid stations | Temp range: <span style="color:#8B5CF6; font-weight:600;">${minTemp} - ${maxTemp}</span>
                     | Click expand to see all stations
                 </div>
@@ -2626,7 +2626,7 @@
                 <div style="overflow-x:auto; max-height:400px; overflow-y:auto;">
                 <table style="width:100%; font-size:10px; border-collapse:collapse; min-width:1240px;">
                     <thead style="position:sticky; top:0; background:var(--bg-primary); z-index:1;">
-                        <tr style="color:var(--text-muted); text-align:left; border-bottom:1px solid rgba(255,255,255,0.1);">
+                        <tr style="color:var(--text-muted); text-align:left; border-bottom:1px solid var(--color-border-medium);">
                             <th style="padding:6px 4px;">Station</th>
                             <th style="padding:6px 4px; cursor:pointer; user-select:none;" onclick="sortPWSColumn('${stationName}', 'source')" class="${getSortClass('source')}">
                                 Source${getSortArrow('source')}
@@ -2731,7 +2731,7 @@
             html += `
                 <tr style="${rowStyle}">
                     <td style="padding:5px 4px;">
-                        <div style="font-family:'JetBrains Mono',monospace; font-weight:600; font-size:10px;">${r.station_id}</div>
+                        <div style="font-family:var(--font-mono); font-weight:600; font-size:10px;">${r.station_id}</div>
                         <div style="font-size:9px; color:var(--text-muted); max-width:100px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${r.station_name}">${r.station_name || ''}</div>
                     </td>
                     <td style="padding:5px 4px;">
@@ -2739,19 +2739,19 @@
                     </td>
                     <td style="padding:5px 4px; font-weight:500;">${r.distance_km.toFixed(1)}km</td>
                     <td style="padding:5px 4px; font-weight:600; color:#8B5CF6;">${primaryTemp} <span style="color:var(--text-muted); font-size:9px;">(${secondaryTemp})</span>${staleBadge}</td>
-                    <td style="padding:5px 4px; font-family:'JetBrains Mono',monospace;">
+                    <td style="padding:5px 4px; font-family:var(--font-mono);">
                         ${Number.isFinite(weightVal) ? weightVal.toFixed(2) : '--'}
                         <div style="font-size:8px; color:var(--text-muted);">${qualityBand} | ${learningPhase}</div>
                     </td>
-                    <td style="padding:5px 4px; color:${scoreColor(nowScore)}; font-family:'JetBrains Mono',monospace;">${Number.isFinite(nowScore) ? nowScore.toFixed(0) : '--'}</td>
-                    <td style="padding:5px 4px; color:${scoreColor(leadScore)}; font-family:'JetBrains Mono',monospace;">${Number.isFinite(leadScore) ? leadScore.toFixed(0) : '--'}</td>
-                    <td style="padding:5px 4px; font-family:'JetBrains Mono',monospace;">${Number.isFinite(nowSamples) ? nowSamples : '--'}</td>
-                    <td style="padding:5px 4px; font-family:'JetBrains Mono',monospace;">${Number.isFinite(leadSamples) ? leadSamples : '--'}</td>
-                    <td style="padding:5px 4px; font-family:'JetBrains Mono',monospace;">
+                    <td style="padding:5px 4px; color:${scoreColor(nowScore)}; font-family:var(--font-mono);">${Number.isFinite(nowScore) ? nowScore.toFixed(0) : '--'}</td>
+                    <td style="padding:5px 4px; color:${scoreColor(leadScore)}; font-family:var(--font-mono);">${Number.isFinite(leadScore) ? leadScore.toFixed(0) : '--'}</td>
+                    <td style="padding:5px 4px; font-family:var(--font-mono);">${Number.isFinite(nowSamples) ? nowSamples : '--'}</td>
+                    <td style="padding:5px 4px; font-family:var(--font-mono);">${Number.isFinite(leadSamples) ? leadSamples : '--'}</td>
+                    <td style="padding:5px 4px; font-family:var(--font-mono);">
                         <div style="color:#3B82F6;">${localTime}</div>
                         <div style="font-size:8px; color:var(--text-muted);">${nycDate}</div>
                     </td>
-                    <td style="padding:5px 4px; font-family:'JetBrains Mono',monospace;">
+                    <td style="padding:5px 4px; font-family:var(--font-mono);">
                         <div style="color:#F59E0B;">${madTime}</div>
                         <div style="font-size:8px; color:var(--text-muted);">${madDate}</div>
                     </td>
@@ -2926,18 +2926,18 @@
                 <div style="margin-bottom: 16px;">
                     <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
                         <div>
-                            <span style="font-weight:700; font-size:15px; font-family:'JetBrains Mono',monospace;">${stationName}</span>
+                            <span style="font-weight:700; font-size:15px; font-family:var(--font-mono);">${stationName}</span>
                             <span style="font-size:11px; color:var(--text-muted); margin-left:8px;">Weighted Consensus (prediction input, backend)</span>
                         </div>
                         <div style="text-align:right;">
-                            <span style="font-size:28px; font-weight:700; font-family:'Space Grotesk',sans-serif; color: #8B5CF6;">
+                            <span style="font-size:28px; font-weight:700; font-family:var(--font-display); color: #8B5CF6;">
                                 ${headerTempDisplay != null ? headerTempDisplay.toFixed(1) : '--'}
                             </span>
                             <span style="font-size:14px; color:var(--text-secondary);">${usesCelsius() ? 'C' : 'F'}</span>
                             <div style="margin-top:4px; font-size:11px; color:var(--text-muted);">
                                 Filtered Consensus (${presetLabel})
                             </div>
-                            <div style="font-family:'JetBrains Mono',monospace; font-size:13px; color:#C4B5FD;">
+                            <div style="font-family:var(--font-mono); font-size:13px; color:#C4B5FD;">
                                 ${filteredConsensusDisplay != null ? filteredConsensusDisplay.toFixed(1) : '--'} ${usesCelsius() ? 'C' : 'F'}
                                 <span class="aux-drift ${whatIfDeltaClass}" style="font-size:11px; margin-left:8px;">
                                     ${whatIfDeltaDisplay != null ? `Δ ${whatIfDeltaSign}${whatIfDeltaDisplay.toFixed(2)} ${usesCelsius() ? 'C' : 'F'}` : ''}

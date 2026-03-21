@@ -5,29 +5,29 @@
 {% block head_extra %}
 <style>
     .pws-shell {
-        padding: 28px;
+        padding: var(--space-8);
         display: flex;
         flex-direction: column;
-        gap: 18px;
+        gap: var(--space-5);
     }
 
     .pws-hero {
         display: grid;
         grid-template-columns: minmax(0, 1.8fr) minmax(280px, 1fr);
-        gap: 18px;
+        gap: var(--space-5);
     }
 
     .pws-hero-card,
     .pws-panel,
     .pws-empty {
-        background: linear-gradient(180deg, rgba(15, 23, 42, 0.94), rgba(15, 23, 42, 0.82));
-        border: 1px solid rgba(148, 163, 184, 0.16);
-        border-radius: 18px;
-        box-shadow: 0 24px 60px rgba(2, 6, 23, 0.34);
+        background: var(--color-bg-raised);
+        border: 1px solid var(--color-border-strong);
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow-lg);
     }
 
     .pws-hero-card {
-        padding: 24px;
+        padding: var(--space-6);
         position: relative;
         overflow: hidden;
     }
@@ -37,8 +37,8 @@
         position: absolute;
         inset: 0;
         background:
-            radial-gradient(circle at top right, rgba(251, 191, 36, 0.16), transparent 36%),
-            radial-gradient(circle at bottom left, rgba(59, 130, 246, 0.18), transparent 40%);
+            radial-gradient(circle at top right, color-mix(in srgb, var(--color-accent-gold) 16%, transparent), transparent 36%),
+            radial-gradient(circle at bottom left, color-mix(in srgb, var(--color-accent-blue) 18%, transparent), transparent 40%);
         pointer-events: none;
     }
 
@@ -48,24 +48,24 @@
     }
 
     .pws-kicker {
-        font-size: 12px;
+        font-size: var(--text-xs);
         letter-spacing: 0.16em;
         text-transform: uppercase;
-        color: #fbbf24;
-        margin-bottom: 10px;
+        color: var(--color-accent-gold);
+        margin-bottom: var(--space-3);
     }
 
     .pws-title {
         margin: 0;
-        font-size: 34px;
+        font-size: var(--text-3xl);
         line-height: 1.05;
-        font-family: "Space Grotesk", sans-serif;
-        color: #f8fafc;
+        font-family: var(--font-display);
+        color: var(--color-text-primary);
     }
 
     .pws-subtitle {
-        margin: 10px 0 0;
-        color: rgba(226, 232, 240, 0.78);
+        margin: var(--space-3) 0 0;
+        color: var(--color-text-secondary);
         max-width: 740px;
         line-height: 1.55;
     }
@@ -73,15 +73,15 @@
     .pws-toolbar {
         display: flex;
         flex-wrap: wrap;
-        gap: 12px;
+        gap: var(--space-3);
         align-items: flex-end;
         justify-content: space-between;
-        margin-top: 18px;
+        margin-top: var(--space-5);
     }
 
     .pws-control-group {
         display: flex;
-        gap: 12px;
+        gap: var(--space-3);
         flex-wrap: wrap;
         align-items: flex-end;
     }
@@ -89,104 +89,104 @@
     .pws-control {
         display: flex;
         flex-direction: column;
-        gap: 6px;
+        gap: var(--space-2);
         min-width: 180px;
     }
 
     .pws-control label {
-        font-size: 11px;
+        font-size: var(--text-xs);
         letter-spacing: 0.08em;
         text-transform: uppercase;
-        color: rgba(148, 163, 184, 0.8);
+        color: var(--color-text-muted);
     }
 
     .pws-control select,
     .pws-control button {
         height: 42px;
-        border-radius: 12px;
-        border: 1px solid rgba(148, 163, 184, 0.22);
-        background: rgba(15, 23, 42, 0.72);
-        color: #e2e8f0;
-        padding: 0 14px;
-        font-size: 14px;
+        border-radius: var(--radius-md);
+        border: 1px solid var(--color-border-medium);
+        background: var(--color-bg-overlay);
+        color: var(--color-text-primary);
+        padding: 0 var(--space-4);
+        font-size: var(--text-base);
     }
 
     .pws-control button {
         cursor: pointer;
         font-weight: 600;
-        background: linear-gradient(135deg, rgba(251, 191, 36, 0.18), rgba(14, 165, 233, 0.18));
+        background: linear-gradient(135deg, color-mix(in srgb, var(--color-accent-gold) 18%, transparent), color-mix(in srgb, var(--color-accent-blue) 18%, transparent));
     }
 
     .pws-badges {
         display: flex;
         flex-wrap: wrap;
-        gap: 10px;
+        gap: var(--space-3);
     }
 
     .pws-badge {
         display: inline-flex;
         align-items: center;
-        gap: 8px;
-        padding: 10px 12px;
-        border-radius: 999px;
-        background: rgba(15, 23, 42, 0.62);
-        border: 1px solid rgba(148, 163, 184, 0.18);
-        color: #e2e8f0;
-        font-size: 13px;
+        gap: var(--space-2);
+        padding: var(--space-3) var(--space-3);
+        border-radius: var(--radius-pill);
+        background: var(--color-bg-overlay);
+        border: 1px solid var(--color-border-medium);
+        color: var(--color-text-primary);
+        font-size: var(--text-sm);
     }
 
     .pws-badge span {
-        color: rgba(148, 163, 184, 0.84);
-        font-size: 11px;
+        color: var(--color-text-muted);
+        font-size: var(--text-xs);
         text-transform: uppercase;
         letter-spacing: 0.06em;
     }
 
     .pws-notice {
-        padding: 16px 18px;
-        border-radius: 16px;
-        border: 1px solid rgba(251, 191, 36, 0.24);
-        background: rgba(251, 191, 36, 0.08);
-        color: #fef3c7;
+        padding: var(--space-4) var(--space-5);
+        border-radius: var(--radius-lg);
+        border: 1px solid var(--color-warning-border);
+        background: var(--color-warning-surface);
+        color: var(--color-text-primary);
         line-height: 1.5;
     }
 
     .pws-layout {
         display: grid;
         grid-template-columns: 320px minmax(0, 1fr);
-        gap: 18px;
+        gap: var(--space-5);
         min-height: 620px;
     }
 
     .pws-panel {
-        padding: 18px;
+        padding: var(--space-5);
     }
 
     .pws-panel-header {
         display: flex;
         align-items: flex-start;
         justify-content: space-between;
-        gap: 12px;
-        margin-bottom: 14px;
+        gap: var(--space-3);
+        margin-bottom: var(--space-4);
     }
 
     .pws-panel-title {
         margin: 0;
-        font-size: 16px;
-        color: #f8fafc;
+        font-size: var(--text-lg);
+        color: var(--color-text-primary);
     }
 
     .pws-panel-copy {
-        margin: 4px 0 0;
-        color: rgba(148, 163, 184, 0.78);
-        font-size: 13px;
+        margin: var(--space-1) 0 0;
+        color: var(--color-text-muted);
+        font-size: var(--text-sm);
         line-height: 1.45;
     }
 
     .pws-station-list {
         display: flex;
         flex-direction: column;
-        gap: 10px;
+        gap: var(--space-3);
         max-height: 760px;
         overflow: auto;
         padding-right: 2px;
@@ -195,127 +195,127 @@
     .pws-station-item {
         width: 100%;
         text-align: left;
-        background: rgba(15, 23, 42, 0.6);
-        border: 1px solid rgba(148, 163, 184, 0.16);
-        border-radius: 14px;
-        padding: 14px;
+        background: var(--color-surface-1);
+        border: 1px solid var(--color-border-strong);
+        border-radius: var(--radius-lg);
+        padding: var(--space-4);
         cursor: pointer;
-        color: #e2e8f0;
+        color: var(--color-text-primary);
         transition: border-color 120ms ease, transform 120ms ease, background 120ms ease;
     }
 
     .pws-station-item:hover {
-        border-color: rgba(251, 191, 36, 0.38);
+        border-color: color-mix(in srgb, var(--color-accent-gold) 38%, transparent);
         transform: translateY(-1px);
-        background: rgba(30, 41, 59, 0.74);
+        background: var(--color-surface-hover);
     }
 
     .pws-station-item.active {
-        border-color: rgba(251, 191, 36, 0.56);
-        background: linear-gradient(135deg, rgba(251, 191, 36, 0.14), rgba(14, 165, 233, 0.12));
-        box-shadow: inset 0 0 0 1px rgba(251, 191, 36, 0.18);
+        border-color: color-mix(in srgb, var(--color-accent-gold) 56%, transparent);
+        background: linear-gradient(135deg, color-mix(in srgb, var(--color-accent-gold) 14%, transparent), color-mix(in srgb, var(--color-accent-blue) 12%, transparent));
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent-gold) 18%, transparent);
     }
 
     .pws-station-headline {
         display: flex;
         justify-content: space-between;
-        gap: 8px;
+        gap: var(--space-2);
         align-items: baseline;
-        margin-bottom: 8px;
+        margin-bottom: var(--space-2);
     }
 
     .pws-station-name {
-        font-size: 14px;
+        font-size: var(--text-base);
         font-weight: 700;
-        color: #f8fafc;
+        color: var(--color-text-primary);
         line-height: 1.3;
     }
 
     .pws-station-id {
-        font-size: 11px;
-        color: rgba(148, 163, 184, 0.84);
-        font-family: "JetBrains Mono", monospace;
+        font-size: var(--text-xs);
+        color: var(--color-text-muted);
+        font-family: var(--font-mono);
     }
 
     .pws-station-meta,
     .pws-station-stats {
         display: flex;
         flex-wrap: wrap;
-        gap: 8px;
-        font-size: 12px;
-        color: rgba(203, 213, 225, 0.84);
+        gap: var(--space-2);
+        font-size: var(--text-xs);
+        color: var(--color-text-secondary);
     }
 
     .pws-station-chip {
-        padding: 4px 8px;
-        border-radius: 999px;
-        background: rgba(15, 23, 42, 0.72);
-        border: 1px solid rgba(148, 163, 184, 0.14);
+        padding: var(--space-1) var(--space-2);
+        border-radius: var(--radius-pill);
+        background: var(--color-bg-overlay);
+        border: 1px solid var(--color-border-subtle);
     }
 
     .pws-detail {
         display: flex;
         flex-direction: column;
-        gap: 18px;
+        gap: var(--space-5);
     }
 
     .pws-detail-header {
         display: flex;
         flex-wrap: wrap;
         justify-content: space-between;
-        gap: 12px;
+        gap: var(--space-3);
         align-items: flex-start;
     }
 
     .pws-detail-title {
         margin: 0;
-        font-size: 28px;
-        color: #f8fafc;
-        font-family: "Space Grotesk", sans-serif;
+        font-size: var(--text-2xl);
+        color: var(--color-text-primary);
+        font-family: var(--font-display);
     }
 
     .pws-detail-copy {
-        margin: 6px 0 0;
-        color: rgba(226, 232, 240, 0.78);
+        margin: var(--space-2) 0 0;
+        color: var(--color-text-secondary);
         line-height: 1.45;
     }
 
     .pws-metrics {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-        gap: 12px;
+        gap: var(--space-3);
     }
 
     .pws-metric {
-        padding: 14px;
-        border-radius: 16px;
-        background: rgba(15, 23, 42, 0.62);
-        border: 1px solid rgba(148, 163, 184, 0.14);
+        padding: var(--space-4);
+        border-radius: var(--radius-lg);
+        background: var(--color-surface-1);
+        border: 1px solid var(--color-border-subtle);
     }
 
     .pws-metric-label {
-        font-size: 11px;
+        font-size: var(--text-xs);
         text-transform: uppercase;
         letter-spacing: 0.08em;
-        color: rgba(148, 163, 184, 0.8);
+        color: var(--color-text-muted);
     }
 
     .pws-metric-value {
-        margin-top: 8px;
-        font-size: 25px;
-        color: #f8fafc;
+        margin-top: var(--space-2);
+        font-size: var(--text-2xl);
+        color: var(--color-text-primary);
         font-weight: 700;
-        font-family: "Space Grotesk", sans-serif;
+        font-family: var(--font-display);
     }
 
     .pws-metric-footnote {
-        margin-top: 6px;
-        font-size: 12px;
-        color: rgba(148, 163, 184, 0.82);
+        margin-top: var(--space-2);
+        font-size: var(--text-xs);
+        color: var(--color-text-muted);
     }
 
     .pws-chart-panel {
-        padding: 18px;
+        padding: var(--space-5);
     }
 
     .pws-chart-wrap {
@@ -325,38 +325,38 @@
 
     .pws-table-wrap {
         overflow: auto;
-        border-radius: 14px;
-        border: 1px solid rgba(148, 163, 184, 0.14);
+        border-radius: var(--radius-lg);
+        border: 1px solid var(--color-border-subtle);
     }
 
     .pws-table {
         width: 100%;
         border-collapse: collapse;
         min-width: 860px;
-        background: rgba(15, 23, 42, 0.42);
+        background: var(--color-surface-1);
     }
 
     .pws-table thead th {
         position: sticky;
         top: 0;
         z-index: 1;
-        background: rgba(15, 23, 42, 0.96);
-        color: rgba(226, 232, 240, 0.92);
+        background: var(--color-bg-raised);
+        color: var(--color-text-primary);
         text-align: left;
-        font-size: 12px;
+        font-size: var(--text-xs);
         text-transform: uppercase;
         letter-spacing: 0.06em;
     }
 
     .pws-table th,
     .pws-table td {
-        padding: 12px 14px;
-        border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+        padding: var(--space-3) var(--space-4);
+        border-bottom: 1px solid var(--color-border-subtle);
         vertical-align: top;
     }
 
     .pws-table tbody tr:hover {
-        background: rgba(30, 41, 59, 0.56);
+        background: var(--color-surface-hover);
     }
 
     .pws-sort-btn {
@@ -372,31 +372,31 @@
     }
 
     .pws-sort-btn:hover {
-        color: #f8fafc;
+        color: var(--color-text-primary);
     }
 
     .pws-pagination {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        gap: 12px;
-        padding: 14px 18px 0;
-        color: var(--pws-text-muted);
-        font-size: 13px;
+        gap: var(--space-3);
+        padding: var(--space-4) var(--space-5) 0;
+        color: var(--color-text-muted);
+        font-size: var(--text-sm);
     }
 
     .pws-pagination-actions {
         display: flex;
         align-items: center;
-        gap: 8px;
+        gap: var(--space-2);
     }
 
     .pws-page-btn {
-        border: 1px solid rgba(148, 163, 184, 0.24);
-        background: rgba(15, 23, 42, 0.78);
-        color: var(--pws-text-main);
-        border-radius: 10px;
-        padding: 6px 10px;
+        border: 1px solid var(--color-border-medium);
+        background: var(--color-bg-overlay);
+        color: var(--color-text-primary);
+        border-radius: var(--radius-md);
+        padding: var(--space-2) var(--space-3);
         cursor: pointer;
     }
 
@@ -407,48 +407,48 @@
 
     .pws-temp {
         font-weight: 700;
-        color: #f8fafc;
+        color: var(--color-text-primary);
     }
 
     .pws-temp-sub {
         display: block;
-        margin-top: 4px;
-        font-size: 12px;
-        color: rgba(148, 163, 184, 0.84);
+        margin-top: var(--space-1);
+        font-size: var(--text-xs);
+        color: var(--color-text-muted);
     }
 
     .pws-legacy-list {
         display: flex;
         flex-wrap: wrap;
-        gap: 10px;
-        margin-top: 12px;
+        gap: var(--space-3);
+        margin-top: var(--space-3);
     }
 
     .pws-legacy-chip {
-        padding: 10px 12px;
-        border-radius: 999px;
-        background: rgba(15, 23, 42, 0.7);
-        border: 1px solid rgba(148, 163, 184, 0.14);
-        color: #e2e8f0;
-        font-size: 13px;
-        font-family: "JetBrains Mono", monospace;
+        padding: var(--space-3) var(--space-3);
+        border-radius: var(--radius-pill);
+        background: var(--color-bg-overlay);
+        border: 1px solid var(--color-border-subtle);
+        color: var(--color-text-primary);
+        font-size: var(--text-sm);
+        font-family: var(--font-mono);
     }
 
     .pws-helper-copy {
-        margin-top: 12px;
-        padding: 12px 14px;
-        border-radius: 14px;
-        background: rgba(14, 165, 233, 0.08);
-        border: 1px solid rgba(14, 165, 233, 0.2);
-        color: rgba(226, 232, 240, 0.82);
-        font-size: 13px;
+        margin-top: var(--space-3);
+        padding: var(--space-3) var(--space-4);
+        border-radius: var(--radius-lg);
+        background: var(--color-info-surface);
+        border: 1px solid var(--color-info-border);
+        color: var(--color-text-secondary);
+        font-size: var(--text-sm);
         line-height: 1.5;
     }
 
     .pws-empty {
-        padding: 26px;
+        padding: var(--space-6);
         text-align: center;
-        color: rgba(226, 232, 240, 0.8);
+        color: var(--color-text-secondary);
     }
 
     .pws-loading {
@@ -469,15 +469,15 @@
 
     @media (max-width: 720px) {
         .pws-shell {
-            padding: 18px;
+            padding: var(--space-5);
         }
 
         .pws-title {
-            font-size: 28px;
+            font-size: var(--text-2xl);
         }
 
         .pws-detail-title {
-            font-size: 24px;
+            font-size: var(--text-xl);
         }
 
         .pws-toolbar {
