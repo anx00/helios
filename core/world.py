@@ -293,11 +293,15 @@ class WorldState:
                 "daily_max_obs_utc": dm["obs_time_utc"].isoformat(),
             }
 
+        # When temp_c is None, temp_f fallback is 0.0F — record as null instead
+        temp_f = obs.temp_f if obs.temp_c is not None else None
+        temp_f_raw = obs.temp_f_raw if obs.temp_c is not None else None
+
         return {
             "station_id": obs.station_id,
             "temp_c": obs.temp_c,
-            "temp_f": obs.temp_f,  # Rounded for settlement
-            "temp_f_raw": obs.temp_f_raw,  # With decimals for display
+            "temp_f": temp_f,  # Rounded for settlement (None if temp_c missing)
+            "temp_f_raw": temp_f_raw,  # With decimals for display
             "temp_f_low": obs.temp_f_low,
             "temp_f_high": obs.temp_f_high,
             "settlement_f_low": obs.settlement_f_low,

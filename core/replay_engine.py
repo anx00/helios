@@ -696,12 +696,19 @@ class ReplaySession:
         if self.state not in [ReplayState.READY, ReplayState.PAUSED]:
             return
 
+        # Cancel any lingering playback task before starting a new one
+        if self._playback_task and not self._playback_task.done():
+            self._playback_task.cancel()
+            try:
+                await self._playback_task
+            except asyncio.CancelledError:
+                pass
+            self._playback_task = None
+
         self.clock.play(speed)
         self.state = ReplayState.PLAYING
 
-        # Start playback task
-        if self._playback_task is None or self._playback_task.done():
-            self._playback_task = asyncio.create_task(self._playback_loop())
+        self._playback_task = asyncio.create_task(self._playback_loop())
 
     def set_speed(self, speed: float):
         """Change playback speed without stopping."""
@@ -709,8 +716,17 @@ class ReplaySession:
 
     async def pause(self):
         """Pause playback."""
-        self.clock.pause()
         self.state = ReplayState.PAUSED
+        self.clock.pause()
+
+        # Cancel the playback task so it stops immediately (don't wait for sleep)
+        if self._playback_task and not self._playback_task.done():
+            self._playback_task.cancel()
+            try:
+                await self._playback_task
+            except asyncio.CancelledError:
+                pass
+            self._playback_task = None
 
     async def stop(self):
         """Stop playback and reset."""
@@ -746,52 +762,103 @@ class ReplaySession:
             return self._searchable_timestamp_count - 1
         return idx
 
-    def seek_time(self, target_time: datetime):
-        """Seek to specific time."""
+    async def seek_time(self, target_time: datetime):
+        """Seek to specific time. Safe to call during playback."""
+        was_playing = self.state == ReplayState.PLAYING
+        speed = self.clock._speed if was_playing else 1.0
+        if was_playing:
+            await self.pause()
+
         self.clock.seek(target_time)
         self._event_index = self._find_event_index_at_or_after(target_time)
+        self._pws_learning_cache_key = None
 
-    def seek_percent(self, percent: float):
-        """Seek to percentage position."""
+        if was_playing:
+            await self.play(speed)
+
+    async def seek_percent(self, percent: float):
+        """Seek to percentage position. Safe to call during playback."""
+        was_playing = self.state == ReplayState.PLAYING
+        speed = self.clock._speed if was_playing else 1.0
+        if was_playing:
+            await self.pause()
+
         self.clock.seek_percent(percent)
 
         # Calculate event index
         total = len(self._events)
         self._event_index = int(total * (percent / 100.0))
         self._event_index = max(0, min(total - 1, self._event_index))
+        self._pws_learning_cache_key = None
 
-    def jump_to_next_metar(self) -> bool:
-        """Jump to next METAR event."""
+        if was_playing:
+            await self.play(speed)
+
+    async def jump_to_next_metar(self) -> bool:
+        """Jump to next METAR event. Safe to call during playback."""
+        was_playing = self.state == ReplayState.PLAYING
+        speed = self.clock._speed if was_playing else 1.0
+        if was_playing:
+            await self.pause()
+
+        result = False
         for idx in self._metar_indices:
             if idx > self._event_index:
                 self._event_index = idx
                 event_ts = self._event_timestamps[idx] if idx < len(self._event_timestamps) else None
                 if event_ts:
                     self.clock.seek(event_ts)
-                return True
-        return False
+                result = True
+                break
+        self._pws_learning_cache_key = None
 
-    def jump_to_prev_metar(self) -> bool:
-        """Jump to previous METAR event."""
+        if was_playing:
+            await self.play(speed)
+        return result
+
+    async def jump_to_prev_metar(self) -> bool:
+        """Jump to previous METAR event. Safe to call during playback."""
+        was_playing = self.state == ReplayState.PLAYING
+        speed = self.clock._speed if was_playing else 1.0
+        if was_playing:
+            await self.pause()
+
+        result = False
         for idx in reversed(self._metar_indices):
             if idx < self._event_index:
                 self._event_index = idx
                 event_ts = self._event_timestamps[idx] if idx < len(self._event_timestamps) else None
                 if event_ts:
                     self.clock.seek(event_ts)
-                return True
-        return False
+                result = True
+                break
+        self._pws_learning_cache_key = None
 
-    def jump_to_next_window(self) -> bool:
-        """Jump to next event window."""
+        if was_playing:
+            await self.play(speed)
+        return result
+
+    async def jump_to_next_window(self) -> bool:
+        """Jump to next event window. Safe to call during playback."""
+        was_playing = self.state == ReplayState.PLAYING
+        speed = self.clock._speed if was_playing else 1.0
+        if was_playing:
+            await self.pause()
+
+        result = False
         for idx in self._window_indices:
             if idx > self._event_index:
                 self._event_index = idx
                 event_ts = self._event_timestamps[idx] if idx < len(self._event_timestamps) else None
                 if event_ts:
                     self.clock.seek(event_ts)
-                return True
-        return False
+                result = True
+                break
+        self._pws_learning_cache_key = None
+
+        if was_playing:
+            await self.play(speed)
+        return result
 
     async def _playback_loop(self):
         """Main playback loop - emits events at correct virtual times.
@@ -1528,16 +1595,24 @@ class ReplaySession:
             if ch == "world":
                 station_id = str(event.get("station_id") or "").upper()
                 if station_id:
-                    latest_world_by_station[station_id] = {
-                        "ts_nyc": event.get("ts_nyc"),
-                        "temp_f": data.get("temp_f"),
-                        "temp_aligned_f": data.get("temp_aligned"),
-                        "source": data.get("src"),
-                        "report_type": data.get("report_type"),
-                        "is_speci": data.get("is_speci"),
-                    }
+                    # Skip world update when temp_c is explicitly None/0
+                    # and temp_f is near zero (missing data recorded as 0.0F)
+                    _tc = data.get("temp_c")
+                    _tf = _as_float(data.get("temp_f"))
+                    _has_temp = _tf is not None and not (
+                        "temp_c" in data and (_tc is None or _tc == 0) and abs(_tf) < 0.5
+                    )
+                    if _has_temp:
+                        latest_world_by_station[station_id] = {
+                            "ts_nyc": event.get("ts_nyc"),
+                            "temp_f": data.get("temp_f"),
+                            "temp_aligned_f": data.get("temp_aligned"),
+                            "source": data.get("src"),
+                            "report_type": data.get("report_type"),
+                            "is_speci": data.get("is_speci"),
+                        }
                     src = str(data.get("src") or "").upper()
-                    if src == "METAR":
+                    if src == "METAR" and _has_temp:
                         metar_temp = _as_float(data.get("temp_f"))
                         if metar_temp is not None:
                             trend_changed = _set_trend("metar_temp_f", metar_temp) or trend_changed
@@ -1972,31 +2047,31 @@ class ReplayEngine:
         if session:
             await session.stop()
 
-    def seek_percent(self, percent: float):
+    async def seek_percent(self, percent: float):
         """Seek active session to percentage."""
         session = self.get_active_session()
         if session:
-            session.seek_percent(percent)
+            await session.seek_percent(percent)
 
-    def jump_next_metar(self) -> bool:
+    async def jump_next_metar(self) -> bool:
         """Jump to next METAR in active session."""
         session = self.get_active_session()
         if session:
-            return session.jump_to_next_metar()
+            return await session.jump_to_next_metar()
         return False
 
-    def jump_prev_metar(self) -> bool:
+    async def jump_prev_metar(self) -> bool:
         """Jump to previous METAR in active session."""
         session = self.get_active_session()
         if session:
-            return session.jump_to_prev_metar()
+            return await session.jump_to_prev_metar()
         return False
 
-    def jump_next_window(self) -> bool:
+    async def jump_next_window(self) -> bool:
         """Jump to next event window in active session."""
         session = self.get_active_session()
         if session:
-            return session.jump_to_next_window()
+            return await session.jump_to_next_window()
         return False
 
 

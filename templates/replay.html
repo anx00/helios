@@ -3188,6 +3188,27 @@
             }
         }
 
+        // Kill sustained near-zero corruption: if most non-null values are
+        // near zero but some warm values exist, null ALL the near-zeros.
+        // This catches the case where METAR had temp_c=None for the whole day
+        // (recorded as 0.0F), making the chart unreadable.
+        {
+            const nonNull = vals.filter(v => v !== null);
+            if (nonNull.length >= 3) {
+                const nearZeroCount = nonNull.filter(v => Math.abs(v) < 1.0).length;
+                const warmCount = nonNull.filter(v => v >= 15.0).length;
+                // If majority are near-zero and some warm values exist,
+                // or if the warm values are clearly the real signal
+                if (nearZeroCount > 0 && warmCount > 0 && nearZeroCount >= warmCount) {
+                    for (let i = 0; i < vals.length; i++) {
+                        if (vals[i] !== null && Math.abs(vals[i]) < 1.0) {
+                            vals[i] = null;
+                        }
+                    }
+                }
+            }
+        }
+
         return vals;
     }
 
@@ -3479,6 +3500,23 @@
             },
         ];
         const chartData = { labels, datasets };
+
+        // Compute Y-axis bounds from all temperature series to prevent
+        // outliers (e.g. stale 0.0F METAR) from distorting the scale
+        const allTempSeries = [dsMetar, dsPwsConsensus, dsPwsLeader, dsHelios, dsTop1, dsTop2, dsTop3];
+        let yMin = Infinity, yMax = -Infinity;
+        for (const series of allTempSeries) {
+            for (const v of series) {
+                if (v !== null && Number.isFinite(v)) {
+                    if (v < yMin) yMin = v;
+                    if (v > yMax) yMax = v;
+                }
+            }
+        }
+        const yPad = 5;
+        const suggestedMin = Number.isFinite(yMin) ? yMin - yPad : undefined;
+        const suggestedMax = Number.isFinite(yMax) ? yMax + yPad : undefined;
+
         if (!replayTrendChart) {
             const ctx = canvas.getContext('2d');
             replayTrendChart = new Chart(ctx, {
@@ -3546,6 +3584,8 @@
                         yTemp: {
                             type: 'linear',
                             position: 'left',
+                            suggestedMin,
+                            suggestedMax,
                             ticks: {
                                 color: '#94a3b8',
                             },
@@ -3582,6 +3622,8 @@
             replayTrendChart.data = chartData;
             if (replayTrendChart.options && replayTrendChart.options.scales && replayTrendChart.options.scales.yTemp) {
                 replayTrendChart.options.scales.yTemp.title.text = `Temp (${unit})`;
+                replayTrendChart.options.scales.yTemp.suggestedMin = suggestedMin;
+                replayTrendChart.options.scales.yTemp.suggestedMax = suggestedMax;
             }
             replayTrendChart.update('none');
         }

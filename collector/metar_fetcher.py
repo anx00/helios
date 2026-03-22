@@ -374,7 +374,7 @@ async def fetch_metar(station_id: str) -> Optional[MetarData]:
     # =================================================================
     # Phase 2 Event-Driven Publish (with dedupe + QC)
     # =================================================================
-    if not is_duplicate:
+    if not is_duplicate and temp_c is not None:
         try:
             from core.models import OfficialObs
             from core.judge import JudgeAlignment

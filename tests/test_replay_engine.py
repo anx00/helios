@@ -123,7 +123,7 @@ def test_replay_load_initializes_clock_with_datetime_timestamps():
     assert state["clock"]["session_end"] is not None
     assert state["clock"]["progress_percent"] == 0.0
 
-    session.seek_percent(50)
+    asyncio.run(session.seek_percent(50))
     mid_progress = session.clock.get_progress_percent()
     assert 49.0 <= mid_progress <= 51.0
 
@@ -172,7 +172,7 @@ def test_replay_pws_learning_summary_tracks_leader_changes():
     assert ok
 
     # Move to end so summary includes both pws events
-    session.seek_percent(100)
+    asyncio.run(session.seek_percent(100))
 
     summary = session.get_pws_learning_summary(max_points=20, top_n=3)
     assert summary["total_pws_events"] == 2
@@ -216,7 +216,7 @@ def test_replay_pws_learning_summary_warmup_when_no_rank_eligible_station():
     session._reader = _StubReader(events)
     ok = asyncio.run(session.load())
     assert ok
-    session.seek_percent(100)
+    asyncio.run(session.seek_percent(100))
 
     summary = session.get_pws_learning_summary(max_points=20, top_n=3)
     assert summary["total_pws_events"] == 1
@@ -304,7 +304,7 @@ def test_replay_pws_learning_summary_includes_consensus_snapshot_rows():
     session._reader = _StubReader(events)
     ok = asyncio.run(session.load())
     assert ok
-    session.seek_percent(100)
+    asyncio.run(session.seek_percent(100))
 
     summary = session.get_pws_learning_summary(max_points=20, top_n=3)
     snapshot = summary.get("consensus_snapshot")
@@ -403,7 +403,7 @@ def test_replay_pws_learning_summary_includes_trend_series():
     session._reader = _StubReader(events)
     ok = asyncio.run(session.load())
     assert ok
-    session.seek_percent(100)
+    asyncio.run(session.seek_percent(100))
 
     summary = session.get_pws_learning_summary(max_points=20, top_n=3, trend_points=120, trend_mode="event")
     trend = summary.get("trend")
@@ -461,7 +461,7 @@ def test_replay_pws_learning_trend_hourly_bins_points():
     session._reader = _StubReader(events)
     ok = asyncio.run(session.load())
     assert ok
-    session.seek_percent(100)
+    asyncio.run(session.seek_percent(100))
 
     summary = session.get_pws_learning_summary(max_points=20, top_n=3, trend_points=120, trend_mode="hourly")
     trend = summary.get("trend")
@@ -515,7 +515,7 @@ def test_replay_pws_learning_trend_5min_bins_points():
     session._reader = _StubReader(events)
     ok = asyncio.run(session.load())
     assert ok
-    session.seek_percent(100)
+    asyncio.run(session.seek_percent(100))
 
     summary = session.get_pws_learning_summary(max_points=20, top_n=3, trend_points=120, trend_mode="5min")
     trend = summary.get("trend")
@@ -598,7 +598,7 @@ def test_replay_category_summary_maps_market_alias_to_l2_snap():
     session._reader = _StubReader(events)
     ok = asyncio.run(session.load())
     assert ok
-    session.seek_percent(100)
+    asyncio.run(session.seek_percent(100))
 
     cats = session.get_category_summary()
     assert cats["l2_snap"]["count"] == 2
@@ -710,7 +710,7 @@ def test_replay_state_and_snapshot_expose_mode_and_heavy_blocks():
 
     ok = asyncio.run(session.load())
     assert ok
-    session.seek_percent(100)
+    asyncio.run(session.seek_percent(100))
 
     state = session.get_state()
     assert state["mode"] == "raw"

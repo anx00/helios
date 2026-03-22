@@ -2612,7 +2612,7 @@ async def replay_seek(session_id: str, percent: float):
     if not session:
         return {"error": "Session not found"}
 
-    session.seek_percent(percent)
+    await session.seek_percent(percent)
     return {"success": True, "progress": session.clock.get_progress_percent()}
 
 
@@ -2643,11 +2643,11 @@ async def replay_jump(session_id: str, jump_type: str):
 
     success = False
     if jump_type == "next_metar":
-        success = session.jump_to_next_metar()
+        success = await session.jump_to_next_metar()
     elif jump_type == "prev_metar":
-        success = session.jump_to_prev_metar()
+        success = await session.jump_to_prev_metar()
     elif jump_type == "next_window":
-        success = session.jump_to_next_window()
+        success = await session.jump_to_next_window()
 
     return {"success": success, "index": session._event_index}
 
