@@ -1643,18 +1643,20 @@ class ReplaySession:
 
             if ch == "pws":
                 pws_median = _as_float(data.get("median_f"))
-                if pws_median is not None:
+                if pws_median is not None and abs(pws_median) > 0.01:
                     trend_changed = _set_trend("pws_consensus_f", pws_median) or trend_changed
 
                 top_weight = self._extract_pws_top_weight_station_temp_f(data)
+                top_temp = _as_float(top_weight.get("temp_f"))
                 trend_changed = _set_trend(
                     "pws_top_weight_station_id",
                     top_weight.get("station_id"),
                 ) or trend_changed
-                trend_changed = _set_trend(
-                    "pws_top_weight_temp_f",
-                    _as_float(top_weight.get("temp_f")),
-                ) or trend_changed
+                if top_temp is not None and abs(top_temp) > 0.01:
+                    trend_changed = _set_trend(
+                        "pws_top_weight_temp_f",
+                        top_temp,
+                    ) or trend_changed
                 trend_changed = _set_trend(
                     "pws_top_weight",
                     _as_float(top_weight.get("weight")),

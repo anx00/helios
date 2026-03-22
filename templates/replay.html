@@ -3406,8 +3406,12 @@
         const metarRawF = points.map((p) => asNumOrNull(p && p.metar_temp_f));
         const metarCleanF = sanitizeMetarSeriesF(metarRawF);
         const dsMetar = metarCleanF.map((v) => asTempOrNull(v));
-        const dsPwsConsensus = points.map((p) => asTempOrNull(p && p.pws_consensus_f));
-        const dsPwsLeader = points.map((p) => asTempOrNull(p && p.pws_top_weight_temp_f));
+        const pwsConsRawF = points.map((p) => asNumOrNull(p && p.pws_consensus_f));
+        const pwsConsCleanF = sanitizeMetarSeriesF(pwsConsRawF);
+        const dsPwsConsensus = pwsConsCleanF.map((v) => asTempOrNull(v));
+        const pwsLeaderRawF = points.map((p) => asNumOrNull(p && p.pws_top_weight_temp_f));
+        const pwsLeaderCleanF = sanitizeMetarSeriesF(pwsLeaderRawF);
+        const dsPwsLeader = pwsLeaderCleanF.map((v) => asTempOrNull(v));
         const dsHelios = points.map((p) => asTempOrNull(p && p.helios_prediction_f));
         const ageMetar = computeSeriesAgeMinutes(dsMetar, pointTimesMs);
         const agePwsConsensus = computeSeriesAgeMinutes(dsPwsConsensus, pointTimesMs);
